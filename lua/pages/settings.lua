@@ -18,6 +18,7 @@ ngx.print([[
   <div class="set-head"><h3>Software-Update</h3></div>
   <div class="set-body">
     <div id="upd-status" class="status-line">Prüfe…</div>
+    <div id="upd-last" class="status-line meta" style="margin-top:4px"></div>
     <div id="upd-avail" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid var(--green,#00e676);border-radius:10px">
       <div><b>Neue Version verfügbar: <span id="upd-ver"></span></b></div>
       <div id="upd-desc" class="meta" style="margin:4px 0 8px"></div>
@@ -39,6 +40,22 @@ function updRender(d) {
   st.innerHTML = 'Installiert: <b>' + (d.current || '?') + '</b>' +
     (d.enabled ? (d.auto ? ' · automatische Installation an' : '') : ' · Update-Prüfung ausgeschaltet');
   document.getElementById('upd-src').textContent = d.source ? ('Quelle: ' + d.source.replace('https://raw.githubusercontent.com/', 'github.com/').replace('/main/manifest.json', '')) : '';
+  // Ergebnis der letzten GitHub-Pruefung - erklaert, warum (k)ein Update kommt.
+  var lc = d.last_check, lcEl = document.getElementById('upd-last');
+  if (lc && lcEl) {
+    var when = new Date(lc.checked_at).toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+    var txt = {
+      not_newer: 'GitHub: ' + lc.remote + ' – installiert ist ' + (d.current || '?') + ', also gleich oder neuer. Kein Update nötig.',
+      newer: 'GitHub: ' + lc.remote + ' – neuere Version gefunden.',
+      bad_signature: 'GitHub: ' + (lc.remote || '?') + ' – Signatur ungültig, wird aus Sicherheitsgründen ignoriert. (' + lc.note + ')',
+      unreachable: 'GitHub nicht erreichbar: ' + lc.note,
+      invalid: 'Manifest auf GitHub fehlerhaft: ' + lc.note
+    }[lc.status] || (lc.note || '');
+    lcEl.textContent = txt + ' (geprüft ' + when + ')';
+    lcEl.className = 'status-line' + ((lc.status === 'bad_signature' || lc.status === 'unreachable' || lc.status === 'invalid') ? ' error' : '');
+  } else if (lcEl) {
+    lcEl.textContent = d.enabled ? 'Noch keine Prüfung seit dem Start – „Jetzt prüfen" klicken.' : '';
+  }
   if (d.available && d.available.version) {
     av.style.display = 'block';
     document.getElementById('upd-ver').textContent = d.available.version;
@@ -61,7 +78,7 @@ async function updCheck(btn) {
     var r = await fetch('/api/v1/admin/update/check', {method:'POST', credentials:'same-origin'});
     var d = await r.json();
     updRender(d);
-    msg.textContent = (d.available && d.available.version) ? '' : 'Du bist auf dem neuesten Stand.';
+    msg.textContent = '';
   } catch (e) { msg.textContent = 'Prüfung fehlgeschlagen: ' + e.message; }
   btn.disabled = false;
 }

@@ -407,14 +407,27 @@ setInterval(loadRate, 30000); // Kurs alle 30s aktualisieren
         jsStr))
 
     -- ── Freiwillige Spende (PayPal) ─────────────────────────────────────────
+    -- Empfänger aus der Node-Konfiguration (FUNDUS_DONATE_PAYPAL). Kennt das
+    -- laufende Binary den Endpunkt noch nicht (vor R430, nur Frontend
+    -- aktualisiert), gilt der Projekt-Standard. Ausgeblendet wird die Karte nur,
+    -- wenn der Node ausdrücklich "off" meldet.
     local don = render.api_get("/v1/donate/config")
-    if don and don.enabled and don.paypal and don.paypal ~= "" then
-        local base = "https://www.paypal.com/donate/?business=" .. ngx.escape_uri(don.paypal)
-            .. "&currency_code=" .. ngx.escape_uri(don.currency or "EUR")
+    local paypal, currency = nil, "EUR"
+    if don then
+        if don.enabled and don.paypal and don.paypal ~= "" then
+            paypal = don.paypal; currency = don.currency or "EUR"
+        end
+    else
+        paypal = "tobias.kornmayer@gmail.com"
+    end
+    if paypal then
+        local don = { paypal = paypal }
+        local base = "https://www.paypal.com/donate/?business=" .. ngx.escape_uri(paypal)
+            .. "&currency_code=" .. ngx.escape_uri(currency)
             .. "&item_name=" .. ngx.escape_uri("Unterstuetzung FUNDUS")
         ngx.print([[
 <div class="page-wrap">
-  <div class="card donate-card">
+  <div class="card donate-card" id="spenden">
     <h3>💚 FUNDUS unterstützen</h3>
     <p class="meta">Fundus ist ein freies Projekt ohne Werbung und ohne zentrale Server. Mit einer
       freiwilligen Spende hilfst du bei Entwicklung und Betrieb. Die Spende ist <b>ohne Gegenleistung</b> –

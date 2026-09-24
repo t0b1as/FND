@@ -7,7 +7,7 @@
 // Der Cache dient allein dem schnellen Start und der Installierbarkeit, nicht dem
 // Offline-Betrieb der Live-Daten.
 
-const CACHE = 'fundus-static-v1';
+const CACHE = 'fundus-static-v2'; // erhöhen, wenn Icons/Logo sich ändern
 
 // Nur unveränderliche/statische Assets vorcachen.
 const STATIC_ASSETS = [

@@ -55,7 +55,7 @@ function Run([string]$what, [scriptblock]$cmd) {
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$ScriptStand = "R435"   # Stand dieses Skripts (bei jedem Release mitgezogen)
+$ScriptStand = "R441"   # Stand dieses Skripts (bei jedem Release mitgezogen)
 Write-Host "push-release.ps1 - Stand $ScriptStand" -ForegroundColor Cyan
 
 # -- 1. Voraussetzungen -------------------------------------------------------
@@ -84,11 +84,19 @@ $GO  = Find-Tool $GoCmd @("$pf\Go\bin\go.exe", "$env:USERPROFILE\go\bin\go.exe",
 # fundus-admin IMMER frisch aus "FND admin.zip" bauen, wenn das ZIP daneben
 # liegt: so passt das Signierwerkzeug garantiert zum Code dieses Releases
 # (ein altes fundus-admin.exe kann z.B. eine veraltete Signaturpruefung haben).
+$adminRev = ""
 $adminZip = Join-Path $here "FND admin.zip"
 if (Test-Path $adminZip) {
     Info "Baue fundus-admin aus 'FND admin.zip' (ca. 1 Min.)..."
     $adm = Join-Path ([IO.Path]::GetTempPath()) ("fnd-admin-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
     Expand-Archive -Path $adminZip -DestinationPath $adm -Force -ErrorAction Stop
+    # Revision des Admin-Pakets merken: muss zu FND.zip passen (Pruefung weiter unten).
+    $adminRev = ""
+    $admSrv = Join-Path $adm "go\internal\api\server.go"
+    if (Test-Path $admSrv) {
+        $mm = Select-String -Path $admSrv -Pattern 'NodeRevision = "(R\d+)"'
+        if ($mm) { $adminRev = $mm.Matches[0].Groups[1].Value }
+    }
     New-Item -ItemType Directory -Force -Path (Join-Path $here "bin") -ErrorAction Stop | Out-Null
     $FA = Join-Path $here "bin\fundus-admin.exe"
     Remove-Item Env:GOOS, Env:GOARCH, Env:GOARM -ErrorAction SilentlyContinue   # fuer Windows bauen
@@ -131,6 +139,14 @@ $VER = "R$revNum"
 $goRev = (Select-String -Path (Join-Path $src "go\internal\api\server.go") -Pattern 'NodeRevision = "(R\d+)"').Matches[0].Groups[1].Value
 if ($goRev -ne $VER) { Fail "revision.txt ($VER) passt nicht zu NodeRevision im Code ($goRev)" }
 Ok "Version $VER"
+# Beide Pakete muessen zur selben Revision gehoeren - sonst signiert ein altes
+# fundus-admin (z.B. mit veralteter Signaturpruefung).
+if ($adminRev -and $adminRev -ne $VER) {
+    $others = (Get-ChildItem -Path $here -Filter "FND admin*.zip" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ", "
+    Fail ("'FND admin.zip' ist $adminRev, 'FND.zip' ist $VER. Bitte die passende 'FND admin.zip' neben das Skript legen. " +
+          "Hinweis: Der Browser speichert neue Downloads oft als 'FND admin (1).zip'. Gefunden: $others")
+}
+if ($adminRev) { Ok "FND admin.zip passt ($adminRev)" }
 if ($VER -ne $ScriptStand) {
     Write-Host "    HINWEIS  Skript-Stand $ScriptStand, ZIP-Stand $VER - ggf. push-release.ps1 aus dem neuen ZIP verwenden." -ForegroundColor Yellow
 }

@@ -922,6 +922,20 @@ if ($Rebuild -and (Test-Path $localBinary)) {
     Write-Info "-Rebuild: altes Binary geloescht, wird neu kompiliert"
 }
 
+# Veraltetes Binary automatisch erkennen: Beim Bauen wird die Revision in
+# bin\fundus-node.rev vermerkt. Passt sie nicht zu revision.txt, wird neu
+# gebaut - auch ohne -Rebuild. (Frueher wurde ein vorhandenes Binary endlos
+# wiederverwendet: Go-Aenderungen kamen so nie auf den Pis an.)
+$stampFile = ".\bin\fundus-node.rev"
+$revTxt    = Join-Path $PSScriptRoot "revision.txt"
+$wantRev   = if (Test-Path $revTxt)    { ((Get-Content $revTxt -TotalCount 1) -replace '\D', '') }    else { "" }
+$haveRev   = if (Test-Path $stampFile) { ((Get-Content $stampFile -TotalCount 1) -replace '\D', '') } else { "" }
+if ((Test-Path $localBinary) -and $wantRev -and ($haveRev -ne $wantRev)) {
+    Remove-Item $localBinary -Force
+    if ($haveRev) { Write-Info "Binary ist R$haveRev, Quellcode R$wantRev - wird neu kompiliert" }
+    else          { Write-Info "Binary-Stand unbekannt, Quellcode R$wantRev - wird neu kompiliert" }
+}
+
 # Hilfsfunktion: Binary hochladen + installieren
 function Send-Binary([string]$localPath) {
     $binSize = [math]::Round((Get-Item $localPath).Length / 1MB, 1)
@@ -982,7 +996,9 @@ if (-not (Test-Path $localBinary)) {
     Write-Info "Kein lokales Binary in bin\ - kompiliere..."
     Invoke-LocalBuild $Arch
     if (-not (Test-Path $localBinary)) { Write-Fail "Build lieferte kein Binary in bin\" }
+    if ($wantRev) { Set-Content -Path $stampFile -Value $wantRev -Encoding ascii }
 }
+if ($wantRev) { Write-Info "Binary-Stand: R$wantRev" }
 
 # Ab hier existiert bin\fundus-node garantiert. Upload nur bei Hash-Unterschied.
 $localHash = (Get-FileHash $localBinary -Algorithm SHA256).Hash.ToLower()

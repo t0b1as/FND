@@ -563,6 +563,12 @@ func main() {
 				poller.CheckNow(ctx)
 			}
 		},
+		Info: func() update.PollInfo {
+			if poller == nil {
+				return update.PollInfo{}
+			}
+			return poller.Info()
+		},
 		Apply: func(m *update.Manifest) error {
 			go func() { _ = applyViaHelper(m) }() // dauert Minuten; Node startet danach neu
 			return nil

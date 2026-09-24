@@ -26,6 +26,7 @@ type UpdateControl struct {
 	Pending func() *update.Manifest
 	Check   func()
 	Apply   func(m *update.Manifest) error
+	Info    func() update.PollInfo // Ergebnis der letzten GitHub-Prüfung
 }
 
 // WithUpdateControl aktiviert die Update-Endpunkte.
@@ -46,6 +47,11 @@ func (s *Server) updateStatus(c *gin.Context) {
 		"current": uc.Current,
 		"source":  uc.Source,
 		"auto":    uc.Auto,
+	}
+	if uc.Info != nil {
+		if pi := uc.Info(); !pi.CheckedAt.IsZero() {
+			out["last_check"] = pi
+		}
 	}
 	if uc.Pending != nil {
 		if m := uc.Pending(); m != nil {

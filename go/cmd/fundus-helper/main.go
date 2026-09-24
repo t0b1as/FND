@@ -437,21 +437,92 @@ func handleConnectWifi(ssid, password string) helperproto.Response {
 	if len(password) > 63 {
 		return helperproto.Response{OK: false, Error: "Passwort zu lang"}
 	}
+	const nm = "/usr/bin/nmcli"
 	// nmcli mit getrennten Argumenten (keine Shell → keine Injection).
-	var out string
-	var err error
-	if password == "" {
-		out, err = runCmd(30*time.Second, "/usr/bin/nmcli", "device", "wifi", "connect", ssid)
-	} else {
-		out, err = runCmd(30*time.Second, "/usr/bin/nmcli", "device", "wifi", "connect", ssid, "password", password)
+
+	// Schon mit diesem Netz verbunden? Dann nichts anfassen – das Profil des
+	// aktiven Netzes darf nie gelöscht werden (sonst wäre der Pi bei einem
+	// Tippfehler im Passwort nicht mehr erreichbar).
+	active := activeWifiSSID()
+	if active == ssid {
+		return helperproto.Response{OK: true}
+	}
+
+	// 1. Veraltetes Profil gleichen Namens entfernen. Hauptursache für
+	//    "802-11-wireless-security.key-mgmt: property is missing": nmcli
+	//    übernimmt sonst dessen unvollständige Sicherheitseinstellungen.
+	_, _ = runCmd(10*time.Second, nm, "connection", "delete", "id", ssid)
+	// 2. Neu scannen, damit NetworkManager die Verschlüsselungsart des Netzes kennt.
+	_, _ = runCmd(15*time.Second, nm, "device", "wifi", "rescan")
+	time.Sleep(2 * time.Second)
+
+	// 3. Standardweg.
+	args := []string{"device", "wifi", "connect", ssid}
+	if password != "" {
+		args = append(args, "password", password)
+	}
+	out, err := runCmd(45*time.Second, nm, args...)
+
+	// 4. Rückfall: Profil ausdrücklich mit Schlüsselverwaltung anlegen
+	//    (WPA2-PSK, danach WPA3-SAE).
+	if err != nil && password != "" && strings.Contains(out, "key-mgmt") {
+		ifname := wifiInterface()
+		for _, km := range []string{"wpa-psk", "sae"} {
+			_, _ = runCmd(10*time.Second, nm, "connection", "delete", "id", ssid)
+			add := []string{"connection", "add", "type", "wifi", "con-name", ssid,
+				"ifname", ifname, "ssid", ssid,
+				"wifi-sec.key-mgmt", km, "wifi-sec.psk", password}
+			if o2, e2 := runCmd(20*time.Second, nm, add...); e2 != nil {
+				out, err = o2, e2
+				continue
+			}
+			out, err = runCmd(45*time.Second, nm, "connection", "up", "id", ssid)
+			if err == nil {
+				break
+			}
+		}
+		if err != nil {
+			// Fehlgeschlagenes Profil nicht liegen lassen (sonst beim nächsten Versuch wieder Altlast).
+			_, _ = runCmd(10*time.Second, nm, "connection", "delete", "id", ssid)
+		}
 	}
 	if err != nil {
-		// out kann das Passwort NICHT enthalten (nmcli echo't es nicht), aber wir
-		// geben ohnehin nur eine generische Meldung nach außen.
-		return helperproto.Response{OK: false, Error: "Verbindung fehlgeschlagen: " + sanitize(out)}
+		// out kann das Passwort NICHT enthalten (nmcli echo't es nicht).
+		msg := sanitize(out)
+		if strings.Contains(out, "Secrets were required") || strings.Contains(strings.ToLower(out), "password") {
+			msg = "Passwort falsch oder Netz lehnt die Anmeldung ab"
+		}
+		return helperproto.Response{OK: false, Error: "Verbindung fehlgeschlagen: " + msg}
 	}
 	logf("WLAN verbunden: SSID=%q", ssid)
 	return helperproto.Response{OK: true}
+}
+
+// activeWifiSSID liefert die SSID der aktiven WLAN-Verbindung ("" = keine).
+func activeWifiSSID() string {
+	out, err := runCmd(10*time.Second, "/usr/bin/nmcli", "-t", "-f", "ACTIVE,SSID", "device", "wifi")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "yes:") {
+			return strings.ReplaceAll(strings.TrimPrefix(line, "yes:"), "\\:", ":")
+		}
+	}
+	return ""
+}
+
+// wifiInterface ermittelt das WLAN-Gerät (meist wlan0).
+func wifiInterface() string {
+	out, err := runCmd(10*time.Second, "/usr/bin/nmcli", "-t", "-f", "DEVICE,TYPE", "device")
+	if err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			if parts := strings.SplitN(strings.TrimSpace(line), ":", 2); len(parts) == 2 && parts[1] == "wifi" {
+				return parts[0]
+			}
+		}
+	}
+	return "wlan0"
 }
 
 func handleWifiStatus() helperproto.Response {

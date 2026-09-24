@@ -61,6 +61,8 @@ $outFile = Join-Path $outDir "fundus-node"
 
 go build -ldflags="-s -w -X main.Version=R$(((Get-Content (Join-Path $PSScriptRoot 'revision.txt') -TotalCount 1 -ErrorAction SilentlyContinue) -replace '\D',''))" -o $outFile ./cmd/fundus-node 2>&1 | Out-Host
 if ($LASTEXITCODE -ne 0) { Write-Fail "Build fehlgeschlagen" }
+# Revision vermerken (deploy-fundus.ps1 erkennt daran veraltete Binaries)
+Set-Content -Path (Join-Path $outDir "fundus-node.rev") -Value ((Get-Content (Join-Path $PSScriptRoot 'revision.txt') -TotalCount 1) -replace '\D','') -Encoding ascii
 
 # Aufraeumen der Umgebungsvariablen
 $env:GOOS = ""; $env:GOARCH = ""; $env:GOARM = ""; $env:CGO_ENABLED = ""; $env:GOFLAGS = ""

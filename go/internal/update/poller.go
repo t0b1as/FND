@@ -10,6 +10,7 @@ package update
 // signierte Manifest — Git ist nur der Transportweg, die Signatur ist das Tor.
 
 import (
+	"fmt"
 	"sync"
 	"context"
 	"encoding/json"
@@ -35,6 +36,32 @@ type Poller struct {
 	// lastSeen verhindert wiederholtes Auslösen für dieselbe Version.
 	lastSeen string
 	mu       sync.Mutex // serialisiert Abfragen (Takt + "Jetzt prüfen")
+
+	// Ergebnis der letzten Prüfung (für die Anzeige in den Einstellungen).
+	infoMu sync.Mutex
+	info   PollInfo
+}
+
+// PollInfo beschreibt die letzte Prüfung: Zeitpunkt, gefundene Version und
+// warum (nicht) angeboten wird.
+type PollInfo struct {
+	CheckedAt time.Time `json:"checked_at"`
+	Remote    string    `json:"remote"` // Version im Manifest ("" = nicht gelesen)
+	Status    string    `json:"status"` // newer | not_newer | bad_signature | unreachable | invalid
+	Note      string    `json:"note"`
+}
+
+func (p *Poller) setInfo(remote, status, note string) {
+	p.infoMu.Lock()
+	p.info = PollInfo{CheckedAt: time.Now(), Remote: remote, Status: status, Note: note}
+	p.infoMu.Unlock()
+}
+
+// Info liefert das Ergebnis der letzten Prüfung.
+func (p *Poller) Info() PollInfo {
+	p.infoMu.Lock()
+	defer p.infoMu.Unlock()
+	return p.info
 }
 
 // CheckNow fragt sofort ab (Button "Jetzt prüfen") und meldet eine gefundene
@@ -91,42 +118,51 @@ func (p *Poller) pollOnce(ctx context.Context) {
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, p.url, nil)
 	if err != nil {
 		p.log.Warn("Update-Poll: Request", zap.Error(err))
+		p.setInfo("", "invalid", err.Error())
 		return
 	}
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
 		p.log.Warn("Update-Poll: Abruf fehlgeschlagen", zap.Error(err))
+		p.setInfo("", "unreachable", "GitHub nicht erreichbar: "+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		p.log.Warn("Update-Poll: HTTP-Status", zap.Int("status", resp.StatusCode))
+		p.setInfo("", "unreachable", fmt.Sprintf("Manifest nicht abrufbar (HTTP %d)", resp.StatusCode))
 		return
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // max 1 MiB Manifest
 	if err != nil {
 		p.log.Warn("Update-Poll: Lesen", zap.Error(err))
+		p.setInfo("", "unreachable", err.Error())
 		return
 	}
 
 	var m Manifest
 	if err := json.Unmarshal(raw, &m); err != nil {
 		p.log.Warn("Update-Poll: Manifest-JSON ungültig", zap.Error(err))
+		p.setInfo("", "invalid", "Manifest ist kein gültiges JSON")
 		return
 	}
 	// Schon gesehen? Dann nichts tun (kein wiederholtes Auslösen/Broadcast).
 	if m.Version == p.lastSeen {
+		p.setInfo(m.Version, "newer", "bereits angeboten")
 		return
 	}
 	// Signatur prüfen — das Tor. Ungültige Manifeste werden ignoriert.
 	if err := m.Verify(); err != nil {
 		p.log.Warn("Update-Poll: Signatur ungültig — ignoriert", zap.Error(err))
+		p.setInfo(m.Version, "bad_signature", err.Error())
 		return
 	}
 	// Nur echte, neuere Versionen.
 	if !isNewerVersion(m.Version, p.currentVersion) {
+		p.setInfo(m.Version, "not_newer", "installierte Version "+p.currentVersion+" ist gleich oder neuer")
 		return
 	}
+	p.setInfo(m.Version, "newer", "neuere, gültig signierte Version")
 	p.lastSeen = m.Version
 	p.log.Info("Update-Poll: neues gültiges Manifest gefunden",
 		zap.String("version", m.Version))

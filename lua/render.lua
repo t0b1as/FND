@@ -182,14 +182,14 @@ function _M.header(title_key, active)
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>%s</title>
   <link rel="stylesheet" href="/static/style.css?v=]] .. rev .. [[">
-  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v=]] .. rev .. [[">
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#00e676">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FUNDUS">
-  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="apple-touch-icon" href="/static/icon.svg?v=]] .. rev .. [[">
   <script>
   // fundusMe(): EINE gemeinsame /identity/me-Abfrage pro Seite (vorher 3-4x).
   // Liefert die Session-Daten oder null. force=true nach Login/Logout.
@@ -223,9 +223,9 @@ function _M.header(title_key, active)
 <body class="%s">
 <nav>
   <a href="/" class="brand">
-    <svg class="brand-logo" viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="6" aria-hidden="true">
-      <circle cx="100" cy="100" r="86"/>
-      <circle cx="100" cy="67" r="50"/><circle cx="128.58" cy="116.5" r="50"/><circle cx="71.42" cy="116.5" r="50"/>
+    <svg class="brand-logo" viewBox="0 0 200 200" aria-hidden="true">
+      <path fill="currentColor" fill-rule="evenodd" d="M74.66 9.68A59.331 59.331 0 0 0 40.72 65.78A59.331 59.331 0 0 0 9.11 123.23A93.806 93.806 0 0 1 74.66 9.68ZM80.05 8.35A93.806 93.806 0 0 1 119.94 8.34A48.000 48.000 0 0 1 147.14 61.04A59.331 59.331 0 0 0 100.00 68.22A59.331 59.331 0 0 0 52.86 61.04A48.000 48.000 0 0 1 80.05 8.35ZM15.42 145.42A48.000 48.000 0 0 0 16.99 148.24A59.331 59.331 0 0 0 18.66 151.00A96.000 96.000 0 0 0 181.05 151.46A59.331 59.331 0 0 0 182.73 148.70A48.000 48.000 0 0 0 184.32 145.90A96.000 96.000 0 0 0 105.10 4.14A59.331 59.331 0 0 0 101.88 4.02A48.000 48.000 0 0 0 98.65 4.02A59.331 59.331 0 0 0 95.43 4.12A96.000 96.000 0 0 0 15.42 145.42ZM58.43 76.01A48.000 48.000 0 0 1 100.00 100.01A48.000 48.000 0 0 1 141.56 76.01A48.000 48.000 0 0 1 100.00 100.01A48.000 48.000 0 0 1 99.99 148.01A48.000 48.000 0 0 1 100.00 100.01A48.000 48.000 0 0 1 58.43 76.01ZM42.68 78.66A59.331 59.331 0 0 0 72.47 115.90A59.331 59.331 0 0 0 89.82 160.31A48.000 48.000 0 0 1 30.59 163.11A93.806 93.806 0 0 1 10.64 128.57A48.000 48.000 0 0 1 42.68 78.66ZM34.45 167.10A59.331 59.331 0 0 0 100.00 168.46A59.331 59.331 0 0 0 165.55 167.11A93.806 93.806 0 0 1 34.45 167.10ZM169.40 163.11A48.000 48.000 0 0 1 110.17 160.32A59.331 59.331 0 0 0 127.52 115.90A59.331 59.331 0 0 0 157.32 78.66A48.000 48.000 0 0 1 189.35 128.56A93.806 93.806 0 0 1 169.40 163.11ZM190.88 123.23A59.331 59.331 0 0 0 159.28 65.79A59.331 59.331 0 0 0 125.33 9.69A93.806 93.806 0 0 1 190.88 123.23Z"/>
+      <circle cx="100" cy="100" r="92.50" fill="none" stroke="currentColor" stroke-width="7"/>
     </svg>
     <span>FUNDUS</span>]] .. (rev ~= "" and ('<span class="brand-rev">' .. rev .. '</span>') or "") .. [[
   </a>
@@ -296,7 +296,7 @@ function _M.footer()
     local t = i18n.init()
     ngx.print(string.format([[
 </main>
-<footer><small><a href="/tos" class="footer-link">%s</a></small></footer>
+<footer><small><a href="/tos" class="footer-link">%s</a> &middot; <a href="/shop#spenden" class="footer-link">💚 Fundus unterstützen</a></small></footer>
 <script>
 function toggleDrawer(){
   const open=document.getElementById("drawer").classList.toggle("open");
