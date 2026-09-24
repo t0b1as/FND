@@ -1,8 +1,8 @@
 {
-  "version": "R447",
-  "description": "FUNDUS R447 - Update-Paket mit korrekten Pfaden",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R447/FND-R447-update.zip",
-  "node_argon2": "f9807d34b71427843e194d7b6b00e7007d84281a0e8b821713f923467d38a62e",
-  "published_at": "2026-09-24T20:44:16.3016006Z",
-  "signature": "0x036a91fff6bda6a5f954bc37fdae36703aa617fe4ca02023271a5527d5a4d7f8271808cbc0e8acf2c13cbd782c6e732d86fd5de0abb5603601c98d713c7413aa1c"
+  "version": "R449",
+  "description": "FUNDUS R449 - Partnerprofile netzweit, dauerhafte Sitzungen",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R449/FND-R449-update.zip",
+  "node_argon2": "8ce8842c6ba88df9f9ac503ab9efc306082d19dc3a489e02d57f0d25cdf04559",
+  "published_at": "2026-09-24T21:04:10.2958008Z",
+  "signature": "0x67f133ebd4d012037d8d2f808974dc630ff8e77a42827688c83aec23107a3d480548789ef375a50de72eb7e836d9ac23b8b72efaa239dd019f48243bbc0ba5251c"
 }
