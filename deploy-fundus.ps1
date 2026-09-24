@@ -138,7 +138,7 @@ function Invoke-LocalBuild([string]$targetArch) {
         Write-Info "Kompiliere fundus-helper..."
         # Build OHNE Pipe aufrufen, sonst enthält $LASTEXITCODE den Exit-Code von
         # Out-Host (immer 0) statt den von 'go build' → Fehler würden verschluckt.
-        & $script:GoBin build -ldflags="-s -w" -o $helperOut ./cmd/fundus-helper 2>&1 | Out-Host
+        & $script:GoBin build -ldflags="-s -w -X main.Version=R$(((Get-Content (Join-Path $PSScriptRoot 'revision.txt') -TotalCount 1 -ErrorAction SilentlyContinue) -replace '\D',''))" -o $helperOut ./cmd/fundus-helper 2>&1 | Out-Host
         if ($LASTEXITCODE -ne 0 -or -not (Test-Path $helperOut)) {
             Write-Fail "fundus-helper Build fehlgeschlagen — Deploy abgebrochen (Mount/WLAN wären sonst veraltet)."
         }

@@ -19,6 +19,7 @@ ngx.print([[
   <div class="set-body">
     <div id="upd-status" class="status-line">Prüfe…</div>
     <div id="upd-last" class="status-line meta" style="margin-top:4px"></div>
+    <div id="upd-helper" class="status-line meta" style="margin-top:2px"></div>
     <div id="upd-avail" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid var(--green,#00e676);border-radius:10px">
       <div><b>Neue Version verfügbar: <span id="upd-ver"></span></b></div>
       <div id="upd-desc" class="meta" style="margin:4px 0 8px"></div>
@@ -30,9 +31,94 @@ ngx.print([[
       <span id="upd-src" class="meta" style="margin-left:8px"></span>
     </div>
     <div id="upd-msg" class="status-line" style="margin-top:8px"></div>
+    <div id="upd-progress" class="upd-progress" style="display:none">
+      <div class="upd-bar"><div class="upd-bar-fill" id="upd-bar-fill"></div></div>
+      <ol class="upd-steps" id="upd-steps"></ol>
+      <div id="upd-prog-msg" class="status-line"></div>
+    </div>
   </div>
 </div>
+<style>
+.upd-progress { margin-top:12px; padding:10px 12px; border:1px solid var(--brd); border-radius:10px; }
+.upd-bar { height:8px; background:var(--sur2); border-radius:999px; overflow:hidden; }
+.upd-bar-fill { height:100%; width:0; background:var(--green,#00e676); transition:width .4s ease; }
+.upd-steps { list-style:none; margin:10px 0 6px; padding:0; }
+.upd-steps li { padding:3px 0; color:var(--muted); }
+.upd-steps li.done { color:var(--text); }
+.upd-steps li.active { color:var(--text); font-weight:600; }
+.upd-steps li.failed { color:#ff6b6b; font-weight:600; }
+.upd-steps .ic { display:inline-block; width:1.4em; }
+</style>
 <script>
+var UPD_STEPS = ['Signatur prüfen', 'Herunterladen', 'Prüfsumme prüfen', 'Entpacken',
+                 'Programm und Oberfläche austauschen', 'Neustart'];
+var updPollTimer = null, updPollFails = 0, updTarget = '';
+
+// Fortschritt anzeigen. p = Status vom Helper (oder null), current = laufende Version.
+function updShowProgress(p, current, offline) {
+  var box = document.getElementById('upd-progress');
+  if (!p && !offline) { return; }
+  box.style.display = 'block';
+  var ol = document.getElementById('upd-steps'), msg = document.getElementById('upd-prog-msg');
+  var state = offline ? 'restarting' : p.state, step = offline ? 6 : (p.step || 0);
+  var target = (p && p.version) || updTarget;
+  if (!offline && current && target && current === target && state !== 'failed') state = 'done';
+  var html = '';
+  for (var i = 1; i <= UPD_STEPS.length; i++) {
+    var cls = '', ic = '○', label = UPD_STEPS[i - 1];
+    if (state === 'done' || i < step) { cls = 'done'; ic = '✓'; }
+    else if (i === step) {
+      if (state === 'failed') { cls = 'failed'; ic = '✗'; }
+      else { cls = 'active'; ic = '⏳'; }
+      if (i === 2 && p && p.percent >= 0 && state !== 'failed') label += ' (' + p.percent + ' %)';
+    }
+    html += '<li class="' + cls + '"><span class="ic">' + ic + '</span>' + label + '</li>';
+  }
+  ol.innerHTML = html;
+  var within = (p && p.percent >= 0 && step === 2) ? p.percent / 100 : 0.5;
+  var pct = state === 'done' ? 100 : Math.max(0, Math.min(100, Math.round(((step - 1) + within) / UPD_STEPS.length * 100)));
+  document.getElementById('upd-bar-fill').style.width = pct + '%';
+  msg.className = 'status-line';
+  if (state === 'done') {
+    msg.textContent = '✓ ' + target + ' ist installiert – die Seite wird neu geladen.';
+  } else if (state === 'failed') {
+    msg.className = 'status-line error';
+    msg.textContent = '✗ Installation fehlgeschlagen: ' + ((p && p.error) || 'unbekannter Fehler') +
+      ' – der vorherige Stand bleibt aktiv.';
+  } else if (state === 'restarting') {
+    msg.textContent = 'Node startet neu – warte auf ' + (target || 'die neue Version') + ' …';
+  } else {
+    msg.textContent = 'Installation läuft – bitte die Seite geöffnet lassen.';
+  }
+  return state;
+}
+
+// Status alle 2 s abfragen, bis fertig oder fehlgeschlagen. Während des
+// Neustarts ist der Node kurz nicht erreichbar – dann einfach weiter warten.
+function updStartPolling(target) {
+  if (target) updTarget = target;
+  if (updPollTimer) return;
+  updPollFails = 0;
+  updPollTimer = setInterval(async function () {
+    try {
+      var r = await fetch('/api/v1/admin/update/status', {cache: 'no-store', credentials: 'same-origin'});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var d = await r.json();
+      updPollFails = 0;
+      var st = updShowProgress(d.progress || {version: updTarget, state: 'running', step: 0}, d.current, false);
+      if (st === 'done') { clearInterval(updPollTimer); updPollTimer = null; setTimeout(function(){ location.reload(); }, 2500); }
+      if (st === 'failed') { clearInterval(updPollTimer); updPollTimer = null; var b = document.getElementById('upd-apply'); if (b) b.disabled = false; }
+    } catch (e) {
+      updPollFails++;
+      updShowProgress(null, '', true);
+      if (updPollFails > 300) { // ~10 min
+        clearInterval(updPollTimer); updPollTimer = null;
+        document.getElementById('upd-prog-msg').textContent = 'Der Node antwortet seit 10 Minuten nicht – bitte das Log prüfen (journalctl -u fundus-helper -u fundus-node).';
+      }
+    }
+  }, 2000);
+}
+
 function updRender(d) {
   var st = document.getElementById('upd-status');
   var av = document.getElementById('upd-avail');
@@ -40,6 +126,19 @@ function updRender(d) {
   st.innerHTML = 'Installiert: <b>' + (d.current || '?') + '</b>' +
     (d.enabled ? (d.auto ? ' · automatische Installation an' : '') : ' · Update-Prüfung ausgeschaltet');
   document.getElementById('upd-src').textContent = d.source ? ('Quelle: ' + d.source.replace('https://raw.githubusercontent.com/', 'github.com/').replace('/main/manifest.json', '')) : '';
+  // Helper-Stand: Er fuehrt Installationen aus. Ein alter Helper (vor R435 mit
+  // fehlerhafter Signaturpruefung, vor R443 ohne Uebernahme der Laufzeitdateien)
+  // kann Updates nicht korrekt installieren.
+  var hv = d.helper || '', hEl = document.getElementById('upd-helper');
+  if (hEl) {
+    var hn = parseInt(String(hv).replace(/\D/g, ''), 10);
+    var old = !hv || hv === 'alt' || hv === 'unbekannt' || hv === 'nicht erreichbar' || (hn && hn < 443);
+    hEl.textContent = 'Installations-Helper: ' + (hv || '?') +
+      (old ? ' – veraltet oder nicht erreichbar. Bitte einmal per deploy-fundus.ps1 aktualisieren, sonst schlagen Updates fehl.' : '');
+    hEl.className = 'status-line meta' + (old ? ' error' : '');
+    var ab = document.getElementById('upd-apply');
+    if (ab && old) ab.title = 'Helper veraltet – Installation würde fehlschlagen';
+  }
   // Ergebnis der letzten GitHub-Pruefung - erklaert, warum (k)ein Update kommt.
   var lc = d.last_check, lcEl = document.getElementById('upd-last');
   if (lc && lcEl) {
@@ -55,6 +154,12 @@ function updRender(d) {
     lcEl.className = 'status-line' + ((lc.status === 'bad_signature' || lc.status === 'unreachable' || lc.status === 'invalid') ? ' error' : '');
   } else if (lcEl) {
     lcEl.textContent = d.enabled ? 'Noch keine Prüfung seit dem Start – „Jetzt prüfen" klicken.' : '';
+  }
+  if (d.progress && (d.progress.state === 'running' || d.progress.state === 'restarting')) {
+    var st = updShowProgress(d.progress, d.current, false);
+    if (st !== 'done') updStartPolling(d.progress.version);
+  } else if (d.progress && d.progress.state === 'failed') {
+    updShowProgress(d.progress, d.current, false);
   }
   if (d.available && d.available.version) {
     av.style.display = 'block';
@@ -86,22 +191,13 @@ async function updApply() {
   var ver = document.getElementById('upd-ver').textContent;
   if (!confirm('Version ' + ver + ' jetzt installieren? Der Node startet danach neu (2–5 Minuten).')) return;
   var btn = document.getElementById('upd-apply'), msg = document.getElementById('upd-msg');
-  btn.disabled = true; msg.textContent = 'Starte Installation…';
+  btn.disabled = true; msg.textContent = '';
   try {
     var r = await fetch('/api/v1/admin/update/apply', {method:'POST', credentials:'same-origin'});
     var d = await r.json();
     if (!r.ok) { msg.textContent = 'Fehler: ' + (d.error || r.status); btn.disabled = false; return; }
-    msg.textContent = d.message || 'Update läuft…';
-    // Nach dem Neustart automatisch neu laden, sobald der Node wieder antwortet.
-    var tries = 0;
-    var t = setInterval(async function(){
-      tries++;
-      try {
-        var h = await fetch('/api/v1/admin/update/status', {cache:'no-store', credentials:'same-origin'});
-        if (h.ok) { var j = await h.json(); if (j.current === ver) { clearInterval(t); location.reload(); } }
-      } catch (e) {}
-      if (tries > 60) { clearInterval(t); msg.textContent = 'Der Node antwortet noch nicht mit ' + ver + ' – bitte später neu laden und das Log prüfen.'; }
-    }, 10000);
+    updShowProgress({version: ver, state: 'running', step: 0, percent: -1}, '', false);
+    updStartPolling(ver);
   } catch (e) { msg.textContent = 'Fehler: ' + e.message; btn.disabled = false; }
 }
 document.addEventListener('DOMContentLoaded', updLoad);

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"sync/atomic"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -552,8 +553,42 @@ func main() {
 	}
 
 	srv := api.NewServer(cfg, node, store, analyzer, meterTokens, log, Version)
+	// Helper-Version im Hintergrund abfragen (nie im Anfragepfad: der Helper
+	// arbeitet seriell und wäre während einer Installation minutenlang belegt).
+	var helperVer atomic.Value
+	helperVer.Store("")
+	refreshHelperVer := func() {
+		if !helperproto.Available() {
+			helperVer.Store("nicht erreichbar")
+			return
+		}
+		resp, err := helperproto.Do(helperproto.Request{Action: helperproto.ActionPing})
+		switch {
+		case err != nil:
+			helperVer.Store("nicht erreichbar")
+		case resp.Version == "":
+			helperVer.Store("alt") // Helper vor R443 meldet keine Version
+		default:
+			helperVer.Store(resp.Version)
+		}
+	}
+	go func() {
+		refreshHelperVer()
+		t := time.NewTicker(10 * time.Minute)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				refreshHelperVer()
+			}
+		}
+	}()
+
 	// Software-Update aus den Einstellungen heraus (prüfen / installieren).
 	srv.WithUpdateControl(&api.UpdateControl{
+		HelperVersion: func() string { v, _ := helperVer.Load().(string); return v },
 		Current: currentRev,
 		Source:  cfg.UpdateManifestURL,
 		Auto:    cfg.UpdateAuto,
@@ -570,8 +605,7 @@ func main() {
 			return poller.Info()
 		},
 		Apply: func(m *update.Manifest) error {
-			go func() { _ = applyViaHelper(m) }() // dauert Minuten; Node startet danach neu
-			return nil
+			return applyViaHelper(m) // blockiert (Minuten); die API ruft das asynchron auf
 		},
 	})
 	srv.WithTopology(topoMgr)

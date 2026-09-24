@@ -10,6 +10,9 @@ package api
 // Oberfläche mit Rollback – data/, chunks/ und fundus.env bleiben unberührt.
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"net/http"
 	"time"
 
@@ -27,6 +30,7 @@ type UpdateControl struct {
 	Check   func()
 	Apply   func(m *update.Manifest) error
 	Info    func() update.PollInfo // Ergebnis der letzten GitHub-Prüfung
+	HelperVersion func() string    // Revision des fundus-helper (führt Installationen aus)
 }
 
 // WithUpdateControl aktiviert die Update-Endpunkte.
@@ -48,10 +52,20 @@ func (s *Server) updateStatus(c *gin.Context) {
 		"source":  uc.Source,
 		"auto":    uc.Auto,
 	}
+	if uc.HelperVersion != nil {
+		out["helper"] = uc.HelperVersion()
+	}
 	if uc.Info != nil {
 		if pi := uc.Info(); !pi.CheckedAt.IsZero() {
 			out["last_check"] = pi
 		}
+	}
+	if pr := s.readUpdateProgress(); pr != nil {
+		// Laufende oder gerade beendete Installation (Statusanzeige).
+		if pr.Version == uc.Current && pr.State != "failed" {
+			pr.State = "done" // Node läuft bereits mit der neuen Version
+		}
+		out["progress"] = pr
 	}
 	if uc.Pending != nil {
 		if m := uc.Pending(); m != nil {
@@ -95,10 +109,19 @@ func (s *Server) updateApply(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"error": "Kein Update verfügbar"})
 		return
 	}
-	if err := uc.Apply(m); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-		return
-	}
+	s.writeUpdateProgress(&update.ApplyProgress{Version: m.Version, State: "running", Step: 0, Steps: 6,
+		Label: "Installation wird gestartet", Percent: -1, UpdatedAt: time.Now()})
+	// Die Installation läuft beim Helper (Minuten) und endet mit dem Neustart des
+	// Nodes. Scheitert sie, bevor der Helper selbst Status schreibt, trägt der
+	// Node den Fehler ein.
+	go func() {
+		if err := uc.Apply(m); err != nil {
+			if cur := s.readUpdateProgress(); cur == nil || cur.State != "failed" {
+				s.writeUpdateProgress(&update.ApplyProgress{Version: m.Version, State: "failed", Step: 0, Steps: 6,
+					Label: "Installation gestartet", Percent: -1, Error: err.Error(), UpdatedAt: time.Now()})
+			}
+		}
+	}()
 	c.JSON(http.StatusAccepted, gin.H{
 		"ok":      true,
 		"version": m.Version,
@@ -106,3 +129,46 @@ func (s *Server) updateApply(c *gin.Context) {
 	})
 }
 
+// ── Fortschritt der Installation (Datei data/update-status.json) ────────────
+//
+// Der Helper (root) schreibt den Fortschritt; der Node liest ihn und zeigt ihn
+// in den Einstellungen an. Die Datei überdauert den Neustart des Nodes.
+
+func (s *Server) updateStatusPath() string {
+	if s.cfg == nil || s.cfg.DataDir == "" {
+		return ""
+	}
+	return filepath.Join(s.cfg.DataDir, "update-status.json")
+}
+
+// readUpdateProgress liefert den letzten Fortschritt (nur wenn jünger als 2 h).
+func (s *Server) readUpdateProgress() *update.ApplyProgress {
+	p := s.updateStatusPath()
+	if p == "" {
+		return nil
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil
+	}
+	var pr update.ApplyProgress
+	if json.Unmarshal(data, &pr) != nil || time.Since(pr.UpdatedAt) > 2*time.Hour {
+		return nil
+	}
+	return &pr
+}
+
+func (s *Server) writeUpdateProgress(pr *update.ApplyProgress) {
+	p := s.updateStatusPath()
+	if p == "" {
+		return
+	}
+	data, err := json.Marshal(pr)
+	if err != nil {
+		return
+	}
+	tmp := p + ".node.tmp"
+	if os.WriteFile(tmp, data, 0o644) == nil {
+		_ = os.Rename(tmp, p)
+	}
+}

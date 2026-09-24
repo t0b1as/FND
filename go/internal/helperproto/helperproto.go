@@ -85,8 +85,9 @@ type Request struct {
 
 // Response ist die Antwort des Helpers (JSON, eine Zeile).
 type Response struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error,omitempty"`
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Version string `json:"version,omitempty"` // ping: Revision des Helpers
 
 	// Ergebnis-Nutzlast je nach Action.
 	MountPoint   string        `json:"mount_point,omitempty"`   // mount_drive: wohin gemountet

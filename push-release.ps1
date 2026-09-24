@@ -55,7 +55,7 @@ function Run([string]$what, [scriptblock]$cmd) {
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$ScriptStand = "R441"   # Stand dieses Skripts (bei jedem Release mitgezogen)
+$ScriptStand = "R443"   # Stand dieses Skripts (bei jedem Release mitgezogen)
 Write-Host "push-release.ps1 - Stand $ScriptStand" -ForegroundColor Cyan
 
 # -- 1. Voraussetzungen -------------------------------------------------------
@@ -171,7 +171,7 @@ try {
             & $GO build -trimpath -ldflags "-s -w -X main.Version=$VER" -o (Join-Path $bund "bin\fundus-node-linux-$arch") ./cmd/fundus-node
         }
         Run "Build fundus-helper ($arch)" {
-            & $GO build -trimpath -ldflags "-s -w" -o (Join-Path $bund "bin\fundus-helper-linux-$arch") ./cmd/fundus-helper
+            & $GO build -trimpath -ldflags "-s -w -X main.Version=$VER" -o (Join-Path $bund "bin\fundus-helper-linux-$arch") ./cmd/fundus-helper
         }
         Ok "linux/$arch"
     }

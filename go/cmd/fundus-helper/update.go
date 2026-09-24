@@ -11,6 +11,8 @@ package main
 // nur ein gegen die kanonische Autorität gültig signiertes Manifest akzeptiert.
 
 import (
+	"os"
+	"path/filepath"
 	"encoding/json"
 	"time"
 
@@ -40,6 +42,7 @@ func handleApplyUpdate(manifestJSON string) helperproto.Response {
 	err := update.ApplyManifest(&m, update.ApplyOptions{
 		InstallDir: installDir,
 		RestartCmd: "systemctl restart fundus-node",
+		Progress:   writeUpdateStatus, // Statusanzeige in den Einstellungen
 		// CurrentVer leer: der Node hat den Neuer-Check schon gemacht, bevor er
 		// den Auftrag schickt. Der Helper prüft primär die Signatur.
 	}, logf)
@@ -63,4 +66,20 @@ func handleRestartNode() helperproto.Response {
 		}
 	}()
 	return helperproto.Response{OK: true}
+}
+
+// writeUpdateStatus legt den Installationsfortschritt als JSON in data/ ab
+// (atomar: temp + rename). Der Node liest die Datei und zeigt sie in den
+// Einstellungen an – auch über seinen eigenen Neustart hinweg.
+func writeUpdateStatus(p update.ApplyProgress) {
+	dir := filepath.Join(installDir, "data")
+	data, err := json.Marshal(p)
+	if err != nil {
+		return
+	}
+	tmp := filepath.Join(dir, ".update-status.json.tmp")
+	if os.WriteFile(tmp, data, 0o644) != nil {
+		return
+	}
+	_ = os.Rename(tmp, filepath.Join(dir, "update-status.json"))
 }

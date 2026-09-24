@@ -159,6 +159,11 @@ func main() {
 	}
 }
 
+// Version wird beim Bauen gesetzt (-ldflags "-X main.Version=R…"). Der Node
+// zeigt sie in den Einstellungen an: ein veralteter Helper kann Updates nicht
+// korrekt installieren.
+var Version = "unbekannt"
+
 // handleConn liest genau eine Request-Zeile, bearbeitet sie und antwortet.
 func handleConn(conn net.Conn) {
 	defer conn.Close()
@@ -190,7 +195,7 @@ func handleConn(conn net.Conn) {
 func dispatch(req helperproto.Request) helperproto.Response {
 	switch req.Action {
 	case helperproto.ActionPing:
-		return helperproto.Response{OK: true}
+		return helperproto.Response{OK: true, Version: Version}
 	case helperproto.ActionListBlockDevices:
 		return handleListBlockDevices()
 	case helperproto.ActionMountDrive:

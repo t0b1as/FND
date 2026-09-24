@@ -251,7 +251,23 @@ type ApplyOptions struct {
 	RestartCmd  string        // z.B. "systemctl restart fundus-node" (Helper ist root, kein sudo nötig)
 	CurrentVer  string        // aktuelle Version für den Neuer-Check (leer = Check überspringen)
 	HTTPTimeout time.Duration // Download-Timeout (0 = 5 Min)
+	Progress    func(ApplyProgress) // optional: Fortschritt melden (Statusanzeige)
 }
+
+// ApplyProgress ist der Fortschritt einer laufenden Installation.
+type ApplyProgress struct {
+	Version   string    `json:"version"`
+	State     string    `json:"state"` // running | restarting | failed
+	Step      int       `json:"step"`
+	Steps     int       `json:"steps"`
+	Label     string    `json:"label"`
+	Percent   int       `json:"percent"` // Fortschritt innerhalb des Schritts, -1 = unbestimmt
+	Error     string    `json:"error,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Schritte der Installation (für die Anzeige).
+const applySteps = 6
 
 // ApplyManifest prüft ein signiertes Manifest EIGENSTÄNDIG (Signatur gegen die
 // kanonische Autorität) und wendet das Update an: ZIP laden, Argon2id-Hash
@@ -265,7 +281,28 @@ func ApplyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 	if logf == nil {
 		logf = func(string, ...interface{}) {}
 	}
+	var last ApplyProgress
+	report := func(step int, label string, pct int, state string) {
+		last = ApplyProgress{Version: m.Version, State: state, Step: step, Steps: applySteps,
+			Label: label, Percent: pct, UpdatedAt: time.Now()}
+		if opt.Progress != nil {
+			opt.Progress(last)
+		}
+	}
+	err := applyManifest(m, opt, logf, report)
+	if err != nil && opt.Progress != nil {
+		last.State = "failed"
+		last.Error = err.Error()
+		last.UpdatedAt = time.Now()
+		opt.Progress(last)
+	}
+	return err
+}
+
+func applyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface{}),
+	report func(step int, label string, pct int, state string)) error {
 	// 1. Signatur EIGENSTÄNDIG prüfen — das eigentliche Tor.
+	report(1, "Signatur prüfen", -1, "running")
 	if err := m.Verify(); err != nil {
 		return fmt.Errorf("Signaturprüfung: %w", err)
 	}
@@ -275,13 +312,14 @@ func ApplyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 	}
 	timeout := opt.HTTPTimeout
 	if timeout == 0 {
-		timeout = 5 * time.Minute
+		timeout = 20 * time.Minute // Download + Entpacken, auch bei langsamer Leitung
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	// 3. ZIP laden.
 	logf("Update: Download von %s", m.NodeURL)
+	report(2, "Herunterladen", 0, "running")
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.NodeURL, nil)
 	if err != nil {
 		return fmt.Errorf("HTTP-Request: %w", err)
@@ -301,13 +339,17 @@ func ApplyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 		return fmt.Errorf("Temp-Datei: %w", err)
 	}
 	defer os.Remove(tmpFile.Name())
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+	total := resp.ContentLength
+	pr := &progressReader{r: resp.Body, total: total, fn: func(pct int) { report(2, "Herunterladen", pct, "running") }}
+	if _, err := io.Copy(tmpFile, pr); err != nil {
 		return fmt.Errorf("Schreiben: %w", err)
 	}
 	tmpFile.Close()
+	report(2, "Herunterladen", 100, "running")
 
 	// 4. Argon2id-Hash prüfen (memory-hard, schwer zu fälschen).
 	logf("Update: Argon2id-Hash berechnen…")
+	report(3, "Prüfsumme prüfen", -1, "running")
 	zipBytes, err := os.ReadFile(tmpFile.Name())
 	if err != nil {
 		return fmt.Errorf("ZIP lesen: %w", err)
@@ -327,6 +369,7 @@ func ApplyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 		return fmt.Errorf("Staging anlegen: %w", err)
 	}
 	defer os.RemoveAll(staging)
+	report(4, "Entpacken", -1, "running")
 	cmd := exec.CommandContext(ctx, "unzip", "-o", "-q", tmpFile.Name(), "-d", staging)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("Entpacken: %w (%s)", err, strings.TrimSpace(string(out)))
@@ -341,14 +384,24 @@ func ApplyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 	if !fileExists(nodeBin) {
 		return fmt.Errorf("Update-Paket enthält kein Binary für linux/%s", arch)
 	}
+	report(5, "Programm und Oberfläche austauschen", -1, "running")
 	tx := &swapTx{logf: logf}
 	fail := func(err error) error {
 		tx.rollback()
 		return err
 	}
 	if fileExists(filepath.Join(staging, "lua")) {
-		if err := tx.swapDir(filepath.Join(staging, "lua"), filepath.Join(opt.InstallDir, "lua")); err != nil {
+		luaDir := filepath.Join(opt.InstallDir, "lua")
+		if err := tx.swapDir(filepath.Join(staging, "lua"), luaDir); err != nil {
 			return fail(fmt.Errorf("Oberfläche tauschen: %w", err))
+		}
+		// Dateien, die erst bei der Installation auf dem Pi entstehen (z.B.
+		// static/sodium.js, static/fonts/), stehen nicht im Update-Paket – aus
+		// dem bisherigen Stand übernehmen, sonst fehlen sie nach dem Update.
+		if n, err := carryOverMissing(luaDir+".bak", luaDir); err != nil {
+			return fail(fmt.Errorf("Laufzeitdateien übernehmen: %w", err))
+		} else if n > 0 {
+			logf("Update: %d Laufzeitdatei(en) aus dem bisherigen Stand übernommen", n)
 		}
 	}
 	fundusGID := groupID("fundus")
@@ -392,6 +445,9 @@ func ApplyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 	}
 	tx.commit()
 	logf("Update: Dateien installiert (Version %s)", m.Version)
+	// Ab hier startet der Node neu; die Anzeige wartet, bis er mit der neuen
+	// Version antwortet.
+	report(6, "Neustart", -1, "restarting")
 
 	// 7. Webserver neu laden, Node neu starten, Helper im Hintergrund neu starten.
 	if nginxChanged || fileExists(filepath.Join(opt.InstallDir, "lua")) {
@@ -598,4 +654,61 @@ func parseVersion(v string) int {
 	n := 0
 	fmt.Sscanf(v, "%d", &n)
 	return n
+}
+
+// progressReader meldet den Download-Fortschritt (höchstens alle 500 ms).
+type progressReader struct {
+	r     io.Reader
+	total int64
+	done  int64
+	last  time.Time
+	fn    func(pct int)
+}
+
+func (p *progressReader) Read(b []byte) (int, error) {
+	n, err := p.r.Read(b)
+	p.done += int64(n)
+	if p.total > 0 && time.Since(p.last) > 500*time.Millisecond {
+		p.last = time.Now()
+		p.fn(int(p.done * 100 / p.total))
+	}
+	return n, err
+}
+
+// carryOverMissing kopiert alle Dateien aus oldDir, die in newDir fehlen
+// (Modus bleibt erhalten). Liefert die Anzahl übernommener Dateien.
+func carryOverMissing(oldDir, newDir string) (int, error) {
+	if !fileExists(oldDir) {
+		return 0, nil
+	}
+	n := 0
+	err := filepath.Walk(oldDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // nicht lesbare Einträge überspringen
+		}
+		rel, rerr := filepath.Rel(oldDir, path)
+		if rerr != nil || rel == "." {
+			return nil
+		}
+		dst := filepath.Join(newDir, rel)
+		if info.IsDir() {
+			if !fileExists(dst) {
+				return os.MkdirAll(dst, info.Mode().Perm()|0o755)
+			}
+			return nil
+		}
+		if !info.Mode().IsRegular() || fileExists(dst) {
+			return nil
+		}
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil
+		}
+		if werr := os.WriteFile(dst, data, info.Mode().Perm()); werr != nil {
+			return werr
+		}
+		n++
+		return nil
+	})
+	return n, err
 }
