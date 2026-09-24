@@ -1,8 +1,8 @@
 {
-  "version": "R446",
-  "description": "FUNDUS R446 - Play videos and show pictures in filemanager.",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R446/FND-R446-update.zip",
-  "node_argon2": "9ba73c78817c75818e67c33830181eb18d0110123a86a42767add1f54421d348",
-  "published_at": "2026-09-24T20:35:38.6841528Z",
-  "signature": "0x3216b88d9e64aad11392725233fc564df64a29a80ce8575873cd861b869283c57bb400c6bc3948debfe161e1ba5eb7bd8bf7d57f636037a88703fe54f33056b41b"
+  "version": "R447",
+  "description": "FUNDUS R447 - Update-Paket mit korrekten Pfaden",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R447/FND-R447-update.zip",
+  "node_argon2": "f9807d34b71427843e194d7b6b00e7007d84281a0e8b821713f923467d38a62e",
+  "published_at": "2026-09-24T20:44:16.3016006Z",
+  "signature": "0x036a91fff6bda6a5f954bc37fdae36703aa617fe4ca02023271a5527d5a4d7f8271808cbc0e8acf2c13cbd782c6e732d86fd5de0abb5603601c98d713c7413aa1c"
 }
