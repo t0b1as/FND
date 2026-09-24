@@ -13,6 +13,7 @@
 package update
 
 import (
+	"archive/zip"
 	"crypto/ecdsa"
 	"os/user"
 	"runtime"
@@ -370,9 +371,8 @@ func applyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 	}
 	defer os.RemoveAll(staging)
 	report(4, "Entpacken", -1, "running")
-	cmd := exec.CommandContext(ctx, "unzip", "-o", "-q", tmpFile.Name(), "-d", staging)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("Entpacken: %w (%s)", err, strings.TrimSpace(string(out)))
+	if err := extractZip(tmpFile.Name(), staging); err != nil {
+		return fmt.Errorf("Entpacken: %w", err)
 	}
 
 	// 6. Nur Programmteile tauschen – NIE data/, chunks/, fundus.env oder
@@ -711,4 +711,58 @@ func carryOverMissing(oldDir, newDir string) (int, error) {
 		return nil
 	})
 	return n, err
+}
+
+// extractZip entpackt ein Update-Paket nach dest – ohne externes unzip.
+// Versteht auch Backslash-Pfade (ZIPs aus Windows PowerShell 5.1, die unzip
+// nur mit Warnung/Exit 1 verarbeitet) und verweigert Einträge, die aus dest
+// ausbrechen würden ("../", absolute Pfade – Zip-Slip).
+func extractZip(zipPath, dest string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	destAbs, err := filepath.Abs(dest)
+	if err != nil {
+		return err
+	}
+	for _, f := range r.File {
+		name := strings.ReplaceAll(f.Name, "\\", "/")
+		name = strings.TrimLeft(name, "/")
+		if name == "" {
+			continue
+		}
+		target := filepath.Join(destAbs, filepath.FromSlash(name))
+		if target != destAbs && !strings.HasPrefix(target, destAbs+string(os.PathSeparator)) {
+			return fmt.Errorf("unsicherer Pfad im Paket: %q", f.Name)
+		}
+		if f.FileInfo().IsDir() || strings.HasSuffix(name, "/") {
+			if err := os.MkdirAll(target, 0o755); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+		if err != nil {
+			rc.Close()
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		_, cerr := io.Copy(out, rc)
+		rc.Close()
+		if werr := out.Close(); cerr == nil {
+			cerr = werr
+		}
+		if cerr != nil {
+			return fmt.Errorf("%s: %w", name, cerr)
+		}
+	}
+	return nil
 }

@@ -55,7 +55,7 @@ function Run([string]$what, [scriptblock]$cmd) {
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$ScriptStand = "R446"   # Stand dieses Skripts (bei jedem Release mitgezogen)
+$ScriptStand = "R447"   # Stand dieses Skripts (bei jedem Release mitgezogen)
 Write-Host "push-release.ps1 - Stand $ScriptStand" -ForegroundColor Cyan
 
 # -- 1. Voraussetzungen -------------------------------------------------------
@@ -188,7 +188,30 @@ foreach ($f in @("revision.txt", "MANUAL.md", "README.md")) {
     if (Test-Path $p) { Copy-Item -Force $p $bund }
 }
 $bundleZip = Join-Path $work "FND-$VER-update.zip"
-[IO.Compression.ZipFile]::CreateFromDirectory($bund, $bundleZip, [IO.Compression.CompressionLevel]::Optimal, $false)
+# ZIP selbst schreiben: Windows PowerShell 5.1 (CreateFromDirectory) legt die
+# Pfade mit Backslashes ab ("bin\fundus-node"). unzip auf dem Pi meldet das als
+# Fehler (Exit 1) - Nodes bis R446 brechen die Installation dann ab.
+Add-Type -AssemblyName System.IO.Compression
+$baseLen = ((Resolve-Path $bund).Path.TrimEnd('\')).Length + 1
+$fs = [IO.File]::Open($bundleZip, [IO.FileMode]::Create)
+try {
+    $za = New-Object IO.Compression.ZipArchive($fs, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        Get-ChildItem -Path $bund -Recurse -File | ForEach-Object {
+            $rel = $_.FullName.Substring($baseLen).Replace('\', '/')
+            [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($za, $_.FullName, $rel, [IO.Compression.CompressionLevel]::Optimal)
+        }
+    } finally { $za.Dispose() }
+} finally { $fs.Dispose() }
+# Gegenpruefung: kein Eintrag mit Backslash, Binaries fuer beide Architekturen vorhanden.
+$zr = [IO.Compression.ZipFile]::OpenRead($bundleZip)
+try {
+    $names = @($zr.Entries | ForEach-Object { $_.FullName })
+} finally { $zr.Dispose() }
+if ($names | Where-Object { $_ -like '*\*' }) { Fail "Update-Paket enthaelt Backslash-Pfade" }
+foreach ($need in @("bin/fundus-node-linux-arm64", "bin/fundus-helper-linux-arm64", "bin/fundus-node-linux-arm", "lua/app.lua", "revision.txt")) {
+    if ($names -notcontains $need) { Fail "Update-Paket unvollstaendig: $need fehlt" }
+}
 Ok ("FND-$VER-update.zip ({0:N1} MB)" -f ((Get-Item $bundleZip).Length / 1MB))
 
 $assetName = "FND-$VER-update.zip"
