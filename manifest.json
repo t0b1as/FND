@@ -1,8 +1,8 @@
 {
-  "version": "R443",
-  "description": "FUNDUS R443 - Update-Fix",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R443/FND-R443-update.zip",
-  "node_argon2": "abb72411c8052bd5dbb393bfbebd4219b7d044c3e6d40544a53c228f842119d3",
-  "published_at": "2026-09-24T19:22:13.9956869Z",
-  "signature": "0x4eb4c3860102e4906e96c96ec231c6495a2ac3fc8fd6ecb8a975d70cc3293ba61b90d83fb9d22f7eebc98a6bb8060a5b606d8b010dba24d3573244efc9fcaa201c"
+  "version": "R444",
+  "description": "FUNDUS R444 - NAT-Fix",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R444/FND-R444-update.zip",
+  "node_argon2": "5d97a8b17d79e87c3012cd037614fee69f5eb1412976ace79704b20cb68eeadc",
+  "published_at": "2026-09-24T19:58:49.9517Z",
+  "signature": "0x8cc2e16009dee48923a2278bb3423c87a42cb8443fec5cec20cd769617fea93529d1901f3c50d7bc63dba26f97e307ee28bb855bfed4634d7e39e22d23209b001c"
 }
