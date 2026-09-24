@@ -1,0 +1,48 @@
+# golangci-lint Konfiguration
+# https://golangci-lint.run/usage/configuration/
+
+version: "2"
+
+linters:
+  enable:
+    - errcheck       # Fehler-Rückgabewerte nicht ignorieren
+    - gosimple       # Go-Idiome vereinfachen
+    - govet          # go vet
+    - ineffassign    # Unnötige Zuweisungen
+    - staticcheck    # Statische Analyse
+    - unused         # Unbenutzte Symbole
+    - goimports      # Import-Reihenfolge
+    - gocritic       # Code-Qualität
+    - misspell       # Tippfehler in Kommentaren
+    - revive         # Erweiterte Lint-Regeln
+    - bodyclose      # HTTP-Response-Body muss geschlossen werden
+    - noctx          # HTTP-Requests ohne Context
+    - contextcheck   # Context-Weitergabe prüfen
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+        severity: warning
+      - name: unexported-return
+        severity: warning
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+  misspell:
+    locale: US
+
+issues:
+  exclude-rules:
+    # Test-Dateien: lockerer
+    - path: "_test\\.go"
+      linters:
+        - errcheck
+        - bodyclose
+    # Generierter Code
+    - path: "vendor/"
+      linters:
+        - all
+  max-issues-per-linter: 50
+  max-same-issues: 5

@@ -1,0 +1,17 @@
+# Fundus Automount – reagiert auf das Einstecken von Datenträgern
+#
+# Wenn ein Block-Gerät mit einem Dateisystem (ID_FS_UUID gesetzt) hinzukommt,
+# wird ein kurzer, auf die konkrete UUID instanziierter Dienst gestartet. Dieser
+# mountet GENAU diese Platte — auch beim allerersten Einstecken (fabrikneu). Der
+# Helper prüft die UUID streng, fremde/ungültige Werte werden abgewiesen.
+#
+# --no-block, damit udev nicht auf den Mount-Vorgang wartet (kein Blockieren des
+# udev-Workers). Fällt diese Regel aus, greift der periodische Scan im Helper für
+# bereits gemerkte Laufwerke.
+#
+# Installation (durch deploy-fundus.ps1):
+#   sudo cp 99-fundus-automount.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}!="", ENV{DEVTYPE}=="partition", RUN+="/bin/systemctl --no-block start fundus-automount@$env{ID_FS_UUID}.service"
+ACTION=="add", SUBSYSTEM=="block", ENV{ID_FS_UUID}!="", ENV{DEVTYPE}=="disk", RUN+="/bin/systemctl --no-block start fundus-automount@$env{ID_FS_UUID}.service"

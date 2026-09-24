@@ -1,0 +1,121 @@
+# =============================================================================
+#  Fundus Marketplace – systemd Service
+#
+#  Installation (durch deploy-fundus.ps1 automatisch):
+#    sudo cp fundus-node.service /etc/systemd/system/fundus-node.service
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable fundus-node
+#    sudo systemctl start fundus-node
+#
+#  Logs:
+#    journalctl -u fundus-node -f
+#    journalctl -u fundus-node --since "1 hour ago"
+# =============================================================================
+
+[Unit]
+Description=Fundus Marketplace Node (Go P2P)
+Documentation=https://github.com/yourorg/fundus
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=8
+
+# =============================================================================
+[Service]
+# -----------------------------------------------------------------------------
+#  Identität
+# -----------------------------------------------------------------------------
+User=fundus
+Group=fundus
+
+# -----------------------------------------------------------------------------
+#  Arbeitsverzeichnis und Start
+# -----------------------------------------------------------------------------
+WorkingDirectory=/opt/fundus
+
+# Go-Binary auf Pi (cross-compiliert für ARMv7 durch deploy-fundus.ps1)
+ExecStart=/opt/fundus/bin/fundus-node
+
+# Sauber stoppen: erst SIGTERM (graceful shutdown), nach 30s SIGKILL
+ExecStop=/bin/kill -TERM $MAINPID
+TimeoutStopSec=30
+KillMode=mixed
+
+# Warten bis Port 3000 frei ist (falls alter Prozess noch läuft)
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 10); do ! ss -ltn | grep -q ":3000 " && break; sleep 1; done'
+
+# -----------------------------------------------------------------------------
+#  Umgebungsvariablen
+# -----------------------------------------------------------------------------
+# Alle Konfiguration aus Datei laden (sensitiv: Keys, Adressen, etc.)
+EnvironmentFile=/etc/fundus/fundus.env
+
+# Fallback-Defaults (werden durch fundus.env überschrieben)
+Environment="FUNDUS_PORT=3000"
+Environment="FUNDUS_DATA_DIR=/opt/fundus/data"
+
+# -----------------------------------------------------------------------------
+#  Neustart-Verhalten
+# -----------------------------------------------------------------------------
+Restart=on-failure
+RestartSec=10s
+
+# -----------------------------------------------------------------------------
+#  Ressourcen-Limits (Pi 3: 1 GB RAM)
+#
+#  Argon2id-Identitätsableitung: 128 MiB RAM × ~3s
+#  Filesharing-Allokation:       je nach FUNDUS_STORAGE_ALLOC_GB
+#  LLM (Ollama):                 läuft als eigener Service
+#  → 768 MB für fundus-node, Rest für OS
+# -----------------------------------------------------------------------------
+MemoryMax=768M
+MemorySwapMax=256M
+
+# CPU: bis zu 2 Cores nutzbar (nicht mehr als 200%)
+CPUQuota=200%
+
+# Offene Datei-Handles (libp2p + LevelDB + viele Chunk-Files)
+LimitNOFILE=65536
+
+# Keine Core-Dumps (enthält Private Keys im RAM)
+LimitCORE=0
+
+# -----------------------------------------------------------------------------
+#  Sicherheits-Hardening
+# -----------------------------------------------------------------------------
+ProtectHome=read-only
+ProtectSystem=strict
+
+# Schreibzugriff nur auf explizit erlaubte Pfade
+# /mnt: damit Chunks auf gemountete externe Laufwerke (/mnt/fundus-<uuid>)
+# geschrieben werden koennen, die der fundus-helper eingehaengt hat.
+ReadWritePaths=/opt/fundus/data /opt/fundus/chunks /tmp /mnt
+
+# Smartmeter über USB: PrivateDevices=false damit /dev/ttyUSB0 nutzbar ist
+PrivateDevices=false
+
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHostname=true
+ProtectClock=true
+
+# libp2p braucht Socket/Netzwerk-Syscalls → @network-io erlaubt
+SystemCallFilter=@system-service @network-io
+SystemCallErrorNumber=EPERM
+
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# -----------------------------------------------------------------------------
+#  Logging
+# -----------------------------------------------------------------------------
+StandardOutput=journal
+StandardError=journal
+
+# =============================================================================
+[Install]
+WantedBy=multi-user.target

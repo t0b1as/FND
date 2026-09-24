@@ -1,0 +1,32 @@
+# =============================================================================
+#  Fundus Marketplace – Log-Rotation
+#
+#  Installation:
+#    sudo cp fundus-logrotate /etc/logrotate.d/fundus
+# =============================================================================
+
+/var/log/fundus/*.log {
+    # Täglich rotieren
+    daily
+
+    # 14 Tage aufbewahren (Pi hat wenig Speicher)
+    rotate 14
+
+    # Komprimieren (spart ~80% Platz auf der SD-Karte)
+    compress
+    delaycompress
+
+    # Keine Fehler wenn Log-Datei fehlt (z.B. erster Start)
+    missingok
+
+    # Leere Logs nicht rotieren
+    notifempty
+
+    # Log-Datei nach Rotation neu anlegen
+    create 0640 fundus fundus
+
+    # Service nach Rotation neu laden damit er in die neue Datei schreibt
+    postrotate
+        systemctl kill --kill-who=main --signal=USR1 fundus-node 2>/dev/null || true
+    endscript
+}

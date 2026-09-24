@@ -1,0 +1,60 @@
+# =============================================================================
+#  Fundus Helper – privilegierter Hilfsdienst (root)
+#
+#  Führt genau die Systemoperationen aus, die der unprivilegierte fundus-node
+#  nicht selbst darf: externe Laufwerke mounten und WLAN wechseln. Kommunikation
+#  ausschließlich über einen Unix-Domain-Socket (/run/fundus-helper.sock), der
+#  nur für die fundus-Gruppe zugänglich ist.
+#
+#  Sicherheitsmodell: siehe internal/helperproto. Der Dienst akzeptiert nur eine
+#  feste, streng validierte Menge von Aktionen — kein generisches Root-Kommando.
+#
+#  Installation (durch deploy-fundus.ps1):
+#    sudo cp fundus-helper.service /etc/systemd/system/
+#    sudo systemctl daemon-reload
+#    sudo systemctl enable --now fundus-helper
+# =============================================================================
+
+[Unit]
+Description=Fundus Helper (privilegierte Mount/WLAN-Operationen)
+Documentation=https://github.com/yourorg/fundus
+# Vor dem Node starten, damit der Socket bereitsteht, wenn der Node hochkommt.
+Before=fundus-node.service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/fundus/bin/fundus-helper
+
+# Muss als root laufen (mount, nmcli). Deshalb bewusst KEINE User=-Zeile.
+# Trotzdem so eng wie möglich halten:
+Restart=on-failure
+RestartSec=5s
+
+# Persistentes Zustandsverzeichnis /var/lib/fundus-helper (fuer die Automount-
+# Liste der gemerkten UUIDs). systemd legt es an und setzt STATE_DIRECTORY.
+StateDirectory=fundus-helper
+StateDirectoryMode=0700
+
+# Der Helper braucht Root für mount/nmcli, aber nichts vom Home/Netzwerk-Stack.
+ProtectHome=true
+# /run muss beschreibbar sein (Socket); /opt fuer Update-Installation
+# (Entpacken nach /opt/fundus, Backup nach /opt/fundus.backup); /mnt fuer Mounts.
+ReadWritePaths=/run /mnt /opt
+ProtectKernelTunables=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectClock=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Keine Core-Dumps (könnten WLAN-Passwörter aus dem RAM enthalten).
+LimitCORE=0
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

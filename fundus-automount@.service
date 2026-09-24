@@ -1,0 +1,19 @@
+# Fundus Automount-Trigger (pro Datenträger, %i = Filesystem-UUID)
+#
+# Wird von der udev-Regel 99-fundus-automount.rules beim Einstecken eines
+# Datenträgers gestartet — instanziiert auf dessen UUID. Ruft den fundus-helper
+# im CLI-Modus auf, der genau diese Platte einhängt und merkt (kommt danach bei
+# Reboot/Wiederanstecken automatisch zurück).
+#
+# Bewusst schlank: spricht nur über den Socket mit dem laufenden Daemon.
+
+[Unit]
+Description=Fundus Automount fuer %I
+After=fundus-helper.service
+Wants=fundus-helper.service
+
+[Service]
+Type=oneshot
+ExecStart=/opt/fundus/bin/fundus-helper --automount-add %i
+# Nicht als Fehler werten, wenn der Daemon (noch) nicht erreichbar ist.
+SuccessExitStatus=0 1
