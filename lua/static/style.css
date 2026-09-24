@@ -1871,3 +1871,39 @@ select option { background:var(--surface); color:var(--fg); }
 .donate-row input { width:120px; min-height:38px; }
 .btn-paypal { display:inline-block; width:auto; background:#ffc439; color:#111; font-weight:700; border:none; }
 .btn-paypal:hover { background:#f2b92f; }
+
+/* Dateimanager: Medien groß anzeigen (media-viewer.js) */
+.fname.fm-media { cursor:pointer; color:var(--green,#00e676); }
+.fname.fm-media:hover { text-decoration:underline; }
+.fm-viewer { position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.9);
+  display:flex; align-items:center; justify-content:center; }
+.fm-viewer-bar { position:absolute; top:0; left:0; right:0; display:flex; align-items:center; gap:10px;
+  padding:10px 14px; padding-top:calc(10px + env(safe-area-inset-top,0px));
+  background:linear-gradient(rgba(0,0,0,.7),rgba(0,0,0,0)); color:#fff; z-index:2; }
+.fm-viewer-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.fm-viewer-meta { color:rgba(255,255,255,.65); font-size:13px; white-space:nowrap; }
+.fm-viewer-btn { flex:0 0 auto; width:40px; height:40px; border-radius:50%; border:none; cursor:pointer;
+  background:rgba(255,255,255,.14); color:#fff; font-size:22px; line-height:40px; text-align:center;
+  text-decoration:none; padding:0; }
+.fm-viewer-btn:hover { background:rgba(255,255,255,.26); }
+.fm-viewer-stage { width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+  padding:64px 56px 24px; box-sizing:border-box; }
+.fm-viewer-media { max-width:100%; max-height:100%; border-radius:8px; box-shadow:0 8px 40px rgba(0,0,0,.6); }
+audio.fm-viewer-media { width:min(560px,100%); box-shadow:none; }
+.fm-viewer-msg { color:#fff; text-align:center; max-width:460px; line-height:1.5; }
+.fm-viewer-nav { position:absolute; top:50%; transform:translateY(-50%); z-index:2; width:44px; height:64px;
+  border:none; border-radius:10px; cursor:pointer; background:rgba(255,255,255,.12); color:#fff; font-size:32px; }
+.fm-viewer-nav:hover { background:rgba(255,255,255,.24); }
+.fm-viewer-prev { left:8px; } .fm-viewer-next { right:8px; }
+@media (max-width:600px) {
+  .fm-viewer-stage { padding:60px 8px 16px; }
+  .fm-viewer-nav { width:36px; height:52px; font-size:26px; background:rgba(0,0,0,.35); }
+  .fm-viewer-btn.fm-viewer-dl, .fm-viewer-btn.fm-viewer-close, .fm-viewer-nav { width:auto !important; }
+  .fm-viewer-btn { min-width:40px; }
+}
+.fm-viewer-col { display:flex; flex-direction:column; align-items:stretch; gap:8px; max-width:100%; max-height:100%; }
+.fm-viewer-col .fm-viewer-media { max-height:calc(100vh - 170px); }
+.fm-viewer-seek { display:flex; align-items:center; gap:10px; color:#fff; }
+.fm-viewer-seek input[type=range] { flex:1; accent-color:var(--green,#00e676); }
+.fm-viewer-time { font-size:13px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.fm-viewer-note { color:rgba(255,255,255,.6); font-size:12px; text-align:center; }

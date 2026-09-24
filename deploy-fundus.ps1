@@ -36,6 +36,7 @@ param(
     [switch]$SkipSetup   = $false,
     [switch]$WriteEnv    = $false,  # fundus.env (über)schreiben; sonst nur bei Erstinstallation
     [switch]$Rebuild     = $false,  # Binary neu kompilieren erzwingen
+    [switch]$BuildOnly   = $false,  # nur Node+Helper bauen (bin\), kein Deploy (fuer deploy-all-pis)
     [string]$GoCmd       = "",      # Go-Toolchain (z.B. "go1.25.4"), leer = auto
     [string]$BootstrapPeer = "",    # Multiaddr eines bekannten Peers (z.B. /ip4/10.10.11.39/tcp/4001/p2p/12D3...)
     [string]$SwapHtlcProgram = "",  # Solana-HTLC-Programm-ID für Atomic Swaps (leer = Swap-Ausführung inaktiv)
@@ -295,6 +296,21 @@ if (Test-Path $AdminZip) {
     $deployAdmin = ($ans -eq "j" -or $ans -eq "J")
 }
 
+# -BuildOnly: nur Node + Helper bauen (bin\) und Revision vermerken, dann Ende.
+# deploy-all-pis.ps1 baut so EINMAL vorab; die parallelen Deploy-Fenster nutzen
+# dann dieses Binary, statt sich beim gleichzeitigen Bauen zu behindern.
+if ($BuildOnly) {
+    $revTxtB = Join-Path $PSScriptRoot "revision.txt"
+    $wantB   = if (Test-Path $revTxtB) { ((Get-Content $revTxtB -TotalCount 1) -replace '\D', '') } else { "" }
+    $binB    = Join-Path $PSScriptRoot "bin\fundus-node"
+    if (Test-Path $binB) { Remove-Item $binB -Force }
+    Invoke-LocalBuild $Arch
+    if (-not (Test-Path $binB)) { Write-Fail "Build lieferte kein Binary in bin\" }
+    if ($wantB) { Set-Content -Path (Join-Path $PSScriptRoot "bin\fundus-node.rev") -Value $wantB -Encoding ascii }
+    Write-Ok "Node + Helper R$wantB gebaut (bin\)"
+    exit 0
+}
+
 # Pi-Username abfragen wenn nicht als Parameter angegeben
 if ([string]::IsNullOrWhiteSpace($PiUser)) {
     $PiUser = Read-Host "  Pi SSH-Benutzername"
@@ -513,7 +529,8 @@ if (-not $SkipSetup) {
 
     # ── Basis-Pakete (immer aus Debian-Repo verfuegbar) ──────────────────────
     Write-Step "Basis-Pakete pruefen..."
-    $basePkgs = @("unzip","curl","logrotate","ca-certificates","gnupg","exfatprogs","ntfs-3g")
+    # ffmpeg: Videos im Dateimanager umverpacken (MKV/TS/… mit AC3-Ton), ohne Neukodierung
+    $basePkgs = @("unzip","curl","logrotate","ca-certificates","gnupg","exfatprogs","ntfs-3g","ffmpeg")
     $toInstall = @()
     foreach ($pkg in $basePkgs) {
         $chk = Invoke-SSH-Safe "dpkg -l $pkg 2>/dev/null | grep -q '^ii' && echo ok || echo missing"
@@ -913,7 +930,7 @@ sudo chown -R root:$FundusUser $RemoteDir && sudo chmod +x $RemoteDir/bin/fnd-wa
 # =============================================================================
 #  BLOCK I – Binary bereitstellen (lokal vorkompiliert ODER auf Pi bauen)
 # =============================================================================
-$localBinary = ".\bin\fundus-node"
+$localBinary = Join-Path $PSScriptRoot "bin\fundus-node"
 
 # -Rebuild erzwingt Neukompilierung (noetig nach Go-Quellcode-Aenderungen,
 # da sonst nur der Binary-Hash verglichen wird, nicht der Quellstand).
@@ -926,7 +943,7 @@ if ($Rebuild -and (Test-Path $localBinary)) {
 # bin\fundus-node.rev vermerkt. Passt sie nicht zu revision.txt, wird neu
 # gebaut - auch ohne -Rebuild. (Frueher wurde ein vorhandenes Binary endlos
 # wiederverwendet: Go-Aenderungen kamen so nie auf den Pis an.)
-$stampFile = ".\bin\fundus-node.rev"
+$stampFile = Join-Path $PSScriptRoot "bin\fundus-node.rev"
 $revTxt    = Join-Path $PSScriptRoot "revision.txt"
 $wantRev   = if (Test-Path $revTxt)    { ((Get-Content $revTxt -TotalCount 1) -replace '\D', '') }    else { "" }
 $haveRev   = if (Test-Path $stampFile) { ((Get-Content $stampFile -TotalCount 1) -replace '\D', '') } else { "" }
@@ -1356,6 +1373,42 @@ if ($cfgFee -and $cfgFee.ToLower() -eq $expectedFee.ToLower()) {
     Write-Warn "Bitte /etc/fundus/fundus.env auf dem Pi prüfen!"
 } else {
     Write-Warn "Fee-Collector nicht lesbar"
+}
+
+# =============================================================================
+#  Laufende Version pruefen: Programm, Oberflaeche und Helper muessen zur
+#  Revision passen. (Frueher lief teils ein altes Programm unter neuer
+#  Oberflaeche - Go-Aenderungen kamen nie an, Updates schlugen fehl.)
+# =============================================================================
+if ($wantRev) {
+    Write-Step "Laufende Version pruefen..."
+    $want = "R$wantRev"
+    $runRev = ""
+    for ($try = 0; $try -lt 20 -and -not $runRev; $try++) {
+        $h = (Invoke-SSH-Safe "curl -s --max-time 3 http://127.0.0.1:3000/health 2>/dev/null" | Out-String)
+        if ($h -match '"revision"\s*:\s*"(R\d+)"') { $runRev = $Matches[1] } else { Start-Sleep -Seconds 3 }
+    }
+    $helperHas = ((Invoke-SSH-Safe "sudo grep -c -a '$want' $RemoteDir/bin/fundus-helper 2>/dev/null || echo 0" | Out-String).Trim() -replace '\D.*$', '')
+    $uiRev = ((Invoke-SSH-Safe "cat $RemoteDir/lua/revision.txt 2>/dev/null" | Out-String).Trim() -replace '\D', '')
+    $ok = $true
+    if ($runRev -ne $want) {
+        $ok = $false
+        Write-Host ""
+        Write-Host "  !!! PROGRAMM VERALTET: laufender Node meldet '$runRev', erwartet $want" -ForegroundColor Red
+        Write-Host "      Die Oberflaeche ist neu, das Go-Programm nicht. Erneut deployen mit -Rebuild" -ForegroundColor Red
+        Write-Host "      und pruefen: sudo journalctl -u $ServiceName -n 50" -ForegroundColor Red
+    }
+    if (-not $helperHas -or [int]$helperHas -lt 1) {
+        $ok = $false
+        Write-Host "  !!! HELPER VERALTET: /opt/fundus/bin/fundus-helper ist nicht $want" -ForegroundColor Red
+        Write-Host "      Updates ueber GitHub schlagen damit fehl. Erneut deployen mit -Rebuild." -ForegroundColor Red
+    }
+    if ($uiRev -and "R$uiRev" -ne $want) {
+        $ok = $false
+        Write-Host "  !!! OBERFLAECHE: lua/revision.txt ist R$uiRev, erwartet $want" -ForegroundColor Red
+    }
+    if ($ok) { Write-Ok "Programm, Helper und Oberflaeche laufen mit $want" }
+    Write-Host ""
 }
 
 # =============================================================================

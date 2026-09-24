@@ -1,6 +1,7 @@
 package api
 
 import (
+	"mime"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -31,6 +32,8 @@ func (s *Server) registerFileRoutes() {
 	{
 		g.POST("/upload",        s.fileUpload)
 		g.GET("/download/:hash", s.fileDownload)
+		g.GET("/probe/:hash",    s.fileProbe)  // Codecs/Dauer (ffprobe)
+		g.GET("/stream/:hash",   s.fileStream) // umverpackt als MP4 (ffmpeg)
 		g.GET("/name/:hash",     s.fileName)            // Dateiname zum Hash (für Download)
 		g.GET("/availability/:hash", s.fileAvailability)
 		g.GET("/redundancy/:hash", s.fileRedundancy)
@@ -171,6 +174,10 @@ func (s *Server) fileDownload(c *gin.Context) {
 	// Fortschrittsanzeige). FileSize liest nur das Manifest (leichtgewichtig) —
 	// KEIN Verfügbarkeits-Scan hier, der würde den Download-Start blockieren.
 	size, mimeType, serr := s.fileStore.FileSize(c.Request.Context(), hash)
+	if mimeType == "" {
+		mimeType = mimeFromName(s.fileStore.NameForHash(hash))
+	}
+	mimeType = browserMime(mimeType)
 	if serr == nil && size > 0 {
 		c.Header("Content-Length", strconv.FormatInt(size, 10))
 		c.Header("Accept-Ranges", "bytes")
@@ -313,16 +320,31 @@ func (s *Server) fileDownloadRange(c *gin.Context, hash, rangeHeader string) {
 		return
 	}
 
-	// Range parsen: "bytes=START-END" (END optional)
+	// Range parsen: "bytes=START-END" (END optional) oder "bytes=-N" (die
+	// letzten N Bytes – so lesen manche Player, v.a. Safari, die Metadaten am
+	// Dateiende). Bei mehreren Bereichen wird nur der erste bedient.
 	var start, end int64 = 0, size - 1
 	spec := strings.TrimPrefix(rangeHeader, "bytes=")
-	parts := strings.SplitN(spec, "-", 2)
+	if i := strings.IndexByte(spec, ','); i >= 0 {
+		spec = spec[:i]
+	}
+	parts := strings.SplitN(strings.TrimSpace(spec), "-", 2)
 	if len(parts) == 2 {
-		if parts[0] != "" {
-			start, _ = strconv.ParseInt(parts[0], 10, 64)
-		}
-		if parts[1] != "" {
-			end, _ = strconv.ParseInt(parts[1], 10, 64)
+		switch {
+		case parts[0] == "" && parts[1] != "":
+			if n, err := strconv.ParseInt(parts[1], 10, 64); err == nil && n > 0 {
+				if n > size {
+					n = size
+				}
+				start = size - n
+			}
+		default:
+			if parts[0] != "" {
+				start, _ = strconv.ParseInt(parts[0], 10, 64)
+			}
+			if parts[1] != "" {
+				end, _ = strconv.ParseInt(parts[1], 10, 64)
+			}
 		}
 	}
 	if start < 0 {
@@ -338,9 +360,12 @@ func (s *Server) fileDownloadRange(c *gin.Context, hash, rangeHeader string) {
 	}
 
 	if mimeType == "" {
+		mimeType = mimeFromName(s.fileStore.NameForHash(hash))
+	}
+	mimeType = browserMime(mimeType)
+	if mimeType == "" {
 		// Range-Requests kommen praktisch immer von <video>/<audio>-Elementen,
 		// die einen Content-Type brauchen, sonst spielt der Browser nichts ab.
-		// Ohne gespeicherten MIME-Type als Video annehmen (häufigster Fall).
 		mimeType = "video/mp4"
 	}
 	if mimeType != "" {
@@ -1524,4 +1549,43 @@ func (s *Server) mirrorRemoteRecursive(ctx context.Context, peer, share, subPath
 		}
 	}
 	return count, nil
+}
+
+// mimeFromName leitet den Content-Type aus der Dateiendung ab (für Dateien ohne
+// gespeicherten MIME-Typ). Verschlüsselte Dateien (.fnde) bleiben unbestimmt –
+// ihr Inhalt ist erst nach dem Entschlüsseln im Browser lesbar.
+func mimeFromName(name string) string {
+	n := strings.ToLower(name)
+	if n == "" || strings.HasSuffix(n, ".fnde") {
+		return ""
+	}
+	switch filepath.Ext(n) {
+	case ".mkv":
+		return "video/webm" // Matroska ≈ WebM: Chrome/Edge spielen H.264/VP9-MKV so direkt
+	case ".mov":
+		return "video/quicktime"
+	case ".m4v", ".mp4":
+		return "video/mp4"
+	case ".webm":
+		return "video/webm"
+	case ".ogv":
+		return "video/ogg"
+	case ".heic":
+		return "image/heic"
+	case ".avif":
+		return "image/avif"
+	}
+	return mime.TypeByExtension(filepath.Ext(n))
+}
+
+// browserMime: Typen, die der Browser als Video/Audio erkennen soll.
+// video/x-matroska lehnen Browser ab – als video/webm spielen sie MKV direkt.
+func browserMime(m string) string {
+	switch strings.ToLower(m) {
+	case "video/x-matroska", "video/mkv":
+		return "video/webm"
+	case "audio/x-matroska":
+		return "audio/webm"
+	}
+	return m
 }

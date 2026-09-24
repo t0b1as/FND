@@ -1,9 +1,9 @@
 ﻿# =============================================================================
 # deploy-all-pis.ps1 - aktualisiert mehrere Pis PARALLEL.
 #
-# Oeffnet pro Pi ein eigenes PowerShell-Fenster, in dem deploy-fundus.ps1 mit
-# -Rebuild laeuft. So bauen alle Pis gleichzeitig, und du siehst pro Pi eine
-# eigene Konsole mit dem Fortschritt.
+# Baut Node + Helper EINMAL vorab und oeffnet dann pro Pi ein eigenes
+# PowerShell-Fenster, in dem deploy-fundus.ps1 dieses Binary verteilt. Du siehst
+# pro Pi eine eigene Konsole mit dem Fortschritt.
 #
 #   .\deploy-all-pis.ps1
 #
@@ -41,6 +41,17 @@ if (-not (Test-Path $deployScript)) {
     exit 1
 }
 
+# --- EINMAL vorab bauen (Node + Helper). Frueher baute jedes Fenster mit
+# -Rebuild gleichzeitig in dasselbe bin\ - die Builds behinderten sich, ein Pi
+# bekam dann neue Oberflaeche mit altem Programm. ---
+Write-Host ""
+Write-Host "Baue Node + Helper einmal vorab..." -ForegroundColor Cyan
+& powershell.exe -ExecutionPolicy Bypass -File $deployScript -BuildOnly
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "FEHLER: Build fehlgeschlagen - kein Deploy gestartet." -ForegroundColor Red
+    exit 1
+}
+
 Write-Host ""
 Write-Host "Starte Deploy auf $($PiIPs.Count) Pis parallel..." -ForegroundColor Green
 
@@ -52,7 +63,7 @@ foreach ($ip in $PiIPs) {
         "-File", "`"$deployScript`"",
         "-PiHost", $ip,
         "-PiUser", $PiUser,
-        "-Rebuild",
+        # kein -Rebuild: das vorab gebaute Binary (bin\fundus-node.rev) wird genutzt
         "-SudoPass", "`"$SudoPass`"",
         "-CertPass", "`"$CertPass`"",
         "-AdminPass", "`"$AdminPass`"",

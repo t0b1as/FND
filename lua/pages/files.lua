@@ -283,6 +283,7 @@ ngx.print(string.format([[
 @media(max-width:600px){ .files-stats-row { grid-template-columns:1fr 1fr; } }
 </style>
 
+<script src="/static/media-viewer.js?v=]] .. require("render").rev() .. [["></script>
 <script>
 const FT = ]] .. (require("cjson.safe").encode({
   redundancy_3 = t("files.redundancy_3"), redundancy_8 = t("files.redundancy_8"),
@@ -639,6 +640,7 @@ function renderFileList() {
     }
     const isEnc = nm.endsWith('.fnde');
     const disp = isEnc ? ('🔒 ' + nm.slice(0, -5)) : nm;
+    const mk = window.FundusMedia ? FundusMedia.kind(nm, f.mime_type) : null;
     const shared = !!f.shared;
     const shareLabel = shared ? '✅ geteilt' : '🔗 teilen';
     const shareCls = shared ? 'btn-sm btn-shared' : 'btn-sm';
@@ -646,7 +648,7 @@ function renderFileList() {
     const inPartner = !!(window._fmPartner && window._fmPartner.has(String(f.hash||'').toLowerCase()));
     return `
     <div class="file-row${inPartner ? ' fm-partner' : ''}">
-      <span class="fname" title="${(nm||'').replace(/"/g,'&quot;')}${inPartner ? ' – im Partnerprofil verwendet' : ''}">${inPartner ? '<span class="fm-partner-tag">💞 Partner</span> ' : ''}${disp}</span>
+      <span class="fname${mk ? ' fm-media' : ''}"${mk ? ` onclick="fmOpenMedia('${f.hash}')"` : ''} title="${(nm||'').replace(/"/g,'&quot;')}${inPartner ? ' – im Partnerprofil verwendet' : ''}${mk ? ' – klicken zum Anzeigen' : ''}">${inPartner ? '<span class="fm-partner-tag">💞 Partner</span> ' : ''}${mk ? (mk === 'image' ? '🖼 ' : mk === 'audio' ? '♪ ' : '▶ ') : ''}${disp}</span>
       <span class="fsize">${fmtSize(f.size||0)}</span>
       <span class="fhash" style="cursor:pointer" title="${FT.copy_hash_hint||'Klicken zum Kopieren'}" onclick="copyHash('${f.hash||''}')">${(f.hash||'').slice(0,14)}…</span>
       <span class="fredundancy" id="${rid}" style="color:var(--muted)" title="${FT.redundancy_col}">·</span>
@@ -713,8 +715,14 @@ function renderFolderView() {
       '<span class="fsize"></span><span class="fhash"></span><span class="fredundancy"></span><div class="fbtns"></div></div>';
   });
   // Dann Dateien.
-  filesHere.sort((a,b)=>a.name.localeCompare(b.name)).forEach(f => {
-    html += '<div class="file-row"><span class="fname" title="'+f.name.replace(/"/g,'&quot;')+'">'+f.name+'</span>'+
+  filesHere.sort((a,b)=>a.name.localeCompare(b.name));
+  window._fmFolderFiles = filesHere;
+  filesHere.forEach(f => {
+    const mk = window.FundusMedia ? FundusMedia.kind(f.name, f.mime_type) : null;
+    html += '<div class="file-row"><span class="fname' + (mk ? ' fm-media' : '') + '"' +
+      (mk ? ' onclick="fmOpenMedia(\'' + f.hash + '\',true)"' : '') +
+      ' title="'+f.name.replace(/"/g,'&quot;')+'">' +
+      (mk ? (mk === 'image' ? '🖼 ' : mk === 'audio' ? '♪ ' : '▶ ') : '') + f.name+'</span>'+
       '<span class="fsize">'+fmtSize(f.size||0)+'</span>'+
       '<span class="fhash">'+(f.hash||'').slice(0,16)+'…</span>'+
       '<span class="fredundancy"></span>'+
@@ -919,6 +927,17 @@ async function downloadFile(hash, name) {
     if (st) { st.textContent='✗ '+e.message; st.style.color='var(--red)'; }
     if (window.FundusProgress) FundusProgress.set(dlId, { state: "error", error: e.message });
   }
+}
+
+// Bild/Video/Audio groß anzeigen (media-viewer.js). Blättern mit ← → durch
+// alle Medien der aktuellen Ansicht (Hauptliste bzw. geöffneter Ordner).
+function fmOpenMedia(hash, inFolder) {
+  if (!window.FundusMedia) return;
+  const src = inFolder ? (window._fmFolderFiles || []) : (window._fmFiles || []);
+  const list = src.filter(f => !f.is_dir && FundusMedia.kind(f.name || '', f.mime_type))
+    .map(f => ({ hash: f.hash, name: f.name || '', mime: f.mime_type || '', size: f.size || 0 }));
+  const idx = list.findIndex(x => x.hash === hash);
+  FundusMedia.open(list, idx < 0 ? 0 : idx);
 }
 
 async function deleteFile(hash) {

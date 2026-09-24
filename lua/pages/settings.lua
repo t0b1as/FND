@@ -129,12 +129,25 @@ function updRender(d) {
   // Helper-Stand: Er fuehrt Installationen aus. Ein alter Helper (vor R435 mit
   // fehlerhafter Signaturpruefung, vor R443 ohne Uebernahme der Laufzeitdateien)
   // kann Updates nicht korrekt installieren.
-  var hv = d.helper || '', hEl = document.getElementById('upd-helper');
+  var hv = d.helper, hEl = document.getElementById('upd-helper');
   if (hEl) {
-    var hn = parseInt(String(hv).replace(/\D/g, ''), 10);
-    var old = !hv || hv === 'alt' || hv === 'unbekannt' || hv === 'nicht erreichbar' || (hn && hn < 443);
-    hEl.textContent = 'Installations-Helper: ' + (hv || '?') +
-      (old ? ' – veraltet oder nicht erreichbar. Bitte einmal per deploy-fundus.ps1 aktualisieren, sonst schlagen Updates fehl.' : '');
+    var txt, old;
+    if (hv === undefined) {
+      // Das laufende Node-Programm kennt das Feld nicht -> Programm aelter als R443,
+      // obwohl die Oberflaeche neuer ist (Binary wurde nicht aktualisiert).
+      old = true;
+      txt = 'Node-Programm veraltet: Die Oberfläche ist ' + (document.querySelector('.brand-rev') ? document.querySelector('.brand-rev').textContent : 'neu') +
+        ', das laufende Programm ' + (d.current || 'älter') + '. Bitte mit deploy-fundus.ps1 -Rebuild aktualisieren – sonst schlagen Updates fehl.';
+    } else if (hv === '') {
+      old = false;
+      txt = 'Installations-Helper: wird ermittelt …';
+    } else {
+      var hn = parseInt(String(hv).replace(/\D/g, ''), 10);
+      old = hv === 'alt' || hv === 'unbekannt' || hv === 'nicht erreichbar' || (hn && hn < 443);
+      txt = 'Installations-Helper: ' + hv +
+        (old ? ' – veraltet oder nicht erreichbar. Bitte einmal per deploy-fundus.ps1 -Rebuild aktualisieren, sonst schlagen Updates fehl.' : '');
+    }
+    hEl.textContent = txt;
     hEl.className = 'status-line meta' + (old ? ' error' : '');
     var ab = document.getElementById('upd-apply');
     if (ab && old) ab.title = 'Helper veraltet – Installation würde fehlschlagen';
