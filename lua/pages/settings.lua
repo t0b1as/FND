@@ -623,6 +623,15 @@ async function loadNAT() {
     [ST.public_ip, (d.addrs||[]).find(a=>a.includes('/ip4/')&&!a.includes('192.168')&&!a.includes('127.'))||ST.behind_nat],
     ['DHT-Modus', d.dht_mode||'–'],
     ['NAT-Traversal', d.nat_traversal||'–'],
+    ['Verbindungen', (d.connections_direct!=null)
+        ? (d.connections_direct + ' direkt · ' + d.connections_relayed + ' über Relay' +
+           (d.connections_relayed > 0 ? ' (Hole Punching läuft)' : ''))
+        : '–'],
+    ['Relay-Vermittler (Fundus)', (d.relay_candidates!=null)
+        ? (d.relay_candidates > 0 ? d.relay_candidates + ' verfügbar'
+           : 'keiner – mind. ein Node braucht Portweiterleitung oder FUNDUS_P2P_REACHABILITY=public')
+        : '–'],
+    ['Erreichbarkeit (Vorgabe)', d.reachability_setting || 'auto'],
     [ST.recommendation, d.recommendation||'–'],
   ];
   div.innerHTML = rows.map(([k,v]) =>

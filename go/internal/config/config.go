@@ -22,6 +22,7 @@ type Config struct {
 	P2PRelays      []string // eigene Circuit-Relays (Multiaddr inkl. /p2p/<id>), vor den öffentlichen
 	P2PRelayService bool    // dieser Node bietet anderen Nodes Relay an (braucht öffentlich erreichbaren Port)
 	P2PAnnounce    []string // zusätzlich announcte eigene Adressen (z.B. /ip4/<öffentl.IP>/tcp/4001)
+	P2PReachability string  // auto | public | private (Erreichbarkeit vorgeben statt AutoNAT)
 	PeersMax       int      // Maximale Peer-Replikate (Standard: 5)
 
 	// Storage
@@ -213,6 +214,7 @@ func Load(log *zap.Logger) *Config {
 	cfg.P2PRelays = envStrList("FUNDUS_P2P_RELAYS", "")
 	cfg.P2PAnnounce = envStrList("FUNDUS_P2P_ANNOUNCE", "")
 	cfg.P2PRelayService = envBool("FUNDUS_P2P_RELAY_SERVICE", true)
+	cfg.P2PReachability = envStr("FUNDUS_P2P_REACHABILITY", "auto")
 
 	// Bootstrap-Peers: kommagetrennte Multiaddr-Liste
 	raw := envStr("FUNDUS_BOOTSTRAP_PEERS", "")

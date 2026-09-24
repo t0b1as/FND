@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	libp2p "github.com/libp2p/go-libp2p"
@@ -21,6 +22,7 @@ import (
 	manet "github.com/multiformats/go-multiaddr/net"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
@@ -132,6 +134,53 @@ func NewNode(ctx context.Context, cfg *config.Config, store *storage.Store, log 
 		return nil, fmt.Errorf("identity laden: %w", err)
 	}
 
+	// Relay-Kandidaten dynamisch (für Nodes hinter NAT): zuerst eigene Relays
+	// (FUNDUS_P2P_RELAYS), dann direkt verbundene Fundus-Nodes, die den Relay-
+	// Dienst anbieten, zuletzt die öffentlichen IPFS-Knoten. Über einen Relay
+	// koordiniert libp2p anschließend das Hole Punching (DCUtR): beide Seiten
+	// senden gleichzeitig, die NAT-Tabellen lernen die Verbindung als
+	// ESTABLISHED – danach läuft der Verkehr direkt.
+	var selfNode atomic.Pointer[Node]
+	peerSource := func(ctx context.Context, num int) <-chan peer.AddrInfo {
+		out := make(chan peer.AddrInfo, num)
+		go func() {
+			defer close(out)
+			sent := 0
+			seen := map[peer.ID]bool{}
+			send := func(ai peer.AddrInfo) bool {
+				if seen[ai.ID] {
+					return true
+				}
+				seen[ai.ID] = true
+				select {
+				case out <- ai:
+					sent++
+					return sent < num
+				case <-ctx.Done():
+					return false
+				}
+			}
+			for _, ai := range ownRelays(cfg) {
+				if !send(ai) {
+					return
+				}
+			}
+			if sn := selfNode.Load(); sn != nil {
+				for _, ai := range sn.fundusRelayCandidates() {
+					if !send(ai) {
+						return
+					}
+				}
+			}
+			for _, ai := range defaultRelays() {
+				if !send(ai) {
+					return
+				}
+			}
+		}()
+		return out
+	}
+
 	opts := []libp2p.Option{
 		// Persistente Identität (sonst neue Peer-ID bei jedem Start)
 		libp2p.Identity(privKey),
@@ -154,7 +203,9 @@ func NewNode(ctx context.Context, cfg *config.Config, store *storage.Store, log 
 		libp2p.EnableHolePunching(),
 		// 4. Circuit Relay: Fallback wenn Hole Punching scheitert
 		libp2p.EnableRelay(),
-		libp2p.EnableAutoRelayWithStaticRelays(relaysFor(cfg)),
+		libp2p.EnableAutoRelayWithPeerSource(peerSource,
+			autorelay.WithMinInterval(30*time.Second),
+			autorelay.WithBootDelay(15*time.Second)),
 
 		// Black-Hole-Erkennung AUS: libp2p sperrt nach vielen gescheiterten
 		// UDP-/IPv6-Dials (z.B. zu öffentlichen DHT-Bootstrap-Nodes ohne
@@ -176,6 +227,16 @@ func NewNode(ctx context.Context, cfg *config.Config, store *storage.Store, log 
 		// Aktiv wird der Dienst nur, wenn AutoNAT den Node als öffentlich
 		// erreichbar erkennt – hinter NAT schadet die Option nicht.
 		opts = append(opts, libp2p.EnableRelayService(relayv2.WithInfiniteLimits()))
+	}
+	// Erreichbarkeit vorgeben, statt auf AutoNAT zu warten (bei wenigen Nodes
+	// bleibt AutoNAT oft lange "unbekannt" – dann starten weder Relay-Dienst
+	// noch Relay-Suche). public: Portweiterleitung/öffentliche IP vorhanden →
+	// Relay-Dienst für andere. private: hinter NAT/CGNAT → sofort Relay suchen.
+	switch strings.ToLower(strings.TrimSpace(cfg.P2PReachability)) {
+	case "public":
+		opts = append(opts, libp2p.ForceReachabilityPublic())
+	case "private":
+		opts = append(opts, libp2p.ForceReachabilityPrivate())
 	}
 	h, err := libp2p.New(opts...)
 	if err != nil {
@@ -241,6 +302,7 @@ func NewNode(ctx context.Context, cfg *config.Config, store *storage.Store, log 
 		log:    log,
 		peers:  make(map[peer.ID]time.Time),
 	}
+	selfNode.Store(node) // Relay-Kandidaten aus verbundenen Fundus-Nodes
 
 	// -------------------------------------------------------------------------
 	//  Alle Topics abonnieren
@@ -350,6 +412,9 @@ func (n *Node) Bootstrap(ctx context.Context) error {
 	// ausgehende Verbindung nach Hause selbst wieder auf; über sie laufen
 	// dann auch Streams in Gegenrichtung (Tunnel).
 	go n.keepBootstrapPeers(ctx)
+	// Getrennte Fundus-Nodes aktiv wieder anwählen (auch über Relay → danach
+	// Hole Punching zur direkten Verbindung).
+	go n.connectionKeeper(ctx)
 
 	if len(errs) > 0 && len(errs) == len(n.cfg.BootstrapPeers) {
 		return fmt.Errorf("all %d bootstrap peers failed", len(errs))
@@ -1045,6 +1110,14 @@ func (n *Node) NATStatus() map[string]interface{} {
 	// zwingend, dass eingehende Verbindungen klappen (z.B. CGNAT). Verbundene
 	// Peers + ggf. aktive Relay-Adresse sind die belastbareren Signale.
 	peerCount := len(n.host.Network().Peers())
+	direct, relayed := 0, 0
+	for _, c := range n.host.Network().Conns() {
+		if isRelayedConn(c) {
+			relayed++
+		} else {
+			direct++
+		}
+	}
 	switch {
 	case hasPublicAddr:
 		reachability = "public (direkte Adresse vorhanden — bei CGNAT trotzdem evtl. nur via Relay erreichbar)"
@@ -1062,6 +1135,10 @@ func (n *Node) NATStatus() map[string]interface{} {
 		"public_addrs":     publicAddrs,
 		"relay_addrs":      relayAddrs,
 		"connected_peers":  peerCount,
+		"connections_direct":  direct,
+		"connections_relayed": relayed,
+		"relay_candidates":    len(n.fundusRelayCandidates()),
+		"reachability_setting": n.cfg.P2PReachability,
 		"nat_traversal":    "hole_punching + circuit_relay + upnp",
 		"dht_mode":         "auto (server wenn erreichbar, client sonst)",
 	}
@@ -1110,7 +1187,8 @@ func isPrivateAddr(addr string) bool {
 
 // relaysFor liefert die statischen Relays: eigene (FUNDUS_P2P_RELAYS) zuerst,
 // danach die öffentlichen Standard-Relays als Fallback.
-func relaysFor(cfg *config.Config) []peer.AddrInfo {
+// ownRelays: selbst konfigurierte Relays (FUNDUS_P2P_RELAYS).
+func ownRelays(cfg *config.Config) []peer.AddrInfo {
 	var out []peer.AddrInfo
 	for _, a := range cfg.P2PRelays {
 		ma, err := multiaddr.NewMultiaddr(a)
@@ -1121,7 +1199,7 @@ func relaysFor(cfg *config.Config) []peer.AddrInfo {
 			out = append(out, *info)
 		}
 	}
-	return append(out, defaultRelays()...)
+	return out
 }
 
 // announceFilter entfernt Loopback-Adressen aus den announcten Adressen und
@@ -1282,4 +1360,129 @@ func (n *Node) OpenRawStream(ctx context.Context, peerID, protocol string) (net.
 		return nil, fmt.Errorf("p2p: Stream zu %s öffnen: %w", peerID, err)
 	}
 	return &streamConn{Stream: s}, nil
+}
+
+// ─── NAT-Brücke: Relay-Kandidaten und Verbindungspfleger ────────────────────
+
+const relayHopProto = "/libp2p/circuit/relay/0.2.0/hop"
+
+// isRelayedConn: Verbindung läuft über einen Relay (noch nicht direkt).
+func isRelayedConn(c network.Conn) bool {
+	return c.Stat().Limited || strings.Contains(c.RemoteMultiaddr().String(), "p2p-circuit")
+}
+
+// isFundusPeer: Peer spricht eines unserer Protokolle (nicht nur DHT/IPFS).
+func (n *Node) isFundusPeer(pid peer.ID) bool {
+	ps, err := n.host.Peerstore().GetProtocols(pid)
+	if err != nil {
+		return false
+	}
+	for _, p := range ps {
+		if strings.HasPrefix(string(p), "/fundus/") {
+			return true
+		}
+	}
+	return false
+}
+
+// fundusRelayCandidates: direkt verbundene Fundus-Nodes mit aktivem Relay-
+// Dienst (den bietet libp2p nur an, wenn der Node öffentlich erreichbar ist).
+func (n *Node) fundusRelayCandidates() []peer.AddrInfo {
+	var out []peer.AddrInfo
+	for _, pid := range n.host.Network().Peers() {
+		if !n.isFundusPeer(pid) {
+			continue
+		}
+		if ps, _ := n.host.Peerstore().SupportsProtocols(pid, relayHopProto); len(ps) == 0 {
+			continue
+		}
+		direct := false
+		for _, c := range n.host.Network().ConnsToPeer(pid) {
+			if !isRelayedConn(c) {
+				direct = true
+				break
+			}
+		}
+		if direct {
+			out = append(out, n.host.Peerstore().PeerInfo(pid))
+		}
+	}
+	return out
+}
+
+// connectionKeeper wählt bekannte, aber getrennte Fundus-Nodes regelmäßig neu
+// an (mit Backoff 1 min → 30 min). Fehlen die Adressen (libp2p vergisst sie
+// nach der Trennung), werden sie über die DHT neu gesucht – inklusive Relay-
+// Adressen (/p2p-circuit). Kommt die Verbindung über einen Relay zustande,
+// startet libp2p automatisch das koordinierte Hole Punching (DCUtR) und
+// wechselt bei Erfolg auf die direkte Verbindung.
+func (n *Node) connectionKeeper(ctx context.Context) {
+	type backoff struct {
+		next time.Time
+		wait time.Duration
+	}
+	bo := map[peer.ID]*backoff{}
+	sem := make(chan struct{}, 4) // höchstens 4 Wählversuche gleichzeitig
+	t := time.NewTicker(45 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		n.mu.RLock()
+		cands := make([]peer.ID, 0, len(n.peers))
+		for pid, seen := range n.peers {
+			if time.Since(seen) < 7*24*time.Hour {
+				cands = append(cands, pid)
+			}
+		}
+		n.mu.RUnlock()
+
+		now := time.Now()
+		for _, pid := range cands {
+			if pid == n.host.ID() || n.host.Network().Connectedness(pid) == network.Connected {
+				delete(bo, pid)
+				continue
+			}
+			if !n.isFundusPeer(pid) {
+				continue
+			}
+			b := bo[pid]
+			if b == nil {
+				b = &backoff{wait: time.Minute}
+				bo[pid] = b
+			}
+			if now.Before(b.next) {
+				continue
+			}
+			b.next = now.Add(b.wait)
+			if b.wait < 30*time.Minute {
+				b.wait *= 2
+			}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			go func(pid peer.ID) {
+				defer func() { <-sem }()
+				cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				ai := n.host.Peerstore().PeerInfo(pid)
+				if len(ai.Addrs) == 0 && n.dht != nil {
+					if found, err := n.dht.FindPeer(cctx, pid); err == nil {
+						ai = found
+					}
+				}
+				if len(ai.Addrs) == 0 {
+					return
+				}
+				if err := n.host.Connect(cctx, ai); err == nil {
+					n.log.Info("NAT-Brücke: Verbindung wiederhergestellt", zap.String("peer", pid.String()))
+				}
+			}(pid)
+		}
+	}
 }
