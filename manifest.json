@@ -1,0 +1,8 @@
+{
+  "version": "R435",
+  "description": "FUNDUS R435 - Meilenstein: Hybrid-Datenzugriff",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R435/FND-R435-update.zip",
+  "node_argon2": "270c80dc08e3d913fa8310f87eae4a99d78a8ba600aefb5e13d349fdeec7ff0d",
+  "published_at": "2026-09-24T17:07:59.731917Z",
+  "signature": "0x1d988136d890d3f23e9a689decbf15b03af694539fd130a9a5b16ae238f7356445e0c881a6a175f0a9d5a0da1f1791d7cdd9037dcd1b4346475e757c71e321651b"
+}
