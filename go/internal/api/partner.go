@@ -219,7 +219,11 @@ func (s *Server) upsertPartnerProfile(c *gin.Context) {
 // deletePartnerProfile löscht Profil und Salt vom Node.
 func (s *Server) deletePartnerProfile(c *gin.Context) {
 	_ = s.store.Delete(storage.RecordPartnerProfile, s.partnerProfileID(c))
-	_ = s.store.Delete(storage.RecordPartnerSalt, "local")
+	// Der Salt ist für alle Nutzer dieses Nodes gemeinsam – NICHT löschen.
+	if w := s.currentUserWallet(c); w != "" {
+		_ = s.store.Delete(storage.RecordPartnerAd, "my-ad:"+w)
+		_ = s.store.Delete(storage.RecordPartnerSearchAd, "my-search-ad:"+w)
+	}
 	c.Status(http.StatusNoContent)
 }
 
@@ -331,6 +335,7 @@ func (s *Server) getMatches(c *gin.Context) {
 		created time.Time
 	}
 	newest := map[string]adEntry{}
+	myFid := strings.ToLower(s.currentUserWallet(c))
 	for _, rec := range ads {
 		rawStr, _ := rec.Data["raw"].(string)
 		if rawStr == "" {
@@ -340,12 +345,14 @@ func (s *Server) getMatches(c *gin.Context) {
 		if err := ad.Unmarshal([]byte(rawStr)); err != nil {
 			continue
 		}
-		if ad.PeerID == peerID {
-			continue // eigener Ad
-		}
 		fid := strings.ToLower(ad.FundusID)
 		if fid == "" {
 			continue // ohne Messenger-Identität → nicht kontaktierbar, überspringen
+		}
+		// Nur das EIGENE Profil ausschließen – nicht alle Anzeigen dieses Nodes
+		// (sonst fänden sich mehrere Nutzer desselben Nodes nie).
+		if fid == myFid {
+			continue
 		}
 		if prev, ok := newest[fid]; !ok || rec.CreatedAt.After(prev.created) {
 			newest[fid] = adEntry{ad: ad, created: rec.CreatedAt}
@@ -397,8 +404,12 @@ func (s *Server) publishSearchableAd(c *gin.Context) {
 	}
 	adData, _ := json.Marshal(searchAd)
 
+	searchID := "my-search-ad"
+	if searchAd.FundusID != "" {
+		searchID = "my-search-ad:" + searchAd.FundusID // pro Nutzer (mehrere Logins je Node)
+	}
 	rec := &storage.Record{
-		ID:        "my-search-ad",
+		ID:        searchID,
 		Type:      storage.RecordPartnerSearchAd,
 		OwnerID:   peerID,
 		CreatedAt: searchAd.PublishedAt,
@@ -480,6 +491,7 @@ func (s *Server) searchPartner(c *gin.Context) {
 		myPeerID = s.node.ID().String()
 	}
 
+	mySearchFid := strings.ToLower(s.currentUserWallet(c))
 	ads := make([]*partner.SearchableAd, 0, len(records))
 	for _, rec := range records {
 		rawStr, _ := rec.Data["raw"].(string)
@@ -490,8 +502,15 @@ func (s *Server) searchPartner(c *gin.Context) {
 		if err := json.Unmarshal([]byte(rawStr), ad); err != nil {
 			continue
 		}
-		if ad.PeerID == myPeerID {
-			continue // eigenen Ad nicht zeigen
+		// Nur das eigene Profil ausblenden (per FundusID); Anzeigen anderer
+		// Nutzer DESSELBEN Nodes bleiben sichtbar. Ohne FundusID (Altbestand)
+		// gilt weiter die Node-Zuordnung.
+		if f := strings.ToLower(ad.FundusID); f != "" {
+			if f == mySearchFid {
+				continue
+			}
+		} else if ad.PeerID == myPeerID {
+			continue
 		}
 		ads = append(ads, ad)
 	}
@@ -792,6 +811,11 @@ func (s *Server) partnerMaintainOnce() {
 		myPeer = s.node.ID().String()
 	}
 	republished, purged := 0, 0
+	// Eigene Anzeigen je Nutzer sammeln und NACH der Schleife aus dem aktuellen
+	// Profil neu bauen. Früher wurde nur der Zeitstempel der gespeicherten
+	// Anzeige erneuert – eine veraltete Anzeige (z.B. von einer älteren
+	// Programmversion) lebte so endlos weiter und wirkte immer frisch.
+	ownAds := map[string]map[storage.RecordType]map[string]any{}
 	for _, t := range []struct {
 		rt    storage.RecordType
 		topic string
@@ -819,25 +843,23 @@ func (s *Server) partnerMaintainOnce() {
 					}
 					continue
 				}
-				// Zeitstempel erneuern, sonst läuft die Such-Ad nach 24 h ab und
-				// wird von der Suche überall ignoriert.
-				now := time.Now().UTC()
-				m["pub"] = now.Format(time.RFC3339Nano)
-				if _, ok := m["exp"]; ok {
-					m["exp"] = now.Add(24 * time.Hour).Format(time.RFC3339Nano)
+				fid := ""
+				if i := strings.IndexByte(r.ID, ':'); i >= 0 {
+					fid = strings.ToLower(r.ID[i+1:])
+				} else {
+					// Altlast "my-search-ad" ohne Nutzer (galt pro Node → mehrere
+					// Logins überschrieben sich): auf den Eigentümer umziehen.
+					fid, _ = m["fundus_id"].(string)
+					fid = strings.ToLower(fid)
+					_ = s.store.Delete(t.rt, r.ID)
 				}
-				nb, err := json.Marshal(m)
-				if err != nil {
+				if fid == "" {
 					continue
 				}
-				r.Data["raw"] = string(nb)
-				_ = s.store.Put(r)
-				if s.node != nil {
-					pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					_ = s.node.Publish(pctx, t.topic, nb)
-					cancel()
-					republished++
+				if ownAds[fid] == nil {
+					ownAds[fid] = map[storage.RecordType]map[string]any{}
 				}
+				ownAds[fid][t.rt] = m
 				continue
 			}
 			ts := r.UpdatedAt
@@ -851,9 +873,66 @@ func (s *Server) partnerMaintainOnce() {
 			}
 		}
 	}
+	for fid, types := range ownAds {
+		matchRaw, searchRaw, ok := s.buildOwnPartnerAds(fid)
+		for rt, old := range types {
+			id, topic, fresh := "my-ad:"+fid, "fundus.partner", matchRaw
+			if rt == storage.RecordPartnerSearchAd {
+				id, topic, fresh = "my-search-ad:"+fid, "fundus.partner.search", searchRaw
+			}
+			if !ok || len(fresh) == 0 {
+				// Kein lokales Profil (z.B. Gast-Node): gespeicherte Anzeige mit
+				// erneuertem Zeitstempel weiterverteilen, wie bisher.
+				now := time.Now().UTC()
+				old["pub"] = now.Format(time.RFC3339Nano)
+				if _, has := old["exp"]; has {
+					old["exp"] = now.Add(24 * time.Hour).Format(time.RFC3339Nano)
+				}
+				fresh, _ = json.Marshal(old)
+			}
+			if len(fresh) == 0 {
+				continue
+			}
+			_ = s.store.Put(&storage.Record{ID: id, Type: rt, Data: map[string]any{"raw": string(fresh)}})
+			if s.node != nil {
+				pctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = s.node.Publish(pctx, topic, fresh)
+				cancel()
+				republished++
+			}
+		}
+	}
 	if republished > 0 || purged > 0 {
 		s.log.Info("Partner-Ads gepflegt", zap.Int("neu_verteilt", republished), zap.Int("veraltet_geloescht", purged))
 	}
+}
+
+// buildOwnPartnerAds baut Match- und Such-Anzeige eines Nutzers frisch aus
+// seinem aktuellen Profil (ohne Session – für die Neuverteilung).
+func (s *Server) buildOwnPartnerAds(fid string) (matchRaw, searchRaw []byte, ok bool) {
+	fid = strings.ToLower(fid)
+	profRec, err := s.store.Get(storage.RecordPartnerProfile, "profile:"+fid)
+	if err != nil || profRec == nil {
+		return nil, nil, false
+	}
+	profile, salt, err := s.loadProfileAndSalt(profRec)
+	if err != nil {
+		return nil, nil, false
+	}
+	peerID := ""
+	if s.node != nil {
+		peerID = s.node.ID().String()
+	}
+	ad, err := partner.MakePublicAd(profile, peerID, salt)
+	if err != nil {
+		return nil, nil, false
+	}
+	ad.FundusID = fid
+	matchRaw, _ = ad.Marshal()
+	sad := partner.MakeSearchableAd(profile, peerID)
+	sad.FundusID = fid
+	searchRaw, _ = json.Marshal(sad)
+	return matchRaw, searchRaw, true
 }
 
 // =============================================================================

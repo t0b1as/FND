@@ -305,13 +305,15 @@ return function()
 <div class="field">
   <label>%s</label>
   <select id="p-seek-gender" name="seek_gender">
+    <option value=""%s>]] .. t("partner.gender_any") .. [[</option>
     <option value="male"%s>]] .. t("partner.gender_male") .. [[</option>
     <option value="female"%s>]] .. t("partner.gender_female") .. [[</option>
   </select>
 </div>
 ]], t("partner.label_seek_gender"),
-    (seekGenders[1] == "male" and " selected" or ""),
-    (seekGenders[1] == "female" and " selected" or "")))
+    ((#seekGenders ~= 1) and " selected" or ""),
+    ((#seekGenders == 1 and seekGenders[1] == "male") and " selected" or ""),
+    ((#seekGenders == 1 and seekGenders[1] == "female") and " selected" or "")))
 
     -- Altersklassen suchen
     ngx.print("<div class='field'><label>" .. t("partner.label_seek_age") .. "</label><div class='pref-grid'>")

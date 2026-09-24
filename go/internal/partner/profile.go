@@ -408,7 +408,7 @@ func (m *Matcher) MatchWithReason(remote *PublicAd) (*MatchResult, string) {
 		return nil, "geschlecht"
 	}
 	if len(remote.SeekingGenderHashes) > 0 && !containsAny(remote.SeekingGenderHashes, myGenderHash) {
-		return nil, "geschlecht"
+		return nil, "geschlecht_gegen" // IHR Wunsch passt nicht zu MEINEM Geschlecht
 	}
 
 	// 3. Altersklassen-Gegenseitigkeit
@@ -420,7 +420,7 @@ func (m *Matcher) MatchWithReason(remote *PublicAd) (*MatchResult, string) {
 	}
 	if len(remote.SeekingAgeRangeHashes) > 0 {
 		if !containsAny(remote.SeekingAgeRangeHashes, myAgeHash) {
-			return nil, "alter"
+			return nil, "alter_gegen"
 		}
 	}
 

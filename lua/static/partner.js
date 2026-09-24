@@ -29,8 +29,12 @@ async function loadMatches() {
         why = 'Noch keine anderen Profile im Netz bekannt. Profile anderer Nodes werden alle 5 Minuten abgeglichen.';
       } else {
         const rj = info.rejected || {};
-        const label = { entfernung:'außerhalb des Suchradius', geschlecht:'Geschlecht passt nicht (gegenseitig)',
-                        alter:'Altersklasse passt nicht (gegenseitig)', abgelaufen:'Profil abgelaufen (Besitzer länger offline)' };
+        const label = { entfernung:'außerhalb des Suchradius',
+                        geschlecht:'Geschlecht passt nicht zu deinem Suchwunsch (Reiter „Suche")',
+                        geschlecht_gegen:'dein Geschlecht passt nicht zu ihrem/seinem Suchwunsch',
+                        alter:'Altersklasse passt nicht zu deinem Suchwunsch',
+                        alter_gegen:'deine Altersklasse passt nicht zu ihrem/seinem Suchwunsch',
+                        abgelaufen:'Profil abgelaufen (Besitzer länger offline)' };
         const parts = Object.keys(rj).map(k => rj[k] + '× ' + (label[k] || k));
         why = n + (n === 1 ? ' Profil' : ' Profile') + ' bekannt, aber keines passt' + (parts.length ? ': ' + parts.join(', ') : '') + '.';
       }
@@ -95,9 +99,38 @@ async function loadProfileClientSide() {
   const eduEl = document.getElementById("p-edu"); if (eduEl && p.education) eduEl.value = p.education;
   const indEl = document.getElementById("p-industry"); if (indEl && p.industry) indEl.value = p.industry;
   // Radius / Suchpräferenzen
-  if (p.seeking) {
-    set("p-radius", p.seeking.radius_km);
-    set("p-seek-gender", p.seeking.gender);
+  // Suchwünsche vollständig wiederherstellen. Früher wurde nur der Radius
+  // gesetzt und das Geschlecht aus einem falschen Feld (gender statt genders)
+  // gelesen – das Auswahlfeld blieb auf der ersten Option ("männlich"), und
+  // jedes erneute Speichern überschrieb den Wunsch stillschweigend.
+  const sk = p.seeking || {};
+  set("p-radius", sk.radius_km);
+  const sg = Array.isArray(sk.genders) ? sk.genders.filter(Boolean) : [];
+  const sgEl = document.getElementById("p-seek-gender");
+  if (sgEl) sgEl.value = (sg.length === 1) ? sg[0] : ""; // mehrere/keine = egal
+  const setChecks = (arr, name) => {
+    document.querySelectorAll('input[name="' + name + '"]').forEach(cb => {
+      cb.checked = Array.isArray(arr) && arr.indexOf(cb.value) >= 0;
+    });
+  };
+  setChecks(sk.age_ranges, "seek_age");
+  setChecks(sk.educations, "seek_edu");
+  setChecks(sk.sex_pref_abbrs, "seek_sex");
+  // Eigene Vorlieben inkl. Rolle wiederherstellen (sonst beim Speichern gelöscht).
+  if (Array.isArray(p.sexual_prefs)) {
+    for (const sp of p.sexual_prefs) {
+      const abbr = sp && (sp.abbr || sp.Abbr);
+      if (!abbr) continue;
+      const cb = document.querySelector('.sex-abbr-cb[data-abbr="' + CSS.escape(abbr) + '"]');
+      if (!cb) continue;
+      if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event("change", {bubbles: true})); }
+      const role = sp.role || sp.Role;
+      if (role) {
+        document.querySelectorAll('#roles-' + CSS.escape(abbr) + ' .role-btn').forEach(b => {
+          b.classList.toggle("role-active", b.dataset.role === role);
+        });
+      }
+    }
   }
   // Checkboxen (Hobbys, Vorlieben, Abneigungen)
   const checkList = (arr, name) => {
