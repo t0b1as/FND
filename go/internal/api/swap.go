@@ -859,6 +859,15 @@ func (s *Server) swapBuy(c *gin.Context) {
 		return
 	}
 
+	// Deckung prüfen, BEVOR irgendetwas gesperrt wird: der Annehmende sperrt
+	// zuerst – fehlt dem Anbieter das Guthaben, wären seine Mittel ~48 h gebunden.
+	if fe := s.checkTakeFunds(c.Request.Context(), order, amountFND, takerGivesSol,
+		solKey.PublicKey().String(), fndAddr, ""); fe != nil {
+		req.SolKey, req.FndSeed = "", ""
+		c.JSON(http.StatusBadRequest, gin.H{"error": fe.Msg, "funds": fe.Detail})
+		return
+	}
+
 	// Geheimnis erzeugen (der Taker erzeugt es immer).
 	var secret [32]byte
 	_, _ = crand.Read(secret[:])

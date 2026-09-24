@@ -431,6 +431,19 @@ func (sc *swapCoordinator) autoTriggerSwap(my, other *Order) bool {
 		}
 	}
 
+	// Deckung beider Seiten prüfen, bevor wir (als Erst-Sperrer) Mittel binden.
+	// Die eigene Order (my) zählt dabei nicht als "gebunden" – sie wird gerade erfüllt.
+	fctx, fcancel := context.WithTimeout(context.Background(), 15*time.Second)
+	fe := s.checkTakeFunds(fctx, other, amountFND, takerGivesSol, takerSolAddr, takerFndAddr, my.ID)
+	fcancel()
+	if fe != nil {
+		if s.log != nil {
+			s.log.Info("Auto-Match übersprungen – nicht gedeckt",
+				zap.String("myOrder", my.ID), zap.String("otherOrder", other.ID), zap.String("grund", fe.Msg))
+		}
+		return false
+	}
+
 	msg := swapInitMsg{
 		OrderID:       other.ID, // die angenommene (Maker-)Order
 		Hashlock:      hex.EncodeToString(hash[:]),

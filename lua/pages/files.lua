@@ -1010,18 +1010,39 @@ async function fileSearch() {
 
 function renderFsResults(hits) {
   const box = document.getElementById('fs-results');
-  if (!hits.length) { box.innerHTML = '<div class="empty-hint">' + FT.no_shared_found + '</div>'; return; }
+  if (!hits.length) { box.innerHTML = '<div class="empty-hint">' + FT.no_shared_found + '</div>'; window._fsHits = []; return; }
+  // Für die Anzeige (media-viewer.js): verschlüsselte Treffer tragen die
+  // .fnde-Endung nicht zwingend im Namen – der Viewer erkennt sie daran.
+  window._fsHits = hits.map(function(h){
+    let n = h.name || h.hash;
+    if (h.encrypted && !String(n).toLowerCase().endsWith('.fnde')) n = n + '.fnde';
+    return { hash: h.hash, name: n, mime: h.mime_type || '', size: h.size || 0 };
+  });
   box.innerHTML = hits.map(function(h){
     const lock = h.encrypted ? '🔒 ' : '';
     const nm = (h.name || h.hash);
     const src = h.from_peer === 'local' ? FT.local_src : FT.network;
+    const mk = window.FundusMedia ? FundusMedia.kind(nm, h.mime_type) : null;
+    const icon = mk ? (mk === 'image' ? '🖼 ' : mk === 'audio' ? '♪ ' : '▶ ') : '';
     return '<div class="file-row">'
-      + '<span class="fname">' + lock + nm + '</span>'
+      + '<span class="fname' + (mk ? ' fm-media' : '') + '"'
+      + (mk ? ' onclick="fsOpenMedia(\'' + h.hash + '\')" title="klicken zum Anzeigen"' : '')
+      + '>' + icon + lock + nm + '</span>'
       + '<span class="fsize">' + fmtSize(h.size||0) + '</span>'
       + '<span class="fhash">' + src + '</span>'
       + '<div class="fbtns"><button class="btn-sm btn-prim" onclick="downloadFile(\'' + h.hash + '\',\'' + nm.replace(/'/g,"") + '\')">↓</button></div>'
       + '</div>';
   }).join('');
+}
+
+// Treffer der Netzwerksuche groß anzeigen (Blättern mit ← → durch alle
+// Bild-/Video-Treffer). Entfernte Dateien werden dabei über den eigenen Node
+// gestreamt – er holt die benötigten Chunks von den Peers.
+function fsOpenMedia(hash) {
+  if (!window.FundusMedia) return;
+  const list = (window._fsHits || []).filter(x => FundusMedia.kind(x.name, x.mime));
+  const idx = list.findIndex(x => x.hash === hash);
+  FundusMedia.open(list, idx < 0 ? 0 : idx);
 }
 
 // ── Laufwerks-Angebot: Regler pro gemountetem Laufwerk ──────────────────────

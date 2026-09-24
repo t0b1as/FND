@@ -427,6 +427,11 @@ func (s *Server) orderCreate(c *gin.Context) {
 	if fndAddr == "" && s.fileStore != nil {
 		fndAddr = s.fileStore.NodeWalletAddress()
 	}
+	// Deckung prüfen: ohne ausreichendes Guthaben wird die Order abgelehnt.
+	if fe := s.checkOrderFunds(c.Request.Context(), req.Side, req.Type, req.AmountFND, req.PriceSOL, fndAddr, req.SolAddress); fe != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fe.Msg, "funds": fe.Detail})
+		return
+	}
 	o := &Order{
 		Maker: maker, MakerPeer: peerID,
 		Side: req.Side, Type: req.Type,
