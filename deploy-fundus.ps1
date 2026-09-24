@@ -1385,11 +1385,14 @@ if ($wantRev) {
     $want = "R$wantRev"
     $runRev = ""
     for ($try = 0; $try -lt 20 -and -not $runRev; $try++) {
-        $h = (Invoke-SSH-Safe "curl -s --max-time 3 http://127.0.0.1:3000/health 2>/dev/null" | Out-String)
+        $h = ((Invoke-SSH-Safe "curl -s --max-time 3 http://127.0.0.1:3000/health 2>/dev/null").Output | Out-String)
         if ($h -match '"revision"\s*:\s*"(R\d+)"') { $runRev = $Matches[1] } else { Start-Sleep -Seconds 3 }
     }
-    $helperHas = ((Invoke-SSH-Safe "sudo grep -c -a '$want' $RemoteDir/bin/fundus-helper 2>/dev/null || echo 0" | Out-String).Trim() -replace '\D.*$', '')
-    $uiRev = ((Invoke-SSH-Safe "cat $RemoteDir/lua/revision.txt 2>/dev/null" | Out-String).Trim() -replace '\D', '')
+    # Invoke-SSH-Safe liefert ein Objekt { Output; ExitCode } - nur Output auswerten.
+    $helperOut = ((Invoke-SSH-Safe "sudo grep -c -a '$want' $RemoteDir/bin/fundus-helper 2>/dev/null || echo 0").Output | Out-String)
+    $helperHas = 0
+    if ($helperOut -match '(\d+)') { $helperHas = [int]$Matches[1] }
+    $uiRev = (((Invoke-SSH-Safe "cat $RemoteDir/lua/revision.txt 2>/dev/null").Output | Out-String).Trim() -replace '\D', '')
     $ok = $true
     if ($runRev -ne $want) {
         $ok = $false
@@ -1398,7 +1401,7 @@ if ($wantRev) {
         Write-Host "      Die Oberflaeche ist neu, das Go-Programm nicht. Erneut deployen mit -Rebuild" -ForegroundColor Red
         Write-Host "      und pruefen: sudo journalctl -u $ServiceName -n 50" -ForegroundColor Red
     }
-    if (-not $helperHas -or [int]$helperHas -lt 1) {
+    if ($helperHas -lt 1) {
         $ok = $false
         Write-Host "  !!! HELPER VERALTET: /opt/fundus/bin/fundus-helper ist nicht $want" -ForegroundColor Red
         Write-Host "      Updates ueber GitHub schlagen damit fehl. Erneut deployen mit -Rebuild." -ForegroundColor Red
@@ -1431,7 +1434,7 @@ Write-Host ""
 # --- zugaenglich sind (udisks2-Mount unter /media, fuer den Node nicht lesbar).
 # Invoke-SSH-Safe kann ein Array (mehrere Zeilen) liefern → immer zu String machen.
 $driveRaw = Invoke-SSH-Safe "lsblk -o MOUNTPOINT -n -p 2>/dev/null | grep -E '^/media/|^/run/media/' | head -3"
-$driveCheck = ($driveRaw | Out-String).Trim()
+$driveCheck = ($driveRaw.Output | Out-String).Trim()
 if ($driveCheck -ne "") {
     Write-Host "  .. Externe Laufwerke erkannt:" -ForegroundColor Cyan
     Write-Host "     $driveCheck" -ForegroundColor Gray

@@ -71,9 +71,19 @@ func (s *Server) getPartnerProfile(c *gin.Context) {
 		return
 	}
 	rec, err := s.store.Get(storage.RecordPartnerProfile, pid)
+	sess := s.getSession(c)
+	// Eigenes (nicht gecachtes) Profil liegt hier, der Heim-Node ist aber ein
+	// anderer: dem Heim-Node im Hintergrund eine Kopie geben, falls ihm das
+	// Profil fehlt. Repariert Altbestände, bei denen der Heim-Node beim ersten
+	// Login nach dem Update auf einen Node ohne Profil festgelegt wurde.
+	if err == nil && rec != nil && sess != nil && s.homePeerOfSession(sess) != "" {
+		if from, _ := rec.Data["cached_from"].(string); from == "" {
+			go s.ensureHomeHasProfile(sess, rec.Data)
+		}
+	}
 	// Gast-Node (Hybrid): Profil liegt beim Heim-Node → holen und lokal cachen.
 	// Ein vorhandener Cache wird nach 5 Minuten aufgefrischt.
-	if sess := s.getSession(c); sess != nil && s.homePeerOfSession(sess) != "" {
+	if sess != nil && s.homePeerOfSession(sess) != "" {
 		stale := err != nil || rec == nil
 		if !stale {
 			if from, _ := rec.Data["cached_from"].(string); from != "" && time.Since(rec.UpdatedAt) > 5*time.Minute {
@@ -84,11 +94,38 @@ func (s *Server) getPartnerProfile(c *gin.Context) {
 			rec, err = s.store.Get(storage.RecordPartnerProfile, pid)
 		}
 	}
+	// Nirgends gefunden (weder hier noch beim Heim-Node): alle verbundenen
+	// Nodes fragen. Die Anfrage ist vom Nutzer signiert, gelesen wird nur sein
+	// eigenes Profil. Ein Original schlägt eine gecachte Kopie.
+	if (err != nil || rec == nil) && sess != nil {
+		if d := s.findPartnerProfileInNetwork(sess); d != nil {
+			delete(d, "cached_from")
+			d["owner_wallet"] = strings.ToLower(sess.identity.FundusID)
+			nr := &storage.Record{ID: pid, Type: storage.RecordPartnerProfile, Data: d}
+			if s.store.Put(nr) == nil {
+				rec, err = nr, nil
+				if s.homePeerOfSession(sess) != "" {
+					go s.ensureHomeHasProfile(sess, d)
+				}
+				if s.log != nil {
+					s.log.Info("Partnerprofil im Netz wiedergefunden und übernommen", zap.String("profil", pid))
+				}
+			}
+		}
+	}
 	if err != nil || rec == nil {
 		// Migration: altes Profil lag unter dem globalen Key "local" (vor der
-		// wallet-gebundenen ID). Einmalig übernehmen, damit es nicht verloren ist.
-		if old, oerr := s.store.Get(storage.RecordPartnerProfile, "local"); oerr == nil && old != nil {
+		// wallet-gebundenen ID). Nur übernehmen, wenn es nachweislich diesem
+		// Nutzer gehört oder keinen Eigentümer trägt – sonst bekäme bei mehreren
+		// Nutzern auf einem Node der Erste das Profil eines anderen.
+		old, oerr := s.store.Get(storage.RecordPartnerProfile, "local")
+		owner := ""
+		if oerr == nil && old != nil {
+			owner, _ = old.Data["owner_wallet"].(string)
+		}
+		if oerr == nil && old != nil && (owner == "" || strings.EqualFold(owner, strings.TrimPrefix(pid, "profile:"))) {
 			old.ID = pid
+			old.Data["owner_wallet"] = strings.TrimPrefix(pid, "profile:")
 			_ = s.store.Put(old)
 			_ = s.store.Delete(storage.RecordPartnerProfile, "local")
 			rec = old
@@ -925,5 +962,81 @@ func (s *Server) partnerPullFromPeers(force bool) {
 				s.log.Info("Partner-Pull", zap.String("peer", peerID), zap.Int("ads", n))
 			}
 		}(pid.String())
+	}
+}
+
+// findPartnerProfileInNetwork fragt alle verbundenen Nodes parallel nach dem
+// Partnerprofil des angemeldeten Nutzers (signierte Leseanfrage). Liefert das
+// erste Original (ohne cached_from), sonst die erste gecachte Kopie, sonst nil.
+func (s *Server) findPartnerProfileInNetwork(sess *Session) map[string]any {
+	if s.node == nil || sess == nil || sess.identity == nil {
+		return nil
+	}
+	peers := s.node.Peers()
+	if len(peers) == 0 {
+		return nil
+	}
+	type found struct {
+		d        map[string]any
+		original bool
+	}
+	ch := make(chan found, len(peers))
+	for _, p := range peers {
+		go func(target string) {
+			raw, err := s.homeCallPeer(sess, target, "partner.get", "", nil)
+			if err != nil || len(raw) == 0 || string(raw) == "null" {
+				ch <- found{}
+				return
+			}
+			var d map[string]any
+			if json.Unmarshal(raw, &d) != nil || len(d) == 0 {
+				ch <- found{}
+				return
+			}
+			from, _ := d["cached_from"].(string)
+			ch <- found{d: d, original: from == ""}
+		}(p.String())
+	}
+	var best map[string]any
+	deadline := time.After(8 * time.Second)
+	for i := 0; i < len(peers); i++ {
+		select {
+		case f := <-ch:
+			if f.d == nil {
+				continue
+			}
+			if f.original {
+				return f.d
+			}
+			if best == nil {
+				best = f.d
+			}
+		case <-deadline:
+			return best
+		}
+	}
+	return best
+}
+
+// ensureHomeHasProfile gibt dem Heim-Node eine Kopie des Profils, falls ihm
+// keins vorliegt (überschreibt nie ein vorhandenes – das könnte neuer sein).
+func (s *Server) ensureHomeHasProfile(sess *Session, data map[string]any) {
+	raw, err := s.homeCall(sess, "partner.get", "", nil)
+	if err != nil {
+		return // Heim-Node nicht erreichbar – beim nächsten Aufruf erneut
+	}
+	if len(raw) > 0 && string(raw) != "null" {
+		var d map[string]any
+		if json.Unmarshal(raw, &d) == nil && len(d) > 0 {
+			return
+		}
+	}
+	cp := make(map[string]any, len(data))
+	for k, v := range data {
+		cp[k] = v
+	}
+	delete(cp, "cached_from")
+	if _, err := s.homeCall(sess, "partner.put", "", cp); err == nil && s.log != nil {
+		s.log.Info("Partnerprofil an den Heim-Node übertragen (fehlte dort)")
 	}
 }

@@ -174,44 +174,10 @@ func (s *Server) registerMessengerRoutes() {
 //  Identity Endpoints
 // =============================================================================
 
-// identityDerive leitet eine Identität aus Email + Passwort ab.
-// Die Ableitung passiert server-seitig (Argon2id ~3-6s).
-// Der Private Key bleibt im RAM der Session.
-//
-// POST /api/v1/identity/derive
-// Body: { "email": "...", "password": "..." }
-func (s *Server) identityDerive(c *gin.Context) {
-	var req struct {
-		Email    string   `json:"email"`
-		Password string   `json:"password"`
-		Words    []string `json:"words"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	s.log.Info("Identitätsableitung startet…")
-	var id *identity.Identity
-	var err error
-	if len(req.Words) > 0 {
-		// Login direkt mit den Seed-Wörtern (ergibt dieselbe Identität wie email+pw).
-		id, err = identity.DeriveFromWords(req.Words)
-	} else if req.Email != "" && req.Password != "" {
-		id, err = identity.Derive(req.Email, req.Password)
-	} else {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email+passwort ODER seed-wörter erforderlich"})
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Passwort und Email sofort aus Request-Struct löschen
-	req.Password = ""
-	req.Email    = ""
-
+// buildSession baut die Laufzeit-Session einer Identität auf (Messenger,
+// verschlüsselter Verlauf, Empfangs-Handler). Gemeinsamer Weg für den Login und
+// die Wiederherstellung nach einem Neustart des Nodes.
+func (s *Server) buildSession(id *identity.Identity) *Session {
 	// Session anlegen
 	sess := &Session{
 		identity: id,
@@ -317,12 +283,57 @@ func (s *Server) identityDerive(c *gin.Context) {
 			}
 		})
 	}
+	return sess
+}
+
+// identityDerive leitet eine Identität aus Email + Passwort ab.
+// Die Ableitung passiert server-seitig (Argon2id ~3-6s).
+// Der Private Key bleibt im RAM der Session.
+//
+// POST /api/v1/identity/derive
+// Body: { "email": "...", "password": "..." }
+func (s *Server) identityDerive(c *gin.Context) {
+	var req struct {
+		Email    string   `json:"email"`
+		Password string   `json:"password"`
+		Words    []string `json:"words"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	s.log.Info("Identitätsableitung startet…")
+	var id *identity.Identity
+	var err error
+	if len(req.Words) > 0 {
+		// Login direkt mit den Seed-Wörtern (ergibt dieselbe Identität wie email+pw).
+		id, err = identity.DeriveFromWords(req.Words)
+	} else if req.Email != "" && req.Password != "" {
+		id, err = identity.Derive(req.Email, req.Password)
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email+passwort ODER seed-wörter erforderlich"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Passwort und Email sofort aus Request-Struct löschen
+	req.Password = ""
+	req.Email    = ""
+
+	// Session anlegen (Messenger, Verlauf, Empfangs-Handler)
+	sess := s.buildSession(id)
 
 	sessionMu.Lock()
 	// Altes Cookie-Token invalidieren, falls vorhanden (sonst sammeln sich
 	// mehrere gültige Sessions an → Badge und Messenger können unterschiedliche
 	// Identitäten sehen). Ein Browser = eine aktive Session.
+	forgetOld := ""
 	if oldToken, err := c.Cookie("fundus_session"); err == nil && oldToken != "" {
+		forgetOld = oldToken
 		if oldFid, ok := sessionTokens[oldToken]; ok {
 			delete(sessionTokens, oldToken)
 			if oldFid != id.FundusID {
@@ -336,6 +347,9 @@ func (s *Server) identityDerive(c *gin.Context) {
 	token := newSessionToken()
 	sessionTokens[token] = id.FundusID
 	sessionMu.Unlock()
+	// Über Neustarts/Updates hinweg: verschlüsselt ablegen (Schlüssel = Token).
+	s.forgetSession(forgetOld)
+	s.persistSession(token, id)
 
 	// Cookie: HttpOnly, SameSite=Lax OHNE Secure. Mit selbstsigniertem Zertifikat
 	// speichert/sendet Chrome Secure-Cookies unzuverlässig; Lax reicht, weil alle
@@ -353,7 +367,7 @@ func (s *Server) identityDerive(c *gin.Context) {
 		"fundus_id":  id.FundusID,
 		"public_key": id.PublicKeyHex,
 		"derived_at": id.DerivedAt,
-		"note":       "Private Key nur im RAM – geht bei Neustart verloren",
+		"note":       "Sitzung übersteht Neustarts (verschlüsselt, Schlüssel nur im Browser-Cookie)",
 		"kdf":        "Argon2id v2 (512 MiB, t=4, ~11s Pi 3)",
 	})
 }
@@ -396,6 +410,7 @@ func (s *Server) identityLogout(c *gin.Context) {
 		}
 		delete(sessionTokens, token)
 		sessionMu.Unlock()
+		s.forgetSession(token)
 	}
 	// Cookie im Browser löschen (maxAge negativ).
 	c.SetSameSite(http.SameSiteLaxMode)
@@ -907,25 +922,24 @@ func (s *Server) getSession(c *gin.Context) *Session {
 	// auch per Header X-Fundus-ID / Query fundus_id – die FundusID ist aber
 	// öffentlich (Partner-Ads, Keydir), damit konnte jeder fremde Sessions
 	// übernehmen (Nachrichten lesen/senden, Profil ändern).
-	fundusID := ""
-	{
-		if token, err := c.Cookie("fundus_session"); err == nil && token != "" {
-			sessionMu.RLock()
-			fundusID = sessionTokens[token]
-			sessionMu.RUnlock()
-		}
-	}
-
-	sessionMu.RLock()
-	defer sessionMu.RUnlock()
-
-	if fundusID != "" {
-		return sessionStore[fundusID]
-	}
 	// KEIN Fallback auf "erste aktive Session" — das würde ohne gültiges Cookie
 	// eine fremde Session zurückgeben (Sicherheitsloch) und das Abmelden wirkungslos
 	// machen. Ohne Identifikation gibt es keine Session.
-	return nil
+	token, err := c.Cookie("fundus_session")
+	if err != nil || token == "" {
+		return nil
+	}
+	sessionMu.RLock()
+	var sess *Session
+	if fid := sessionTokens[token]; fid != "" {
+		sess = sessionStore[fid]
+	}
+	sessionMu.RUnlock()
+	if sess != nil {
+		return sess
+	}
+	// Nach Neustart/Update: aus der verschlüsselten Ablage wiederherstellen.
+	return s.restoreSession(c, token)
 }
 
 // =============================================================================

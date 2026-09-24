@@ -975,3 +975,48 @@ func DeriveFromWords(words []string) (*Identity, error) {
 func Blake3Sum256(data []byte) [32]byte {
 	return blake3Sum256(data)
 }
+
+// ── Sitzungswiederherstellung ohne erneutes Argon2 ──────────────────────────
+
+// SessionSecret enthält, was eine angemeldete Sitzung nach einem Neustart des
+// Nodes braucht: den bereits abgeleiteten Ed25519-Seed (spart den teuren
+// Argon2-Durchlauf mit 512 MiB), die Seed-Wörter (Wallet-Export, ChainAddr) und
+// die ggf. schon berechnete Chain-Adresse. NUR verschlüsselt speichern.
+type SessionSecret struct {
+	EdSeed    []byte   `json:"s"`
+	Words     []string `json:"w"`
+	ChainAddr string   `json:"c,omitempty"`
+}
+
+// ExportSessionSecret liefert die Geheimnisse dieser Identität für die
+// verschlüsselte Sitzungsablage.
+func (id *Identity) ExportSessionSecret() SessionSecret {
+	return SessionSecret{
+		EdSeed:    append([]byte(nil), id.ed25519Key.Seed()...),
+		Words:     append([]string(nil), id.seedWords...),
+		ChainAddr: id.chainAddrCache,
+	}
+}
+
+// FromSessionSecret stellt eine Identität aus einem SessionSecret wieder her –
+// in Millisekunden, ohne Argon2. Ergibt exakt dieselben Schlüssel wie der Login.
+func FromSessionSecret(sec SessionSecret) (*Identity, error) {
+	if len(sec.EdSeed) != ed25519.SeedSize {
+		return nil, errors.New("identity: Sitzungsschlüssel ungültig")
+	}
+	priv := ed25519.NewKeyFromSeed(sec.EdSeed)
+	pub := priv.Public().(ed25519.PublicKey)
+	var x25519Priv [32]byte
+	copy(x25519Priv[:], sec.EdSeed)
+	clampX25519(&x25519Priv)
+	h := blake3Sum256(pub)
+	return &Identity{
+		FundusID:       "0x" + hex.EncodeToString(h[:20]),
+		PublicKeyHex:   hex.EncodeToString(pub),
+		ed25519Key:     priv,
+		x25519Priv:     x25519Priv,
+		seedWords:      append([]string(nil), sec.Words...),
+		chainAddrCache: sec.ChainAddr,
+		DerivedAt:      time.Now().UTC(),
+	}, nil
+}

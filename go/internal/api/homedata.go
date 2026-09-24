@@ -217,11 +217,21 @@ func (s *Server) homeCall(sess *Session, op, peer string, data any) (json.RawMes
 	if sess == nil || sess.identity == nil || s.node == nil {
 		return nil, errNoRemoteHome
 	}
-	fid := strings.ToLower(sess.identity.FundusID)
-	home := s.homePeerOf(fid)
+	home := s.homePeerOf(strings.ToLower(sess.identity.FundusID))
 	if home == "" {
 		return nil, errNoRemoteHome
 	}
+	return s.homeCallPeer(sess, home, op, peer, data)
+}
+
+// homeCallPeer sendet eine vom Nutzer signierte Anfrage an einen beliebigen
+// Node (Lesen ist überall erlaubt, Schreiben nur beim Heim-Node).
+func (s *Server) homeCallPeer(sess *Session, target, op, peer string, data any) (json.RawMessage, error) {
+	if sess == nil || sess.identity == nil || s.node == nil || target == "" {
+		return nil, errNoRemoteHome
+	}
+	fid := strings.ToLower(sess.identity.FundusID)
+	home := target
 	var raw json.RawMessage
 	if data != nil {
 		b, err := json.Marshal(data)
