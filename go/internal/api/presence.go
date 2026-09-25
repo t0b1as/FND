@@ -64,6 +64,41 @@ func (s *Server) registerPresence() {
 		return out
 	})
 	go s.presencePullLoop()
+	go s.presenceAnnounceLoop()
+}
+
+// Aktiv = eine API-Anfrage der Sitzung in diesem Zeitraum.
+const presenceActive = 15 * time.Minute
+
+// presenceAnnounceLoop: der Node meldet jede Minute alle aktiven, sichtbaren
+// Sitzungen als online. Früher hing "online" an einem Zeitgeber im Browser –
+// Handy-Browser stoppen Hintergrund-Tabs, Desktop-Browser bremsen sie, und wer
+// den Tab schloss, verschwand nach 6 min, obwohl er angemeldet war. So
+// erschien dieselbe Person auf manchen Nodes und auf anderen nicht.
+func (s *Server) presenceAnnounceLoop() {
+	time.Sleep(15 * time.Second)
+	for {
+		sessionMu.RLock()
+		list := make([]*Session, 0, len(sessionStore))
+		for _, sess := range sessionStore {
+			list = append(list, sess)
+		}
+		sessionMu.RUnlock()
+		now := time.Now()
+		for _, sess := range list {
+			if sess == nil || sess.identity == nil || sess.messenger == nil || sess.presenceHidden.Load() {
+				continue
+			}
+			if now.Sub(time.Unix(sess.lastActive.Load(), 0)) > presenceActive {
+				continue
+			}
+			recordPresence(strings.ToLower(sess.identity.FundusID), true, now)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = sess.messenger.PublishPresence(ctx, true)
+			cancel()
+		}
+		time.Sleep(time.Minute)
+	}
 }
 
 func presenceSnapshot() []presencePullItem {
@@ -191,9 +226,13 @@ func (s *Server) messengerOnline(c *gin.Context) {
 	known := len(presenceMap)
 	presenceMu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
+	// Nur TATSÄCHLICH verbundene Peers zählen (Peers() enthält auch längst
+	// getrennte und fremde IPFS-Knoten – die Zahl wirkte zu gut).
 	peers := 0
-	if s.node != nil {
-		peers = len(s.node.Peers())
+	if ns, ok := s.node.(interface{ NATStatus() map[string]interface{} }); ok && s.node != nil {
+		if v, ok := ns.NATStatus()["connected_peers"].(int); ok {
+			peers = v
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"online": out, "peers": peers, "known": known})
 }

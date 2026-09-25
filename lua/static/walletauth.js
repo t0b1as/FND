@@ -27,7 +27,9 @@
     const inn = !!(window.WALLET && window.WALLET.fundusID);
     if (!inn){ if (presenceTimer){ clearInterval(presenceTimer); presenceTimer = null; } return; }
     if (presenceTimer) return;
-    if (presenceVisible()) walletPresence(true);
+    // Aktive Sitzungen meldet der NODE als online. Unsichtbar-Wunsch deshalb
+    // bei jedem Seitenaufruf mitteilen, sonst gälte man bei Aktivität als online.
+    walletPresence(presenceVisible());
     presenceTimer = setInterval(function(){ if (presenceVisible()) walletPresence(true); }, 120000);
   }
 

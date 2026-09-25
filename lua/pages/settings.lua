@@ -202,7 +202,6 @@ async function updCheck(btn) {
 }
 async function updApply() {
   var ver = document.getElementById('upd-ver').textContent;
-  if (!confirm('Version ' + ver + ' jetzt installieren? Der Node startet danach neu (2–5 Minuten).')) return;
   var btn = document.getElementById('upd-apply'), msg = document.getElementById('upd-msg');
   btn.disabled = true; msg.textContent = '';
   try {

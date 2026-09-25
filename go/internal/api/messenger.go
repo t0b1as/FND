@@ -1,6 +1,7 @@
 package api
 
 import (
+	"sync/atomic"
 	"context"
 	crand "crypto/rand"
 	"encoding/hex"
@@ -62,6 +63,12 @@ type Session struct {
 	history   *messenger.HistoryStore // persistenter, verschlüsselter Verlauf
 	wsConns   []*websocket.Conn
 	wsMu      sync.Mutex
+
+	// Präsenz: letzte Aktivität (Unix-Sekunden, jede API-Anfrage der Sitzung)
+	// und "für andere unsichtbar". Der NODE meldet aktive Sitzungen als online –
+	// unabhängig von Browser-Zeitgebern (Hintergrund-Tabs, Handys).
+	lastActive     atomic.Int64
+	presenceHidden atomic.Bool
 }
 
 // broadcastWS sendet eine Nachricht an ALLE aktiven WebSockets dieser Session
@@ -768,6 +775,7 @@ func (s *Server) messengerPresence(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	sess.presenceHidden.Store(!req.Online) // "für andere sichtbar" dieser Sitzung
 	_ = sess.messenger.PublishPresence(c.Request.Context(), req.Online)
 	// Auch lokal eintragen: andere Nutzer DIESES Nodes sehen es sofort.
 	recordPresence(strings.ToLower(sess.identity.FundusID), req.Online, time.Now().UTC())
@@ -943,11 +951,14 @@ func (s *Server) getSession(c *gin.Context) *Session {
 		sess = sessionStore[fid]
 	}
 	sessionMu.RUnlock()
-	if sess != nil {
-		return sess
+	if sess == nil {
+		// Nach Neustart/Update: aus der verschlüsselten Ablage wiederherstellen.
+		sess = s.restoreSession(c, token)
 	}
-	// Nach Neustart/Update: aus der verschlüsselten Ablage wiederherstellen.
-	return s.restoreSession(c, token)
+	if sess != nil {
+		sess.lastActive.Store(time.Now().Unix()) // Aktivität für die Präsenz
+	}
+	return sess
 }
 
 // =============================================================================
