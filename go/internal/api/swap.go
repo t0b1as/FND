@@ -37,7 +37,6 @@ import (
 	"lukechampine.com/blake3"
 
 	"github.com/fundus/node/internal/chain"
-	"github.com/fundus/node/internal/identity"
 )
 
 // SwapPhase beschreibt den Fortschritt eines Swaps.
@@ -322,7 +321,7 @@ func (s *Server) swapSolInitiate(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	key, err := parseSolKey(req.SolKey)
+	key, err := s.solKeyInput(c, req.SolKey)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -377,7 +376,7 @@ func (s *Server) swapSolRedeem(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	key, err := parseSolKey(req.SolKey)
+	key, err := s.solKeyInput(c, req.SolKey)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -428,7 +427,7 @@ func (s *Server) swapSolRefund(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	key, err := parseSolKey(req.SolKey)
+	key, err := s.solKeyInput(c, req.SolKey)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -620,7 +619,7 @@ func (s *Server) submitChainTx(words []string, txType chain.TxType, fee *big.Int
 	if len(words) == 0 {
 		return "", "", 0, fmt.Errorf("Seed-Wörter fehlen")
 	}
-	priv, err := identity.DerivePrivateKeyFromSeed(words)
+	priv, err := fndKeyFromWords(words) // Seed-Wörter ODER fertiger Schlüssel ("session")
 	if err != nil {
 		return "", "", 0, fmt.Errorf("Ableitung fehlgeschlagen")
 	}
@@ -665,7 +664,7 @@ func (s *Server) swapAutoStart(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	solKey, err := parseSolKey(req.SolKey)
+	solKey, err := s.solKeyInput(c, req.SolKey)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "SOL-Key: " + err.Error()})
 		return
@@ -683,7 +682,7 @@ func (s *Server) swapAutoStart(c *gin.Context) {
 		isTaker:         isBuyer,
 		giveChain:       giveChain,
 		solKey:          solKey,
-		fndSeed:         strings.Fields(req.FndSeed),
+		fndSeed:         s.fndWords(c, req.FndSeed),
 		counterpartySol: req.CounterpartySol,
 		counterpartyFnd: req.CounterpartyFnd,
 		amountSOL:       req.AmountSOL,
@@ -787,7 +786,7 @@ func (s *Server) swapDepositKeys(c *gin.Context) {
 	var solKey solana.PrivateKey
 	if req.SolKey != "" {
 		var err error
-		solKey, err = parseSolKey(req.SolKey)
+		solKey, err = s.solKeyInput(c, req.SolKey)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "SOL-Key: " + err.Error()})
 			return
@@ -795,7 +794,7 @@ func (s *Server) swapDepositKeys(c *gin.Context) {
 	}
 	k := &depositedKeys{
 		solKey:    solKey,
-		fndSeed:   strings.Fields(req.FndSeed),
+		fndSeed:   s.fndWords(c, req.FndSeed),
 		amountSOL: req.AmountSOL,
 		amountFND: req.AmountFND,
 	}
@@ -848,12 +847,12 @@ func (s *Server) swapBuy(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Solana-Schlüssel UND FND-Seed nötig (beide Ketten werden signiert)"})
 		return
 	}
-	solKey, err := parseSolKey(req.SolKey)
+	solKey, err := s.solKeyInput(c, req.SolKey)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "SOL-Key: " + err.Error()})
 		return
 	}
-	fndAddr, okf := s.fndAddressFromSeed(strings.Fields(req.FndSeed))
+	fndAddr, okf := s.fndAddressFromSeed(s.fndWords(c, req.FndSeed))
 	if !okf {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "FND-Seed ungültig"})
 		return
@@ -892,7 +891,7 @@ func (s *Server) swapBuy(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
 	err = s.swapCoord.triggerRemoteSwap(ctx, s.orderBook.Node(), order.MakerPeer, msg,
-		solKey, strings.Fields(req.FndSeed), secret, order.SolAddress, order.FndAddress, takerGivesSol, "")
+		solKey, s.fndWords(c, req.FndSeed), secret, order.SolAddress, order.FndAddress, takerGivesSol, "")
 	req.SolKey, req.FndSeed = "", ""
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Gegenseite nicht erreichbar: " + err.Error()})
@@ -956,14 +955,14 @@ func (s *Server) swapDeriveAddrs(c *gin.Context) {
 	}
 	out := gin.H{}
 	if req.SolKey != "" {
-		if key, err := parseSolKey(req.SolKey); err == nil {
+		if key, err := s.solKeyInput(c, req.SolKey); err == nil {
 			out["sol_address"] = key.PublicKey().String()
 		} else {
 			out["sol_error"] = err.Error()
 		}
 	}
 	if req.FndSeed != "" {
-		if addr, ok := s.fndAddressFromSeed(strings.Fields(req.FndSeed)); ok {
+		if addr, ok := s.fndAddressFromSeed(s.fndWords(c, req.FndSeed)); ok {
 			out["fnd_address"] = addr
 		} else {
 			out["fnd_error"] = "FND-Seed ungültig"

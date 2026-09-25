@@ -46,8 +46,8 @@ return function()
       </div>
       <div class="field" style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">
         <label style="color:var(--text-dim)">Schlüssel hinterlegen — beide nötig: einer zum Zahlen (sperren), einer zum Einlösen des Erhaltenen. Bleiben lokal im RAM, werden nie propagiert.</label>
-        <input type="text" id="ord-solkey" placeholder="Solana-Schlüssel (Mnemonic/Base58)" style="margin-top:6px">
-        <input type="text" id="ord-fndseed" placeholder="FND-Seed-Wörter" style="margin-top:6px">
+        <input type="text" id="ord-solkey" placeholder="leer = deine Fundus-Solana-Wallet · sonst Mnemonic/Base58" style="margin-top:6px">
+        <input type="text" id="ord-fndseed" placeholder="leer = deine Fundus-Wallet · sonst FND-Seed-Wörter" style="margin-top:6px">
       </div>
       <div id="ord-preview" class="ob-preview"></div>
       <div id="ord-status" class="status-line"></div>
@@ -171,17 +171,17 @@ function openTakeDialog(oStr){
       '<div class="field"><label>Menge FND (max '+Number(o.amount_fnd).toFixed(2)+')</label>'+
       '<input type="number" id="take-amount" step="0.01" value="'+Number(o.amount_fnd).toFixed(2)+'" max="'+o.amount_fnd+'"></div>'+
       '<div class="field"><label>Dein Solana-Schlüssel (zum Zahlen der SOL)</label>'+
-      '<input type="text" id="take-solkey" placeholder="Mnemonic/Base58"></div>'+
+      '<input type="text" id="take-solkey" placeholder="leer = deine Fundus-Solana-Wallet"></div>'+
       '<div class="field"><label>Dein FND-Seed (zum Einlösen der gekauften FND)</label>'+
-      '<input type="text" id="take-fndseed" placeholder="seed"></div>';
+      '<input type="text" id="take-fndseed" placeholder="leer = deine Fundus-Wallet"></div>';
   } else {
     fields =
       '<div class="field"><label>Menge FND (max '+Number(o.amount_fnd).toFixed(2)+')</label>'+
       '<input type="number" id="take-amount" step="0.01" value="'+Number(o.amount_fnd).toFixed(2)+'" max="'+o.amount_fnd+'"></div>'+
       '<div class="field"><label>Dein FND-Seed (zum Zahlen der FND)</label>'+
-      '<input type="text" id="take-fndseed" placeholder="seed"></div>'+
+      '<input type="text" id="take-fndseed" placeholder="leer = deine Fundus-Wallet"></div>'+
       '<div class="field"><label>Dein Solana-Schlüssel (zum Einlösen der gekauften SOL)</label>'+
-      '<input type="text" id="take-solkey" placeholder="Mnemonic/Base58"></div>';
+      '<input type="text" id="take-solkey" placeholder="leer = deine Fundus-Solana-Wallet"></div>';
   }
   const ov = document.createElement("div");
   ov.className = "mp-overlay";
@@ -211,14 +211,21 @@ function openTakeDialog(oStr){
   document.body.appendChild(ov);
 }
 
+// Leeres Schlüsselfeld (SOL oder FND) + angemeldet → Wallet der Anmeldung ("session").
+function solKeyOrSession(el){
+  const v = el ? el.value.trim() : "";
+  if (v) return v;
+  return (window.WALLET && window.WALLET.fundusID) ? "session" : "";
+}
+
 async function doTake(orderID, takerGivesSol, btn, ov){
   const body = { order_id: orderID };
   const amtEl = document.getElementById("take-amount");
   if (amtEl) body.amount_fnd = parseFloat(amtEl.value)||0;
   const skEl = document.getElementById("take-solkey");
   const fsEl = document.getElementById("take-fndseed");
-  if (skEl) body.sol_key = skEl.value.trim();
-  if (fsEl) body.fnd_seed = fsEl.value.trim();
+  if (skEl) body.sol_key = solKeyOrSession(skEl);
+  if (fsEl) body.fnd_seed = solKeyOrSession(fsEl); // leer + angemeldet → Wallet der Anmeldung
   btn.disabled = true;
   btn.textContent = "⏳ Kontaktiere Gegenseite…";
   try {
@@ -314,8 +321,8 @@ async function submitOrder(){
   // den Lock nicht). Die abgeleitete Adresse überschreibt die manuelle Eingabe.
   const solkeyPre = document.getElementById("ord-solkey");
   const fndseedPre = document.getElementById("ord-fndseed");
-  const skv = solkeyPre ? solkeyPre.value.trim() : "";
-  const fsv = fndseedPre ? fndseedPre.value.trim() : "";
+  const skv = solKeyOrSession(solkeyPre);
+  const fsv = solKeyOrSession(fndseedPre);
   if (skv || fsv){
     st.textContent = "⏳ Leite Adressen aus Schlüsseln ab…"; st.style.color="var(--muted)";
     try {
@@ -342,8 +349,8 @@ async function submitOrder(){
       // Order-ID, damit der Node autonom swappen kann, wenn jemand die Order annimmt.
       const skEl = document.getElementById("ord-solkey");
       const fsEl = document.getElementById("ord-fndseed");
-      const solkey = skEl ? skEl.value.trim() : "";
-      const fndseed = fsEl ? fsEl.value.trim() : "";
+      const solkey = solKeyOrSession(skEl);
+      const fndseed = solKeyOrSession(fsEl);
       let depMsg = "";
       if (d.id && (solkey || fndseed)){
         st.textContent = "⏳ Hinterlege Schlüssel…"; st.style.color="var(--muted)";

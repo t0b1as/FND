@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 
 	"github.com/fundus/node/internal/chain"
-	"github.com/fundus/node/internal/identity"
 )
 
 // setSwapPhase setzt die Phase eines Swaps (und optional eine Fehlernotiz).
@@ -116,7 +115,7 @@ func (s *Server) fndAddressFromSeed(words []string) (string, bool) {
 	if len(words) == 0 {
 		return "", false
 	}
-	priv, err := identity.DerivePrivateKeyFromSeed(words)
+	priv, err := fndKeyFromWords(words)
 	if err != nil {
 		return "", false
 	}

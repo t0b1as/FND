@@ -32,6 +32,9 @@ func (s *Server) registerWalletRoutes() {
 	g.POST("/link", s.walletLink)          // für den Login hinterlegen (verschlüsselt, lokal)
 	g.DELETE("/link", s.walletUnlink)
 	g.POST("/migrate", s.walletMigrate)    // Guthaben der alten Adresse (vor R456) umziehen
+	g.GET("/sol", s.walletSolInfo)          // Solana-Wallet: Adresse + Guthaben
+	g.POST("/sol/send", s.walletSolSend)    // SOL senden
+	g.POST("/sol/export", s.walletSolExport) // Schlüssel für Phantom exportieren
 	g.POST("/mint",     s.walletMint)      // FND-Auszahlung vom Fee-Collector (nativer Transfer)
 	g.GET("/payout",    s.walletPayoutGet)  // Auto-Payout-Einstellung lesen
 	g.POST("/payout",   s.walletPayoutSet)  // Auto-Payout-Einstellung setzen
