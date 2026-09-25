@@ -228,6 +228,7 @@ func (s *Server) WithOrderBook(node p2pNode) *Server {
 	}
 	s.orch = newOrchestrator(s)
 	s.swapCoord = newSwapCoordinator(s)
+	s.swapCoord.loadDeposits() // hinterlegte Schlüssel nach Neustart zurückholen
 	// Swap-Init-Protokoll am p2pNode registrieren (falls Orderbuch aktiv).
 	if s.orderBook != nil && s.orderBook.Node() != nil {
 		s.swapCoord.registerProtocol(s.orderBook.Node())
@@ -415,7 +416,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R472"
+const NodeRevision = "R475"
 
 func (s *Server) getHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision})

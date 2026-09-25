@@ -15,6 +15,7 @@ package api
 //   der Verkäufer die SOL einlösen — der Käufer braucht also genug Zeitpuffer.
 
 import (
+	"strconv"
 	"fmt"
 	"context"
 	"strings"
@@ -48,7 +49,7 @@ const (
 	// Poll-Intervall, in dem der Orchestrator die Chains auf Fortschritt prüft.
 	// 2s ist reaktionsschnell genug (FND-Blockzeit 5s, Solana schneller) ohne
 	// die RPCs zu überlasten.
-	orchestratorPollInterval = 2 * time.Second
+	orchestratorPollInterval = 4 * time.Second // schont das Anfrage-Limit öffentlicher RPCs
 	// Maximale Gesamtdauer, bevor ein Swap als gescheitert gilt und refundet wird.
 	orchestratorMaxDuration = 50 * time.Minute
 )
@@ -339,6 +340,8 @@ func (o *orchestrator) lockGive(ctx context.Context, ss *swapSession, s *Server)
 	}
 	s.setSwapFndLock(ss.swapID, txHash)
 	ss.fndHTLCID = txHash
+	s.setSwapPhase(ss.swapID, ss.currentPhase(s), "FND-Sperre eingereicht (Tx "+truncate(txHash, 12)+
+		") – wird mit dem nächsten Block wirksam (Chain-Höhe "+strconv.FormatUint(s.chain.Height(), 10)+")")
 	return true
 }
 
@@ -507,7 +510,7 @@ func (o *orchestrator) waitForSolLock(ctx context.Context, ss *swapSession, s *S
 			if e != lastErr {
 				lastErr = e
 				if e != "" {
-					s.setSwapPhase(ss.swapID, ss.currentPhase(s), base+" – RPC-Fehler: "+truncate(e, 120))
+					s.setSwapPhase(ss.swapID, ss.currentPhase(s), base+" – "+solRPCErr(err, s.swapMgr.solRPC).Error())
 				} else {
 					s.setSwapPhase(ss.swapID, ss.currentPhase(s), base)
 				}
@@ -533,6 +536,8 @@ func (o *orchestrator) waitForFndLock(ctx context.Context, ss *swapSession, s *S
 	}
 	tick := time.NewTicker(orchestratorPollInterval)
 	defer tick.Stop()
+	lastH, since, warned := s.chain.Height(), time.Now(), false
+	s.setSwapPhase(ss.swapID, ss.currentPhase(s), "warte auf FND-Sperre der Gegenseite (Chain-Höhe "+strconv.FormatUint(lastH, 10)+")")
 	for {
 		select {
 		case <-ctx.Done():
@@ -540,6 +545,14 @@ func (o *orchestrator) waitForFndLock(ctx context.Context, ss *swapSession, s *S
 		case <-tick.C:
 			if id, ok := s.findFndHTLCByHashlock(ss.secretHash, myFndAddr); ok {
 				return id, true
+			}
+			// Wächst die Chain nicht, kann die Sperre nie ankommen – sagen, warum.
+			if h := s.chain.Height(); h != lastH {
+				lastH, since, warned = h, time.Now(), false
+			} else if !warned && time.Since(since) > 90*time.Second {
+				warned = true
+				s.setSwapPhase(ss.swapID, ss.currentPhase(s), "warte auf FND-Sperre – die Fundus-Chain wächst nicht (Höhe "+
+					strconv.FormatUint(h, 10)+" seit über 90 s). Validatoren prüfen: /api/v1/chain/status (i_am_validator, hint)")
 			}
 		}
 	}

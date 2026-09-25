@@ -218,6 +218,20 @@ function solKeyOrSession(el){
   return (window.WALLET && window.WALLET.fundusID) ? "session" : "";
 }
 
+// Statuszeile unter dem Swap-Knopf: vollständige Meldung (bricht um) statt
+// abgeschnittenem Text im Knopf. err=true → rot.
+function swapMsg(btn, text, err){
+  let st = btn.parentNode ? btn.parentNode.querySelector(".swap-status") : null;
+  if (!st && btn.parentNode){
+    st = document.createElement("div");
+    st.className = "swap-status";
+    btn.parentNode.insertBefore(st, btn.nextSibling);
+  }
+  if (!st) return;
+  st.textContent = text || "";
+  st.classList.toggle("err", !!err);
+}
+
 async function doTake(orderID, takerGivesSol, btn, ov){
   const body = { order_id: orderID };
   const amtEl = document.getElementById("take-amount");
@@ -228,6 +242,7 @@ async function doTake(orderID, takerGivesSol, btn, ov){
   if (fsEl) body.fnd_seed = solKeyOrSession(fsEl); // leer + angemeldet → Wallet der Anmeldung
   btn.disabled = true;
   btn.textContent = "⏳ Kontaktiere Gegenseite…";
+  swapMsg(btn, "", false);
   try {
     const r = await fetch("/api/v1/swap/buy", {
       method:"POST", headers:{"Content-Type":"application/json"},
@@ -240,7 +255,8 @@ async function doTake(orderID, takerGivesSol, btn, ov){
     else finishBtn(btn, ov, true);
   } catch(e){
     btn.disabled = false;
-    btn.textContent = "✗ "+e.message+" — erneut versuchen";
+    btn.textContent = "Erneut versuchen";
+    swapMsg(btn, "✗ " + e.message, true);
   }
 }
 
@@ -270,8 +286,11 @@ function pollSwapStatus(swapID, btn, ov){
         btn.disabled = false;
         btn.textContent = "✗ "+label+" — Schließen";
         btn.onclick = function(){ if(ov) ov.remove(); };
+        swapMsg(btn, d.note || "", true);
       } else {
         btn.textContent = "⏳ Swap läuft: "+label+"…";
+        // Detailmeldung des Nodes (Netz, beobachtetes Konto, RPC-Fehler …)
+        swapMsg(btn, (d.note || "") + (d.sol_lock_sig ? " · SOL-Signatur " + String(d.sol_lock_sig).slice(0,16) + "…" : ""), false);
       }
     } catch(e){}
   }, 3000);

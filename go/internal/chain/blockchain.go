@@ -167,6 +167,18 @@ func (bc *Blockchain) AmIProposerNext() bool {
 	return bc.valSet.IsProposerForRound(bc.proposer, bc.height+1, 0)
 }
 
+// ConsensusSelf: eigene Validator-Adresse (Node-Wallet), ob ein Signier-
+// schlüssel vorhanden ist und ob die Adresse im aktiven Validator-Set steht.
+// Steht sie nicht darin, baut dieser Node keine Blöcke.
+func (bc *Blockchain) ConsensusSelf() (addr string, canSign bool, inSet bool) {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	addr = bc.proposer.Hex()
+	canSign = bc.signKey != nil
+	inSet = bc.valSet != nil && bc.valSet.Contains(bc.proposer)
+	return
+}
+
 // HeadHash liefert den Hash des letzten Blocks.
 func (bc *Blockchain) HeadHash() [32]byte {
 	bc.mu.RLock()

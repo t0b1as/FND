@@ -533,6 +533,11 @@ func main() {
 						zap.Int("validators", vs.Len()),
 						zap.Bool("dieser_node_ist_validator", isValidator),
 						zap.String("proposer", proposer.Hex()))
+					if !isValidator && proposerValid {
+						log.Warn("Dieser Node baut KEINE Blöcke: seine Validator-Adresse steht nicht in FUNDUS_VALIDATORS. "+
+							"Soll er Blöcke bauen, die Adresse auf ALLEN Nodes identisch eintragen (sonst hängt die Chain, "+
+							"sobald kein anderer Validator läuft).", zap.String("eigene_validator_adresse", proposer.Hex()))
+					}
 					// Automatischen Produktions-Loop nur starten, wenn dieser Node
 					// überhaupt Validator ist (sonst reiner Sync-Node).
 					if isValidator {

@@ -79,6 +79,7 @@ func (sc *swapCoordinator) depositKeys(orderID string, k *depositedKeys) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	sc.deposits[orderID] = k
+	sc.saveDepositsLocked() // übersteht Neustarts (verschlüsselt)
 }
 
 // releaseKeys entfernt und nullt die Schlüssel einer Order (Cancel/Erfüllung).
@@ -88,6 +89,7 @@ func (sc *swapCoordinator) releaseKeys(orderID string) {
 	if k, ok := sc.deposits[orderID]; ok {
 		k.wipe()
 		delete(sc.deposits, orderID)
+		sc.saveDepositsLocked()
 	}
 }
 

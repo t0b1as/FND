@@ -49,13 +49,21 @@ func (s *Server) chainStatus(c *gin.Context) {
 			valList = append(valList, a.Hex())
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{
+	myAddr, canSign, inSet := s.chain.ConsensusSelf()
+	out := gin.H{
 		"height":     s.chain.Height(),
 		"head_hash":  hex.EncodeToString(head[:]),
 		"mempool":    mp,
 		"validators":       valCount,
 		"validator_addrs":  valList,
-	})
+		// Eigene Rolle: die Validator-Adresse ist die Node-Wallet (node.seed).
+		"my_validator_addr": myAddr,
+		"i_am_validator":    canSign && inSet,
+	}
+	if !(canSign && inSet) {
+		out["hint"] = "Dieser Node baut keine Blöcke. Damit er es tut: seine my_validator_addr in FUNDUS_VALIDATORS auf ALLEN Nodes identisch eintragen und neu starten."
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 func (s *Server) chainAccount(c *gin.Context) {

@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -89,9 +90,51 @@ func (s *Server) solGetBalance(ctx context.Context, pk solana.PublicKey) (uint64
 	defer cancel()
 	res, err := rpc.New(s.solRPCURL()).GetBalance(cctx, pk, rpc.CommitmentConfirmed)
 	if err != nil || res == nil {
-		return 0, fmt.Errorf("Solana-RPC nicht erreichbar")
+		return 0, solRPCErr(err, s.solRPCURL())
 	}
 	return res.Value, nil
+}
+
+// maskRPC: RPC-Adresse ohne Query (API-Schlüssel von Helius/QuickNode stehen
+// oft in ?api-key=… oder im Pfad nach dem Host) – für Anzeigen/Antworten.
+func maskRPC(rpcURL string) string {
+	u, err := url.Parse(rpcURL)
+	if err != nil || u.Host == "" {
+		return "(RPC)"
+	}
+	out := u.Scheme + "://" + u.Host
+	if u.Path != "" && u.Path != "/" {
+		out += "/…" // Pfad kann ebenfalls einen Schlüssel enthalten (QuickNode)
+	}
+	return out
+}
+
+// solRPCErr übersetzt RPC-Fehler in eine verständliche Ursache (statt der
+// Sammelmeldung "nicht erreichbar") und nennt den Endpunkt – OHNE API-Schlüssel.
+func solRPCErr(err error, rpcURL string) error {
+	host := maskRPC(rpcURL)
+	if err == nil {
+		return fmt.Errorf("Solana-RPC (%s): leere Antwort", host)
+	}
+	e := strings.ToLower(err.Error())
+	var why string
+	switch {
+	case strings.Contains(e, "429") || strings.Contains(e, "too many"):
+		why = "Drosselung durch den RPC-Anbieter (zu viele Anfragen) – eigenen RPC-Zugang verwenden (Helius, QuickNode …)"
+	case strings.Contains(e, "x509") || strings.Contains(e, "certificate"):
+		why = "Zertifikatsfehler – stimmt die Uhrzeit des Pi? (timedatectl)"
+	case strings.Contains(e, "no such host") || strings.Contains(e, "server misbehaving"):
+		why = "Name nicht auflösbar (DNS/Internet des Pi prüfen)"
+	case strings.Contains(e, "deadline") || strings.Contains(e, "timeout"):
+		why = "Zeitüberschreitung (RPC überlastet oder Verbindung langsam)"
+	case strings.Contains(e, "connection refused"):
+		why = "Verbindung abgewiesen (falsche Adresse/Port?)"
+	case strings.Contains(e, "401") || strings.Contains(e, "403") || strings.Contains(e, "unauthorized"):
+		why = "Zugriff verweigert (API-Schlüssel des RPC-Zugangs prüfen)"
+	default:
+		why = truncate(err.Error(), 140)
+	}
+	return fmt.Errorf("Solana-RPC (%s): %s", host, why)
 }
 
 // GET /api/v1/wallet/sol
@@ -102,7 +145,7 @@ func (s *Server) walletSolInfo(c *gin.Context) {
 		return
 	}
 	pub := key.PublicKey()
-	out := gin.H{"address": pub.String(), "rpc": s.solRPCURL(), "cluster": s.solCluster()}
+	out := gin.H{"address": pub.String(), "rpc": maskRPC(s.solRPCURL()), "cluster": s.solCluster()}
 	if bal, err := s.solGetBalance(c.Request.Context(), pub); err == nil {
 		out["lamports"] = bal
 		out["sol"] = float64(bal) / 1e9

@@ -256,8 +256,8 @@ func (s *Server) swapHealth(c *gin.Context) {
 	if _, err := s.swapMgr.solanaRPCCall(ctx, "getHealth", []interface{}{}); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"rpc_reachable": false,
-			"error":         "Solana-RPC nicht erreichbar: " + err.Error(),
-			"rpc":           s.swapMgr.solRPC,
+			"error":         solRPCErr(err, s.swapMgr.solRPC).Error(),
+			"rpc":           maskRPC(s.swapMgr.solRPC),
 		})
 		return
 	}
@@ -289,7 +289,7 @@ func (s *Server) swapHealth(c *gin.Context) {
 		"program_found": programFound,
 		"executable":    executable,
 		"program_id":    s.swapMgr.htlcProgramID,
-		"rpc":           s.swapMgr.solRPC,
+		"rpc":           maskRPC(s.swapMgr.solRPC),
 		"status":        map[bool]string{true: "✓ Solana-HTLC-Programm live und bereit", false: "Programm nicht gefunden/nicht ausführbar"}[executable],
 	})
 }

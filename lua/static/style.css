@@ -1932,3 +1932,9 @@ audio.fm-viewer-media { width:min(560px,100%); box-shadow:none; }
 
 /* Wallet-Abzeichen: Anzeigename kürzen statt die Kopfzeile zu sprengen */
 .wallet-btn.wallet-in { max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Shop: Swap-Statuszeile unter dem Knopf (bricht um, statt im Knopf abgeschnitten) */
+.swap-status { margin-top:8px; font-size:13px; line-height:1.45; color:var(--muted);
+  white-space:normal; overflow-wrap:anywhere; text-align:left; }
+.swap-status:empty { display:none; }
+.swap-status.err { color:var(--red); }

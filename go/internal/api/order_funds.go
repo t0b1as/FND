@@ -127,7 +127,7 @@ func (s *Server) checkSOLFunds(ctx context.Context, typ OrderType, amountFND, pr
 	defer cancel()
 	res, err := rpc.New(s.swapMgr.solRPC).GetBalance(cctx, pk, rpc.CommitmentConfirmed)
 	if err != nil || res == nil {
-		return &orderFundsError{Msg: "SOL-Guthaben nicht abrufbar (Solana-RPC nicht erreichbar) – Order nicht angelegt"}
+		return &orderFundsError{Msg: "SOL-Guthaben nicht abrufbar – Order nicht angelegt. " + solRPCErr(err, s.swapMgr.solRPC).Error()}
 	}
 	balLamports := res.Value
 	needLamports := uint64(math.Ceil((cost+committed)*1e9)) + solFeeBufferLamports
@@ -216,7 +216,7 @@ func (s *Server) solBalanceLamports(ctx context.Context, addr string) (uint64, e
 	defer cancel()
 	res, err := rpc.New(s.swapMgr.solRPC).GetBalance(cctx, pk, rpc.CommitmentConfirmed)
 	if err != nil || res == nil {
-		return 0, fmt.Errorf("Solana-RPC nicht erreichbar")
+		return 0, solRPCErr(err, s.swapMgr.solRPC)
 	}
 	return res.Value, nil
 }
