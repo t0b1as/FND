@@ -365,7 +365,10 @@ func (bc *Blockchain) deriveValidatorSetLocked() {
 		}
 	}
 
-	// 1. Produzenten der letzten Blöcke aus der Historie.
+	// 1. Produzenten der letzten Blöcke aus der Historie. Nebenbei: wer im
+	// Fenster gestakt hat (für die Aktivitätsprüfung in Punkt 2).
+	recentProducer := map[Address]bool{}
+	recentStaker := map[Address]bool{}
 	if bc.height > 0 {
 		from := uint64(1)
 		if bc.height > ValidatorLookback {
@@ -377,13 +380,27 @@ func (bc *Blockchain) deriveValidatorSetLocked() {
 				continue
 			}
 			add(blk.Header.Proposer)
+			recentProducer[blk.Header.Proposer] = true
+			for _, tx := range blk.Transactions {
+				if tx != nil && tx.Type == TxStake {
+					recentStaker[tx.From] = true
+				}
+			}
 		}
 	}
 
-	// 2. On-chain gestakte Validatoren.
+	// 2. On-chain gestakte Validatoren – aber nur AKTIVE: wer im Fenster der
+	// letzten ValidatorLookback Blöcke selbst gebaut ODER gestakt hat. Früher
+	// blieb jeder Staker für immer in der Rotation, auch wenn sein Schlüssel
+	// längst verloren war; jede seiner Runden kostete dann eine Wartezeit, bis
+	// die Ersatzrunde griff. Deterministisch (nur Blockdaten), daher auf allen
+	// Nodes identisch. Wer nach längerer Pause zurückkehrt: erneut staken (oder
+	// im Bootstrap-Set stehen), dann ist er sofort wieder dabei.
 	if bc.state != nil {
 		for _, a := range bc.state.StakedValidators() {
-			add(a)
+			if bc.height <= ValidatorLookback || recentProducer[a] || recentStaker[a] {
+				add(a)
+			}
 		}
 	}
 

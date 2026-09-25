@@ -406,3 +406,47 @@ func trimHex(s string) string {
 	}
 	return s
 }
+
+// mempoolMaintenance: alle 20 s wartende Transaktionen pflegen.
+//
+//  1. Bereinigen: Nonce kleiner als die Konto-Nonce → bereits (in einem
+//     fremden Block) eingebaut oder überholt. Ohne das behielt ein Node, der
+//     selbst keine Blöcke baut, jede Transaktion für immer.
+//  2. Erneut verteilen: Eine Transaktion wurde bisher nur EINMAL beim Einreichen
+//     verschickt. Kam sie dabei bei keinem Validator an (Neustart, Verbindung
+//     gerade weg), lag sie für immer beim Einreicher – der sie als
+//     Nicht-Validator nicht einbauen kann (Swap hing bei "warte auf FND-Sperre").
+//     Empfänger erkennen Doppelte am Hash.
+func (s *Server) mempoolMaintenance() {
+	t := time.NewTicker(20 * time.Second)
+	defer t.Stop()
+	for range t.C {
+		if s.mempool == nil || s.chain == nil {
+			continue
+		}
+		pend := s.mempool.Pending()
+		if len(pend) == 0 {
+			continue
+		}
+		stale := map[[32]byte]bool{}
+		live := make([]*chain.Transaction, 0, len(pend))
+		for _, tx := range pend {
+			if tx == nil {
+				continue
+			}
+			if _, nonce := s.chain.AccountInfo(tx.From); tx.Nonce < nonce {
+				stale[tx.Hash()] = true
+				continue
+			}
+			live = append(live, tx)
+		}
+		if n := s.mempool.RemoveHashes(stale); n > 0 && s.log != nil {
+			s.log.Debug("Mempool bereinigt", zap.Int("entfernt", n))
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		for _, tx := range live {
+			s.broadcastTx(ctx, tx)
+		}
+		cancel()
+	}
+}

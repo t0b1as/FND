@@ -79,3 +79,38 @@ func (m *Mempool) Len() int {
 	defer m.mu.Unlock()
 	return len(m.txs)
 }
+
+// Pending liefert eine Kopie der wartenden Transaktionen (für erneutes Verteilen).
+func (m *Mempool) Pending() []*Transaction {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*Transaction, len(m.txs))
+	copy(out, m.txs)
+	return out
+}
+
+// RemoveHashes entfernt Transaktionen mit den angegebenen Hashes (z.B. bereits
+// in einem fremden Block enthalten). Ihr Hash bleibt in seen – sie werden also
+// nicht erneut angenommen. Bewusst OHNE Rückruf in die Chain unter dem
+// Mempool-Lock (Lock-Reihenfolge Chain→Mempool beim Blockbau).
+func (m *Mempool) RemoveHashes(drop map[[32]byte]bool) int {
+	if len(drop) == 0 {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keep := m.txs[:0]
+	n := 0
+	for _, tx := range m.txs {
+		if drop[tx.Hash()] {
+			n++
+			continue
+		}
+		keep = append(keep, tx)
+	}
+	for i := len(keep); i < len(m.txs); i++ {
+		m.txs[i] = nil // Referenzen freigeben
+	}
+	m.txs = keep
+	return n
+}

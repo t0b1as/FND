@@ -214,6 +214,7 @@ func (s *Server) WithOrderBook(node p2pNode) *Server {
 	s.orderBook = newOrderBook(node, obPath)
 	go s.orderBook.Run(context.Background())
 	go s.runOutboxWorker() // wartende Nachrichten zustellen sobald Empfänger online
+	go s.mempoolMaintenance() // wartende Txs bereinigen + erneut verteilen (Validatoren erreichen)
 	// Swap-Manager mit den Solana-Parametern aus der Config.
 	solRPC, htlcProg := "", ""
 	if s.cfg != nil {
@@ -416,7 +417,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R475"
+const NodeRevision = "R476"
 
 func (s *Server) getHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision})
