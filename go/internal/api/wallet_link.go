@@ -160,10 +160,25 @@ func (s *Server) walletLink(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Nicht angemeldet"})
 		return
 	}
-	k, _, code, msg := s.walletKeyFromRequest(c, req.Words, req.Email, req.Password, identity.DerivePrivateKeyFromSeed)
+	// Eigene Wallet, schon in dieser Sitzung abgeleitet ("Wallet öffnen")? Dann
+	// den vorhandenen Schlüssel nehmen – eine zweite 256-MiB-Ableitung trieb den
+	// Pi in die Auslagerung. Nur wenn KEINE andere Wallet hinterlegt ist, ist der
+	// Sitzungsschlüssel sicher die eigene.
+	var k *ecdsa.PrivateKey
+	own := len(req.Words) == 0 && req.Email == ""
+	if own && s.linkedAddress(sess.identity) == "" && sess.identity.ChainAddr() != "" {
+		if kk, err := sess.identity.ChainPrivateKey(); err == nil {
+			k = kk
+		}
+	}
 	if k == nil {
-		c.JSON(code, gin.H{"error": msg})
-		return
+		var code int
+		var msg string
+		k, _, code, msg = s.walletKeyFromRequest(c, req.Words, req.Email, req.Password, identity.DerivePrivateKeyFromSeed)
+		if k == nil {
+			c.JSON(code, gin.H{"error": msg})
+			return
+		}
 	}
 	raw := crypto.FromECDSA(k)
 	enc, err := identity.Encrypt(raw, sess.identity.LinkKey())

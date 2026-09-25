@@ -14,6 +14,8 @@
 package identity
 
 import (
+	"runtime/debug"
+	"sync"
 	"math/big"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -270,6 +272,7 @@ func (id *Identity) ECDHSharedSecret(theirPublicKeyHex string) ([]byte, error) {
 	if pk[0] > pk[1] { pk[0], pk[1] = pk[1], pk[0] }
 	salt := []byte(saltECDH + pk[0] + ":" + pk[1])
 
+	// Pro Nachricht, klein: NICHT über argonKey (keine Wartezeit hinter Wallet-Ableitungen).
 	hardened := argon2.IDKey(sharedPoint, salt, a2ECDHTime, a2ECDHMemory, a2Threads, a2KeyLen)
 	return hardened, nil
 }
@@ -555,7 +558,7 @@ func WordsFromEmailPassword(email, password string) ([]string, error) {
 	input := append([]byte(email), 0)
 	input = append(input, []byte(password)...)
 	salt := []byte("fundus-wallet-emailpw-v1")
-	raw := argon2.IDKey(input, salt, a2WalletTime, a2WalletMemory, a2WalletThreads, uint32(wordCount*2))
+	raw := argonKey(input, salt, a2WalletTime, a2WalletMemory, a2WalletThreads, uint32(wordCount*2))
 	for i := range input {
 		input[i] = 0
 	}
@@ -630,7 +633,7 @@ func derivePrivateKey(words []string, chainTime, chainMemory uint32) (*ecdsa.Pri
 	}
 	password := []byte(strings.Join(norm, "\n"))
 	salt := []byte("fundus-fnd-v2")
-	keyBytes := argon2.IDKey(password, salt, chainTime, chainMemory, a2WalletThreads, 32)
+	keyBytes := argonKey(password, salt, chainTime, chainMemory, a2WalletThreads, 32)
 	for i := range password {
 		password[i] = 0
 	}
@@ -674,7 +677,7 @@ func deriveAddress(words []string, chainTime, chainMemory uint32) (string, error
 
 	password := []byte(strings.Join(norm, "\n"))
 	salt     := []byte("fundus-fnd-v2")
-	keyBytes := argon2.IDKey(password, salt, chainTime, chainMemory, a2WalletThreads, 32)
+	keyBytes := argonKey(password, salt, chainTime, chainMemory, a2WalletThreads, 32)
 	for i := range password { password[i] = 0 }
 
 	privKey, err := crypto.ToECDSA(keyBytes)
@@ -1006,7 +1009,7 @@ func deriveFromWords(words []string) (*Identity, error) {
 	joined := []byte(strings.Join(norm, "\n"))
 
 	// Ed25519-Seed aus den Wörtern (eigener Salt, getrennt vom Chain-Key).
-	edSeed := argon2.IDKey(joined, []byte("fundus-ident-ed25519-v1"), a2WalletTime, a2WalletMemory, a2WalletThreads, 32)
+	edSeed := argonKey(joined, []byte("fundus-ident-ed25519-v1"), a2WalletTime, a2WalletMemory, a2WalletThreads, 32)
 	ed25519Priv := ed25519.NewKeyFromSeed(edSeed)
 	ed25519Pub := ed25519Priv.Public().(ed25519.PublicKey)
 
@@ -1102,4 +1105,23 @@ func FromSessionSecret(sec SessionSecret) (*Identity, error) {
 		}
 	}
 	return id, nil
+}
+
+// ── Argon2 schonend für den Pi ──────────────────────────────────────────────
+//
+// Argon2id belegt pro Durchlauf 128–256 MiB. Der Node darf 768 MB nutzen (danach
+// Auslagerung auf die SD-Karte, CPUQuota 2 Kerne). Mehrere gleichzeitige
+// Ableitungen (Wallet öffnen + hinterlegen + Solana-Wallet …) trieben ihn in die
+// Auslagerung – der Pi wirkte aufgehängt. Deshalb: immer nur EINE Ableitung
+// gleichzeitig, und den Speicher danach sofort ans System zurückgeben (Go gibt
+// ihn sonst nur verzögert frei).
+var argonMu sync.Mutex
+
+func argonKey(password, salt []byte, time, memory uint32, threads uint8, keyLen uint32) []byte {
+	argonMu.Lock()
+	defer func() {
+		argonMu.Unlock()
+		debug.FreeOSMemory() // Arbeitsspeicher der Ableitung sofort freigeben
+	}()
+	return argon2.IDKey(password, salt, time, memory, threads, keyLen)
 }
