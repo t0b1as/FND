@@ -1,8 +1,8 @@
 {
-  "version": "R462",
-  "description": "FUNDUS R462 - Korrektur am Messenger",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R462/FND-R462-update.zip",
-  "node_argon2": "27966d8f84c1c26d2590647b889eab8abe0c98c900ffa49412c05fd1dcc5e292",
-  "published_at": "2026-09-25T08:53:42.8432196Z",
-  "signature": "0x910c086d50f7986d7ae7fae973dbff989598cf1e3c5b90852b5896d8363a1e4022eb72afd2b4b2faea9bbf733f52017b15a333a5c747bb1963123d921146b1911c"
+  "version": "R463",
+  "description": "FUNDUS R463 - Korrektur am Messenger",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R463/FND-R463-update.zip",
+  "node_argon2": "9570f374f2709f8af2c00ab85b8bf13f9e5954e67ee04460436564d10ac0010b",
+  "published_at": "2026-09-25T09:07:12.3347683Z",
+  "signature": "0xc47f87946f96d869be165fe8f6936b5fc9f5d60a359c37fc0a479e23643a61c574c309f1437b81c95e47dfd734dac90c7be435cde3a2dd00c71bc6f7e16c580d1c"
 }
