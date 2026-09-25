@@ -128,6 +128,9 @@ func main() {
 		logf("Automount beim Start: %d Laufwerk(e) eingehängt", n)
 	}
 
+	// Setup-Hotspot "FUNDUS Rnnn", wenn kein WLAN verbunden ist (FUNDUS_SETUP_AP).
+	go setupAPWatch(ctx)
+
 	// Periodischer Scan als robuster Auffang für das Einstecken (falls die
 	// udev-Regel nicht greift) und für spät auftauchende Geräte nach dem Boot.
 	go func() {
@@ -445,6 +448,13 @@ func handleConnectWifi(ssid, password string) helperproto.Response {
 	const nm = "/usr/bin/nmcli"
 	// nmcli mit getrennten Argumenten (keine Shell → keine Injection).
 
+	// Exklusiver Setup-Hotspot belegt das Funkmodul → erst freigeben. Scheitert
+	// die Verbindung, öffnet ihn die Überwachung nach ~90 s wieder.
+	if active, _, exclusive := setupAPStatus(); active && exclusive {
+		stopSetupAP()
+		time.Sleep(2 * time.Second)
+	}
+
 	// Schon mit diesem Netz verbunden? Dann nichts anfassen – das Profil des
 	// aktiven Netzes darf nie gelöscht werden (sonst wäre der Pi bei einem
 	// Tippfehler im Passwort nicht mehr erreichbar).
@@ -544,6 +554,14 @@ func handleWifiStatus() helperproto.Response {
 			break
 		}
 	}
+	// Der eigene Setup-Hotspot zählt nicht als WLAN-Verbindung.
+	if active, ssid, exclusive := setupAPStatus(); active {
+		st.SetupAP = ssid
+		st.SetupAPParallel = !exclusive
+		if st.SSID == ssid {
+			st.Connected, st.SSID = false, ""
+		}
+	}
 	if st.Connected {
 		if ip, e := runCmd(5*time.Second, "/usr/bin/nmcli", "-t", "-f", "IP4.ADDRESS", "device", "show"); e == nil {
 			st.IP = firstIP(ip)
@@ -553,6 +571,19 @@ func handleWifiStatus() helperproto.Response {
 }
 
 func handleListWifi() helperproto.Response {
+	// Exklusiver Setup-Hotspot: der Chip sieht im AP-Modus kaum Netze → die
+	// vor dem Start gescannte Liste ausliefern.
+	if b, ok := cachedWifiList(); ok {
+		var nets []helperproto.WifiNetwork
+		if json.Unmarshal(b, &nets) == nil {
+			return helperproto.Response{OK: true, WifiNetworks: nets}
+		}
+	}
+	return scanWifiList()
+}
+
+// scanWifiList: aktuelle WLAN-Liste über nmcli (ohne Setup-Hotspot-Cache).
+func scanWifiList() helperproto.Response {
 	out, err := runCmd(15*time.Second, "/usr/bin/nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL,SECURITY", "device", "wifi", "list")
 	if err != nil {
 		return helperproto.Response{OK: false, Error: sanitize(out)}

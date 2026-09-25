@@ -122,4 +122,6 @@ type WifiState struct {
 	Connected bool   `json:"connected"`
 	SSID      string `json:"ssid,omitempty"`
 	IP        string `json:"ip,omitempty"`
+	SetupAP   string `json:"setup_ap,omitempty"`      // aktiver Setup-Hotspot (SSID), sonst leer
+	SetupAPParallel bool `json:"setup_ap_parallel,omitempty"` // parallel zur Verbindung (Testmodus)
 }

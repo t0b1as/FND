@@ -401,7 +401,7 @@ document.addEventListener('DOMContentLoaded', updLoad);
   </div>
 </div>
 
-<div class="set-card">
+<div class="set-card" id="wifi">
   <div class="set-head"><h3>]] .. t("settings.wifi_head") .. [[</h3>
     <button class="btn-sm" onclick="scanWifi()">]] .. t("settings.wifi_scan") .. [[</button>
   </div>
@@ -668,6 +668,12 @@ async function loadWifiStatus() {
       cur.textContent = ST.wifi_not_connected || 'Nicht verbunden';
       cur.style.color = 'var(--muted)';
     }
+    // Setup-Hotspot "FUNDUS Rnnn" (kein WLAN → Zugangsdaten per Handy eingeben)
+    window._wifiSetupAP = (d.ok && d.status && d.status.setup_ap) ? d.status : null;
+    if (window._wifiSetupAP) {
+      cur.textContent += '  ·  Setup-Hotspot aktiv: „' + d.status.setup_ap + '“' +
+        (d.status.setup_ap_parallel ? ' (Testmodus, parallel)' : ' – Adresse 10.42.0.1');
+    }
   } catch(e) {}
 }
 
@@ -704,8 +710,16 @@ async function connectWifi(ssid, secured) {
     pass = prompt((ST.wifi_password || 'Passwort für') + ' "' + ssid + '":');
     if (pass === null) return;
   }
+  // Über den EXKLUSIVEN Setup-Hotspot verbunden: der Pi braucht das Funkmodul
+  // für das neue WLAN → der Hotspot (und damit diese Verbindung) endet jetzt.
+  const viaAP = window._wifiSetupAP && !window._wifiSetupAP.setup_ap_parallel;
+  if (viaAP && !confirm('Der Hotspot „' + window._wifiSetupAP.setup_ap + '“ schließt sich jetzt, und der Node verbindet sich mit „' + ssid + '“.\n\nDanach ist er in diesem WLAN erreichbar. Scheitert die Verbindung (z.B. falsches Passwort), öffnet sich der Hotspot nach etwa 2 Minuten wieder.')) return;
   msg.textContent = (ST.wifi_connecting || 'Verbinde mit') + ' ' + ssid + '…';
   msg.style.color = 'var(--muted)';
+  if (viaAP) {
+    // Antwort kommt nicht mehr an (Hotspot weg) – Hinweis sofort zeigen.
+    msg.textContent = 'Hotspot wird beendet, Node verbindet sich mit „' + ssid + '“ … Handy jetzt wieder mit dem normalen WLAN verbinden.';
+  }
   try {
     const r = await fetch('/api/v1/admin/system/wifi/connect', {
       method:'POST', headers:{'Content-Type':'application/json'},

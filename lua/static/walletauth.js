@@ -143,7 +143,7 @@
   // Kleines Menü bei Klick auf die eingeloggte Adresse (Adresse kopieren, Abmelden).
   window.walletOpenMenu = function(){
     let ov = document.getElementById("wallet-menu");
-    if (ov){ ov.remove(); return; }
+    if (ov){ ov.remove(); document.removeEventListener("click", walletMenuCloser); return; }
     ov = document.createElement("div");
     ov.id = "wallet-menu";
     ov.className = "wallet-menu";
@@ -161,13 +161,21 @@
       '<button onclick="walletPublishEmail()">Per E-Mail auffindbar machen</button>'+
       '<button onclick="walletLogout();document.getElementById(\'wallet-menu\').remove()">Abmelden</button>';
     document.body.appendChild(ov);
-    setTimeout(function(){
-      document.addEventListener("click", function closer(e){
-        const m = document.getElementById("wallet-menu");
-        if (m && !m.contains(e.target)){ m.remove(); document.removeEventListener("click", closer); }
-      });
-    }, 50);
+    // EIN benannter Wächter (addEventListener mit derselben Funktion ist
+    // idempotent). Früher blieb pro Öffnen ein anonymer Wächter hängen, wenn das
+    // Menü per Knopf oder Menüpunkt schloss – beim nächsten Öffnen schloss ein
+    // solcher Rest das Menü sofort wieder ("geht nur manchmal auf").
+    document.addEventListener("click", walletMenuCloser);
   };
+
+  function walletMenuCloser(e){
+    const m = document.getElementById("wallet-menu");
+    if (!m){ document.removeEventListener("click", walletMenuCloser); return; }
+    // Klicks im Menü oder auf den Knopf selbst ignorieren (der Knopf toggelt).
+    if (m.contains(e.target) || (e.target.closest && e.target.closest("#wallet-badge"))) return;
+    m.remove();
+    document.removeEventListener("click", walletMenuCloser);
+  }
 
   // Beim Laden Status holen.
   if (document.readyState === "loading"){

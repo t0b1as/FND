@@ -640,7 +640,7 @@ function renderFileList() {
     }
     const isEnc = nm.endsWith('.fnde');
     const disp = isEnc ? ('🔒 ' + nm.slice(0, -5)) : nm;
-    const mk = window.FundusMedia ? FundusMedia.kind(nm, f.mime_type) : null;
+    const mk = fmKind(nm, f.mime_type);
     const shared = !!f.shared;
     const shareLabel = shared ? '✅ geteilt' : '🔗 teilen';
     const shareCls = shared ? 'btn-sm btn-shared' : 'btn-sm';
@@ -718,7 +718,7 @@ function renderFolderView() {
   filesHere.sort((a,b)=>a.name.localeCompare(b.name));
   window._fmFolderFiles = filesHere;
   filesHere.forEach(f => {
-    const mk = window.FundusMedia ? FundusMedia.kind(f.name, f.mime_type) : null;
+    const mk = fmKind(f.name, f.mime_type);
     html += '<div class="file-row"><span class="fname' + (mk ? ' fm-media' : '') + '"' +
       (mk ? ' onclick="fmOpenMedia(\'' + f.hash + '\',true)"' : '') +
       ' title="'+f.name.replace(/"/g,'&quot;')+'">' +
@@ -931,12 +931,60 @@ async function downloadFile(hash, name, peer) {
   }
 }
 
+// ── Medien erkennen OHNE media-viewer.js ──────────────────────────────────
+// Die Erkennung hing früher an media-viewer.js: fehlte das Modul im Browser
+// (nicht geladen/alt), blieben die Namen stumm unklickbar – ohne jede Meldung.
+const FM_IMG = ['jpg','jpeg','png','gif','webp','bmp','svg','avif','heic','ico'];
+const FM_VID = ['mp4','m4v','webm','mov','mkv','ogv','3gp','ts','m2ts','mts','flv','avi','wmv','mpg','mpeg','vob'];
+const FM_AUD = ['mp3','wav','ogg','oga','m4a','aac','flac','opus'];
+function fmKind(name, mime) {
+  let n = String(name || '').toLowerCase();
+  if (n.endsWith('.fnde')) n = n.slice(0, -5);
+  const i = n.lastIndexOf('.'), e = i >= 0 ? n.slice(i + 1) : '';
+  const m = String(mime || '').toLowerCase();
+  if (FM_IMG.indexOf(e) >= 0 || m.indexOf('image/') === 0) return 'image';
+  if (FM_VID.indexOf(e) >= 0 || m.indexOf('video/') === 0) return 'video';
+  if (FM_AUD.indexOf(e) >= 0 || m.indexOf('audio/') === 0) return 'audio';
+  return null;
+}
+// Anzeige-Modul sicherstellen: fehlt es, beim Klick nachladen – sonst klare Meldung.
+async function fmEnsureViewer() {
+  if (window.FundusMedia) return true;
+  try {
+    await new Promise(function(res, rej){
+      const sc = document.createElement('script');
+      sc.src = '/static/media-viewer.js?v=' + Date.now();
+      sc.onload = res;
+      sc.onerror = function(){ rej(new Error('/static/media-viewer.js konnte nicht geladen werden')); };
+      document.head.appendChild(sc);
+    });
+    if (window.FundusMedia) return true;
+    throw new Error('media-viewer.js geladen, aber ohne Anzeige-Funktion (veraltete Datei?)');
+  } catch (e) {
+    alert('Anzeige nicht verfügbar: ' + e.message + '\n\nBitte die Seite mit Strg+F5 neu laden. Hilft das nicht, den Node aktualisieren (Einstellungen → Software-Update).');
+    return false;
+  }
+}
+// Beim Laden prüfen und sichtbar melden, statt still zu scheitern.
+document.addEventListener('DOMContentLoaded', function(){
+  if (window.FundusMedia) return;
+  const box = document.getElementById('fs-results');
+  if (box && box.parentNode) {
+    const w = document.createElement('div');
+    w.className = 'empty-hint';
+    w.style.color = 'var(--warning, #fb3)';
+    w.textContent = '⚠ Anzeige-Modul (media-viewer.js) nicht geladen – Medien öffnen es beim Klick nach. Falls das scheitert: Seite mit Strg+F5 neu laden.';
+    box.parentNode.insertBefore(w, box);
+  }
+  if (window.console) console.warn('Fundus Dateimanager: media-viewer.js fehlt');
+});
+
 // Bild/Video/Audio groß anzeigen (media-viewer.js). Blättern mit ← → durch
 // alle Medien der aktuellen Ansicht (Hauptliste bzw. geöffneter Ordner).
-function fmOpenMedia(hash, inFolder) {
-  if (!window.FundusMedia) return;
+async function fmOpenMedia(hash, inFolder) {
+  if (!(await fmEnsureViewer())) return;
   const src = inFolder ? (window._fmFolderFiles || []) : (window._fmFiles || []);
-  const list = src.filter(f => !f.is_dir && FundusMedia.kind(f.name || '', f.mime_type))
+  const list = src.filter(f => !f.is_dir && fmKind(f.name || '', f.mime_type))
     .map(f => ({ hash: f.hash, name: f.name || '', mime: f.mime_type || '', size: f.size || 0 }));
   const idx = list.findIndex(x => x.hash === hash);
   FundusMedia.open(list, idx < 0 ? 0 : idx);
@@ -1025,7 +1073,7 @@ function renderFsResults(hits) {
     const lock = h.encrypted ? '🔒 ' : '';
     const nm = (h.name || h.hash);
     const src = h.from_peer === 'local' ? FT.local_src : FT.network;
-    const mk = window.FundusMedia ? FundusMedia.kind(nm, h.mime_type) : null;
+    const mk = fmKind(nm, h.mime_type);
     const icon = mk ? (mk === 'image' ? '🖼 ' : mk === 'audio' ? '♪ ' : '▶ ') : '';
     return '<div class="file-row">'
       + '<span class="fname' + (mk ? ' fm-media' : '') + '"'
@@ -1041,9 +1089,9 @@ function renderFsResults(hits) {
 // Treffer der Netzwerksuche groß anzeigen (Blättern mit ← → durch alle
 // Bild-/Video-Treffer). Entfernte Dateien werden dabei über den eigenen Node
 // gestreamt – er holt die benötigten Chunks von den Peers.
-function fsOpenMedia(hash) {
-  if (!window.FundusMedia) return;
-  const list = (window._fsHits || []).filter(x => FundusMedia.kind(x.name, x.mime));
+async function fsOpenMedia(hash) {
+  if (!(await fmEnsureViewer())) return;
+  const list = (window._fsHits || []).filter(x => fmKind(x.name, x.mime));
   const idx = list.findIndex(x => x.hash === hash);
   FundusMedia.open(list, idx < 0 ? 0 : idx);
 }

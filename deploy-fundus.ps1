@@ -530,7 +530,7 @@ if (-not $SkipSetup) {
     # ── Basis-Pakete (immer aus Debian-Repo verfuegbar) ──────────────────────
     Write-Step "Basis-Pakete pruefen..."
     # ffmpeg: Videos im Dateimanager umverpacken (MKV/TS/… mit AC3-Ton), ohne Neukodierung
-    $basePkgs = @("unzip","curl","logrotate","ca-certificates","gnupg","exfatprogs","ntfs-3g","ffmpeg")
+    $basePkgs = @("unzip","curl","logrotate","ca-certificates","gnupg","exfatprogs","ntfs-3g","ffmpeg","iw")
     $toInstall = @()
     foreach ($pkg in $basePkgs) {
         $chk = Invoke-SSH-Safe "dpkg -l $pkg 2>/dev/null | grep -q '^ii' && echo ok || echo missing"
