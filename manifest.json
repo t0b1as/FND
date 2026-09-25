@@ -1,8 +1,8 @@
 {
-  "version": "R463",
-  "description": "FUNDUS R463 - Korrektur am Messenger",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R463/FND-R463-update.zip",
-  "node_argon2": "9570f374f2709f8af2c00ab85b8bf13f9e5954e67ee04460436564d10ac0010b",
-  "published_at": "2026-09-25T09:07:12.3347683Z",
-  "signature": "0xc47f87946f96d869be165fe8f6936b5fc9f5d60a359c37fc0a479e23643a61c574c309f1437b81c95e47dfd734dac90c7be435cde3a2dd00c71bc6f7e16c580d1c"
+  "version": "R464",
+  "description": "FUNDUS R464 - Signierte Benutzernamen pro Node",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R464/FND-R464-update.zip",
+  "node_argon2": "4a339a95d607c15bb5564b4e58c984e90b0edc83e7630a6506ea0f1138396027",
+  "published_at": "2026-09-25T10:06:47.4398065Z",
+  "signature": "0xdf02f4829e381a39d79717abb831b18e02f8ac455384091c14ec250c7ba36aa1495d9e2366c05142a0503d39721dab2f717b88bb453a82ca54a776c3b15d66731c"
 }
