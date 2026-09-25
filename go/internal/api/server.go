@@ -415,7 +415,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R471"
+const NodeRevision = "R472"
 
 func (s *Server) getHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision})

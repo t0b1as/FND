@@ -15,6 +15,7 @@ package api
 //   der Verkäufer die SOL einlösen — der Käufer braucht also genug Zeitpuffer.
 
 import (
+	"fmt"
 	"context"
 	"strings"
 	"sync"
@@ -303,10 +304,31 @@ func (o *orchestrator) lockGive(ctx context.Context, ss *swapSession, s *Server)
 		lamports := uint64(ss.amountSOL * 1_000_000_000)
 		sig, err := client.Initiate(ctx, ss.solKey, lamports, ss.solTimelock(), redeemer, ss.secretHash)
 		if err != nil {
-			s.setSwapPhase(ss.swapID, SwapExpired, "SOL-Lock fehlgeschlagen: "+err.Error())
+			s.setSwapPhase(ss.swapID, SwapExpired, "SOL-Lock fehlgeschlagen ("+solNet(s)+"): "+err.Error())
 			return false
 		}
+		// Absenden genügt nicht: prüfen, ob das Swap-Konto wirklich auf der
+		// Chain angekommen ist (sonst wartet die Gegenseite ewig).
+		if pda, _, perr := client.deriveSwapPDA(ss.solKey.PublicKey(), ss.secretHash); perr == nil {
+			deadline := time.Now().Add(90 * time.Second)
+			for {
+				ok, cerr := o.solAccountCheck(ctx, s, pda.String())
+				if ok {
+					break
+				}
+				if time.Now().After(deadline) || ctx.Err() != nil {
+					note := "SOL-Lock gesendet (" + solNet(s) + ", Signatur " + truncate(sig, 16) + "), aber nach 90 s nicht auf der Chain – im Explorer prüfen"
+					if cerr != nil {
+						note += "; RPC-Fehler: " + truncate(cerr.Error(), 100)
+					}
+					s.setSwapPhase(ss.swapID, SwapExpired, note)
+					return false
+				}
+				time.Sleep(3 * time.Second)
+			}
+		}
 		s.setSwapSolLock(ss.swapID, sig)
+		s.setSwapPhase(ss.swapID, ss.currentPhase(s), "SOL gesperrt ("+solNet(s)+"), Signatur "+truncate(sig, 16)+"… – warte auf FND-Lock der Gegenseite")
 		return true
 	}
 	// giveChain == "fnd"
@@ -462,17 +484,33 @@ func (o *orchestrator) waitForSolLock(ctx context.Context, ss *swapSession, s *S
 	if err != nil {
 		return false
 	}
-	// Diagnose: welche PDA wird beobachtet.
-	s.setSwapPhase(ss.swapID, ss.currentPhase(s), "warte auf SOL-Lock an PDA "+pda.String()[:8]+"… (Initiator "+ss.counterpartySol[:8]+"…)")
+	// Diagnose: welche PDA wird auf welchem Netz beobachtet.
+	base := "warte auf SOL-Lock (" + solNet(s) + ") an PDA " + pda.String()[:8] + "… (Initiator " + ss.counterpartySol[:8] + "…)"
+	s.setSwapPhase(ss.swapID, ss.currentPhase(s), base)
 	tick := time.NewTicker(orchestratorPollInterval)
 	defer tick.Stop()
+	lastErr := ""
 	for {
 		select {
 		case <-ctx.Done():
 			return false
 		case <-tick.C:
-			if o.solAccountExists(ctx, s, pda.String()) {
+			ok, err := o.solAccountCheck(ctx, s, pda.String())
+			if ok {
 				return true
+			}
+			// RPC-Fehler sichtbar machen statt stumm weiterzuwarten.
+			e := ""
+			if err != nil {
+				e = err.Error()
+			}
+			if e != lastErr {
+				lastErr = e
+				if e != "" {
+					s.setSwapPhase(ss.swapID, ss.currentPhase(s), base+" – RPC-Fehler: "+truncate(e, 120))
+				} else {
+					s.setSwapPhase(ss.swapID, ss.currentPhase(s), base)
+				}
 			}
 		}
 	}
@@ -527,14 +565,39 @@ func (o *orchestrator) waitForSecretReveal(ctx context.Context, ss *swapSession,
 
 // solAccountExists prüft per RPC, ob ein Konto (der PDA) existiert.
 func (o *orchestrator) solAccountExists(ctx context.Context, s *Server, addr string) bool {
+	ok, _ := o.solAccountCheck(ctx, s, addr)
+	return ok
+}
+
+// solAccountCheck wie solAccountExists, aber mit Fehler (für die Statusanzeige).
+func (o *orchestrator) solAccountCheck(ctx context.Context, s *Server, addr string) (bool, error) {
 	res, err := s.swapMgr.solanaRPCCall(ctx, "getAccountInfo", []interface{}{
-		addr, map[string]interface{}{"encoding": "base64"},
+		addr, map[string]interface{}{"encoding": "base64", "commitment": "confirmed"},
 	})
 	if err != nil {
-		return false
+		return false, err
+	}
+	if strings.Contains(string(res), "\"error\"") {
+		return false, fmt.Errorf("RPC: %s", truncate(string(res), 160))
 	}
 	// Wenn value != null, existiert das Konto.
-	return !strings.Contains(string(res), "\"value\":null")
+	return !strings.Contains(string(res), "\"value\":null"), nil
+}
+
+// solNet: lesbarer Netzname für Statusmeldungen (Abweichungen zwischen den
+// Nodes fallen so sofort auf).
+func solNet(s *Server) string {
+	if c := s.solCluster(); c != "" {
+		return c
+	}
+	return "mainnet"
+}
+
+func truncate(v string, n int) string {
+	if len(v) <= n {
+		return v
+	}
+	return v[:n] + "…"
 }
 
 // ── Refund-Watcher ───────────────────────────────────────────────────────────
