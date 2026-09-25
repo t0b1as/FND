@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -127,8 +128,16 @@ func (s *Server) probeMedia(ctx context.Context, hash string) *mediaProbe {
 		}
 	}
 	audioOK := p.ACodec == "" || browserAudio[p.ACodec]
-	nativeContainer := strings.Contains(p.Format, "mp4") || strings.Contains(p.Format, "webm") ||
-		strings.Contains(p.Format, "matroska") // MKV wird als video/webm ausgeliefert
+	// Direkt nur echte MP4-/WebM-Dateien. MKV (ffprobe meldet es als
+	// "matroska,webm") spielt Chrome zwar über seinen WebM-Leser ab, der wertet
+	// bei H.264 mit B-Frames / AAC-Ton die Zeitstempel aber ungenau aus →
+	// Tonversatz. MKV daher immer sauber nach MP4 umverpacken.
+	ext := ""
+	if s.fileStore != nil {
+		ext = strings.ToLower(filepath.Ext(s.fileStore.NameForHash(hash)))
+	}
+	nativeContainer := strings.Contains(p.Format, "mp4") ||
+		(strings.Contains(p.Format, "webm") && ext == ".webm")
 	p.Direct = nativeContainer && directVideo[p.VCodec] && audioOK
 	p.Remux = browserVideo[p.VCodec]
 	if !p.Direct && !p.Remux {
@@ -182,11 +191,35 @@ func (s *Server) fileStream(c *gin.Context) {
 	if t < 0 || (p.Duration > 0 && t >= p.Duration) {
 		t = 0
 	}
-	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin"}
-	if t > 0 {
-		args = append(args, "-ss", strconv.FormatFloat(t, 'f', 2, 64)) // schneller Sprung (Keyframe)
+	// Ton-Versatz von Hand (ms, + = Ton später). Umsetzung: Tonspur als zweiter
+	// Eingang mit -itsoffset (funktioniert in beide Richtungen).
+	aMs, _ := strconv.Atoi(c.Query("a"))
+	if aMs > 5000 {
+		aMs = 5000
+	} else if aMs < -5000 {
+		aMs = -5000
 	}
-	args = append(args, "-i", s.localDownloadURL(hash), "-map", "0:v:0?", "-map", "0:a:0?", "-sn", "-dn")
+	src := s.localDownloadURL(hash)
+	// Eingangsoptionen: Zeitstempel erzeugen, wo sie fehlen; beim Sprung Bild
+	// UND Ton am selben Keyframe beginnen lassen (-noaccurate_seek). Sonst
+	// startet das kopierte Bild am Keyframe VOR der Stelle, der gewandelte Ton
+	// exakt an der Stelle – Versatz = Abstand zum Keyframe (oft Sekunden).
+	input := func(extra ...string) []string {
+		in := []string{"-fflags", "+genpts"}
+		if t > 0 {
+			in = append(in, "-ss", strconv.FormatFloat(t, 'f', 2, 64), "-noaccurate_seek")
+		}
+		in = append(in, extra...)
+		return append(in, "-i", src)
+	}
+	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin"}
+	args = append(args, input()...)
+	audioIn := "0"
+	if aMs != 0 && p.ACodec != "" {
+		args = append(args, input("-itsoffset", strconv.FormatFloat(float64(aMs)/1000, 'f', 3, 64))...)
+		audioIn = "1"
+	}
+	args = append(args, "-map", "0:v:0?", "-map", audioIn+":a:0?", "-sn", "-dn")
 	if p.VCodec != "" {
 		args = append(args, "-c:v", "copy")
 		if p.VCodec == "hevc" {
@@ -197,9 +230,14 @@ func (s *Server) fileStream(c *gin.Context) {
 		if p.ACodec == "aac" {
 			args = append(args, "-c:a", "copy")
 		} else {
-			args = append(args, "-c:a", "aac", "-ac", "2", "-b:a", "160k")
+			// aresample=async: gleicht Lücken/Drift der Tonspur an den Zeitstempeln aus.
+			args = append(args, "-c:a", "aac", "-ac", "2", "-b:a", "160k",
+				"-af", "aresample=async=1:first_pts=0")
 		}
 	}
+	// Negative Zeitstempel (z.B. nach Versatz) für ALLE Spuren gleich
+	// verschieben – der relative Versatz bleibt erhalten.
+	args = append(args, "-avoid_negative_ts", "make_zero", "-max_muxing_queue_size", "1024")
 	args = append(args, "-movflags", "frag_keyframe+empty_moov+default_base_moof", "-f", "mp4", "pipe:1")
 
 	// Endet, sobald der Browser die Verbindung schließt (Sprung, Schließen).

@@ -155,6 +155,7 @@ func (s *Server) registerMessengerRoutes() {
 		g.POST("/messenger/read",     s.messengerMarkRead)
 		g.POST("/messenger/decrypt",  s.messengerDecrypt)
 		g.POST("/messenger/presence", s.messengerPresence)
+		g.GET("/messenger/online", s.messengerOnline)
 		g.GET("/messenger/contacts",  s.messengerContacts)
 		g.POST("/messenger/contacts/sync", s.contactsSync) // verschlüsselte Liste speichern
 		g.GET("/messenger/contacts/load",  s.contactsLoad) // verschlüsselte Liste abrufen
@@ -768,6 +769,8 @@ func (s *Server) messengerPresence(c *gin.Context) {
 		return
 	}
 	_ = sess.messenger.PublishPresence(c.Request.Context(), req.Online)
+	// Auch lokal eintragen: andere Nutzer DIESES Nodes sehen es sofort.
+	recordPresence(strings.ToLower(sess.identity.FundusID), req.Online, time.Now().UTC())
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

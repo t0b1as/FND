@@ -60,6 +60,14 @@
     return (h ? h + ":" + (m < 10 ? "0" : "") : "") + m + ":" + (s < 10 ? "0" : "") + s;
   }
 
+  // Ton-Versatz pro Datei (ms, + = Ton später) im Browser merken.
+  function getAudioOffset(hash) {
+    try { return parseInt(localStorage.getItem("fundus-aoff-" + hash) || "0", 10) || 0; } catch (e) { return 0; }
+  }
+  function setAudioOffset(hash, ms) {
+    try { if (ms) localStorage.setItem("fundus-aoff-" + hash, String(ms)); else localStorage.removeItem("fundus-aoff-" + hash); } catch (e) {}
+  }
+
   async function probe(it) {
     try {
       var r = await fetch("/api/v1/files/probe/" + encodeURIComponent(it.hash) + (it._pq ? "?" + it._pq : ""), { credentials: "same-origin" });
@@ -210,7 +218,27 @@
     };
     v.src = src;
     stage.innerHTML = "";
-    stage.appendChild(v);
+    if (k === "video" && String(src).indexOf("blob:") !== 0) {
+      // Ton versetzt? Korrektur geht nur im umverpackten Strom (Server/ffmpeg).
+      var col = document.createElement("div");
+      col.className = "fm-viewer-col";
+      var fix = document.createElement("button");
+      fix.type = "button";
+      fix.className = "fm-viewer-link";
+      fix.textContent = "Ton versetzt? Umverpackt abspielen (mit Ton-Korrektur)";
+      fix.addEventListener("click", async function (e) {
+        e.stopPropagation();
+        var p = knownProbe || await probe(it);
+        if (token !== seq) return;
+        if (p && p.available && p.remux) playRemux(stage, it, k, p);
+        else alert("Umverpacken nicht möglich" + (p && p.reason ? ": " + p.reason : " (ffmpeg fehlt auf diesem Node)"));
+      });
+      col.appendChild(v);
+      col.appendChild(fix);
+      stage.appendChild(col);
+    } else {
+      stage.appendChild(v);
+    }
     v.play().catch(function () {}); // blockiertes Autoplay: Start per Klick
   }
 
@@ -219,6 +247,7 @@
   function playRemux(stage, it, k, p) {
     var token = seq, offset = 0, dragging = false;
     var dur = p.duration || 0;
+    var aOff = getAudioOffset(it.hash);
     var col = document.createElement("div");
     col.className = "fm-viewer-col";
     var v = document.createElement(k === "audio" ? "audio" : "video");
@@ -242,9 +271,32 @@
 
     function start(at) {
       offset = Math.max(0, at || 0);
-      v.src = "/api/v1/files/stream/" + encodeURIComponent(it.hash) + "?t=" + offset.toFixed(1) + (it._pq ? "&" + it._pq : "");
+      v.src = "/api/v1/files/stream/" + encodeURIComponent(it.hash) + "?t=" + offset.toFixed(1) +
+        (aOff ? "&a=" + aOff : "") + (it._pq ? "&" + it._pq : "");
       v.play().catch(function () {});
     }
+    // Ton-Versatz: Strom an der aktuellen Stelle mit neuem Versatz neu starten.
+    var av = document.createElement("div");
+    av.className = "fm-viewer-av";
+    av.innerHTML = '<button type="button" data-d="-100">◀ Ton früher</button>' +
+      '<span class="fm-viewer-avval"></span>' +
+      '<button type="button" data-d="100">Ton später ▶</button>' +
+      '<button type="button" data-d="0" title="Versatz zurücksetzen">0</button>';
+    var avVal = av.querySelector(".fm-viewer-avval");
+    function showAOff() {
+      avVal.textContent = "Ton-Versatz " + (aOff > 0 ? "+" : "") + (aOff / 1000).toFixed(1).replace(".", ",") + " s";
+    }
+    showAOff();
+    av.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var b = e.target.closest ? e.target.closest("button") : null;
+      if (!b) return;
+      var d = parseInt(b.getAttribute("data-d"), 10);
+      aOff = d === 0 ? 0 : Math.max(-5000, Math.min(5000, aOff + d));
+      setAudioOffset(it.hash, aOff);
+      showAOff();
+      start(offset + (v.currentTime || 0));
+    });
     v.addEventListener("timeupdate", function () {
       var pos = offset + (v.currentTime || 0);
       if (!dragging) slider.value = String(Math.floor(pos));
@@ -265,7 +317,9 @@
         unplayable(stage, k, (j && j.error) || "Umverpacken fehlgeschlagen");
       } catch (e) { unplayable(stage, k, "Umverpacken fehlgeschlagen"); }
     };
-    col.appendChild(v); col.appendChild(bar); col.appendChild(note);
+    col.appendChild(v); col.appendChild(bar);
+    if (k !== "audio" || p.acodec) col.appendChild(av);
+    col.appendChild(note);
     stage.innerHTML = "";
     stage.appendChild(col);
     start(0);

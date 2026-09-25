@@ -65,7 +65,8 @@ function onLoggedIn() {
     const ls = document.getElementById('login-status');
     if (ls) ls.textContent = '';
     connectWebSocket();
-    publishPresence(true);
+    publishPresence(msgVisible());
+    startPresence(); // Herzschlag + Online-Liste
     renderContacts();
     loadContacts(); // gespeicherte Kontakte der Wallet wiederherstellen
     fetchMailbox(); // wartende Offline-Nachrichten abholen
@@ -1092,6 +1093,81 @@ function emojifyText(html) {
     } catch(e) { return html; } // ältere Browser ohne Unicode-Property-Escapes
 }
 
+// ── Wer ist im Netz online? ────────────────────────────────────────────────
+// Jeder offene Messenger meldet sich alle 2 min. Kontakte bekommen einen
+// grünen Punkt; Nutzer, die (noch) keine Kontakte sind, erscheinen unter
+// "Im Netz online". Wer das nicht möchte: "Für andere sichtbar" abschalten.
+let onlineSet = new Set();
+let presenceTimer = null, onlineTimer = null;
+function msgVisible() {
+    try { return localStorage.getItem('fundus-msg-visible') !== '0'; } catch (e) { return true; }
+}
+function startPresence() {
+    if (presenceTimer) return;
+    presenceTimer = setInterval(() => { if (msgVisible()) publishPresence(true); }, 120000);
+    loadOnline();
+    onlineTimer = setInterval(loadOnline, 30000);
+}
+async function loadOnline() {
+    if (!myIdentity) return;
+    try {
+        const r = await fetch('/api/v1/messenger/online', { credentials: 'same-origin' });
+        if (!r.ok) return;
+        const d = await r.json();
+        onlineSet = new Set((d.online || []).map(e => String(e.fundus_id).toLowerCase()));
+        for (const c of Object.values(contacts)) c.online = onlineSet.has(String(c.fundusID).toLowerCase());
+        renderContacts();
+        renderOnline();
+    } catch (e) {}
+}
+function renderOnline() {
+    const anchor = document.getElementById('contact-list');
+    if (!anchor) return;
+    let box = document.getElementById('online-list');
+    if (!box) {
+        box = document.createElement('div');
+        box.id = 'online-list';
+        box.className = 'online-list';
+        anchor.parentNode.insertBefore(box, anchor.nextSibling);
+    }
+    const others = [...onlineSet].filter(fid => !contacts[fid]);
+    const vis = msgVisible();
+    let html = '<div class="online-head"><span>Im Netz online' + (others.length ? ' (' + others.length + ')' : '') + '</span>' +
+        '<label class="online-vis" title="Andere sehen dich als online und können dich anschreiben">' +
+        '<input type="checkbox" id="msg-visible"' + (vis ? ' checked' : '') + '> für andere sichtbar</label></div>';
+    if (!others.length) {
+        html += '<div class="online-empty">Gerade niemand außer deinen Kontakten.</div>';
+    }
+    for (const fid of others) {
+        html += '<div class="contact-item online-item" data-fid="' + escapeHtml(fid) + '">' +
+            '<span class="contact-indicator" style="color:var(--color-success,#16a34a)">●</span>' +
+            '<span class="contact-name mono" title="' + escapeHtml(fid) + '">' + escapeHtml(shortAddr(fid)) + '</span>' +
+            '<button class="online-add" title="Als Kontakt speichern">+</button></div>';
+    }
+    box.innerHTML = html;
+    const cb = document.getElementById('msg-visible');
+    if (cb) cb.onchange = () => {
+        try { localStorage.setItem('fundus-msg-visible', cb.checked ? '1' : '0'); } catch (e) {}
+        publishPresence(cb.checked);
+    };
+    box.querySelectorAll('.online-item').forEach(el => {
+        const fid = el.getAttribute('data-fid');
+        el.onclick = (e) => {
+            if (e.target.classList.contains('online-add')) {
+                // Kontakt speichern: ID eintragen, Namen abfragen
+                const alias = prompt('Name für diesen Kontakt (' + shortAddr(fid) + '):', '');
+                if (alias === null) return;
+                document.getElementById('new-contact-id').value = fid;
+                document.getElementById('new-contact-alias').value = alias;
+                addContact();
+                loadOnline();
+                return;
+            }
+            openChat({ fundusID: fid, alias: fid.slice(0, 10) + '…', online: true });
+        };
+    });
+}
+
 async function publishPresence(online) {
     if (!myIdentity) return;
     await fetch('/api/v1/messenger/presence', { method: 'POST', credentials: 'same-origin',
@@ -1100,7 +1176,7 @@ async function publishPresence(online) {
     });
 }
 
-window.addEventListener('beforeunload', () => publishPresence(false));
+window.addEventListener('beforeunload', () => { if (msgVisible()) publishPresence(false); });
 
 // Beim Hochscrollen nahe an den oberen Rand → ältere Nachrichten nachladen.
 (function setupHistoryScroll() {

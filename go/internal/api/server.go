@@ -145,6 +145,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	// Such-Responder: auf Netzwerk-Pings antworten + Rueckkanal einsammeln
 	s.registerSearchResponder()
 	s.registerFileSearchResponder()
+	s.registerPresence() // Messenger: wer ist online
 	s.registerJobSearchResponder()
 
 	s.srv = &http.Server{
@@ -414,7 +415,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R459"
+const NodeRevision = "R461"
 
 func (s *Server) getHealth(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision})
