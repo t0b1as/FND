@@ -1,8 +1,8 @@
 {
-  "version": "R457",
-  "description": "FUNDUS R457 - Einnahmen an die eigene Wallet",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R457/FND-R457-update.zip",
-  "node_argon2": "3b794a3e5a8f8e8ba0b76bd05d833ac08df7cb430e94abcd283ebd60f1786bf3",
-  "published_at": "2026-09-25T05:58:42.5174568Z",
-  "signature": "0xf5752aab231c788c839fb8890ec5883c6425047dca85394f54a1ede19469ad506246c75cc9978799e670964e7280daf6d3c5a507e46da693fde0fde18ce7f18d1c"
+  "version": "R459",
+  "description": "FUNDUS R459 - Korrektur am Filemanager",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R459/FND-R459-update.zip",
+  "node_argon2": "fcc639b6bd5f630f5e308c447f7fe16dda811ad26846dad09e69b7037721d715",
+  "published_at": "2026-09-25T07:19:32.7508017Z",
+  "signature": "0x93ed812a00c953c8e65a39c6458924e35ff69de0c70a03208116a15ec7c92abe115aa828cef6b862c16d380d15c4f867f813dd24d90072b42523020f5862ebfb1c"
 }
