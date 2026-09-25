@@ -1924,3 +1924,8 @@ audio.fm-viewer-media { width:min(560px,100%); box-shadow:none; }
 .online-item .contact-name { flex:1; font-size:12px; }
 .online-add { width:auto !important; min-height:0 !important; padding:0 8px !important; border:none; border-radius:6px;
   background:var(--sur2); color:var(--text); cursor:pointer; font-size:14px; line-height:22px; }
+.my-name-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center; }
+.my-name-row input { flex:1; min-width:120px; font-size:12px; }
+.my-name-row .btn { width:auto !important; padding:4px 10px; font-size:12px; }
+.my-name-status { flex-basis:100%; font-size:11px; color:var(--muted); }
+.online-id { font-size:10px; color:var(--muted); }

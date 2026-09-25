@@ -33,6 +33,7 @@ type presenceEntry struct {
 	FundusID string    `json:"fundus_id"`
 	Online   bool      `json:"online"`
 	LastSeen time.Time `json:"last_seen"`
+	Name     string    `json:"name,omitempty"`
 }
 
 var (
@@ -52,6 +53,11 @@ type presencePullItem struct {
 	FundusID string `json:"f"`
 	Online   bool   `json:"o"`
 	AgeSec   int64  `json:"a"`
+	// Signierter Namenseintrag (optional, wird beim Empfänger geprüft)
+	Name    string `json:"n,omitempty"`
+	NameTS  int64  `json:"nt,omitempty"`
+	NameSig string `json:"ns,omitempty"`
+	Pub     string `json:"p,omitempty"`
 }
 
 func (s *Server) registerPresence() {
@@ -60,7 +66,13 @@ func (s *Server) registerPresence() {
 	}
 	s.node.SetTopicHandler(presenceTopic, s.handlePresence)
 	s.node.RegisterProtocol(PresencePullProtocol, func(peerID string, data []byte) []byte {
-		out, _ := json.Marshal(presenceSnapshot())
+		items := presenceSnapshot()
+		for i := range items {
+			if r, ok := s.nameRecordOf(items[i].FundusID); ok {
+				items[i].Name, items[i].NameTS, items[i].NameSig, items[i].Pub = r.Name, r.TS, r.Sig, r.Pub
+			}
+		}
+		out, _ := json.Marshal(items)
 		return out
 	})
 	go s.presencePullLoop()
@@ -145,6 +157,7 @@ func (s *Server) pullPresenceOnce() {
 					continue
 				}
 				recordPresence(fid, it.Online, now.Add(-time.Duration(it.AgeSec)*time.Second))
+				s.nameFromPresence(fid, it.Pub, it.Name, it.NameSig, it.NameTS)
 			}
 		}(pid.String())
 	}
@@ -156,6 +169,9 @@ func (s *Server) handlePresence(data []byte) {
 		Ed25519  string    `json:"ed25519_pub"`
 		Online   bool      `json:"online"`
 		TS       time.Time `json:"ts"`
+		Name     string    `json:"name"`
+		NameTS   int64     `json:"name_ts"`
+		NameSig  string    `json:"name_sig"`
 	}
 	if json.Unmarshal(data, &m) != nil {
 		return
@@ -184,6 +200,7 @@ func (s *Server) handlePresence(data []byte) {
 	}
 	presenceMu.Unlock()
 	recordPresence(fid, m.Online, time.Now())
+	s.nameFromPresence(fid, m.Ed25519, m.Name, m.NameSig, m.NameTS) // signierter Name
 }
 
 // recordPresence: seenAt ist IMMER eine Zeit der eigenen Uhr (Empfang bzw.
@@ -225,6 +242,11 @@ func (s *Server) messengerOnline(c *gin.Context) {
 	}
 	known := len(presenceMap)
 	presenceMu.Unlock()
+	for i := range out {
+		if r, ok := s.nameRecordOf(out[i].FundusID); ok {
+			out[i].Name = r.Name
+		}
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
 	// Nur TATSÄCHLICH verbundene Peers zählen (Peers() enthält auch längst
 	// getrennte und fremde IPFS-Knoten – die Zahl wirkte zu gut).

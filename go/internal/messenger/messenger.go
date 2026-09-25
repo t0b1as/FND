@@ -92,6 +92,10 @@ type Payload struct {
 	// Original-Nachricht-ID; ReceiptKind ist "delivered" oder "read".
 	ReceiptFor  string `json:"receipt_for,omitempty"`
 	ReceiptKind string `json:"receipt_kind,omitempty"`
+
+	// SenderName: Anzeigename des Absenders (verschlüsselt mitgeschickt, damit
+	// der Empfänger ihn auch ohne gespeicherten Kontakt erkennt).
+	SenderName string `json:"sn,omitempty"`
 }
 
 // Quittungsarten (WhatsApp-analog): delivered = beim Empfänger angekommen,
@@ -130,6 +134,12 @@ type Messenger struct {
 	identity *identity.Identity
 	p2p      P2PAdapter
 	log      *zap.Logger
+
+	// Anzeigename + signierter Namenseintrag (für Nachrichten und Präsenz).
+	nameMu  sync.RWMutex
+	name    string
+	nameTS  int64
+	nameSig string
 
 	mu       sync.RWMutex
 	handlers []MessageHandler
@@ -216,6 +226,13 @@ func (m *Messenger) sendPayload(ctx context.Context, recipientID, recipientX2551
 		return nil, errors.New("messenger: recipientID und recipientX25519Hex erforderlich")
 	}
 
+	// Anzeigenamen bei Text- und Dateinachrichten mitschicken (nicht bei
+	// Quittungen/Signalen – die bleiben schlank).
+	if payload.SenderName == "" && (msgType == TypeText || msgType == TypeFile) {
+		m.nameMu.RLock()
+		payload.SenderName = m.name
+		m.nameMu.RUnlock()
+	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil { return nil, err }
 	if len(payloadBytes) > MaxMessageSize {
@@ -427,6 +444,13 @@ func (m *Messenger) Contacts() []*Contact {
 //  Präsenz
 // =============================================================================
 
+// SetDisplayName setzt den Anzeigenamen samt signiertem Namenseintrag.
+func (m *Messenger) SetDisplayName(name string, ts int64, sig string) {
+	m.nameMu.Lock()
+	m.name, m.nameTS, m.nameSig = name, ts, sig
+	m.nameMu.Unlock()
+}
+
 func (m *Messenger) PublishPresence(ctx context.Context, online bool) error {
 	pub := m.identity.PublicRecord()
 	status := map[string]interface{}{
@@ -436,6 +460,13 @@ func (m *Messenger) PublishPresence(ctx context.Context, online bool) error {
 		"online":        online,
 		"ts":            time.Now().UTC(),
 	}
+	// Signierter Namenseintrag (prüfbar mit ed25519_pub): so erscheint der
+	// Name auch in "Im Netz online" – fälschungssicher.
+	m.nameMu.RLock()
+	if m.nameSig != "" {
+		status["name"], status["name_ts"], status["name_sig"] = m.name, m.nameTS, m.nameSig
+	}
+	m.nameMu.RUnlock()
 	data, _ := json.Marshal(status)
 	return m.p2p.Publish(ctx, TopicPrefix+"presence", data)
 }

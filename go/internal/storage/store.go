@@ -35,6 +35,7 @@ const (
 	RecordKeyDir         RecordType = "key_dir"           // FundusID → X25519-PubKey (für Verschlüsselung an beliebige Adressen)
 	RecordOutbox         RecordType = "outbox"            // ausgehende Nachrichten die auf den Empfänger-PubKey warten
 	RecordWalletLink     RecordType = "wallet_link"       // hinterlegte Wallet je Login (verschlüsselt, NUR lokal)
+	RecordDisplayName    RecordType = "display_name"      // signierter Anzeigename je Fundus-ID (lokal, Verteilung per Präsenz)
 )
 
 // Record ist der generische Datencontainer im Fundus-Netz.

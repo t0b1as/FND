@@ -64,6 +64,7 @@ function onLoggedIn() {
         `<strong>${MSGT.signed_in}</strong> <span class="mono" style="font-size:11px" title="${myIdentity.fundus_id}">${shortAddr(myIdentity.fundus_id)}</span>`;
     const ls = document.getElementById('login-status');
     if (ls) ls.textContent = '';
+    renderMyNameRow();
     connectWebSocket();
     publishPresence(msgVisible());
     startPresence(); // Herzschlag + Online-Liste
@@ -93,7 +94,7 @@ async function initMessenger() {
         const d = await window.fundusMe();
         if (d) {
             myIdentity = { fundus_id: d.fundus_id, wallet_address: d.wallet_address,
-                           ed25519_pub_key: d.ed25519_pub_key };
+                           ed25519_pub_key: d.ed25519_pub_key, display_name: d.display_name || '' };
             onLoggedIn();
             return;
         }
@@ -204,9 +205,70 @@ function findContact(addr) {
 // contactName gibt den anzuzeigenden Namen für eine Adresse zurück: den Alias
 // eines gespeicherten Kontakts, sonst die gekürzte Adresse.
 function contactName(addr) {
-    const c = findContact(addr);
+    return displayName(addr, findContact(addr));
+}
+
+// ── Anzeigenamen ───────────────────────────────────────────────────────────
+// Jeder kann sich einen Namen geben (signiert, netzweit verbreitet). Ein selbst
+// vergebener Kontakt-Alias hat Vorrang; der übermittelte Name ersetzt nur die
+// automatische Kurzadresse.
+const nameCache = {}; // fundusID (klein) → Anzeigename
+function isAutoAlias(c) {
+    if (!c || !c.alias) return true;
+    const id = String(c.fundusID || '');
+    return c.alias === id.slice(0,10)+'…' || c.alias === id.slice(0,8)+'…';
+}
+function displayName(addr, c) {
+    const a = String(addr || (c && c.fundusID) || '').toLowerCase();
+    if (c && !isAutoAlias(c)) return c.alias;
+    if (nameCache[a]) return nameCache[a];
     if (c && c.alias) return c.alias;
-    return (addr||'').slice(0,10)+'…';
+    return a.slice(0,10)+'…';
+}
+async function loadNames(fids) {
+    const want = [...new Set((fids||[]).map(f => String(f||'').toLowerCase()).filter(f => f.length === 42 && !(f in nameCache)))];
+    if (!want.length) return;
+    try {
+        const r = await fetch('/api/v1/identity/names?ids=' + encodeURIComponent(want.join(',')), { credentials: 'same-origin' });
+        const d = await r.json();
+        for (const f of want) nameCache[f] = (d.names && d.names[f]) || '';
+    } catch (e) {}
+}
+async function saveMyName() {
+    const inp = document.getElementById('my-name'), st = document.getElementById('my-name-status');
+    try {
+        const r = await fetch('/api/v1/identity/name', { method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: inp.value }) });
+        const d = await r.json();
+        if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+        inp.value = d.name || '';
+        st.textContent = d.name ? '✓ gespeichert – andere sehen dich als „' + d.name + '“' : '✓ Name entfernt';
+    } catch (e) { st.textContent = '✗ ' + e.message; }
+}
+function renderMyNameRow() {
+    if (document.getElementById('my-name-row')) return;
+    const anchor = document.getElementById('identity-status');
+    if (!anchor || !anchor.parentNode) return;
+    const row = document.createElement('div');
+    row.id = 'my-name-row';
+    row.className = 'my-name-row';
+    row.innerHTML = '<input type="text" id="my-name" maxlength="32" autocomplete="nickname" placeholder="Dein Name (für andere sichtbar)">' +
+        '<button class="btn" id="my-name-save">Speichern</button><div id="my-name-status" class="my-name-status"></div>';
+    anchor.parentNode.insertBefore(row, anchor.nextSibling);
+    document.getElementById('my-name-save').onclick = saveMyName;
+    document.getElementById('my-name').addEventListener('keydown', e => { if (e.key === 'Enter') saveMyName(); });
+    if (myIdentity && myIdentity.display_name) {
+        document.getElementById('my-name').value = myIdentity.display_name;
+    } else if (window.fundusMe) {
+        // Nach frischem Login liefert die Anmeldung den Namen nicht mit → nachladen.
+        window.fundusMe(true).then(d => {
+            if (d && d.display_name) {
+                myIdentity.display_name = d.display_name;
+                const inp = document.getElementById('my-name');
+                if (inp && !inp.value) inp.value = d.display_name;
+            }
+        }).catch(() => {});
+    }
 }
 
 async function handleIncomingMessage(msg) {
@@ -235,6 +297,7 @@ async function handleIncomingMessage(msg) {
         if (!resp.ok) return;
         payload = await resp.json();
     }
+    if (msg.sender_name && msg.sender_id) nameCache[String(msg.sender_id).toLowerCase()] = msg.sender_name;
     appendMessage({
         id:      msg.id,
         from:    msg.sender_id,
@@ -833,7 +896,7 @@ function renderContacts() {
         div.className = 'contact-item' + (activeChat?.fundusID === c.fundusID ? ' active' : '');
         div.innerHTML = `
             <span class="contact-indicator" style="color:${c.online ? 'var(--color-success,#16a34a)' : '#aaa'}">●</span>
-            <span class="contact-name">${escapeHtml(c.alias)}</span>
+            <span class="contact-name">${escapeHtml(displayName(c.fundusID, c))}</span>
             ${c.unread ? '<span class="contact-unread">'+c.unread+'</span>' : ''}
         `;
         div.onclick = () => openChat(c);
@@ -850,7 +913,7 @@ function openChat(contact) {
     if (noChat) noChat.style.display = 'none';
     document.getElementById('chat-header').style.display = 'flex';
     document.getElementById('input-row').style.display = 'flex';
-    document.getElementById('chat-with-name').textContent = contact.alias || contactName(contact.fundusID);
+    document.getElementById('chat-with-name').textContent = displayName(contact.fundusID, contact);
     const addrEl = document.getElementById('chat-with-addr');
     if (addrEl) addrEl.value = contact.fundusID;
     // Ungespeicherter Kontakt (Alias ist nur die gekürzte Adresse)? Dann seine ID
@@ -1115,6 +1178,8 @@ async function loadOnline() {
         if (!r.ok) return;
         const d = await r.json();
         onlineSet = new Set((d.online || []).map(e => String(e.fundus_id).toLowerCase()));
+        for (const e of (d.online || [])) if (e.name) nameCache[String(e.fundus_id).toLowerCase()] = e.name;
+        await loadNames(Object.keys(contacts));
         window._presenceDiag = { peers: d.peers || 0, known: d.known || 0 };
         for (const c of Object.values(contacts)) c.online = onlineSet.has(String(c.fundusID).toLowerCase());
         renderContacts();
@@ -1147,7 +1212,9 @@ function renderOnline() {
     for (const fid of others) {
         html += '<div class="contact-item online-item" data-fid="' + escapeHtml(fid) + '">' +
             '<span class="contact-indicator" style="color:var(--color-success,#16a34a)">●</span>' +
-            '<span class="contact-name mono" title="' + escapeHtml(fid) + '">' + escapeHtml(shortAddr(fid)) + '</span>' +
+            (nameCache[fid]
+                ? '<span class="contact-name" title="' + escapeHtml(fid) + '">' + escapeHtml(nameCache[fid]) + ' <span class="mono online-id">' + escapeHtml(shortAddr(fid)) + '</span></span>'
+                : '<span class="contact-name mono" title="' + escapeHtml(fid) + '">' + escapeHtml(shortAddr(fid)) + '</span>') +
             '<button class="online-add" title="Als Kontakt speichern">+</button></div>';
     }
     box.innerHTML = html;
@@ -1161,7 +1228,7 @@ function renderOnline() {
         el.onclick = (e) => {
             if (e.target.classList.contains('online-add')) {
                 // Kontakt speichern: ID eintragen, Namen abfragen
-                const alias = prompt('Name für diesen Kontakt (' + shortAddr(fid) + '):', '');
+                const alias = prompt('Name für diesen Kontakt (' + shortAddr(fid) + '):', nameCache[fid] || '');
                 if (alias === null) return;
                 document.getElementById('new-contact-id').value = fid;
                 document.getElementById('new-contact-alias').value = alias;

@@ -162,6 +162,8 @@ func (s *Server) registerMessengerRoutes() {
 		g.POST("/messenger/read",     s.messengerMarkRead)
 		g.POST("/messenger/decrypt",  s.messengerDecrypt)
 		g.POST("/messenger/presence", s.messengerPresence)
+		g.POST("/identity/name", s.identitySetName)   // Anzeigenamen setzen
+		g.GET("/identity/names", s.identityNames)     // Anzeigenamen nachschlagen
 		g.GET("/messenger/online", s.messengerOnline)
 		g.GET("/messenger/contacts",  s.messengerContacts)
 		g.POST("/messenger/contacts/sync", s.contactsSync) // verschlüsselte Liste speichern
@@ -275,6 +277,7 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 				}
 				if payload != nil {
 					out["text"] = payload.Text
+					out["sender_name"] = payload.SenderName
 					out["file_hash"] = payload.FileHash
 					out["file_name"] = payload.FileName
 					out["file_size"] = payload.FileSize
@@ -293,6 +296,7 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 			}
 		})
 	}
+	s.loadOwnName(sess) // gespeicherten Anzeigenamen übernehmen
 	return sess
 }
 
@@ -404,6 +408,7 @@ func (s *Server) identityMe(c *gin.Context) {
 		"fundus_id":       rec.FundusID,
 		"wallet_address":  walletAddr,
 		"wallet_linked":   s.linkedAddress(sess.identity) != "",
+		"display_name":    s.ownDisplayName(sess),
 		"ed25519_pub_key": rec.Ed25519PubKey,
 		"created_at":      rec.CreatedAt,
 	})
