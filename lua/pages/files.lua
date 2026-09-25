@@ -779,7 +779,9 @@ async function downloadHash() {
   await downloadFile(hash, name);
 }
 
-async function downloadFile(hash, name) {
+async function downloadFile(hash, name, peer) {
+  // peer: Besitzer (Netzwerksuche) → Server fragt ihn zuerst nach Manifest/Chunks.
+  const peerQ = (peer && peer !== 'local') ? ('?peer=' + encodeURIComponent(peer)) : '';
   const st = document.getElementById('dl-status');
   // Eindeutige Fortschritts-ID (wie beim Upload), damit der Download-Balken
   // identisch in der FundusProgress-Leiste erscheint.
@@ -837,7 +839,7 @@ async function downloadFile(hash, name) {
   }
 
   try {
-    const r = await fetch('/api/v1/files/download/' + hash, {credentials:'same-origin'});
+    const r = await fetch('/api/v1/files/download/' + hash + peerQ, {credentials:'same-origin'});
     if (!r.ok) {
       if (st) { st.textContent=FT.not_found; st.style.color='var(--red)'; }
       if (writable) { try { await writable.close(); } catch(_){} }
@@ -1016,7 +1018,8 @@ function renderFsResults(hits) {
   window._fsHits = hits.map(function(h){
     let n = h.name || h.hash;
     if (h.encrypted && !String(n).toLowerCase().endsWith('.fnde')) n = n + '.fnde';
-    return { hash: h.hash, name: n, mime: h.mime_type || '', size: h.size || 0 };
+    return { hash: h.hash, name: n, mime: h.mime_type || '', size: h.size || 0,
+             peer: (h.from_peer && h.from_peer !== 'local') ? h.from_peer : '' };
   });
   box.innerHTML = hits.map(function(h){
     const lock = h.encrypted ? '🔒 ' : '';
@@ -1030,7 +1033,7 @@ function renderFsResults(hits) {
       + '>' + icon + lock + nm + '</span>'
       + '<span class="fsize">' + fmtSize(h.size||0) + '</span>'
       + '<span class="fhash">' + src + '</span>'
-      + '<div class="fbtns"><button class="btn-sm btn-prim" onclick="downloadFile(\'' + h.hash + '\',\'' + nm.replace(/'/g,"") + '\')">↓</button></div>'
+      + '<div class="fbtns"><button class="btn-sm btn-prim" onclick="downloadFile(\'' + h.hash + '\',\'' + nm.replace(/'/g,"") + '\',\'' + ((h.from_peer && h.from_peer !== 'local') ? h.from_peer : '') + '\')">↓</button></div>'
       + '</div>';
   }).join('');
 }

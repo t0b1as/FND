@@ -162,6 +162,7 @@ func (s *Server) fileDownload(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültiger Content-Hash (64 Hex-Zeichen erwartet)"})
 		return
 	}
+	s.applyPeerHint(c) // Besitzer aus der Netzwerksuche zuerst fragen
 
 	// Range-Request? (Video-Seeking, resumefähiger Download)
 	rangeHeader := c.GetHeader("Range")

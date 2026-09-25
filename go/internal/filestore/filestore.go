@@ -216,6 +216,11 @@ type FileStore struct {
 	p2p    P2PAdapter
 	log    *zap.Logger
 
+	// peerHints: Peers, von denen gerade Inhalte angefordert werden (z.B. der
+	// Besitzer eines Netzwerksuche-Treffers) → werden beim Abruf zuerst gefragt.
+	// Wert: time.Time (gültig bis).
+	peerHints sync.Map
+
 	mu       sync.RWMutex
 	used     int64
 	// chunks: Hash → Volume-Pfad, auf dem der Chunk liegt. Bei Multi-Volume-
@@ -1778,13 +1783,49 @@ func (fs *FileStore) releaseChunk(hash, owner string) error {
 
 // selectPeers wählt n Peers für Replikation aus.
 func (fs *FileStore) selectPeers(n int) []string {
-	rawPeers := fs.p2p.Peers()
-	result   := make([]string, 0, n)
-	for _, p := range rawPeers {
-		if len(result) >= n { break }
-		result = append(result, p.String())
+	result := make([]string, 0, n+2)
+	seen := map[string]bool{}
+	// 1. Hinweise zuerst (Besitzer aus der Netzwerksuche): sonst hängt es vom
+	//    Zufall ab, ob er unter den n gefragten Peers ist – und bei dünner DHT
+	//    wird eine vorhandene Datei als "nicht gefunden" gemeldet.
+	now := time.Now()
+	fs.peerHints.Range(func(k, v any) bool {
+		id, _ := k.(string)
+		until, _ := v.(time.Time)
+		if id == "" || now.After(until) {
+			fs.peerHints.Delete(k)
+			return true
+		}
+		if id != fs.cfg.PeerID && !seen[id] {
+			result = append(result, id)
+			seen[id] = true
+		}
+		return true
+	})
+	// 2. Verbundene Peers (bis n zusätzlich zu den Hinweisen).
+	added := 0
+	for _, p := range fs.p2p.Peers() {
+		if added >= n {
+			break
+		}
+		id := p.String()
+		if seen[id] {
+			continue
+		}
+		result = append(result, id)
+		seen[id] = true
+		added++
 	}
 	return result
+}
+
+// AddPeerHint merkt einen Peer 30 Minuten lang als bevorzugte Quelle (z.B. den
+// Besitzer einer in der Netzwerksuche gefundenen Datei).
+func (fs *FileStore) AddPeerHint(peerID string) {
+	if peerID == "" || peerID == fs.cfg.PeerID {
+		return
+	}
+	fs.peerHints.Store(peerID, time.Now().Add(30*time.Minute))
 }
 
 // reportProgress meldet den Chunking-Fortschritt an den gesetzten Callback

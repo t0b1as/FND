@@ -60,9 +60,9 @@
     return (h ? h + ":" + (m < 10 ? "0" : "") : "") + m + ":" + (s < 10 ? "0" : "") + s;
   }
 
-  async function probe(hash) {
+  async function probe(it) {
     try {
-      var r = await fetch("/api/v1/files/probe/" + encodeURIComponent(hash), { credentials: "same-origin" });
+      var r = await fetch("/api/v1/files/probe/" + encodeURIComponent(it.hash) + (it._pq ? "?" + it._pq : ""), { credentials: "same-origin" });
       return r.ok ? await r.json() : null;
     } catch (e) { return null; }
   }
@@ -124,7 +124,11 @@
     var enc = String(it.name || "").slice(-5).toLowerCase() === ".fnde";
     var disp = enc ? it.name.slice(0, -5) : it.name;
     var k = kind(it.name, it.mime);
-    var src = "/api/v1/files/download/" + encodeURIComponent(it.hash);
+    // Besitzer (Netzwerksuche) mitschicken: der Server fragt ihn zuerst nach
+    // Manifest und Chunks – sonst entscheidet der Zufall, ob er gefunden wird.
+    var pq = it.peer ? "peer=" + encodeURIComponent(it.peer) : "";
+    it._pq = pq;
+    var src = "/api/v1/files/download/" + encodeURIComponent(it.hash) + (pq ? "?" + pq : "");
 
     ov.querySelector(".fm-viewer-name").textContent = (enc ? "🔒 " : "") + (disp || it.hash.slice(0, 16));
     ov.querySelector(".fm-viewer-meta").textContent =
@@ -136,9 +140,9 @@
     var dl = ov.querySelector(".fm-viewer-dl");
     if (enc && typeof window.downloadFile === "function") {
       dl.removeAttribute("href");
-      dl.onclick = function (e) { e.preventDefault(); e.stopPropagation(); window.downloadFile(it.hash, it.name); };
+      dl.onclick = function (e) { e.preventDefault(); e.stopPropagation(); window.downloadFile(it.hash, it.name, it.peer); };
     } else {
-      dl.href = src + "?dl=1";
+      dl.href = src + (pq ? "&" : "?") + "dl=1";
       dl.onclick = function (e) { e.stopPropagation(); };
     }
 
@@ -165,7 +169,7 @@
       var e = ext(it.name);
       if (PROBE_FIRST.indexOf(e) >= 0) {
         message(stage, "Prüfe Format …");
-        var p = await probe(it.hash);
+        var p = await probe(it);
         if (token !== seq) return;
         if (p && p.available) {
           if (p.direct) playDirect(stage, it, k, src, p);
@@ -199,7 +203,7 @@
       if (token !== seq) return;
       if (String(src).indexOf("blob:") === 0) { unplayable(stage, k, ""); return; }
       message(stage, "Direkte Wiedergabe nicht möglich – prüfe Umverpacken …");
-      var p = knownProbe || await probe(it.hash);
+      var p = knownProbe || await probe(it);
       if (token !== seq) return;
       if (p && p.available && p.remux) playRemux(stage, it, k, p);
       else unplayable(stage, k, p && p.reason);
@@ -238,7 +242,7 @@
 
     function start(at) {
       offset = Math.max(0, at || 0);
-      v.src = "/api/v1/files/stream/" + encodeURIComponent(it.hash) + "?t=" + offset.toFixed(1);
+      v.src = "/api/v1/files/stream/" + encodeURIComponent(it.hash) + "?t=" + offset.toFixed(1) + (it._pq ? "&" + it._pq : "");
       v.play().catch(function () {});
     }
     v.addEventListener("timeupdate", function () {
@@ -255,7 +259,7 @@
     v.onerror = async function () {
       if (token !== seq) return;
       try {
-        var r = await fetch("/api/v1/files/stream/" + encodeURIComponent(it.hash) + "?t=0", { credentials: "same-origin", method: "GET" });
+        var r = await fetch("/api/v1/files/stream/" + encodeURIComponent(it.hash) + "?t=0" + (it._pq ? "&" + it._pq : ""), { credentials: "same-origin", method: "GET" });
         var j = r.ok ? null : await r.json().catch(function () { return null; });
         try { if (r.body && r.body.cancel) r.body.cancel(); } catch (e2) {}
         unplayable(stage, k, (j && j.error) || "Umverpacken fehlgeschlagen");
@@ -282,7 +286,7 @@
     if (!pw) { close(); return null; }
     message(stage, "Lädt verschlüsselte Datei …");
     try {
-      var r = await fetch("/api/v1/files/download/" + encodeURIComponent(it.hash), { credentials: "same-origin" });
+      var r = await fetch("/api/v1/files/download/" + encodeURIComponent(it.hash) + (it._pq ? "?" + it._pq : ""), { credentials: "same-origin" });
       if (!r.ok) throw new Error("HTTP " + r.status);
       var buf = await r.arrayBuffer();
       message(stage, "Entschlüsselt …");

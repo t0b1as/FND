@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/libp2p/go-libp2p/core/peer"
 	"go.uber.org/zap"
 )
 
@@ -143,6 +144,7 @@ func (s *Server) probeMedia(ctx context.Context, hash string) *mediaProbe {
 
 // GET /api/v1/files/probe/:hash
 func (s *Server) fileProbe(c *gin.Context) {
+	s.applyPeerHint(c)
 	hash := strings.ToLower(c.Param("hash"))
 	if !validHash(hash) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültiger Hash"})
@@ -153,6 +155,7 @@ func (s *Server) fileProbe(c *gin.Context) {
 
 // GET /api/v1/files/stream/:hash?t=SEKUNDEN
 func (s *Server) fileStream(c *gin.Context) {
+	s.applyPeerHint(c)
 	hash := strings.ToLower(c.Param("hash"))
 	if !validHash(hash) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültiger Hash"})
@@ -233,4 +236,17 @@ func (s *Server) fileStream(c *gin.Context) {
 		s.log.Warn("Umverpacken fehlgeschlagen", zap.String("hash", hash[:16]),
 			zap.String("ffmpeg", strings.TrimSpace(stderr.String())))
 	}
+}
+
+// applyPeerHint übernimmt ?peer=<PeerID> (Besitzer eines Netzwerksuche-
+// Treffers) als bevorzugte Quelle für Manifest und Chunks.
+func (s *Server) applyPeerHint(c *gin.Context) {
+	p := strings.TrimSpace(c.Query("peer"))
+	if p == "" || p == "local" || s.fileStore == nil {
+		return
+	}
+	if _, err := peer.Decode(p); err != nil {
+		return
+	}
+	s.fileStore.AddPeerHint(p)
 }
