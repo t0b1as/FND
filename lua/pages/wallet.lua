@@ -7,7 +7,12 @@ return function()
   local t = render.header("wallet.title", "wallet")
 
   local identity, _ = render.api_get("/v1/identity/me")
-  local addr = identity and identity.wallet_address or "–"
+  local addr = identity and identity.wallet_address or ""
+  if addr == "" then
+    -- Wallet noch nicht geöffnet/hinterlegt (seit R456 nicht mehr beim Login).
+    -- NIE die Fundus-ID zeigen: gleiches Format, FND dorthin wären verloren.
+    addr = "– (Wallet noch nicht geöffnet: Menü oben rechts → „Wallet öffnen“)"
+  end
 
 ngx.print(string.format([[
 <div class="wallet-layout">
@@ -226,6 +231,12 @@ loadEscrows().catch(()=>{});
       <div class="earn-cell"><span class="earn-num" id="earn-hosting">–</span><span class="earn-lbl">]==] .. t("wallet.earn_hosting_cnt") .. [==[</span></div>
     </div>
     <div id="earn-status" class="status-line"></div>
+    <div id="reward-target" class="w-hint" style="margin-top:8px"></div>
+    <div id="reward-actions" style="display:none;margin-top:6px">
+      <button class="btn-sm btn-prim" onclick="rewardToMyWallet()">Einnahmen an meine Wallet</button>
+      <button class="btn-sm" onclick="rewardToNode()">Zurück auf Node-Wallet</button>
+      <div id="reward-out" class="status-line"></div>
+    </div>
     <div id="seed-backup" style="display:none">
       <div class="seed-warn">
         <strong>]==] .. t("wallet.seed_backup_title") .. [==[</strong>
@@ -582,7 +593,8 @@ async function walTransfer(){
     });
     const d = await r.json();
     if (!r.ok) { out.textContent='✗ '+(d.error||WT.error_word); out.style.color='var(--red)'; return; }
-    out.innerHTML = WT.sent_tx + '<code>'+d.tx_hash+'</code>';
+    out.innerHTML = WT.sent_tx + '<code>'+d.tx_hash+'</code>' +
+      (d.payee_note ? '<br><span class="meta">ℹ ' + String(d.payee_note).replace(/[<>&]/g, '') + '</span>' : '');
     out.style.color='var(--grn)';
     if (window.walOpenAddress) { await walShowBalance(window.walOpenAddress); }
   } catch(e){ out.textContent='✗ '+e.message; out.style.color='var(--red)'; }
@@ -920,6 +932,46 @@ async function recreateWallet(){
     }
   } catch(e){ out.textContent = '✗ ' + e.message; }
 }
+// ── Einnahmen-Ziel (Speicher-/Transfer-Verdienst) ─────────────────────────
+// Die Node-Wallet wird mit 128 MiB abgeleitet – ihre Seed-Wörter ergeben in der
+// Nutzer-Wallet (256 MiB, wie fnd-wallet) eine ANDERE Adresse. Deshalb lassen
+// sich die Einnahmen direkt an die eigene Wallet leiten.
+async function loadRewardTarget(){
+  const box = document.getElementById('reward-target');
+  if (!box) return;
+  try {
+    const r = await fetch('/api/v1/files/reward-info', {credentials:'same-origin'});
+    const d = await r.json();
+    if (!d.enabled) { box.textContent = ''; return; }
+    box.innerHTML = 'Einnahmen gehen an: <b class="mono">' + d.reward_address + '</b>' +
+      (d.redirected ? ' (umgeleitet – Node-Wallet: <span class="mono">' + d.node_address + '</span>)'
+                    : ' (Node-Wallet – ihre Seed-Wörter öffnen sie nur mit der Node-Ableitung, nicht in der normalen Wallet)');
+    document.getElementById('reward-actions').style.display = 'block';
+  } catch(e){}
+}
+async function setRewardTarget(addr){
+  const out = document.getElementById('reward-out');
+  try {
+    const r = await fetch('/api/v1/files/reward-addr', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({address: addr})});
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+    out.textContent = '✓ Einnahmen gehen jetzt an ' + d.reward_address;
+    loadRewardTarget();
+  } catch(e){ out.textContent = '✗ ' + e.message + (String(e.message).indexOf('401') >= 0 ? ' (nur für den Betreiber)' : ''); }
+}
+function rewardToMyWallet(){
+  const w = (window.WALLET && window.WALLET.address) || '';
+  if (!w) { alert('Bitte zuerst oben rechts im Menü „Wallet öffnen“ (und am besten hinterlegen).'); return; }
+  if (!confirm('Künftige Speicher-/Transfer-Einnahmen dieses Nodes an\n' + w + '\nleiten? Bisherige Einnahmen bleiben auf der Node-Wallet (per Auto-Payout übertragbar).')) return;
+  setRewardTarget(w);
+}
+function rewardToNode(){
+  if (!confirm('Einnahmen wieder an die Node-Wallet leiten?')) return;
+  setRewardTarget('');
+}
+document.addEventListener('DOMContentLoaded', loadRewardTarget);
+
 async function showSeedBackup(){
   const box = document.getElementById('seed-backup');
   if (!box || box.dataset.loaded === '1') return;

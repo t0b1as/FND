@@ -132,13 +132,13 @@ func (fs *FileStore) UnlockEncryptedSeed(password string) error {
 	if err != nil {
 		return err
 	}
-	key, err := identity.DerivePrivateKeyFromSeed(words)
+	key, err := identity.DeriveNodePrivateKeyFromSeed(words)
 	if err != nil {
 		return fmt.Errorf("filestore: Schlüssel aus Seed: %w", err)
 	}
 	fs.signerKey = key
 	fs.selfAddr = chain.PubkeyToAddress(&key.PublicKey)
-	fs.rewardAddr = fs.selfAddr
+	fs.applyRewardAddr() // konfiguriertes Einnahmen-Ziel NICHT überschreiben
 	return nil
 }
 

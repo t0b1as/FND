@@ -294,10 +294,12 @@ func (s *Server) walletPayoutSet(c *gin.Context) {
 	}
 	// Bei aktivem Payout muss die Zieladresse gültig sein.
 	if mode != PayoutOff {
-		if _, ok := chain.AddressFromHex(req.Target); !ok {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Zieladresse"})
+		ta, _, terr := s.resolvePayee(req.Target)
+		if terr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Zieladresse: " + terr.Error()})
 			return
 		}
+		req.Target = ta.Hex()
 		if mode == PayoutThreshold && req.ThresholdFND <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Schwelle muss > 0 sein"})
 			return

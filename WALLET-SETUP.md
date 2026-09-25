@@ -173,3 +173,30 @@ Nach Einbau der Adresse in `fundus.env`:
 - [ ] Contract-Adressen in Go-Config eingetragen
 - [ ] Gnosis Mainnet deployment
 - [ ] `deploy-fundus.ps1` für beide Pis ausgeführt
+
+---
+
+## Zwei Ableitungen, zwei Arten von Adressen (Stand R456)
+
+**Seed-Wörter → Wallet-Adresse gibt es in zwei Varianten** (gleiches Salt, gleiche
+Normalisierung, gleiche BLAKE3-Adresse – nur die Argon2-Kosten unterscheiden sich,
+und damit die Adresse):
+
+| Ableitung | Argon2id | Wofür |
+|---|---|---|
+| **Nutzer-Wallet** (Standard) | 256 MiB, t=4 | Wallet öffnen, Überweisung, Shop, Escrow, Admin-Wallet, Fee-Collector `0xea5594a7…` – identisch zu `fnd-wallet` |
+| **Node-Wallet / alt** | 128 MiB, t=2 | `node.seed` (Speicher-Einnahmen) und Nutzer-Adressen vor R456 |
+
+Der **Login** leitet die Wallet nicht mehr ab (wäre ~10 s auf dem Pi). Stattdessen:
+Menü oben rechts → **„Wallet öffnen"** → **„Als Login-Wallet hinterlegen"**. Die
+Wallet (eigene oder eine andere, z.B. die Fee-Collector-Wallet über ihre
+Seed-Wörter) steht dann bei jedem Login sofort bereit – verschlüsselt mit einem
+Schlüssel, den nur diese Login-Identität erzeugen kann, und nur auf diesem Node.
+Liegt auf der alten Adresse (vor R456) noch Guthaben, bietet „Wallet öffnen" den
+**Umzug** an. **Kein Chain-Reset nötig.**
+
+**Fundus-ID ≠ Wallet-Adresse.** Die Fundus-ID (Messenger, Kontakte, Partnerbörse)
+entsteht aus einem Ed25519-Schlüssel, die Wallet-Adresse (FND) aus einem
+secp256k1-Schlüssel. Beide sehen aus wie `0x…` mit 40 Zeichen. FND an eine
+Fundus-ID wären verloren – der Node übersetzt eine eingegebene Fundus-ID
+automatisch in die Wallet-Adresse derselben Person oder lehnt ab.

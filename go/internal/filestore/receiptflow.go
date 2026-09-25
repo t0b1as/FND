@@ -33,11 +33,15 @@ import (
 
 // providerAddrHex liefert die Wallet-Adresse dieses Nodes als Hex (für die
 // ChunkResponse), oder "" wenn kein Quittungs-Schlüssel konfiguriert ist.
+// Liefert das EINNAHMEN-ZIEL: die Chain schreibt den Verdienst der Adresse im
+// Provider-Feld der Quittung gut (vom Konsumenten signiert). Standard ist die
+// Node-Wallet; mit gesetzter Reward-Adresse gehen die Einnahmen direkt dorthin
+// (z.B. an die Nutzer-Wallet des Betreibers, 256 MiB wie fnd-wallet).
 func (fs *FileStore) providerAddrHex() string {
 	if fs.signerKey == nil {
 		return ""
 	}
-	return fs.selfAddr.Hex()
+	return fs.rewardAddr.Hex()
 }
 
 // acceptReceipt nimmt eine vom Konsumenten signierte Quittung entgegen. Gibt
@@ -55,7 +59,8 @@ func (fs *FileStore) acceptReceipt(raw []byte) bool {
 	// Nur Quittungen annehmen, die DIESEN Node als Provider benennen — sonst
 	// könnte jemand fremde oder erfundene Nachweise unterschieben. Ohne eigenen
 	// Schlüssel kennt der Node seine Adresse nicht und lehnt grundsätzlich ab.
-	if fs.signerKey == nil || r.Provider != fs.selfAddr {
+	// Reward-Adresse ODER Node-Adresse (Quittungen von vor einer Umstellung).
+	if fs.signerKey == nil || (r.Provider != fs.rewardAddr && r.Provider != fs.selfAddr) {
 		fs.log.Info("DEBUG acceptReceipt abgelehnt",
 			zap.Bool("hat_key", fs.signerKey != nil),
 			zap.String("quittung_provider", r.Provider.Hex()),

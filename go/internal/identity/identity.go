@@ -14,6 +14,7 @@
 package identity
 
 import (
+	"math/big"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"lukechampine.com/blake3"
@@ -63,6 +64,15 @@ const (
 	a2WalletMemory uint32 = 128 * 1024 // 128 MiB (war 256) – halbiert die Login-Zeit
 	a2WalletThreads uint8 = 4
 
+	// Chain-Schlüssel der NUTZER-Wallet (Seed-Wörter → secp256k1): 256 MiB, t=4
+	// – identisch zu fnd-wallet, damit dieselben Wörter überall dieselbe
+	// Wallet-Adresse ergeben (Fee-Collector 0xea5594a7… stammt von dort).
+	// Läuft NUR beim bewussten Öffnen/Hinterlegen der Wallet, nie beim Login.
+	// Die NODE-Wallet (node.seed) behält a2Wallet* – sonst änderte sich die
+	// Adresse jedes Nodes und bisherige Einnahmen lägen auf der alten.
+	a2ChainTime   uint32 = 4
+	a2ChainMemory uint32 = 256 * 1024
+
 	saltIdent = "fundus-identity-v2:" // final – nie mehr ändern
 	saltECDH  = "fundus-ecdh-v2:"
 )
@@ -87,7 +97,8 @@ type Identity struct {
 	// Login-Identität und Wallet EINE Identität sind. chainAddrCache wird LAZY
 	// berechnet (erst bei ChainAddr()), damit der Login nicht den teuren
 	// Chain-Argon2-Durchlauf machen muss.
-	chainAddrCache string   // gecachte secp256k1-Adresse (0x…), lazy
+	chainAddrCache string   // secp256k1-Adresse (0x…) – nur wenn bekannt (hinterlegt/geöffnet)
+	chainKey       *ecdsa.PrivateKey // hinterlegter/abgeleiteter Wallet-Schlüssel (RAM)
 	seedWords      []string // 30 BIP39-Wörter (für Wallet-Export/-Anzeige)
 
 	DerivedAt time.Time
@@ -97,17 +108,42 @@ type Identity struct {
 // beim ersten Aufruf lazy aus den Seed-Wörtern (deterministisch). So bleibt der
 // Login schnell — der teure Chain-Argon2 läuft nur, wenn die Adresse gebraucht
 // wird (FND-Transfer, Anzeige).
+// Seit R456 wird die Wallet NICHT mehr beim Login abgeleitet (256 MiB, ~10 s
+// auf dem Pi): ChainAddr liefert nur eine bekannte Adresse – aus der
+// hinterlegten Wallet oder nach bewusstem Öffnen (DeriveChainNow). Sonst "".
 func (id *Identity) ChainAddr() string {
-	if id.chainAddrCache != "" {
-		return id.chainAddrCache
-	}
-	if len(id.seedWords) == 0 {
-		return ""
-	}
-	if addr, err := DeriveAddressFromSeed(id.seedWords); err == nil {
-		id.chainAddrCache = addr
-	}
 	return id.chainAddrCache
+}
+
+// SetChainKey hinterlegt den Wallet-Schlüssel für diese Sitzung (aus der
+// gespeicherten Verknüpfung oder nach dem Öffnen der Wallet).
+func (id *Identity) SetChainKey(k *ecdsa.PrivateKey) {
+	if k == nil {
+		return
+	}
+	id.chainKey = k
+	id.chainAddrCache = blake3Address(&k.PublicKey)
+}
+
+// DeriveChainNow leitet die Wallet der Login-Seed-Wörter ab (256 MiB, t=4)
+// und merkt sie für die Sitzung. Bewusste Aktion (Wallet öffnen).
+func (id *Identity) DeriveChainNow() (string, error) {
+	if len(id.seedWords) == 0 {
+		return "", fmt.Errorf("identity: keine Seed-Wörter in Identität")
+	}
+	k, err := DerivePrivateKeyFromSeed(id.seedWords)
+	if err != nil {
+		return "", err
+	}
+	id.SetChainKey(k)
+	return id.chainAddrCache, nil
+}
+
+// LinkKey: symmetrischer Schlüssel zum Verschlüsseln der hinterlegten Wallet
+// (nur mit dieser Login-Identität herstellbar – aus dem Ed25519-Seed).
+func (id *Identity) LinkKey() []byte {
+	h := blake3Sum256(append([]byte("fundus-walletlink-v1:"), id.ed25519Key.Seed()...))
+	return h[:]
 }
 
 // SeedWords gibt die Wallet-Seed-Wörter zurück (für den bewussten Export durch
@@ -116,10 +152,22 @@ func (id *Identity) SeedWords() []string { return id.seedWords }
 
 // ChainPrivateKey leitet den secp256k1-Transfer-Key aus den Seed-Wörtern ab.
 func (id *Identity) ChainPrivateKey() (*ecdsa.PrivateKey, error) {
+	if id.chainKey != nil {
+		cp := *id.chainKey
+		cp.D = new(big.Int).Set(id.chainKey.D)
+		return &cp, nil
+	}
 	if len(id.seedWords) == 0 {
 		return nil, fmt.Errorf("identity: keine Seed-Wörter in Identität")
 	}
-	return DerivePrivateKeyFromSeed(id.seedWords)
+	k, err := DerivePrivateKeyFromSeed(id.seedWords)
+	if err == nil {
+		id.SetChainKey(k)
+		cp := *k
+		cp.D = new(big.Int).Set(k.D)
+		return &cp, nil
+	}
+	return nil, err
 }
 
 // =============================================================================
@@ -558,7 +606,18 @@ func GenerateWallet() (words []string, address string, err error) {
 // DerivePrivateKeyFromSeed leitet den secp256k1-PrivateKey aus Seed-Wörtern ab
 // (gleiche Ableitung wie DeriveAddressFromSeed). Der Aufrufer MUSS den Key nach
 // Gebrauch nullen (key.D.SetInt64(0)). Für ephemeres Signieren von Transaktionen.
+// DerivePrivateKeyFromSeed: Nutzer-Wallet (256 MiB, t=4 – wie fnd-wallet).
 func DerivePrivateKeyFromSeed(words []string) (*ecdsa.PrivateKey, error) {
+	return derivePrivateKey(words, a2ChainTime, a2ChainMemory)
+}
+
+// DeriveNodePrivateKeyFromSeed: Node-Wallet (node.seed) und Altbestand der
+// Nutzer-Wallets vor R456 (128 MiB, t=2). Für Umzug alter Guthaben.
+func DeriveNodePrivateKeyFromSeed(words []string) (*ecdsa.PrivateKey, error) {
+	return derivePrivateKey(words, a2WalletTime, a2WalletMemory)
+}
+
+func derivePrivateKey(words []string, chainTime, chainMemory uint32) (*ecdsa.PrivateKey, error) {
 	norm := make([]string, 0, len(words))
 	for _, w := range words {
 		w = textunicode.NFC.String(strings.TrimFunc(w, unicode.IsSpace))
@@ -571,7 +630,7 @@ func DerivePrivateKeyFromSeed(words []string) (*ecdsa.PrivateKey, error) {
 	}
 	password := []byte(strings.Join(norm, "\n"))
 	salt := []byte("fundus-fnd-v2")
-	keyBytes := argon2.IDKey(password, salt, a2WalletTime, a2WalletMemory, a2WalletThreads, 32)
+	keyBytes := argon2.IDKey(password, salt, chainTime, chainMemory, a2WalletThreads, 32)
 	for i := range password {
 		password[i] = 0
 	}
@@ -587,8 +646,21 @@ func DerivePrivateKeyFromSeed(words []string) (*ecdsa.PrivateKey, error) {
 
 // DeriveAddressFromSeed leitet die Wallet-Adresse aus Seed-Wörtern ab.
 // Gibt NUR die öffentliche Adresse zurück. Private Key wird sofort gelöscht.
+// DeriveAddressFromSeed: Nutzer-Wallet-Adresse (256 MiB, t=4 – wie fnd-wallet).
 func DeriveAddressFromSeed(words []string) (string, error) {
-	// Argon2id v2 (256 MiB) – gleiche Parameter UND Normalisierung wie fnd-wallet
+	return deriveAddress(words, a2ChainTime, a2ChainMemory)
+}
+
+// DeriveNodeAddressFromSeed: Node-Wallet / Altbestand (128 MiB, t=2).
+func DeriveNodeAddressFromSeed(words []string) (string, error) {
+	return deriveAddress(words, a2WalletTime, a2WalletMemory)
+}
+
+func deriveAddress(words []string, chainTime, chainMemory uint32) (string, error) {
+	// Argon2id mit a2WalletTime/a2WalletMemory (seit R297: t=2, 128 MiB).
+	// fnd-wallet leitet als "Node-/Login-Ableitung" identisch ab; seine
+	// "Admin-Ableitung" (256 MiB, t=4) ergibt eine ANDERE Adresse – mit ihr
+	// wurde der Fee-Collector 0xea5594a7… erzeugt.
 	// WICHTIG: NFC-Normalisierung muss identisch sein, sonst andere Adresse
 	// bei Wörtern mit Umlauten/Akzenten (z.B. "café" vs "cafe\u0301")
 	norm := make([]string, 0, len(words))
@@ -602,7 +674,7 @@ func DeriveAddressFromSeed(words []string) (string, error) {
 
 	password := []byte(strings.Join(norm, "\n"))
 	salt     := []byte("fundus-fnd-v2")
-	keyBytes := argon2.IDKey(password, salt, a2WalletTime, a2WalletMemory, a2WalletThreads, 32)
+	keyBytes := argon2.IDKey(password, salt, chainTime, chainMemory, a2WalletThreads, 32)
 	for i := range password { password[i] = 0 }
 
 	privKey, err := crypto.ToECDSA(keyBytes)
@@ -986,16 +1058,21 @@ type SessionSecret struct {
 	EdSeed    []byte   `json:"s"`
 	Words     []string `json:"w"`
 	ChainAddr string   `json:"c,omitempty"`
+	ChainKey  []byte   `json:"k,omitempty"` // hinterlegter Wallet-Schlüssel (32 Bytes)
 }
 
 // ExportSessionSecret liefert die Geheimnisse dieser Identität für die
 // verschlüsselte Sitzungsablage.
 func (id *Identity) ExportSessionSecret() SessionSecret {
-	return SessionSecret{
+	sec := SessionSecret{
 		EdSeed:    append([]byte(nil), id.ed25519Key.Seed()...),
 		Words:     append([]string(nil), id.seedWords...),
 		ChainAddr: id.chainAddrCache,
 	}
+	if id.chainKey != nil {
+		sec.ChainKey = crypto.FromECDSA(id.chainKey)
+	}
+	return sec
 }
 
 // FromSessionSecret stellt eine Identität aus einem SessionSecret wieder her –
@@ -1010,7 +1087,7 @@ func FromSessionSecret(sec SessionSecret) (*Identity, error) {
 	copy(x25519Priv[:], sec.EdSeed)
 	clampX25519(&x25519Priv)
 	h := blake3Sum256(pub)
-	return &Identity{
+	id := &Identity{
 		FundusID:       "0x" + hex.EncodeToString(h[:20]),
 		PublicKeyHex:   hex.EncodeToString(pub),
 		ed25519Key:     priv,
@@ -1018,5 +1095,11 @@ func FromSessionSecret(sec SessionSecret) (*Identity, error) {
 		seedWords:      append([]string(nil), sec.Words...),
 		chainAddrCache: sec.ChainAddr,
 		DerivedAt:      time.Now().UTC(),
-	}, nil
+	}
+	if len(sec.ChainKey) == 32 {
+		if k, err := crypto.ToECDSA(sec.ChainKey); err == nil {
+			id.SetChainKey(k)
+		}
+	}
+	return id, nil
 }

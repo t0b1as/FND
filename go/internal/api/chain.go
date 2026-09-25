@@ -160,9 +160,9 @@ func (s *Server) chainSend(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Seed-Wörter fehlen"})
 		return
 	}
-	to, ok := chain.AddressFromHex(req.To)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Empfänger-Adresse"})
+	to, _, terr := s.resolvePayee(req.To)
+	if terr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": terr.Error()})
 		return
 	}
 	amount, ok := parseFNDtoU(req.AmountFND)

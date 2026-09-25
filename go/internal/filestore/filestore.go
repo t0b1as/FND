@@ -414,16 +414,9 @@ func New(cfg Config, p2p P2PAdapter, log *zap.Logger) (*FileStore, error) {
 	if nodeKey != nil {
 		fs.signerKey = nodeKey
 		fs.selfAddr = chain.PubkeyToAddress(&nodeKey.PublicKey)
-		// Reward-Adresse: konfiguriert oder Node-Adresse als Fallback.
-		fs.rewardAddr = fs.selfAddr
-		if cfg.RewardAddr != "" {
-			if addr, ok := chain.AddressFromHex(cfg.RewardAddr); ok {
-				fs.rewardAddr = addr
-			} else {
-				log.Warn("RewardAddr ungültig, nutze Node-Adresse",
-					zap.String("reward_addr", cfg.RewardAddr))
-			}
-		}
+		// Reward-Adresse: in den Einstellungen gesetzt (reward_addr.txt) >
+		// FUNDUS_STORAGE_REWARD_ADDR > Node-Adresse.
+		fs.applyRewardAddr()
 		log.Info("Quittungs-Identität aktiv",
 			zap.String("node_addr", fs.selfAddr.Hex()),
 			zap.String("reward_addr", fs.rewardAddr.Hex()))

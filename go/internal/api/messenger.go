@@ -178,6 +178,8 @@ func (s *Server) registerMessengerRoutes() {
 // verschlüsselter Verlauf, Empfangs-Handler). Gemeinsamer Weg für den Login und
 // die Wiederherstellung nach einem Neustart des Nodes.
 func (s *Server) buildSession(id *identity.Identity) *Session {
+	// Hinterlegte Wallet (verschlüsselt, lokal) übernehmen – kein Argon2.
+	s.loadWalletLink(id)
 	// Session anlegen
 	sess := &Session{
 		identity: id,
@@ -386,11 +388,14 @@ func (s *Server) identityMe(c *gin.Context) {
 	// wallet_address ist die ECHTE Chain-Adresse (secp256k1), von der FND
 	// gesendet/empfangen wird — abgeleitet aus demselben Login. Die FundusID
 	// (Ed25519) ist die Messenger-/Kontakt-Identität.
+	// KEIN Rückfall auf die Fundus-ID: sie hat dasselbe Format wie eine
+	// Wallet-Adresse, FND dorthin wären verloren. Leer = Wallet noch nicht
+	// geöffnet/hinterlegt (Wallet-Seite: "Wallet öffnen").
 	walletAddr := sess.identity.ChainAddr()
-	if walletAddr == "" { walletAddr = rec.FundusID } // Fallback
 	c.JSON(http.StatusOK, gin.H{
 		"fundus_id":       rec.FundusID,
 		"wallet_address":  walletAddr,
+		"wallet_linked":   s.linkedAddress(sess.identity) != "",
 		"ed25519_pub_key": rec.Ed25519PubKey,
 		"created_at":      rec.CreatedAt,
 	})
@@ -1176,10 +1181,17 @@ func (s *Server) identitySeedWords(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"error": "Keine Seed-Wörter verfügbar (ältere Session – bitte neu anmelden)"})
 		return
 	}
+	// Adresse DIESER Wörter (256 MiB, wie fnd-wallet) – bewusste Aktion, ~10 s.
+	ownAddr, _ := identity.DeriveAddressFromSeed(words)
+	linked := s.linkedAddress(sess.identity)
 	c.JSON(http.StatusOK, gin.H{
-		"words":         words,
-		"chain_address": sess.identity.ChainAddr(),
-		"note":          "Diese Wörter sind dein Wallet-Zugang. Sicher aufbewahren, niemals teilen.",
+		"words":          words,
+		"chain_address":  ownAddr,
+		"linked_address": linked,
+		// Hinterlegte Wallet stammt aus ANDEREN Wörtern (z.B. Fee-Collector):
+		// diese Login-Wörter öffnen dann NICHT die hinterlegte Wallet.
+		"linked_differs": linked != "" && !strings.EqualFold(linked, ownAddr),
+		"note":           "Diese Wörter sind dein Wallet-Zugang. Sicher aufbewahren, niemals teilen.",
 	})
 }
 
@@ -1522,7 +1534,9 @@ func (s *Server) ensureKeyDir(c *gin.Context, id *identity.Identity) {
 	krec := &storage.Record{
 		ID:   "keydir:" + fid,
 		Type: storage.RecordKeyDir,
-		Data: map[string]any{"fundus_id": fid, "x25519": x25519, "ed25519": id.PublicKeyHex, "sig": sig, "peer_id": myPeerID, "home_peer": homePeer},
+		// wallet_address: damit Überweisungen an eine Fundus-ID in die Wallet-
+		// Adresse übersetzt werden können (resolvePayee).
+		Data: map[string]any{"fundus_id": fid, "x25519": x25519, "ed25519": id.PublicKeyHex, "sig": sig, "peer_id": myPeerID, "home_peer": homePeer, "wallet_address": chain},
 	}
 	if perr := s.store.Put(krec); perr != nil {
 		s.log.Warn("ensureKeyDir: Put fehlgeschlagen", zap.Error(perr))

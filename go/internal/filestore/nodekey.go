@@ -52,11 +52,11 @@ func loadOrCreateNodeWallet(keyDir string) (*NodeWalletInfo, error) {
 	// 1. Seed-basierte Wallet laden (bevorzugt).
 	if raw, err := os.ReadFile(seedPath); err == nil {
 		words := strings.Fields(string(raw))
-		key, err := identity.DerivePrivateKeyFromSeed(words)
+		key, err := identity.DeriveNodePrivateKeyFromSeed(words)
 		if err != nil {
 			return nil, fmt.Errorf("filestore: node.seed unlesbar: %w", err)
 		}
-		addr, _ := identity.DeriveAddressFromSeed(words)
+		addr, _ := identity.DeriveNodeAddressFromSeed(words)
 		return &NodeWalletInfo{Key: key, Address: addr, Created: false, FromSeed: true}, nil
 	}
 
@@ -72,14 +72,15 @@ func loadOrCreateNodeWallet(keyDir string) (*NodeWalletInfo, error) {
 	}
 
 	// 3. Nichts vorhanden → neue seed-basierte Wallet erzeugen.
-	words, address, err := identity.GenerateWallet()
+	words, _, err := identity.GenerateWallet() // Adresse unten mit der Node-Ableitung
 	if err != nil {
 		return nil, fmt.Errorf("filestore: Wallet-Erzeugung: %w", err)
 	}
-	key, err := identity.DerivePrivateKeyFromSeed(words)
+	key, err := identity.DeriveNodePrivateKeyFromSeed(words)
 	if err != nil {
 		return nil, fmt.Errorf("filestore: Schlüssel aus Seed: %w", err)
 	}
+	address, _ := identity.DeriveNodeAddressFromSeed(words) // Node-Wallet: 128 MiB, t=2 (unverändert)
 
 	if err := os.MkdirAll(keyDir, 0o700); err != nil {
 		return nil, fmt.Errorf("filestore: Verzeichnis anlegen: %w", err)

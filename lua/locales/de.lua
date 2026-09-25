@@ -441,7 +441,7 @@ Die Gebühr wird proportional zur Haversine-Distanz berechnet
     btn_add_contact = "Hinzufügen",
     no_chat         = "Kontakt auswählen um zu chatten",
     placeholder_msg = "Nachricht… (Enter zum Senden)",
-    recipient_addr = "Empfänger-Adresse (0x… oder FundusID)",
+    recipient_addr = "Wallet-Adresse des Empfängers (0x…) – eine Fundus-ID wird automatisch übersetzt",
     recipient_first = "Empfänger-Adresse oben eingeben, um zu schreiben…",
     btn_send        = "Senden",
     crypto_note     = "Ed25519 + X25519 + XChaCha20-Poly1305 + Argon2id",

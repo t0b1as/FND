@@ -28,6 +28,10 @@ func (s *Server) registerWalletRoutes() {
 	g.POST("/derive",   s.walletDerive)   // Seed/Email+PW → Adresse (Vorschau)
 	g.GET("/balance",   s.walletBalance)   // Saldo einer Adresse
 	g.POST("/transfer", s.walletTransfer)  // FND überweisen (ephemer signiert)
+	g.POST("/open", s.walletOpen)          // Wallet ableiten (256 MiB, wie fnd-wallet)
+	g.POST("/link", s.walletLink)          // für den Login hinterlegen (verschlüsselt, lokal)
+	g.DELETE("/link", s.walletUnlink)
+	g.POST("/migrate", s.walletMigrate)    // Guthaben der alten Adresse (vor R456) umziehen
 	g.POST("/mint",     s.walletMint)      // FND-Auszahlung vom Fee-Collector (nativer Transfer)
 	g.GET("/payout",    s.walletPayoutGet)  // Auto-Payout-Einstellung lesen
 	g.POST("/payout",   s.walletPayoutSet)  // Auto-Payout-Einstellung setzen
@@ -132,10 +136,13 @@ func (s *Server) walletTransfer(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Anfrage"})
 		return
 	}
-	to, ok := chain.AddressFromHex(req.To)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Empfängeradresse"})
+	to, payeeNote, perr := s.resolvePayee(req.To)
+	if perr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": perr.Error()})
 		return
+	}
+	if payeeNote != "" {
+		c.Header("X-Fundus-Payee-Note", "fundus-id-resolved")
 	}
 	// Betrag bevorzugt aus dem präzisen String; sonst aus dem Float-Legacy-Feld.
 	amountStr := req.AmountFND
@@ -221,9 +228,10 @@ func (s *Server) walletTransfer(c *gin.Context) {
 		bh = blockHeight
 	}
 	c.JSON(http.StatusOK, gin.H{
+		"payee_note": payeeNote, // Fundus-ID → Wallet-Adresse übersetzt?
 		"tx_hash":      hex.EncodeToString(h[:]),
 		"from":         from.Hex(),
-		"to":           req.To,
+		"to":           to.Hex(), // tatsächlich verwendete Wallet-Adresse
 		"amount":       uFNDToFND(amount.String()),
 		"nonce":        nonce,
 		"block_height": bh,
@@ -255,10 +263,13 @@ func (s *Server) walletMint(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Anfrage (to/amount)"})
 		return
 	}
-	to, ok := chain.AddressFromHex(req.To)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Empfängeradresse"})
+	to, payeeNote, perr := s.resolvePayee(req.To)
+	if perr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": perr.Error()})
 		return
+	}
+	if payeeNote != "" {
+		c.Header("X-Fundus-Payee-Note", "fundus-id-resolved")
 	}
 	amountStr := req.AmountFND
 	if amountStr == "" && req.Amount > 0 {
@@ -312,9 +323,10 @@ func (s *Server) walletMint(c *gin.Context) {
 		bh = blockHeight
 	}
 	c.JSON(http.StatusOK, gin.H{
+		"payee_note": payeeNote, // Fundus-ID → Wallet-Adresse übersetzt?
 		"tx_hash":      hex.EncodeToString(h[:]),
 		"from":         from.Hex(),
-		"to":           req.To,
+		"to":           to.Hex(), // tatsächlich verwendete Wallet-Adresse
 		"amount":       uFNDToFND(amount.String()),
 		"nonce":        nonce,
 		"block_height": bh,

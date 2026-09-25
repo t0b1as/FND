@@ -159,9 +159,9 @@ func (s *Server) escrowCreate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	seller, ok := chain.AddressFromHex(req.Seller)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Verkäufer-Adresse"})
+	seller, _, serr := s.resolvePayee(req.Seller)
+	if serr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Verkäufer-Adresse: " + serr.Error()})
 		return
 	}
 	amount, ok := parseFNDtoU(req.AmountFND)

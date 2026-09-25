@@ -131,14 +131,15 @@ func (fs *FileStore) RecreateNodeWallet() ([]string, string, error) {
 	if fs.keyDir == "" {
 		return nil, "", fmt.Errorf("filestore: kein KeyDir")
 	}
-	words, address, err := identity.GenerateWallet()
+	words, _, err := identity.GenerateWallet() // Adresse unten mit der Node-Ableitung
 	if err != nil {
 		return nil, "", fmt.Errorf("filestore: Wallet-Erzeugung: %w", err)
 	}
-	key, err := identity.DerivePrivateKeyFromSeed(words)
+	key, err := identity.DeriveNodePrivateKeyFromSeed(words)
 	if err != nil {
 		return nil, "", fmt.Errorf("filestore: Schlüssel aus Seed: %w", err)
 	}
+	address, _ := identity.DeriveNodeAddressFromSeed(words) // Node-Wallet: 128 MiB, t=2 (unverändert)
 	// Neue Seed schreiben (überschreibt die alte node.seed).
 	seedPath := filepath.Join(fs.keyDir, nodeSeedFile)
 	content := strings.Join(words, "\n") + "\n"
@@ -153,7 +154,7 @@ func (fs *FileStore) RecreateNodeWallet() ([]string, string, error) {
 	// Laufenden FileStore auf den neuen Schlüssel umstellen.
 	fs.signerKey = key
 	fs.selfAddr = chain.PubkeyToAddress(&key.PublicKey)
-	fs.rewardAddr = fs.selfAddr
+	fs.applyRewardAddr() // konfiguriertes Einnahmen-Ziel NICHT überschreiben
 	fs.nodeSeedWords = words // für sofortige Anzeige
 
 	return words, address, nil

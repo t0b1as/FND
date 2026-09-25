@@ -299,6 +299,7 @@ var ownerPathPrefixes = []string{
 	"/api/v1/files/info",    // DELETE = Datei löschen (GET bleibt frei)
 	"/api/v1/files/share",   // öffentlich teilen
 	"/api/v1/files/unshare", // Freigabe aufheben
+	"/api/v1/files/reward-addr", // Einnahmen-Ziel des Nodes ändern
 }
 
 // basicAuthOwner: nginx hat das Admin-Passwort (Basic-Auth) geprüft und den

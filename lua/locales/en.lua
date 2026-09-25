@@ -441,7 +441,7 @@ The fee is calculated proportionally to the Haversine distance
     btn_add_contact = "Add",
     no_chat         = "Select a contact to chat",
     placeholder_msg = "Message… (Enter to send)",
-    recipient_addr = "Recipient address (0x… or FundusID)",
+    recipient_addr = "Recipient's wallet address (0x…) – a Fundus ID is translated automatically",
     recipient_first = "Enter a recipient address above to start writing…",
     btn_send        = "Send",
     crypto_note     = "Ed25519 + X25519 + XChaCha20-Poly1305 + Argon2id",

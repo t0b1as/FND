@@ -33,6 +33,8 @@ func (s *Server) registerFileRoutes() {
 		g.POST("/upload",        s.fileUpload)
 		g.GET("/download/:hash", s.fileDownload)
 		g.GET("/probe/:hash",    s.fileProbe)  // Codecs/Dauer (ffprobe)
+		g.GET("/reward-info",    s.fileRewardInfo)  // Einnahmen-Ziel (frei lesbar)
+		g.POST("/reward-addr",   s.fileRewardSet)   // Einnahmen-Ziel ändern (Betreiber)
 		g.GET("/stream/:hash",   s.fileStream) // umverpackt als MP4 (ffmpeg)
 		g.GET("/name/:hash",     s.fileName)            // Dateiname zum Hash (für Download)
 		g.GET("/availability/:hash", s.fileAvailability)
@@ -1589,4 +1591,50 @@ func browserMime(m string) string {
 		return "audio/webm"
 	}
 	return m
+}
+
+// GET /api/v1/files/reward-info – wohin gehen die Speicher-/Transfer-Einnahmen?
+func (s *Server) fileRewardInfo(c *gin.Context) {
+	if s.fileStore == nil {
+		c.JSON(http.StatusOK, gin.H{"enabled": false})
+		return
+	}
+	reward, node := s.fileStore.RewardAddress()
+	c.JSON(http.StatusOK, gin.H{
+		"enabled":        reward != "",
+		"reward_address": reward,
+		"node_address":   node,
+		"redirected":     reward != "" && !strings.EqualFold(reward, node),
+	})
+}
+
+// POST /api/v1/files/reward-addr {address} – Einnahmen-Ziel setzen (leer =
+// zurück auf die Node-Wallet). Nur Betreiber (ownerGuard + nginx Basic-Auth).
+func (s *Server) fileRewardSet(c *gin.Context) {
+	if s.fileStore == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Filesharing deaktiviert"})
+		return
+	}
+	var req struct {
+		Address string `json:"address"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Anfrage"})
+		return
+	}
+	addr := strings.TrimSpace(req.Address)
+	if addr != "" {
+		// Fundus-ID? → in die Wallet-Adresse übersetzen bzw. ablehnen.
+		a, _, err := s.resolvePayee(addr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		addr = a.Hex()
+	}
+	if err := s.fileStore.SetRewardAddress(addr); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	s.fileRewardInfo(c)
 }

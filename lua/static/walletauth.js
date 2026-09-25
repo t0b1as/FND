@@ -12,7 +12,7 @@
     try {
       const d = await window.fundusMe(!!force);
       if (d){
-        window.WALLET = { fundusID: d.fundus_id, address: d.wallet_address, pubKey: d.ed25519_pub_key, loaded: true };
+        window.WALLET = { fundusID: d.fundus_id, address: d.wallet_address || "", linked: !!d.wallet_linked, pubKey: d.ed25519_pub_key, loaded: true };
       } else {
         window.WALLET = { fundusID: null, address: null, pubKey: null, loaded: true };
       }
@@ -54,9 +54,14 @@
     const el = document.getElementById("wallet-badge");
     if (!el) return;
     if (window.WALLET.fundusID){
-      const a = window.WALLET.address || window.WALLET.fundusID;
+      // Nie die Fundus-ID als Wallet ausgeben: gleiches Format, FND dorthin
+      // wären verloren. Ohne bekannte Wallet: 👤 + Fundus-ID.
+      const w = window.WALLET.address;
+      const a = w || window.WALLET.fundusID;
       const short = a.slice(0,6) + "…" + a.slice(-4);
-      el.innerHTML = '<button class="wallet-btn wallet-in" title="Angemeldet: '+a+'" onclick="walletOpenMenu()">👛 '+short+'</button>';
+      el.innerHTML = w
+        ? '<button class="wallet-btn wallet-in" title="Wallet: '+w+'" onclick="walletOpenMenu()">👛 '+short+'</button>'
+        : '<button class="wallet-btn wallet-in" title="Fundus-ID: '+a+' – Wallet noch nicht geöffnet" onclick="walletOpenMenu()">👤 '+short+'</button>';
     } else {
       el.innerHTML = '<button class="wallet-btn wallet-out" onclick="walletOpenDialog()">Anmelden</button>';
     }
@@ -142,9 +147,16 @@
     ov = document.createElement("div");
     ov.id = "wallet-menu";
     ov.className = "wallet-menu";
+    const W = window.WALLET;
     ov.innerHTML =
-      '<div class="wallet-menu-addr">'+(window.WALLET.address||'')+'</div>'+
-      '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(window.WALLET.address);this.textContent=\'✓ Kopiert\'">Adresse kopieren</button>'+
+      '<div class="wallet-menu-addr">' + (W.address
+          ? '<span class="meta">Wallet (FND)' + (W.linked ? ' · hinterlegt' : '') + '</span><br>' + W.address
+          : '<span class="meta">Wallet noch nicht geöffnet</span>') +
+        '<br><span class="meta">Fundus-ID (Kontakt): ' + (W.fundusID||'') + '</span></div>'+
+      (W.address ? '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(window.WALLET.address);this.textContent=\'✓ Kopiert\'">Wallet-Adresse kopieren</button>' : '')+
+      '<button onclick="walletOpenWallet()">' + (W.address ? 'Wallet &amp; Guthaben' : 'Wallet öffnen') + '</button>'+
+      '<button onclick="walletLinkOther()">Andere Wallet hinterlegen…</button>'+
+      (W.linked ? '<button onclick="walletUnlink()">Hinterlegung aufheben</button>' : '')+
       '<button onclick="walletShowSeed()">Seed-Wörter anzeigen</button>'+
       '<button onclick="walletPublishEmail()">Per E-Mail auffindbar machen</button>'+
       '<button onclick="walletLogout();document.getElementById(\'wallet-menu\').remove()">Abmelden</button>';
@@ -182,8 +194,10 @@
   // Seed-Wörter anzeigen (für Wallet-Sicherung / FND-Versand).
   window.walletShowSeed = async function(){
     const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    walletBusy("Seed-Wörter und Wallet-Adresse werden ermittelt (~10 s) …");
     try {
       const r = await fetch("/api/v1/identity/seed");
+      walletBusy(null);
       const d = await r.json();
       if (!r.ok || d.error || !d.words) { alert("✗ "+(d.error||"Keine Seed-Wörter verfügbar")); return; }
       const ov = document.createElement("div");
@@ -195,12 +209,107 @@
         '<div class="wallet-card-head"><strong>Deine Seed-Wörter</strong>'+
         '<button class="wallet-x" onclick="this.closest(\'.wallet-overlay\').remove()">✕</button></div>'+
         '<p class="wallet-hint" style="color:#f66">Diese Wörter sind dein Wallet-Zugang. Sicher aufbewahren, niemals teilen. Wer sie hat, kann dein FND senden.</p>'+
+        (d.chain_address ? '<p class="wallet-hint">Diese Wörter öffnen die Wallet <b style="font-family:monospace">'+d.chain_address+'</b> – überall gleich (auch in fnd-wallet).</p>' : '')+
+        (d.linked_differs ? '<p class="wallet-hint" style="color:#fb3">⚠ Für deinen Login ist eine ANDERE Wallet hinterlegt ('+d.linked_address+'). Diese Wörter öffnen sie NICHT – sichere auch deren Seed-Wörter.</p>' : '')+
         '<div style="font-family:monospace;font-size:13px;line-height:1.8;background:var(--bg,#0e0e1a);padding:12px;border-radius:8px;word-spacing:6px">'+
         d.words.join(" ")+'</div>'+
         '<button class="wallet-submit" style="margin-top:12px" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+d.words.join(" ")+'\');this.textContent=\'✓ Kopiert\'">Kopieren</button>';
       ov.appendChild(card);
       document.body.appendChild(ov);
     } catch(e){ alert("✗ "+e.message); }
+  };
+
+  // ── Wallet öffnen / hinterlegen / umziehen (R456) ─────────────────────────
+  // Die Wallet wird wie fnd-wallet abgeleitet (256 MiB, ~10 s auf dem Pi) –
+  // deshalb nur auf Wunsch, nicht beim Login. Hinterlegt, steht sie danach bei
+  // jedem Login sofort bereit.
+  function walletEsc(v){ return String(v==null?"":v).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+  window.walletBusy = function(msg){
+    let b = document.getElementById("wallet-busy");
+    if (!msg){ if (b) b.remove(); return; }
+    if (!b){ b = document.createElement("div"); b.id = "wallet-busy"; b.className = "wallet-overlay";
+      b.innerHTML = '<div class="wallet-card"><p class="wallet-hint" id="wallet-busy-txt"></p></div>'; document.body.appendChild(b); }
+    document.getElementById("wallet-busy-txt").textContent = "⏳ " + msg;
+  };
+  function walletCard(title, html){
+    const ov = document.createElement("div");
+    ov.className = "wallet-overlay";
+    ov.onclick = function(e){ if (e.target === ov) ov.remove(); };
+    ov.innerHTML = '<div class="wallet-card"><div class="wallet-card-head"><strong>'+walletEsc(title)+'</strong>'+
+      '<button class="wallet-x" onclick="this.closest(\'.wallet-overlay\').remove()">✕</button></div>'+html+'</div>';
+    document.body.appendChild(ov);
+    return ov;
+  }
+  async function walletPost(url, body, method){
+    const r = await fetch(url, {method: method||"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{})});
+    const d = await r.json().catch(function(){ return {}; });
+    if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
+    return d;
+  }
+
+  window.walletOpenWallet = async function(words){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    walletBusy("Wallet wird abgeleitet (Argon2id 256 MiB, ~10 s) …");
+    try {
+      const d = await walletPost("/api/v1/wallet/open", words ? {words: words} : {});
+      walletBusy(null);
+      let html = '<p class="wallet-hint">Wallet-Adresse:</p>'+
+        '<div style="font-family:monospace;font-size:13px;word-break:break-all">'+walletEsc(d.address)+'</div>'+
+        '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b>'+walletEsc(d.fnd)+' FND</b></p>';
+      if (d.old_address) {
+        html += '<p class="wallet-hint" style="color:#fb3">Auf deiner alten Adresse (vor R456) liegen noch <b>'+walletEsc(d.old_fnd)+' FND</b> ('+walletEsc(d.old_address)+').</p>'+
+          '<button class="wallet-submit" id="w-migrate">Guthaben auf die neue Adresse umziehen</button>';
+      }
+      if (!d.is_linked) {
+        html += '<button class="wallet-submit" id="w-link" style="margin-top:8px">Als Login-Wallet hinterlegen</button>'+
+          '<p class="wallet-hint">Hinterlegt steht die Wallet bei jedem Login sofort bereit (verschlüsselt, nur auf diesem Node).'+
+          (d.linked_address ? ' Ersetzt die bisher hinterlegte '+walletEsc(d.linked_address)+'.' : '')+'</p>';
+      } else {
+        html += '<p class="wallet-hint">✓ Diese Wallet ist für deinen Login hinterlegt.</p>';
+      }
+      html += '<div class="wallet-hint" id="w-out"></div>';
+      const ov = walletCard("Deine Wallet", html);
+      const out = ov.querySelector("#w-out");
+      const mig = ov.querySelector("#w-migrate");
+      if (mig) mig.onclick = async function(){
+        mig.disabled = true; out.textContent = "⏳ Umzug läuft …";
+        try { const r = await walletPost("/api/v1/wallet/migrate", words ? {words: words} : {});
+          out.textContent = "✓ " + r.amount + " FND an " + r.to + " übertragen (Tx " + String(r.tx_hash).slice(0,16) + "…)";
+        } catch(e){ out.textContent = "✗ " + e.message; mig.disabled = false; }
+      };
+      const lnk = ov.querySelector("#w-link");
+      if (lnk) lnk.onclick = async function(){
+        lnk.disabled = true; out.textContent = "⏳ Wird hinterlegt …";
+        try { const r = await walletPost("/api/v1/wallet/link", words ? {words: words} : {});
+          out.textContent = "✓ Hinterlegt: " + r.address;
+          if (window.walletRefresh) await walletRefresh(true);
+        } catch(e){ out.textContent = "✗ " + e.message; lnk.disabled = false; }
+      };
+      if (window.walletRefresh) walletRefresh(true);
+    } catch(e){ walletBusy(null); alert("✗ " + e.message); }
+  };
+
+  // Andere Wallet (z.B. Fee-Collector) per Seed-Wörtern öffnen und hinterlegen.
+  window.walletLinkOther = function(){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    const ov = walletCard("Andere Wallet hinterlegen",
+      '<p class="wallet-hint">Seed-Wörter der Wallet eingeben, die für deinen Login gelten soll (z.B. eine mit fnd-wallet erzeugte). Die Wörter werden nicht gespeichert – nur der daraus abgeleitete Schlüssel, verschlüsselt und nur auf diesem Node.</p>'+
+      '<textarea id="w-other-words" rows="4" style="width:100%;font-family:monospace" autocomplete="off" spellcheck="false"></textarea>'+
+      '<button class="wallet-submit" id="w-other-go" style="margin-top:8px">Wallet öffnen</button>');
+    ov.querySelector("#w-other-go").onclick = function(){
+      const words = ov.querySelector("#w-other-words").value.trim().split(/\s+/).filter(Boolean);
+      if (words.length < 10) { alert("Bitte die Seed-Wörter vollständig eingeben."); return; }
+      ov.remove();
+      walletOpenWallet(words);
+    };
+  };
+
+  window.walletUnlink = async function(){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    if (!confirm("Hinterlegte Wallet für diesen Login entfernen? Die Wallet selbst und ihr Guthaben bleiben unberührt.")) return;
+    try { await walletPost("/api/v1/wallet/link", {}, "DELETE"); if (window.walletRefresh) await walletRefresh(true); alert("✓ Hinterlegung entfernt."); }
+    catch(e){ alert("✗ " + e.message); }
   };
 
 })();
