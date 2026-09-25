@@ -11,6 +11,7 @@ package api
 // Wer nicht erscheinen will, schaltet im Messenger "Für andere sichtbar" ab.
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -26,7 +27,6 @@ import (
 const (
 	presenceTopic  = "fundus.msg.presence"
 	presenceOnline = 6 * time.Minute  // so lange gilt eine Online-Meldung
-	presenceMaxAge = 10 * time.Minute // ältere Meldungen verwerfen
 )
 
 type presenceEntry struct {
@@ -36,15 +36,83 @@ type presenceEntry struct {
 }
 
 var (
-	presenceMu  sync.Mutex
-	presenceMap = map[string]*presenceEntry{}
+	presenceMu       sync.Mutex
+	presenceMap      = map[string]*presenceEntry{}
+	presenceSenderTS = map[string]time.Time{} // letzte Absender-Zeit je Fundus-ID (nur Reihenfolge)
 )
+
+// PresencePullProtocol: Nodes fragen sich gegenseitig, wen sie online sehen.
+// GossipSub erreicht Nodes hinter NAT (nur Relay-Verbindung) nicht; dieser
+// Abruf läuft über SendAndReceive, das Relay-Verbindungen erlaubt – und holt
+// nach einem Neustart sofort alles nach. Übertragen wird das ALTER in Sekunden,
+// keine Uhrzeit (falsche Uhren verfälschen so nichts).
+const PresencePullProtocol = "/fundus/presence-pull/1.0.0"
+
+type presencePullItem struct {
+	FundusID string `json:"f"`
+	Online   bool   `json:"o"`
+	AgeSec   int64  `json:"a"`
+}
 
 func (s *Server) registerPresence() {
 	if s.node == nil {
 		return
 	}
 	s.node.SetTopicHandler(presenceTopic, s.handlePresence)
+	s.node.RegisterProtocol(PresencePullProtocol, func(peerID string, data []byte) []byte {
+		out, _ := json.Marshal(presenceSnapshot())
+		return out
+	})
+	go s.presencePullLoop()
+}
+
+func presenceSnapshot() []presencePullItem {
+	presenceMu.Lock()
+	defer presenceMu.Unlock()
+	out := make([]presencePullItem, 0, len(presenceMap))
+	for _, e := range presenceMap {
+		age := time.Since(e.LastSeen)
+		if age < presenceOnline {
+			out = append(out, presencePullItem{FundusID: e.FundusID, Online: e.Online, AgeSec: int64(age / time.Second)})
+		}
+	}
+	return out
+}
+
+func (s *Server) presencePullLoop() {
+	time.Sleep(20 * time.Second) // Verbindungen aufbauen lassen
+	for {
+		s.pullPresenceOnce()
+		time.Sleep(time.Minute)
+	}
+}
+
+func (s *Server) pullPresenceOnce() {
+	if s.node == nil {
+		return
+	}
+	for _, pid := range s.node.Peers() {
+		go func(peerID string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			defer cancel()
+			resp, err := s.node.SendAndReceive(ctx, peerID, PresencePullProtocol, []byte("PULL"))
+			if err != nil {
+				return
+			}
+			var items []presencePullItem
+			if json.Unmarshal(resp, &items) != nil {
+				return
+			}
+			now := time.Now()
+			for _, it := range items {
+				fid := strings.ToLower(it.FundusID)
+				if len(fid) != 42 || !strings.HasPrefix(fid, "0x") || it.AgeSec < 0 || it.AgeSec > int64(presenceOnline/time.Second) {
+					continue
+				}
+				recordPresence(fid, it.Online, now.Add(-time.Duration(it.AgeSec)*time.Second))
+			}
+		}(pid.String())
+	}
 }
 
 func (s *Server) handlePresence(data []byte) {
@@ -66,13 +134,25 @@ func (s *Server) handlePresence(data []byte) {
 	if "0x"+hex.EncodeToString(h[:20]) != fid {
 		return // Fundus-ID passt nicht zum Schlüssel
 	}
-	now := time.Now()
-	if m.TS.IsZero() || now.Sub(m.TS) > presenceMaxAge || m.TS.After(now.Add(2*time.Minute)) {
-		return
+	// Absender-Uhr NICHT für die Frische verwenden: ein Pi ohne Zeitserver
+	// (kein Internet, Handy-Hotspot) geht falsch – seine Meldungen wurden
+	// verworfen bzw. er verwarf die der anderen. Frische = Empfangszeit; die
+	// Absender-Uhr dient nur der Reihenfolge SEINER eigenen Meldungen.
+	presenceMu.Lock()
+	last, seen := presenceSenderTS[fid]
+	if seen && !m.TS.IsZero() && m.TS.Before(last) {
+		presenceMu.Unlock()
+		return // ältere Meldung desselben Absenders (Reihenfolge vertauscht)
 	}
-	recordPresence(fid, m.Online, m.TS)
+	if !m.TS.IsZero() {
+		presenceSenderTS[fid] = m.TS
+	}
+	presenceMu.Unlock()
+	recordPresence(fid, m.Online, time.Now())
 }
 
+// recordPresence: seenAt ist IMMER eine Zeit der eigenen Uhr (Empfang bzw.
+// "jetzt minus gemeldetes Alter" beim Abruf von anderen Nodes).
 func recordPresence(fid string, online bool, ts time.Time) {
 	presenceMu.Lock()
 	defer presenceMu.Unlock()
@@ -108,7 +188,12 @@ func (s *Server) messengerOnline(c *gin.Context) {
 			out = append(out, *e)
 		}
 	}
+	known := len(presenceMap)
 	presenceMu.Unlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })
-	c.JSON(http.StatusOK, gin.H{"online": out})
+	peers := 0
+	if s.node != nil {
+		peers = len(s.node.Peers())
+	}
+	c.JSON(http.StatusOK, gin.H{"online": out, "peers": peers, "known": known})
 }

@@ -1103,8 +1103,8 @@ function msgVisible() {
     try { return localStorage.getItem('fundus-msg-visible') !== '0'; } catch (e) { return true; }
 }
 function startPresence() {
-    if (presenceTimer) return;
-    presenceTimer = setInterval(() => { if (msgVisible()) publishPresence(true); }, 120000);
+    // Der Herzschlag läuft global (walletauth.js, alle Seiten) – hier nur die Liste.
+    if (onlineTimer) return;
     loadOnline();
     onlineTimer = setInterval(loadOnline, 30000);
 }
@@ -1115,6 +1115,7 @@ async function loadOnline() {
         if (!r.ok) return;
         const d = await r.json();
         onlineSet = new Set((d.online || []).map(e => String(e.fundus_id).toLowerCase()));
+        window._presenceDiag = { peers: d.peers || 0, known: d.known || 0 };
         for (const c of Object.values(contacts)) c.online = onlineSet.has(String(c.fundusID).toLowerCase());
         renderContacts();
         renderOnline();
@@ -1138,6 +1139,11 @@ function renderOnline() {
     if (!others.length) {
         html += '<div class="online-empty">Gerade niemand außer deinen Kontakten.</div>';
     }
+    const dg = window._presenceDiag;
+    if (dg) {
+        html += '<div class="online-empty" title="Wird die Liste auf verschiedenen Nodes unterschiedlich angezeigt, hat meist ein Node wenige oder keine Verbindungen.">' +
+            'über ' + dg.peers + ' verbundene Node' + (dg.peers === 1 ? '' : 's') + (dg.peers === 0 ? ' – dieser Node ist nicht verbunden!' : '') + '</div>';
+    }
     for (const fid of others) {
         html += '<div class="contact-item online-item" data-fid="' + escapeHtml(fid) + '">' +
             '<span class="contact-indicator" style="color:var(--color-success,#16a34a)">●</span>' +
@@ -1148,7 +1154,7 @@ function renderOnline() {
     const cb = document.getElementById('msg-visible');
     if (cb) cb.onchange = () => {
         try { localStorage.setItem('fundus-msg-visible', cb.checked ? '1' : '0'); } catch (e) {}
-        publishPresence(cb.checked);
+        if (window.walletPresence) window.walletPresence(cb.checked); else publishPresence(cb.checked);
     };
     box.querySelectorAll('.online-item').forEach(el => {
         const fid = el.getAttribute('data-fid');
@@ -1176,7 +1182,8 @@ async function publishPresence(online) {
     });
 }
 
-window.addEventListener('beforeunload', () => { if (msgVisible()) publishPresence(false); });
+// Kein "offline" beim Verlassen der Seite: angemeldet bleibt man auf jeder Seite
+// online (Herzschlag in walletauth.js). Offline: Abmelden oder 6 min Stille.
 
 // Beim Hochscrollen nahe an den oberen Rand → ältere Nachrichten nachladen.
 (function setupHistoryScroll() {

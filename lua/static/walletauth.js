@@ -8,6 +8,29 @@
   window.WALLET = { fundusID: null, address: null, pubKey: null, loaded: false };
 
   // Session-Status vom Server holen (/identity/me nutzt den HttpOnly-Cookie).
+  // ── Präsenz ("im Netz online") auf JEDER Seite, solange angemeldet ─────────
+  // Früher nur auf der Messenger-Seite: wer woanders angemeldet war, fehlte in
+  // den Online-Listen. "Für andere sichtbar" (Messenger) wird respektiert.
+  let presenceTimer = null;
+  function presenceVisible(){
+    try { return localStorage.getItem("fundus-msg-visible") !== "0"; } catch(e){ return true; }
+  }
+  async function walletPresence(online){
+    if (!window.WALLET || !window.WALLET.fundusID) return;
+    try {
+      await fetch("/api/v1/messenger/presence", {method:"POST", credentials:"same-origin",
+        headers:{"Content-Type":"application/json"}, body: JSON.stringify({online: online})});
+    } catch(e){}
+  }
+  window.walletPresence = walletPresence;
+  function walletPresenceTick(){
+    const inn = !!(window.WALLET && window.WALLET.fundusID);
+    if (!inn){ if (presenceTimer){ clearInterval(presenceTimer); presenceTimer = null; } return; }
+    if (presenceTimer) return;
+    if (presenceVisible()) walletPresence(true);
+    presenceTimer = setInterval(function(){ if (presenceVisible()) walletPresence(true); }, 120000);
+  }
+
   window.walletRefresh = async function(force){
     try {
       const d = await window.fundusMe(!!force);
@@ -20,6 +43,7 @@
       window.WALLET = { fundusID: null, address: null, pubKey: null, loaded: true };
     }
     window.walletRenderBadge();
+    walletPresenceTick(); // angemeldet → im Netz als online melden (alle Seiten)
     // Andere Seiten (z.B. Messenger) über Login/Logout informieren.
     try { window.dispatchEvent(new CustomEvent('wallet-changed', { detail: window.WALLET })); } catch(e){}
   };
@@ -39,6 +63,7 @@
   };
 
   window.walletLogout = async function(){
+    await walletPresence(false); // vor dem Abmelden offline melden
     try { await fetch("/api/v1/identity/logout", {method:"POST", credentials:"same-origin"}); } catch(e){}
     // Nachrichten-Zähler und Badge zurücksetzen (nicht mehr eingeloggt).
     try { localStorage.removeItem("fnd_msg_unread"); } catch(e){}
