@@ -37,7 +37,8 @@
     try {
       const d = await window.fundusMe(!!force);
       if (d){
-        window.WALLET = { fundusID: d.fundus_id, address: d.wallet_address || "", linked: !!d.wallet_linked, pubKey: d.ed25519_pub_key, loaded: true };
+        window.WALLET = { fundusID: d.fundus_id, address: d.wallet_address || "", linked: !!d.wallet_linked,
+                          displayName: d.display_name || "", pubKey: d.ed25519_pub_key, loaded: true };
       } else {
         window.WALLET = { fundusID: null, address: null, pubKey: null, loaded: true };
       }
@@ -86,9 +87,12 @@
       const w = window.WALLET.address;
       const a = w || window.WALLET.fundusID;
       const short = a.slice(0,6) + "…" + a.slice(-4);
+      // Mit Anzeigenamen: Name im Knopf, Adresse im Tooltip.
+      const nm = window.WALLET.displayName;
+      const label = nm ? walletEsc(nm) : short;
       el.innerHTML = w
-        ? '<button class="wallet-btn wallet-in" title="Wallet: '+w+'" onclick="walletOpenMenu()">👛 '+short+'</button>'
-        : '<button class="wallet-btn wallet-in" title="Fundus-ID: '+a+' – Wallet noch nicht geöffnet" onclick="walletOpenMenu()">👤 '+short+'</button>';
+        ? '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Wallet: '+w+'" onclick="walletOpenMenu()">👛 '+label+'</button>'
+        : '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Fundus-ID: '+a+' – Wallet noch nicht geöffnet" onclick="walletOpenMenu()">👤 '+label+'</button>';
     } else {
       el.innerHTML = '<button class="wallet-btn wallet-out" onclick="walletOpenDialog()">Anmelden</button>';
     }
@@ -176,11 +180,14 @@
     ov.className = "wallet-menu";
     const W = window.WALLET;
     ov.innerHTML =
-      '<div class="wallet-menu-addr">' + (W.address
+      '<div class="wallet-menu-addr">' +
+        '<span class="meta">Name</span><br>' + (W.displayName ? '<b>' + walletEsc(W.displayName) + '</b>' : '<span class="meta">– noch keiner festgelegt</span>') + '<br>' +
+        (W.address
           ? '<span class="meta">Wallet (FND)' + (W.linked ? ' · hinterlegt' : '') + '</span><br>' + W.address
           : '<span class="meta">Wallet noch nicht geöffnet</span>') +
         '<br><span class="meta">Fundus-ID (Kontakt): ' + (W.fundusID||'') + '</span></div>'+
       (W.address ? '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(window.WALLET.address);this.textContent=\'✓ Kopiert\'">Wallet-Adresse kopieren</button>' : '')+
+      '<button onclick="walletEditName()">' + (W.displayName ? 'Namen ändern…' : 'Namen festlegen…') + '</button>'+
       '<button onclick="walletOpenWallet()">' + (W.address ? 'Wallet &amp; Guthaben' : 'Wallet öffnen') + '</button>'+
       '<button onclick="walletLinkOther()">Andere Wallet hinterlegen…</button>'+
       (W.linked ? '<button onclick="walletUnlink()">Hinterlegung aufheben</button>' : '')+
@@ -338,6 +345,30 @@
       ov.remove();
       walletOpenWallet(words);
     };
+  };
+
+  // Anzeigename (signiert, netzweit): so sehen dich andere im Messenger.
+  window.walletEditName = function(){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    const cur = (window.WALLET && window.WALLET.displayName) || "";
+    const ov = walletCard("Dein Name",
+      '<p class="wallet-hint">So sehen dich andere im Messenger – in Kontakten, „Im Netz online“ und bei deinen Nachrichten. 1–32 Zeichen; leer lassen zum Entfernen.</p>'+
+      '<input type="text" class="wallet-input" id="w-name" maxlength="32" autocomplete="nickname" placeholder="z.B. Tobias" value="'+walletEsc(cur)+'">'+
+      '<button class="wallet-submit" id="w-name-save">Speichern</button>'+
+      '<p class="wallet-hint" id="w-name-out"></p>');
+    const inp = ov.querySelector("#w-name"), out = ov.querySelector("#w-name-out"), btn = ov.querySelector("#w-name-save");
+    async function save(){
+      btn.disabled = true; out.textContent = "⏳ Wird gespeichert …";
+      try {
+        const d = await walletPost("/api/v1/identity/name", {name: inp.value});
+        out.textContent = d.name ? "✓ Andere sehen dich jetzt als „" + d.name + "“." : "✓ Name entfernt.";
+        if (window.walletRefresh) await walletRefresh(true);
+        setTimeout(function(){ ov.remove(); }, 1200);
+      } catch(e){ out.textContent = "✗ " + e.message; btn.disabled = false; }
+    }
+    btn.onclick = save;
+    inp.addEventListener("keydown", function(e){ if (e.key === "Enter") save(); });
+    setTimeout(function(){ inp.focus(); inp.select(); }, 50);
   };
 
   window.walletUnlink = async function(){

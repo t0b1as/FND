@@ -64,8 +64,7 @@ function onLoggedIn() {
         `<strong>${MSGT.signed_in}</strong> <span class="mono" style="font-size:11px" title="${myIdentity.fundus_id}">${shortAddr(myIdentity.fundus_id)}</span>`;
     const ls = document.getElementById('login-status');
     if (ls) ls.textContent = '';
-    renderMyNameRow();
-    connectWebSocket();
+    connectWebSocket(); // Name festlegen: Menü oben rechts ("Namen festlegen…")
     publishPresence(msgVisible());
     startPresence(); // Herzschlag + Online-Liste
     renderContacts();

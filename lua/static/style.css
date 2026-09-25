@@ -1929,3 +1929,6 @@ audio.fm-viewer-media { width:min(560px,100%); box-shadow:none; }
 .my-name-row .btn { width:auto !important; padding:4px 10px; font-size:12px; }
 .my-name-status { flex-basis:100%; font-size:11px; color:var(--muted); }
 .online-id { font-size:10px; color:var(--muted); }
+
+/* Wallet-Abzeichen: Anzeigename kürzen statt die Kopfzeile zu sprengen */
+.wallet-btn.wallet-in { max-width:190px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
