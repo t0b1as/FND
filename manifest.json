@@ -1,8 +1,8 @@
 {
-  "version": "R512",
-  "description": "FUNDUS R512 - 443 Port Release",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R512/FND-R512-update.zip",
-  "node_argon2": "26206c4103d1dcc09a3a6bd0f077230f1903800063363a545f5b76fd6dc6d24d",
-  "published_at": "2026-09-26T21:22:59.4731985Z",
-  "signature": "0x6df32b3eaded109162ddf77cccc044a7f129ed2aeda9b20b6bc16b3b0116915038f018959342426b0be46d9f1c92a925957f25fc571d88fe7db0ec697275cfd71b"
+  "version": "R513",
+  "description": "FUNDUS R513 - Mobile Layout",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R513/FND-R513-update.zip",
+  "node_argon2": "28b78a79a3b5c9ad064b5acf52c59e977159352e47d904f07d853530fc350967",
+  "published_at": "2026-09-26T22:15:48.0139543Z",
+  "signature": "0xa22b855d174fc3fb327909bcb69799089ec1bb5b76ffa9ef51fb1a608db947d6572b1a0440de31b6288ee03baf7815ce6d38805732ea84152550c8656fcaed631c"
 }
