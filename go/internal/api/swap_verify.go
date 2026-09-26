@@ -114,7 +114,7 @@ func (s *Server) verifyCounterpartyLock(ctx context.Context, ss *swapSession, fn
 		if err != nil {
 			return fmt.Errorf("Solana-Adresse der Gegenseite ungültig")
 		}
-		client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+		client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 		if err != nil {
 			return err
 		}

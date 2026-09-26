@@ -128,7 +128,7 @@ func (s *Server) checkSOLFunds(ctx context.Context, typ OrderType, amountFND, pr
 	if err != nil {
 		return &orderFundsError{Msg: "Ungültige SOL-Adresse"}
 	}
-	if s.swapMgr == nil || s.swapMgr.solRPC == "" {
+	if s.swapMgr == nil || s.swapMgr.rpcURL() == "" {
 		return &orderFundsError{Msg: "SOL-Guthaben nicht prüfbar – Solana ist auf diesem Node nicht eingerichtet"}
 	}
 
@@ -160,9 +160,9 @@ func (s *Server) checkSOLFunds(ctx context.Context, typ OrderType, amountFND, pr
 
 	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	res, err := rpc.New(s.swapMgr.solRPC).GetBalance(cctx, pk, rpc.CommitmentConfirmed)
+	res, err := rpc.New(s.swapMgr.rpcURL()).GetBalance(cctx, pk, rpc.CommitmentConfirmed)
 	if err != nil || res == nil {
-		return &orderFundsError{Msg: "SOL-Guthaben nicht abrufbar – Order nicht angelegt. " + solRPCErr(err, s.swapMgr.solRPC).Error()}
+		return &orderFundsError{Msg: "SOL-Guthaben nicht abrufbar – Order nicht angelegt. " + solRPCErr(err, s.swapMgr.rpcURL()).Error()}
 	}
 	balLamports := res.Value
 	needLamports := uint64(math.Ceil((cost+committed)*1e9)) + solFeeBufferLamports
@@ -242,7 +242,7 @@ func (s *Server) fndBalance(addrHex string) (*big.Int, bool) {
 }
 
 func (s *Server) solBalanceLamports(ctx context.Context, addr string) (uint64, error) {
-	if s.swapMgr == nil || s.swapMgr.solRPC == "" {
+	if s.swapMgr == nil || s.swapMgr.rpcURL() == "" {
 		return 0, fmt.Errorf("Solana ist auf diesem Node nicht eingerichtet")
 	}
 	pk, err := solana.PublicKeyFromBase58(addr)
@@ -251,9 +251,9 @@ func (s *Server) solBalanceLamports(ctx context.Context, addr string) (uint64, e
 	}
 	cctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	res, err := rpc.New(s.swapMgr.solRPC).GetBalance(cctx, pk, rpc.CommitmentConfirmed)
+	res, err := rpc.New(s.swapMgr.rpcURL()).GetBalance(cctx, pk, rpc.CommitmentConfirmed)
 	if err != nil || res == nil {
-		return 0, solRPCErr(err, s.swapMgr.solRPC)
+		return 0, solRPCErr(err, s.swapMgr.rpcURL())
 	}
 	return res.Value, nil
 }

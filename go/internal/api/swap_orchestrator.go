@@ -352,7 +352,7 @@ func (o *orchestrator) runMaker(ctx context.Context, ss *swapSession, s *Server)
 // lockGive sperrt den Betrag auf der Give-Chain dieser Seite.
 func (o *orchestrator) lockGive(ctx context.Context, ss *swapSession, s *Server) bool {
 	if ss.giveChain == "sol" {
-		client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+		client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 		if err != nil {
 			s.setSwapPhase(ss.swapID, SwapExpired, "SOL-Client-Fehler: "+err.Error())
 			return false
@@ -463,7 +463,7 @@ func (o *orchestrator) claimTake(ctx context.Context, ss *swapSession, s *Server
 		return true
 	}
 	// Maker gab SOL → wir lösen SOL ein (enthüllt S auf Solana).
-	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+	client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 	if err != nil {
 		return false
 	}
@@ -486,18 +486,17 @@ func (o *orchestrator) waitForReveal(ctx context.Context, ss *swapSession, s *Se
 		// Maker gibt SOL, Taker gibt FND. Der Maker hat SOL gesperrt (er ist
 		// initiator der PDA). Der Taker löst diese SOL ein und enthüllt S dabei
 		// auf Solana. Wir lesen S aus der redeem-Transaktion der PDA.
-		client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+		client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 		if err != nil {
 			return empty, false
 		}
 		myKey := ss.solKey.PublicKey() // Maker ist initiator
-		tick := time.NewTicker(orchestratorPollInterval)
-		defer tick.Stop()
+		pollStart := time.Now() // gestufter Takt, siehe pollDelay
 		for {
 			select {
 			case <-ctx.Done():
 				return empty, false
-			case <-tick.C:
+			case <-time.After(pollDelay(pollStart)):
 				if secret, ok := client.ReadSecretFromClaim(ctx, s.swapMgr, myKey, ss.secretHash); ok {
 					return secret, true
 				}
@@ -566,7 +565,7 @@ func (o *orchestrator) waitForSolLock(ctx context.Context, ss *swapSession, s *S
 		s.setSwapPhase(ss.swapID, ss.currentPhase(s), "Gegenseiten-SOL-Adresse ungültig: "+ss.counterpartySol)
 		return false
 	}
-	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+	client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 	if err != nil {
 		return false
 	}
@@ -577,14 +576,13 @@ func (o *orchestrator) waitForSolLock(ctx context.Context, ss *swapSession, s *S
 	// Diagnose: welche PDA wird auf welchem Netz beobachtet.
 	base := "warte auf SOL-Lock (" + solNet(s) + ") an PDA " + pda.String()[:8] + "… (Initiator " + ss.counterpartySol[:8] + "…)"
 	s.setSwapPhase(ss.swapID, ss.currentPhase(s), base)
-	tick := time.NewTicker(orchestratorPollInterval)
-	defer tick.Stop()
+	pollStart := time.Now() // gestufter Takt, siehe pollDelay
 	lastErr := ""
 	for {
 		select {
 		case <-ctx.Done():
 			return false
-		case <-tick.C:
+		case <-time.After(pollDelay(pollStart)):
 			ok, err := o.solAccountCheck(ctx, s, pda.String())
 			if ok {
 				return true
@@ -597,7 +595,7 @@ func (o *orchestrator) waitForSolLock(ctx context.Context, ss *swapSession, s *S
 			if e != lastErr {
 				lastErr = e
 				if e != "" {
-					s.setSwapPhase(ss.swapID, ss.currentPhase(s), base+" – "+solRPCErr(err, s.swapMgr.solRPC).Error())
+					s.setSwapPhase(ss.swapID, ss.currentPhase(s), base+" – "+solRPCErr(err, s.swapMgr.rpcURL()).Error())
 				} else {
 					s.setSwapPhase(ss.swapID, ss.currentPhase(s), base)
 				}
@@ -621,15 +619,14 @@ func (o *orchestrator) waitForFndLock(ctx context.Context, ss *swapSession, s *S
 			return "", false
 		}
 	}
-	tick := time.NewTicker(orchestratorPollInterval)
-	defer tick.Stop()
+	pollStart := time.Now() // gestufter Takt, siehe pollDelay
 	lastH, since, warned := s.chain.Height(), time.Now(), false
 	s.setSwapPhase(ss.swapID, ss.currentPhase(s), "warte auf FND-Sperre der Gegenseite (Chain-Höhe "+strconv.FormatUint(lastH, 10)+")")
 	for {
 		select {
 		case <-ctx.Done():
 			return "", false
-		case <-tick.C:
+		case <-time.After(pollDelay(pollStart)):
 			if id, ok := s.findFndHTLCByHashlock(ss.secretHash, myFndAddr); ok {
 				return id, true
 			}
@@ -649,13 +646,12 @@ func (o *orchestrator) waitForFndLock(ctx context.Context, ss *swapSession, s *S
 // (durch den Claim des Käufers).
 func (o *orchestrator) waitForSecretReveal(ctx context.Context, ss *swapSession, s *Server, fndHTLCID string) ([32]byte, bool) {
 	var empty [32]byte
-	tick := time.NewTicker(orchestratorPollInterval)
-	defer tick.Stop()
+	pollStart := time.Now() // gestufter Takt, siehe pollDelay
 	for {
 		select {
 		case <-ctx.Done():
 			return empty, false
-		case <-tick.C:
+		case <-time.After(pollDelay(pollStart)):
 			if secret, ok := s.findRevealedSecret(fndHTLCID); ok {
 				return secret, true
 			}
@@ -720,7 +716,7 @@ func (o *orchestrator) scheduleSolRefund(ss *swapSession) {
 		defer cancel()
 		// Keys nach Abschluss nullen.
 		defer ss.wipe()
-		client, err := newSolHTLCClient(o.server.swapMgr.solRPC, o.server.swapMgr.htlcProgramID)
+		client, err := newSolHTLCClient(o.server.swapMgr.rpcURL(), o.server.swapMgr.htlcProgramID)
 		if err != nil {
 			return
 		}
@@ -842,7 +838,7 @@ func (s *Server) redeemSolRetry(swapID string, key solana.PrivateKey, takerSol s
 			key[i] = 0
 		}
 	}()
-	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+	client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 	if err != nil {
 		s.setSwapPhase(swapID, failPhase, "SOL-Abholung: "+err.Error())
 		return false
@@ -1003,4 +999,18 @@ func (s *Server) fndTimelockFor(ss *swapSession) uint64 {
 		blocks = 720
 	}
 	return blocks
+}
+
+// pollDelay: gestufter Abfragetakt beim Warten auf die Gegenseite. Anfangs
+// schnell (Swaps laufen meist in den ersten Minuten weiter), dann langsamer –
+// spart Anfragen an den Solana-Zugang (öffentliche Endpunkte drosseln).
+func pollDelay(start time.Time) time.Duration {
+	switch el := time.Since(start); {
+	case el < 3*time.Minute:
+		return orchestratorPollInterval // 4 s
+	case el < 20*time.Minute:
+		return 10 * time.Second
+	default:
+		return 30 * time.Second
+	}
 }

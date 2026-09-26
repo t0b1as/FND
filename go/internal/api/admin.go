@@ -35,6 +35,8 @@ func (s *Server) registerAdminRoutes() {
 		g.GET("/version",          s.adminVersion)
 		g.POST("/update",          s.adminPublishUpdate)
 		g.GET("/update/status",    s.updateStatus)
+		g.GET("/solana/rpc",       s.adminSolRPCGet)  // Solana-Zugang: Liste + Zustand
+		g.POST("/solana/rpc",      s.adminSolRPCSet)  // Solana-Zugang speichern (leer = fundus.env)
 		g.POST("/update/check",    s.updateCheck)
 		g.POST("/update/apply",    s.updateApply)
 		g.GET("/config",           s.adminCheckConfig)

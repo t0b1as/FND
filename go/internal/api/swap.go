@@ -109,7 +109,7 @@ func (s *Server) swapParams(c *gin.Context) {
 	}
 	ready := s.swapMgr.htlcProgramID != ""
 	c.JSON(http.StatusOK, gin.H{
-		"sol_rpc":          s.swapMgr.solRPC,
+		"sol_rpc":          s.swapMgr.rpcURL(),
 		"htlc_program_id":  s.swapMgr.htlcProgramID,
 		"ready":            ready, // false, solange kein HTLC-Programm konfiguriert ist
 		"note":             "Eigenes Solana-HTLC-Programm (blake3-Hashlock via nativem solana_program::blake3-Syscall, kompatibel zur Fundus-Chain) via FUNDUS_SWAP_HTLC_PROGRAM konfigurieren. Struktur-Blaupause: Garden-Finance-HTLC (initiate/redeem/refund, PDA-Vaults).",
@@ -215,7 +215,7 @@ func (sm *SwapManager) solanaRPCCall(ctx context.Context, method string, params 
 	reqBody, _ := json.Marshal(map[string]interface{}{
 		"jsonrpc": "2.0", "id": 1, "method": method, "params": params,
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sm.solRPC, bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, sm.rpcURL(), bytes.NewReader(reqBody))
 	if err != nil {
 		return nil, err
 	}
@@ -261,8 +261,8 @@ func (s *Server) swapHealth(c *gin.Context) {
 	if _, err := s.swapMgr.solanaRPCCall(ctx, "getHealth", []interface{}{}); err != nil {
 		c.JSON(http.StatusOK, gin.H{
 			"rpc_reachable": false,
-			"error":         solRPCErr(err, s.swapMgr.solRPC).Error(),
-			"rpc":           maskRPC(s.swapMgr.solRPC),
+			"error":         solRPCErr(err, s.swapMgr.rpcURL()).Error(),
+			"rpc":           maskRPC(s.swapMgr.rpcURL()),
 		})
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Server) swapHealth(c *gin.Context) {
 		"program_found": programFound,
 		"executable":    executable,
 		"program_id":    s.swapMgr.htlcProgramID,
-		"rpc":           maskRPC(s.swapMgr.solRPC),
+		"rpc":           maskRPC(s.swapMgr.rpcURL()),
 		"status":        map[bool]string{true: "✓ Solana-HTLC-Programm live und bereit", false: "Programm nicht gefunden/nicht ausführbar"}[executable],
 	})
 }
@@ -321,7 +321,7 @@ func (s *Server) swapSolInitiate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+	client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -376,7 +376,7 @@ func (s *Server) swapSolRedeem(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+	client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -427,7 +427,7 @@ func (s *Server) swapSolRefund(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+	client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -905,7 +905,12 @@ func (s *Server) swapBuy(c *gin.Context) {
 	takerSolAddr := solKey.PublicKey().String()
 	takerFndAddr := fndAddr
 
+	if perr := s.solProgramReady(c.Request.Context()); perr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": perr.Error()})
+		return
+	}
 	msg := swapInitMsg{
+		ProgramID: s.swapMgr.htlcProgramID,
 		OrderID:   req.OrderID,
 		Hashlock:  hex.EncodeToString(hash[:]),
 		BuyerSol:  takerSolAddr,
@@ -1058,4 +1063,12 @@ func (m *SwapManager) snapshot() {
 	if atomicWriteBytes(m.path, data) == nil {
 		m.lastSnap = data
 	}
+}
+
+// rpcURL: aktiver Solana-Endpunkt (mit Ausweichen, siehe solrpc_pool.go).
+func (m *SwapManager) rpcURL() string {
+	if u := activeSolRPC(); u != "" {
+		return u
+	}
+	return m.solRPC
 }

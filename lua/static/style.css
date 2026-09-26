@@ -1953,3 +1953,24 @@ audio.fm-viewer-media { width:min(560px,100%); box-shadow:none; }
 /* Shop: Netz-Kennzeichen und Order-ID bei eigenen Orders */
 .ob-net-tag { font-size:10px; padding:1px 5px; border-radius:6px; background:var(--amber, #b45309); color:#fff; margin-left:4px; }
 .ob-id { font-family:monospace; font-size:11px; color:var(--muted); }
+
+/* Update-Knopf in der Kopfzeile (ersetzt die Revisionsanzeige am Logo):
+   grau = aktuell; grün mit Leuchten = neuere Revision auf GitHub */
+.nav-update {
+  font-weight: 700; font-size: 0.72rem; letter-spacing: .5px; text-decoration: none;
+  color: var(--muted); border: 1px solid var(--brd, rgba(255,255,255,.12)); border-radius: 999px;
+  padding: 2px 9px; margin-left: 8px; align-self: center; white-space: nowrap;
+  transition: color .3s ease, box-shadow .3s ease, border-color .3s ease;
+}
+.nav-update:hover { color: var(--text); border-color: var(--muted); }
+.nav-update.has-update {
+  color: var(--green, #00e676); border-color: var(--green, #00e676);
+  text-shadow: 0 0 8px rgba(0,230,118,.55);
+  box-shadow: 0 0 10px rgba(0,230,118,.35), inset 0 0 6px rgba(0,230,118,.15);
+  animation: navUpdGlow 2.4s ease-in-out infinite;
+}
+@keyframes navUpdGlow {
+  0%, 100% { box-shadow: 0 0 6px rgba(0,230,118,.25), inset 0 0 4px rgba(0,230,118,.10); }
+  50%      { box-shadow: 0 0 16px rgba(0,230,118,.60), inset 0 0 8px rgba(0,230,118,.25); }
+}
+@media (prefers-reduced-motion: reduce) { .nav-update.has-update { animation: none; } }

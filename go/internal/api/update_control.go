@@ -172,3 +172,22 @@ func (s *Server) writeUpdateProgress(pr *update.ApplyProgress) {
 		_ = os.Rename(tmp, p)
 	}
 }
+
+// GET /api/v1/update/info – für den Update-Knopf in der Kopfzeile (jede Seite).
+// Öffentlich, daher bewusst nur: laufende Revision + ob/welche neuere vorliegt
+// (keine Quelle, keine Konfiguration). Installieren bleibt passwortgeschützt.
+func (s *Server) updateInfo(c *gin.Context) {
+	out := gin.H{"current": NodeRevision}
+	if uc := s.updateCtl; uc != nil {
+		if uc.Current != "" {
+			out["current"] = uc.Current
+		}
+		if uc.Pending != nil {
+			if m := uc.Pending(); m != nil && m.Version != "" {
+				out["available"] = m.Version
+			}
+		}
+	}
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, out)
+}

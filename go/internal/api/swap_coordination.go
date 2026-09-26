@@ -103,6 +103,9 @@ type swapInitMsg struct {
 	AmountSOL     float64 `json:"amount_sol"`
 	AmountFND     float64 `json:"amount_fnd"`
 	TakerGivesSol bool    `json:"taker_gives_sol"` // true = Taker gibt SOL, Maker gibt FND
+	// Programm-ID des Käufers: muss mit der des Anbieters übereinstimmen, sonst
+	// suchen beide an verschiedenen Kontoadressen (leer = älterer Käufer).
+	ProgramID string `json:"program_id,omitempty"`
 }
 
 // handleSwapInit läuft auf dem VERKÄUFER-Node: startet dessen Orchestrator-Seite.
@@ -120,6 +123,16 @@ func (sc *swapCoordinator) handleSwapInit(peerID string, data []byte) []byte {
 	hash, err := hash32FromHex(msg.Hashlock)
 	if err != nil {
 		return []byte(`{"ok":false,"error":"ungültiger Hashlock"}`)
+	}
+	// Gleiches Solana-Programm? Und funktioniert es hier überhaupt?
+	if my := sc.server.swapMgr.htlcProgramID; msg.ProgramID != "" && msg.ProgramID != my {
+		b, _ := json.Marshal(map[string]any{"ok": false, "error": fmt.Sprintf(
+			"Solana-Programm passt nicht (Käufer %.8s…, Anbieter %.8s…) – FUNDUS_SWAP_HTLC_PROGRAM auf beiden Pis prüfen", msg.ProgramID, my)})
+		return b
+	}
+	if perr := sc.server.solProgramReady(context.Background()); perr != nil {
+		b, _ := json.Marshal(map[string]any{"ok": false, "error": "Anbieter-Node: " + perr.Error()})
+		return b
 	}
 
 	// Menge und Preis aus der EIGENEN Order – nie aus der Nachricht des Käufers
@@ -482,6 +495,7 @@ func (sc *swapCoordinator) autoTriggerSwap(my, other *Order) bool {
 		AmountSOL:     amountSOL,
 		AmountFND:     amountFND,
 		TakerGivesSol: takerGivesSol,
+		ProgramID: s.swapMgr.htlcProgramID,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

@@ -171,7 +171,7 @@ func (s *Server) resumeRefundsOnce() {
 
 // trySolRefund: holt eine eigene, abgelaufene SOL-Sperre zurück, falls vorhanden.
 func (s *Server) trySolRefund(swapID string, key solana.PrivateKey, hash [32]byte) {
-	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+	client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 	if err != nil {
 		return
 	}
@@ -207,7 +207,7 @@ func (s *Server) tryClaimFndWithSolSecret(swapID string, hash [32]byte, keys []o
 		if !found || h.State != chain.HTLCLocked {
 			continue // keine offene FND-Sperre für diese Adresse
 		}
-		client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+		client, err := newSolHTLCClient(s.swapMgr.rpcURL(), s.swapMgr.htlcProgramID)
 		if err != nil {
 			return
 		}

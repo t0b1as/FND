@@ -14,7 +14,7 @@ ngx.print([[
 <div class="set-layout">
 
 <!-- ── Software-Update ───────────────────────────────────────── -->
-<div class="set-card">
+<div class="set-card" id="update">
   <div class="set-head"><h3>Software-Update</h3></div>
   <div class="set-body">
     <div id="upd-status" class="status-line">Prüfe…</div>
@@ -38,6 +38,73 @@ ngx.print([[
     </div>
   </div>
 </div>
+
+<!-- ── Solana-Zugang (RPC) ─────────────────────────────────────── -->
+<div class="set-card" id="solana-rpc">
+  <div class="set-head"><h3>Solana-Zugang (RPC)</h3></div>
+  <div class="set-body">
+    <p class="meta" style="margin:0 0 8px">Über diese Adressen spricht der Node mit Solana (Swaps, Guthaben, Zahlungen).
+    Die erste ist bevorzugt; drosselt oder fällt sie aus, übernimmt automatisch die nächste.
+    Ein eigener Zugang (z.B. Helius, QuickNode, kostenlos) ist zuverlässiger als der öffentliche Endpunkt –
+    als letzten Eintrag den öffentlichen stehen lassen. Schlüssel werden nie angezeigt und nicht an Browser weitergegeben.</p>
+    <div id="rpc-src" class="status-line meta"></div>
+    <div id="rpc-list" style="margin:6px 0 10px"></div>
+    <textarea id="rpc-input" rows="3" spellcheck="false" autocomplete="off"
+      style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px"
+      placeholder="Eine Adresse pro Zeile, z.B.&#10;https://mainnet.helius-rpc.com/?api-key=DEIN_SCHLÜSSEL&#10;https://api.mainnet-beta.solana.com"></textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="btn" id="rpc-save">Speichern &amp; prüfen</button>
+      <button class="btn btn-outline" id="rpc-reset">Auf fundus.env zurücksetzen</button>
+    </div>
+    <div id="rpc-out" class="status-line" style="margin-top:6px"></div>
+  </div>
+</div>
+<script>
+(function(){
+  var list = document.getElementById('rpc-list'), src = document.getElementById('rpc-src'),
+      out = document.getElementById('rpc-out'), inp = document.getElementById('rpc-input');
+  function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  async function load(){
+    try {
+      var r = await fetch('/api/v1/admin/solana/rpc', {credentials:'same-origin'});
+      var d = await r.json();
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      src.textContent = 'Quelle: ' + (d.source || '–') + (d.source === 'Einstellungen' && d.env_set ? ' (überschreibt fundus.env)' : '');
+      list.innerHTML = (d.endpoints || []).map(function(e){
+        var col = e.ok ? 'var(--green,#00e676)' : '#f66';
+        return '<div style="display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0">' +
+          '<span style="color:' + col + '">●</span>' +
+          '<code style="word-break:break-all">' + esc(e.url) + '</code>' +
+          (e.net ? '<span class="meta">' + esc(e.net) + '</span>' : '') +
+          (e.active ? '<span class="badge badge-green">aktiv</span>' : '') +
+          (!e.ok && e.last_error ? '<span class="meta" style="color:#f66">' + esc(e.last_error) + '</span>' : '') +
+          '</div>';
+      }).join('');
+    } catch(e){ list.textContent = 'Nicht abrufbar: ' + e.message; }
+  }
+  async function save(val){
+    out.textContent = '⏳ Wird geprüft …';
+    try {
+      var r = await fetch('/api/v1/admin/solana/rpc', {method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'}, body: JSON.stringify({endpoints: val})});
+      var d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+      out.textContent = d.note ? ('✓ ' + d.note) : ('✓ ' + d.count + ' Adresse(n) gespeichert – Netz: ' + (d.net || '?'));
+      inp.value = '';
+      setTimeout(load, 1500);
+    } catch(e){ out.textContent = '✗ ' + e.message; }
+  }
+  document.getElementById('rpc-save').onclick = function(){
+    if (!inp.value.trim()) { out.textContent = 'Bitte mindestens eine Adresse eingeben.'; return; }
+    save(inp.value);
+  };
+  document.getElementById('rpc-reset').onclick = function(){
+    if (confirm('Eigene Einstellung entfernen und wieder die Adressen aus fundus.env verwenden?')) save('');
+  };
+  load();
+  setInterval(load, 30000);
+})();
+</script>
 <style>
 .upd-progress { margin-top:12px; padding:10px 12px; border:1px solid var(--brd); border-radius:10px; }
 .upd-bar { height:8px; background:var(--sur2); border-radius:999px; overflow:hidden; }

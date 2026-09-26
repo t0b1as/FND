@@ -218,10 +218,11 @@ func (s *Server) WithOrderBook(node p2pNode) *Server {
 	// Swap-Manager mit den Solana-Parametern aus der Config.
 	solRPC, htlcProg := "", ""
 	if s.cfg != nil {
-		solRPC = s.cfg.ShopSolanaRPC
+		solRPC = FirstSolRPC(s.cfg.ShopSolanaRPC) // Rückfallwert; aktiv ist die Liste (solrpc_pool.go)
 		htlcProg = s.cfg.SwapHTLCProgramID
 	}
 	s.swapMgr = newSwapManager(solRPC, htlcProg)
+	s.initSolRPC() // Endpunktliste (Einstellungen → fundus.env → Standard) + Ausweichen
 	if s.cfg != nil && s.cfg.DataDir != "" {
 		// Laufende Swaps (HTLC-IDs, Phase) überstehen Update/Absturz – nötig, um
 		// nach einem Ausfall einlösen oder zurückholen zu können.
@@ -317,6 +318,7 @@ func (s *Server) registerRoutes() {
 	r.GET("/api/v1/status", s.getStatus)
 	r.GET("/api/v1/nat",    s.getNATStatus)  // NAT-Traversal-Status
 	r.GET("/api/v1/donate/config", s.donateConfig) // freiwillige PayPal-Spende (Shop)
+	r.GET("/api/v1/update/info", s.updateInfo)     // Update-Knopf: laufende + verfügbare Revision (öffentlich)
 	r.POST("/api/v1/connect", s.postConnectPeer) // gezielt mit Peer verbinden (Test/Diagnose)
 
 	// Listings (Waren & Dienste)
@@ -420,7 +422,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R490"
+const NodeRevision = "R493"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

@@ -76,13 +76,7 @@ func (s *Server) solKeyInput(c *gin.Context, input string) (solana.PrivateKey, e
 }
 
 func (s *Server) solRPCURL() string {
-	if s.swapMgr != nil && s.swapMgr.solRPC != "" {
-		return s.swapMgr.solRPC
-	}
-	if s.cfg != nil && s.cfg.ShopSolanaRPC != "" {
-		return s.cfg.ShopSolanaRPC
-	}
-	return "https://api.mainnet-beta.solana.com"
+	return activeSolRPC()
 }
 
 func (s *Server) solGetBalance(ctx context.Context, pk solana.PublicKey) (uint64, error) {
@@ -112,6 +106,13 @@ func maskRPC(rpcURL string) string {
 // solRPCErr übersetzt RPC-Fehler in eine verständliche Ursache (statt der
 // Sammelmeldung "nicht erreichbar") und nennt den Endpunkt – OHNE API-Schlüssel.
 func solRPCErr(err error, rpcURL string) error {
+	if err != nil {
+		if m := strings.ToLower(err.Error()); strings.Contains(m, "429") || strings.Contains(m, "too many") ||
+			strings.Contains(m, "timeout") || strings.Contains(m, "deadline") || strings.Contains(m, "connection refused") ||
+			strings.Contains(m, "no such host") {
+			kickSolRPC() // sofort prüfen, ob ein anderer Endpunkt übernehmen muss
+		}
+	}
 	host := maskRPC(rpcURL)
 	if err == nil {
 		return fmt.Errorf("Solana-RPC (%s): leere Antwort", host)
@@ -293,6 +294,15 @@ func (s *Server) fndWords(c *gin.Context, input string) []string {
 
 // solCluster: "devnet"/"testnet" für Explorer-Links, sonst "" (Mainnet).
 func (s *Server) solCluster() string {
+	// Bevorzugt aus dem Genesis-Hash des aktiven Endpunkts (eindeutig).
+	switch activeSolNet() {
+	case "devnet":
+		return "devnet"
+	case "testnet":
+		return "testnet"
+	case "mainnet":
+		return ""
+	}
 	u := strings.ToLower(s.solRPCURL())
 	switch {
 	case strings.Contains(u, "devnet"):

@@ -135,13 +135,12 @@ func (s *Server) shopGetOrder(c *gin.Context) {
 
 // shopGetAddress gibt die Solana-Empfangsadresse für QR-Codes zurück.
 func (s *Server) shopGetAddress(c *gin.Context) {
-	rpc := ""
-	if s.cfg != nil {
-		rpc = s.cfg.ShopSolanaRPC
-	}
+	// Öffentlicher Endpunkt des Netzes – NIE die konfigurierte Adresse: die
+	// kann einen API-Schlüssel enthalten und ging früher an jeden Browser.
+	rpc := publicSolRPC()
 	c.JSON(http.StatusOK, gin.H{
 		"solana_address": s.shopReceiveAddr,
-		"rpc_url":        rpc, // konfigurierter RPC (für Phantom-Zahlung im Browser)
+		"rpc_url":        rpc, // öffentlicher RPC (für Phantom-Zahlung im Browser)
 		"note":           "Sende SOL an diese Adresse mit deiner FND-Adresse im Memo.",
 	})
 }

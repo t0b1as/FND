@@ -668,7 +668,7 @@ func main() {
 		priceFeed := shop.NewPriceFeed(priceFeedCfg, log)
 
 		watchCfg := shop.WatcherConfig{
-			RPCURL:         cfg.ShopSolanaRPC,
+			RPCURL:         api.FirstSolRPC(cfg.ShopSolanaRPC), // Liste erlaubt: erster Eintrag
 			ReceiveAddress: cfg.ShopReceiveAddr,
 			PollInterval:   3 * time.Second,
 			PaymentTimeout: 10 * time.Minute,
