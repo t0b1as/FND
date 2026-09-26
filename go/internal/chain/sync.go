@@ -212,3 +212,34 @@ func (bc *Blockchain) HashOfBlockJSON(data []byte) ([32]byte, uint64, error) {
 	}
 	return blk.Header.Hash(), blk.Header.Height, nil
 }
+
+// BlockRoundAt: PoA-Runde des Blocks auf Höhe h (0 = regulär, >0 = Ersatz).
+func (bc *Blockchain) BlockRoundAt(h uint64) (uint64, bool) {
+	if h == 0 {
+		return 0, true
+	}
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	if h > bc.height {
+		return 0, false
+	}
+	blk, err := bc.loadBlock(h)
+	if err != nil || blk == nil {
+		return 0, false
+	}
+	return blk.Header.Round, true
+}
+
+// BlockInfoFromJSON: Kopfdaten eines Blocks im Wire-Format (ohne Einspielen).
+func (bc *Blockchain) BlockInfoFromJSON(data []byte) (hash [32]byte, height, round, timestamp uint64, proposer string, err error) {
+	var w wireBlock
+	if err = json.Unmarshal(data, &w); err != nil {
+		return
+	}
+	blk, e := wireToBlock(&w)
+	if e != nil {
+		err = e
+		return
+	}
+	return blk.Header.Hash(), blk.Header.Height, blk.Header.Round, blk.Header.Timestamp, blk.Header.Proposer.Hex(), nil
+}

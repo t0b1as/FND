@@ -75,6 +75,11 @@ func (s *Server) chainStatus(c *gin.Context) {
 				out["fork_note"] = note
 			}
 		}
+		if cn, ok := interface{}(s.node).(interface{ LastClockNote() string }); ok {
+			if note := cn.LastClockNote(); note != "" {
+				out["clock_note"] = note
+			}
+		}
 		if !(canSign && inSet) {
 			switch {
 			case !canSign:

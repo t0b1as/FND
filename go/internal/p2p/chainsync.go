@@ -46,6 +46,8 @@ type ChainBridge interface {
 	// Für die Astwahl bei Abzweigungen:
 	BlockHashAt(h uint64) ([32]byte, bool)
 	HashOfBlockJSON(data []byte) ([32]byte, uint64, error)
+	BlockRoundAt(h uint64) (uint64, bool)
+	BlockInfoFromJSON(data []byte) (hash [32]byte, height, round, timestamp uint64, proposer string, err error)
 	// LearnValidators übernimmt von einem Peer empfangene Validator-Adressen als
 	// zusätzliche Quelle für die eigene Set-Ableitung.
 	LearnValidators(hexAddrs []string)
@@ -92,6 +94,7 @@ func (n *Node) AttachChain(ctx context.Context, bridge ChainBridge) {
 		if c == nil {
 			return
 		}
+		checkBlockClock(c, raw, n.log)
 		if err := c.ImportBlockJSON(raw); err != nil {
 			n.log.Warn("Chain: Live-Block verworfen", zap.Error(err))
 		}
@@ -399,6 +402,24 @@ func (n *Node) peerBlockHash(ctx context.Context, peerID string, c ChainBridge, 
 	return hash, true
 }
 
+// peerBlockRound: Hash und Runde des Peer-Blocks auf Höhe h.
+func (n *Node) peerBlockRound(ctx context.Context, peerID string, c ChainBridge, h uint64) ([32]byte, uint64, bool) {
+	req, _ := json.Marshal(chainSyncRequest{Kind: "block", Height: h})
+	raw, err := n.SendAndReceive(ctx, peerID, ChainSyncProtocol, req)
+	if err != nil {
+		return [32]byte{}, 0, false
+	}
+	var resp chainSyncResponse
+	if json.Unmarshal(raw, &resp) != nil || resp.Error != "" || len(resp.Block) == 0 {
+		return [32]byte{}, 0, false
+	}
+	hash, bh, round, _, _, err := c.BlockInfoFromJSON(resp.Block)
+	if err != nil || bh != h {
+		return [32]byte{}, 0, false
+	}
+	return hash, round, true
+}
+
 func (n *Node) resolveFork(peerID string, c ChainBridge, peerHeight uint64) {
 	forkMu.Lock()
 	if t, ok := forkLastPeer[peerID]; ok && time.Since(t) < 5*time.Minute {
@@ -447,12 +468,21 @@ func (n *Node) resolveFork(peerID string, c ChainBridge, peerHeight uint64) {
 	ancestor := lo
 	k := ancestor + 1
 	ours, ok1 := c.BlockHashAt(k)
-	theirs, ok2 := n.peerBlockHash(ctx, peerID, c, k)
-	if !ok1 || !ok2 {
+	ourRound, ok3 := c.BlockRoundAt(k)
+	theirs, theirRound, ok2 := n.peerBlockRound(ctx, peerID, c, k)
+	if !ok1 || !ok2 || !ok3 {
 		return // einer der Äste endet am Vorfahren – kein echter Konflikt
 	}
-	if bytes.Compare(ours[:], theirs[:]) < 0 {
-		msg := fmt.Sprintf("Abzweigung ab Block %d erkannt – eigener Ast gilt (kleinerer Hash); Peer %s wechselt", k, shortPeer(peerID))
+	// Regel (auf allen Nodes gleich): der REGULÄRE Block (niedrigere Runde)
+	// gewinnt vor einem Ersatzblock – so verliert der Validator, der zu früh
+	// eingesprungen ist. Erst bei gleicher Runde entscheidet der kleinere Hash.
+	weWin := ourRound < theirRound || (ourRound == theirRound && bytes.Compare(ours[:], theirs[:]) < 0)
+	why := "kleinerer Hash"
+	if ourRound != theirRound {
+		why = fmt.Sprintf("Runde %d vor Runde %d", minU(ourRound, theirRound), maxU(ourRound, theirRound))
+	}
+	if weWin {
+		msg := fmt.Sprintf("Abzweigung ab Block %d erkannt – eigener Ast gilt (%s); Peer %s wechselt", k, why, shortPeer(peerID))
 		setForkNote(msg)
 		n.log.Info("Chain: " + msg)
 		return
@@ -466,7 +496,7 @@ func (n *Node) resolveFork(peerID string, c ChainBridge, peerHeight uint64) {
 	forkLastSwitch = time.Now()
 	h := forkLoseHandler
 	forkMu.Unlock()
-	msg := fmt.Sprintf("Abzweigung ab Block %d – der Ast von Peer %s gilt (kleinerer Hash); wechsle: Chain wird gesichert und neu synchronisiert", k, shortPeer(peerID))
+	msg := fmt.Sprintf("Abzweigung ab Block %d – der Ast von Peer %s gilt (%s); wechsle: Chain wird gesichert und neu synchronisiert", k, shortPeer(peerID), why)
 	setForkNote(msg)
 	n.log.Warn("Chain: " + msg)
 	if h != nil {
@@ -479,4 +509,59 @@ func shortPeer(p string) string {
 		return p[:6] + "…" + p[len(p)-4:]
 	}
 	return p
+}
+
+func minU(a, b uint64) uint64 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxU(a, b uint64) uint64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// ── Uhrenprüfung ────────────────────────────────────────────────────────────
+// Ein frischer Block mit Zeitstempel AUS DER ZUKUNFT heißt: Die Uhr seines
+// Erzeugers geht vor. Dann hält er den regulär zuständigen Validator zu früh
+// für überfällig, baut Ersatzblöcke auf derselben Höhe – und die Chain spaltet
+// sich immer wieder. Pis haben keine Batterie-Uhr; ohne NTP driften sie.
+
+var (
+	clockMu   sync.Mutex
+	clockNote string
+	clockAt   time.Time
+)
+
+func checkBlockClock(c ChainBridge, raw []byte, log *zap.Logger) {
+	_, _, _, ts, proposer, err := c.BlockInfoFromJSON(raw)
+	if err != nil || ts == 0 {
+		return
+	}
+	ahead := int64(ts) - time.Now().Unix()
+	if ahead <= 3 {
+		return
+	}
+	msg := fmt.Sprintf("Uhr von Validator %s geht ca. %d s vor (Block-Zeitstempel in der Zukunft) – dort NTP prüfen: timedatectl; sudo timedatectl set-ntp true", proposer, ahead)
+	clockMu.Lock()
+	first := time.Since(clockAt) > 10*time.Minute
+	clockNote, clockAt = msg, time.Now()
+	clockMu.Unlock()
+	if first {
+		log.Warn("Chain: " + msg)
+	}
+}
+
+// LastClockNote: letzte Uhren-Warnung (30 min gültig), sonst "".
+func (n *Node) LastClockNote() string {
+	clockMu.Lock()
+	defer clockMu.Unlock()
+	if time.Since(clockAt) > 30*time.Minute {
+		return ""
+	}
+	return clockNote
 }
