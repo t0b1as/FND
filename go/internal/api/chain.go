@@ -60,12 +60,34 @@ func (s *Server) chainStatus(c *gin.Context) {
 		"my_validator_addr": myAddr,
 		"i_am_validator":    canSign && inSet,
 	}
-	if !(canSign && inSet) {
-		if !canSign {
-			out["hint"] = "Dieser Node hat keinen Signierschlüssel (Node-Wallet gesperrt oder fehlt) – auf der Wallet-Seite entsperren."
-		} else {
-			out["hint"] = "Dieser Node ist (noch) kein Validator. Validator wird er per Stake: mind. 10 FND an my_validator_addr (Node-Wallet) überweisen, dann auf der Wallet-Seite staken."
+	// Diagnose: warum (nicht) Validator? Stake, Aktivitätsfenster, Produktion.
+	if self, ok := chain.AddressFromHex(myAddr); ok {
+		stake := s.chain.StakeOf(self)
+		lastProd, lastStake := s.chain.ValidatorActivity(self)
+		out["my_stake_fnd"] = uFNDToFND(stake.String())
+		out["min_stake_fnd"] = uFNDToFND(chain.MinValidatorStake.String())
+		out["activity_window_blocks"] = chain.ValidatorLookback
+		out["my_last_block"] = lastProd
+		out["my_last_stake_block"] = lastStake
+		out["producer_running"] = ProducerRunning.Load()
+		if !(canSign && inSet) {
+			switch {
+			case !canSign:
+				out["hint"] = "Dieser Node hat keinen Signierschlüssel (Node-Wallet gesperrt oder fehlt) – auf der Wallet-Seite entsperren."
+			case stake.Cmp(chain.MinValidatorStake) < 0:
+				out["hint"] = "Kein ausreichender Stake: " + uFNDToFND(stake.String()) + " FND gestakt, mindestens " +
+					uFNDToFND(chain.MinValidatorStake.String()) + " FND nötig (Node-Wallet → staken)."
+			default:
+				out["hint"] = fmt.Sprintf("Stake vorhanden (%s FND), aber gerade ausgesetzt: In den letzten %d Blöcken (~%d min) hat dieser Node weder einen Block gebaut noch gestakt "+
+					"(z.B. nach Neustart/Ausfall). Er stellt sich innerhalb von 1–2 Minuten automatisch wieder auf (braucht ~0,001 FND freies Guthaben auf der Node-Wallet).",
+					uFNDToFND(stake.String()), chain.ValidatorLookback, chain.ValidatorLookback*chain.BlockTime/60)
+			}
 		}
+		if canSign && inSet && !ProducerRunning.Load() {
+			out["hint"] = "Im Validator-Set, aber die Blockproduktion läuft nicht (Node-Wallet war beim Start gesperrt) – Node neu starten."
+		}
+	} else if !(canSign && inSet) {
+		out["hint"] = "Dieser Node hat keinen Signierschlüssel (Node-Wallet gesperrt oder fehlt) – auf der Wallet-Seite entsperren."
 	}
 	c.JSON(http.StatusOK, out)
 }

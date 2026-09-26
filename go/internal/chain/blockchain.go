@@ -226,6 +226,39 @@ func (bc *Blockchain) AvgBlockSeconds(n uint64) float64 {
 	return med
 }
 
+// ValidatorActivity: in welchem Block (innerhalb des Aktivitätsfensters von
+// ValidatorLookback Blöcken) hat addr zuletzt einen Block gebaut bzw. gestakt?
+// 0 = nicht im Fenster. Für die Diagnose "warum bin ich kein Validator?".
+func (bc *Blockchain) ValidatorActivity(addr Address) (lastProduced, lastStake uint64) {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	from := uint64(1)
+	if bc.height > ValidatorLookback {
+		from = bc.height - ValidatorLookback + 1
+	}
+	for h := bc.height; h >= from && h > 0; h-- {
+		blk, err := bc.loadBlock(h)
+		if err != nil || blk == nil {
+			continue
+		}
+		if lastProduced == 0 && blk.Header.Proposer == addr {
+			lastProduced = h
+		}
+		if lastStake == 0 {
+			for _, tx := range blk.Transactions {
+				if tx != nil && tx.Type == TxStake && tx.From == addr {
+					lastStake = h
+					break
+				}
+			}
+		}
+		if lastProduced != 0 && lastStake != 0 {
+			break
+		}
+	}
+	return
+}
+
 // StakeOf liefert den aktiv gestakten Betrag einer Adresse (uFND).
 func (bc *Blockchain) StakeOf(a Address) *big.Int {
 	bc.mu.RLock()

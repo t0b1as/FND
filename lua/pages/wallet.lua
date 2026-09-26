@@ -523,10 +523,16 @@ async function walHeightWatch(){
 }
 setInterval(walHeightWatch, 5000);
 
+// Nur schreiben, wenn sich der Inhalt ändert – verhindert Flackern bei den
+// regelmäßigen Aktualisierungen (seit R489 alle 5 s ein neuer Block).
+function wSetHTML(el, html){
+  if (!el) return;
+  if (el._wh !== html) { el.innerHTML = html; el._wh = html; }
+}
 async function walShowBalance(addr){
   const el = document.getElementById('wal-open-state');
   el.style.display = 'block';
-  el.innerHTML = WT.balance_loading;
+  if (el.dataset.addr !== addr) { el.innerHTML = WT.balance_loading; el._wh = null; el.dataset.addr = addr; }
   const setTop = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
   // Obere Adresse sofort auf die geöffnete Wallet setzen (unabhängig vom Saldo).
   setTop('top-wal-address', addr);
@@ -535,8 +541,8 @@ async function walShowBalance(addr){
     const d = await r.json();
     if (r.ok) {
       const fnd = (d.fnd!==undefined && d.fnd!==null) ? d.fnd : '?';
-      el.innerHTML = '<strong>]==] .. t("wallet.opened_wallet") .. [==[</strong> <code>' + addr +
-        '</code><br>]==] .. t("wallet.balance_label") .. [==[ <strong>' + fnd + ' FND</strong>';
+      wSetHTML(el, '<strong>]==] .. t("wallet.opened_wallet") .. [==[</strong> <code>' + addr +
+        '</code><br>]==] .. t("wallet.balance_label") .. [==[ <strong>' + fnd + ' FND</strong>');
       // Obere Felder auf die geöffnete Wallet umstellen: freier Saldo aus der
       // nativen Chain. Escrow/Pending sind für eine geöffnete Fremdadresse nicht
       // ermittelbar → auf "–" setzen, damit keine irreführende 0 erscheint.
@@ -544,11 +550,11 @@ async function walShowBalance(addr){
       setTop('bal-free', isNaN(num) ? '?' : num.toLocaleString('de-DE', {minimumFractionDigits:4, maximumFractionDigits:4}));
       setTop('bal-escrow', '–');
     } else {
-      el.innerHTML = '<strong>]==] .. t("wallet.opened_wallet") .. [==[</strong> <code>' + addr +
-        '</code><br><span style="color:var(--muted)">' + WT.balance_unavailable + (d.error||'Chain offline') + ')</span>';
+      wSetHTML(el, '<strong>]==] .. t("wallet.opened_wallet") .. [==[</strong> <code>' + addr +
+        '</code><br><span style="color:var(--muted)">' + WT.balance_unavailable + (d.error||'Chain offline') + ')</span>');
     }
   } catch(e){
-    el.innerHTML = '<strong>]==] .. t("wallet.opened_wallet") .. [==[</strong> <code>' + addr + '</code>';
+    wSetHTML(el, '<strong>]==] .. t("wallet.opened_wallet") .. [==[</strong> <code>' + addr + '</code>');
   }
 }
 function walFeeMode(){
@@ -711,9 +717,12 @@ async function loadStakeStatus(){
     const d = await r.json();
     const n = d.validators || 0;
     const me = window.nodeWalletAddr ? (d.validator_addrs||[]).map(a=>a.toLowerCase()).indexOf(window.nodeWalletAddr.toLowerCase()) >= 0 : false;
-    el.innerHTML = WT.stake_validators + ': <strong>' + n + '</strong> &middot; ' +
+    wSetHTML(el, WT.stake_validators + ': <strong>' + n + '</strong> &middot; ' +
       (me ? '<span style="color:var(--grn)">' + WT.stake_you_are + '</span>'
-          : '<span style="color:var(--muted)">' + WT.stake_you_not + '</span>');
+          : '<span style="color:var(--muted)">' + WT.stake_you_not + '</span>') +
+      (d.my_stake_fnd !== undefined ? ' &middot; Stake: <strong>' + d.my_stake_fnd + ' FND</strong>' : '') +
+      (!me && d.hint ? '<div style="margin-top:6px;color:var(--warning,#fb3);font-size:13px">' +
+        String(d.hint).replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }) + '</div>' : ''));
   } catch(e){}
 }
 
@@ -767,20 +776,20 @@ async function openNodeWallet(){
   if (!el) return;
   const addr = window.nodeWalletAddr;
   el.style.display = 'block';
-  el.innerHTML = WT.balance_loading;
+  if (!el._wh) { el.innerHTML = WT.balance_loading; el._wh = null; }
   try {
     const r = await fetch('/api/v1/wallet/balance?address=' + encodeURIComponent(addr));
     const d = await r.json();
     if (r.ok) {
       const fnd = (d.fnd!==undefined && d.fnd!==null) ? d.fnd : '?';
-      el.innerHTML = '<strong>]==] .. t("wallet.node_wallet_label") .. [==[</strong> <code>' + addr +
-        '</code><br>]==] .. t("wallet.balance_label") .. [==[ <strong>' + fnd + ' FND</strong>';
+      wSetHTML(el, '<strong>]==] .. t("wallet.node_wallet_label") .. [==[</strong> <code>' + addr +
+        '</code><br>]==] .. t("wallet.balance_label") .. [==[ <strong>' + fnd + ' FND</strong>');
     } else {
-      el.innerHTML = '<code>' + addr + '</code><br><span style="color:var(--muted)">' +
-        WT.balance_unavailable + (d.error||'Chain offline') + ')</span>';
+      wSetHTML(el, '<code>' + addr + '</code><br><span style="color:var(--muted)">' +
+        WT.balance_unavailable + (d.error||'Chain offline') + ')</span>');
     }
   } catch(e){
-    el.innerHTML = '<code>' + addr + '</code>';
+    wSetHTML(el, '<code>' + addr + '</code>');
   }
 }
 

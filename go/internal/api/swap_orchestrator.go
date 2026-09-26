@@ -581,7 +581,9 @@ func (o *orchestrator) waitForSolLock(ctx context.Context, ss *swapSession, s *S
 		return false
 	}
 	// Diagnose: welche PDA wird auf welchem Netz beobachtet.
-	base := "warte auf SOL-Lock (" + solNet(s) + ") an PDA " + pda.String()[:8] + "… (Initiator " + ss.counterpartySol[:8] + "…)"
+	// Volle Adressen: so lässt sich die erwartete Sperre direkt auf Solscan prüfen.
+	base := "warte auf SOL-Lock (" + solNet(s) + ") an Konto " + pda.String() + " · Initiator " + ss.counterpartySol +
+		" · Programm " + s.swapMgr.htlcProgramID[:8] + "…"
 	s.setSwapPhase(ss.swapID, ss.currentPhase(s), base)
 	pollStart := time.Now() // gestufter Takt, siehe pollDelay
 	lastErr := ""
@@ -890,6 +892,7 @@ func (s *Server) resumeSolClaimsLoop() {
 		s.resumeSolClaimsOnce()
 		s.settleFinishedSwaps() // erfolgreiche, aber unverrechnete Swaps (Orders aus dem Buch)
 		s.resumeTakersOnce()    // unterbrochene Käufer-Swaps fortsetzen
+		s.expireStaleWaits()    // verwaiste Wartestände (nichts selbst gesperrt) abschließen
 		time.Sleep(2 * time.Minute)
 	}
 }
@@ -1052,4 +1055,41 @@ func (ss *swapSession) currentNote(s *Server) string {
 		return sw.Note
 	}
 	return ""
+}
+
+// expireStaleWaits: Swaps, die seit über 2 h auf die Gegenseite warten, deren
+// Ablauf nicht mehr läuft (z.B. nach einem Neustart) und bei denen man selbst
+// NOCH NICHTS gesperrt hat, werden als abgelaufen markiert – statt für immer
+// "warte auf …" anzuzeigen. Die Reservierung der Order wird freigegeben.
+// Swaps mit eigener Sperre bleiben unberührt (Rückholung/Abholung zuständig).
+func (s *Server) expireStaleWaits() {
+	if s.swapMgr == nil || s.orch == nil {
+		return
+	}
+	type item struct{ id, orderID string }
+	var list []item
+	cutoff := time.Now().Add(-2 * time.Hour).Unix()
+	s.swapMgr.mu.RLock()
+	for _, sw := range s.swapMgr.swaps {
+		if sw == nil || sw.Done || sw.Phase != SwapInitiated || sw.CreatedAt == 0 || sw.CreatedAt > cutoff {
+			continue
+		}
+		if sw.FndHTLCID != "" || sw.SolLockSig != "" {
+			continue // eigene Sperre vermerkt → nicht anfassen
+		}
+		list = append(list, item{sw.ID, sw.OrderID})
+	}
+	s.swapMgr.mu.RUnlock()
+	for _, it := range list {
+		s.orch.mu.Lock()
+		_, running := s.orch.sessions[it.id]
+		s.orch.mu.Unlock()
+		if running {
+			continue
+		}
+		s.setSwapPhase(it.id, SwapExpired, "abgelaufen: die Gegenseite hat nicht gesperrt – nichts gesperrt, nichts zurückzuholen")
+		if it.orderID != "" {
+			releaseOrderPart(it.orderID, it.id)
+		}
+	}
 }

@@ -554,6 +554,7 @@ func main() {
 					// Startzeitpunkt – wer später per Stake beitrat, baute bis zum
 					// nächsten Neustart keinen Block.
 					if canSign {
+						api.ProducerRunning.Store(true)
 						go runBlockProductionLoop(ctx, bc, mempool, node, log)
 					}
 				} else {

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"sync/atomic"
 	"path/filepath"
 	"context"
 	"encoding/hex"
@@ -235,6 +236,7 @@ func (s *Server) WithOrderBook(node p2pNode) *Server {
 	go s.resumeSolClaimsLoop() // offene SOL-Abholungen nach Neustart wieder aufnehmen
 	go s.resumeRefundsLoop()   // abgelaufene eigene Sperren zurückholen (anhand der Chain)
 	go s.discardOldChainSwapsLoop() // Altlasten früherer Chains verwerfen
+	go s.validatorRejoinLoop()      // inaktive Validatoren mit Stake stellen sich selbst wieder auf
 	// Swap-Init-Protokoll am p2pNode registrieren (falls Orderbuch aktiv).
 	if s.orderBook != nil && s.orderBook.Node() != nil {
 		s.swapCoord.registerProtocol(s.orderBook.Node())
@@ -423,7 +425,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R499"
+const NodeRevision = "R502"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -433,6 +435,9 @@ var SourceFingerprint = "unbekannt"
 // ChainInitError: warum die Chain nicht läuft (z.B. inkompatibles Format –
 // Daten bleiben unangetastet). Von main gesetzt, in /health und chain/status.
 var ChainInitError string
+
+// ProducerRunning: läuft die Blockproduktion dieses Nodes? (von main gesetzt)
+var ProducerRunning atomic.Bool
 
 func (s *Server) getHealth(c *gin.Context) {
 	out := gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision, "source_fp": SourceFingerprint}
