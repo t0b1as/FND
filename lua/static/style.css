@@ -1975,3 +1975,15 @@ audio.fm-viewer-media { width:min(560px,100%); box-shadow:none; }
 }
 @media (prefers-reduced-motion: reduce) { .nav-update.has-update { animation: none; } }
 .nav-update.mismatch { color:#fff; background:#b91c1c; border-color:#ef4444; box-shadow:0 0 10px rgba(239,68,68,.55); }
+
+/* Logo + Revisions-Knopf als Gruppe: der Knopf sitzt immer direkt neben
+   "FUNDUS" (mobil wurde er sonst vom Logo weg an den Anmelde-Knopf geschoben). */
+.brand-wrap { display:flex; align-items:center; gap:10px; flex-shrink:0; min-width:0; }
+.brand-wrap .nav-update { margin-left:0; }
+#wallet-badge { margin-left:8px; }
+@media (max-width: 480px) {
+  .brand-wrap { gap:6px; }
+  .brand { font-size:1.3rem; gap:.35rem; }
+  .brand .brand-logo { width:30px; height:30px; }
+  .nav-update { font-size:.62rem; padding:1px 7px; }
+}
