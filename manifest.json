@@ -1,8 +1,8 @@
 {
-  "version": "R502",
-  "description": "FUNDUS R502 - Neue Staking Mechanik",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R502/FND-R502-update.zip",
-  "node_argon2": "9910d80b38d0c8d1b08cda2829cbd62a43d99b04ee84768ca11817bf9af42cc4",
-  "published_at": "2026-09-26T18:59:36.1419691Z",
-  "signature": "0x9fc95424a1fdced68a98be307a05148752a9fe28d25786a8cf0a3684c228ba6d39b07623a369d1b28623ec20e6957f2c964900ade68a034a4853025a9d8158ff1b"
+  "version": "R504",
+  "description": "FUNDUS R504 - Wallet Autoupdate bei Transaktionen",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R504/FND-R504-update.zip",
+  "node_argon2": "5cb19b25762b48cb3a33cedffb8e0baae01d3cbb0b51aa85562743d7e77c20b0",
+  "published_at": "2026-09-26T19:24:04.5180243Z",
+  "signature": "0x05d572d883d0e1c826502886bd67dca8e3c6f8cb31f2a43ac55f6bde13a2cf8e22012261a63e2d5944f4181b1bcd7f65213949ca12bbe7a4b49231c70f54a1731c"
 }
