@@ -45,10 +45,10 @@ libp2p), daher wird auf dem PC kompiliert.
 
 ```powershell
 # 64-Bit Pi-OS (Standard, Pi 3/4/5 mit aarch64):
-powershell -ExecutionPolicy Bypass -File .\deploy-fundus.ps1 -PiHost 192.168.1.100 -PiUser pi
+powershell -File .\deploy-fundus.ps1 -PiHost 192.168.1.100 -PiUser pi
 
 # 32-Bit Pi-OS (armv7l): am Pi mit 'uname -m' pruefen
-powershell -ExecutionPolicy Bypass -File .\deploy-fundus.ps1 -PiHost 192.168.1.100 -PiUser pi -Arch arm
+powershell -File .\deploy-fundus.ps1 -PiHost 192.168.1.100 -PiUser pi -Arch arm
 ```
 
 **SSH-Authentifizierung** laeuft automatisch:
@@ -61,7 +61,7 @@ Das separate `build-binary.ps1` existiert weiterhin, falls man nur bauen
 (ohne deployen) moechte.
 
 > **Hinweis zur Execution Policy:** Falls PowerShell die Skripte blockiert
-> ("nicht digital signiert"), nutze `powershell -ExecutionPolicy Bypass -File ...`
+> ("nicht digital signiert"), nutze `powershell -File ...`
 > wie oben gezeigt, oder setze einmalig:
 > `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
 

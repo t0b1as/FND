@@ -235,7 +235,7 @@ function _M.header(title_key, active)
     </svg>
     <span>FUNDUS</span>
   </a>
-  <a href="/settings#update" id="nav-update" class="nav-update" title="Software-Update">]] .. (rev ~= "" and rev or "R?") .. [[</a>
+  <a href="/settings#update" id="nav-update" class="nav-update" data-ui="]] .. (rev ~= "" and rev or "") .. [[" title="Software-Update">]] .. (rev ~= "" and rev or "R?") .. [[</a>
   <div class="nav-spacer"></div>
   <div class="nav-quick" id="nav-quick"></div>
   <div class="nav-spacer"></div>

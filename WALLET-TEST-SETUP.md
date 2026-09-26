@@ -112,7 +112,7 @@ Läuft der Hardhat-Node auf einem anderen Rechner als der Fundus-Node, ersetze
 ## 5. Node neu deployen/starten
 
 ```
-powershell -ExecutionPolicy Bypass -File .\deploy-fundus.ps1 -PiHost <IP> -PiUser tobias -Rebuild -GoCmd go1.25.4 -SudoPass "..." -CertPass "..."
+powershell -File .\deploy-fundus.ps1 -PiHost <IP> -PiUser tobias -Rebuild -GoCmd go1.25.4 -SudoPass "..." -CertPass "..."
 ```
 
 Im Log sollte erscheinen: `FND wallet geladen` und (wenn Chain erreichbar)

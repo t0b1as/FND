@@ -38,6 +38,7 @@ param(
     [switch]$Rebuild     = $false,  # Binary neu kompilieren erzwingen
     [switch]$BuildOnly   = $false,  # nur Node+Helper bauen (bin\), kein Deploy (fuer deploy-all-pis)
     [switch]$IgnoreSourceFP = $false,  # Fingerabdruck-Pruefung des Quellordners uebergehen (Notausgang)
+    [switch]$AllowDowngrade = $false,  # aelteres Programm als das laufende hochladen (Notausgang)
     [string]$GoCmd       = "",      # Go-Toolchain (z.B. "go1.25.4"), leer = auto
     [string]$BootstrapPeer = "",    # Multiaddr eines bekannten Peers (z.B. /ip4/10.10.11.39/tcp/4001/p2p/12D3...)
     [string]$SwapHtlcProgram = "",  # Solana-HTLC-Programm-ID für Atomic Swaps (leer = Swap-Ausführung inaktiv)
@@ -1062,6 +1063,23 @@ if (-not (Test-Path $localBinary)) {
     if ($wantRev) { Set-Content -Path $stampFile -Value $wantRev -Encoding ascii }
 }
 if ($wantRev) { Write-Info "Binary-Stand: R$wantRev" }
+
+# Downgrade-Sperre: Laeuft auf dem Pi eine NEUERE Revision als das lokale
+# Binary, NICHT hochladen. (Ein Deploy aus einem alten Ordner spielte so R476
+# ueber R490 - das alte Programm setzte die Chain zurueck und kannte neue
+# Formate nicht.) Notausgang: -AllowDowngrade.
+$piHealth = (Invoke-SSH-Safe "curl -s --max-time 5 http://127.0.0.1:3000/health 2>/dev/null || true").Output
+$piRev = ""
+if ("$piHealth" -match '"revision"\s*:\s*"R(\d+)"') { $piRev = $Matches[1] }
+if ($piRev -and $wantRev -and ([int]$wantRev -lt [int]$piRev)) {
+    if ($AllowDowngrade) {
+        Write-Host "      [WARNUNG] Downgrade R$piRev -> R$wantRev (-AllowDowngrade)" -ForegroundColor Yellow
+    } else {
+        Write-Fail "Auf dem Pi laeuft R$piRev, dieser Ordner enthaelt R$wantRev (aelter). Deploy abgebrochen - falscher/alter Ordner? Aktuelle FND.zip frisch entpacken. (Notausgang: -AllowDowngrade)"
+    }
+} elseif ($piRev) {
+    Write-Info "Pi laeuft mit R$piRev, lokal R$wantRev"
+}
 
 # Ab hier existiert bin\fundus-node garantiert. Upload nur bei Hash-Unterschied.
 $localHash = (Get-FileHash $localBinary -Algorithm SHA256).Hash.ToLower()

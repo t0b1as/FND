@@ -29,7 +29,7 @@ erzeugt und ist **nicht mehr kompatibel**.
 ist nur für den Node auf dem Pi):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build-admin-tools.ps1 -GoCmd go1.25.4
+powershell -File .\build-admin-tools.ps1 -GoCmd go1.25.4
 # Binaries landen in .\bin\
 ```
 

@@ -27,13 +27,13 @@ ssh pi@192.168.1.50                       # muss jetzt ohne Passwort gehen
 **Erstinstallation** – im Ordner mit den ZIPs:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\deploy-fundus.ps1 -PiHost 192.168.1.50 -PiUser pi -AdminPass "LangesAdminPasswort"
+powershell -File .\deploy-fundus.ps1 -PiHost 192.168.1.50 -PiUser pi -AdminPass "LangesAdminPasswort"
 ```
 
 **Update** auf eine neue Version (Systempakete überspringen, Binary neu bauen):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\deploy-fundus.ps1 -PiHost 192.168.1.50 -PiUser pi -Rebuild -SkipSetup
+powershell -File .\deploy-fundus.ps1 -PiHost 192.168.1.50 -PiUser pi -Rebuild -SkipSetup
 ```
 
 **Spätere Updates** gehen auch ohne PC: Der Node prüft GitHub selbst und bietet neue Versionen unter *Einstellungen → Software-Update* an – ein Klick installiert sie, Daten und Wallets bleiben erhalten.
