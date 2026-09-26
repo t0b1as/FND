@@ -302,3 +302,11 @@ func (s *Server) solCluster() string {
 	}
 	return ""
 }
+
+// solNetName: "mainnet" oder "devnet"/"testnet" (für Order-Vermerke).
+func (s *Server) solNetName() string {
+	if c := s.solCluster(); c != "" {
+		return c
+	}
+	return "mainnet"
+}

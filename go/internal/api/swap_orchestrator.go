@@ -57,6 +57,8 @@ const (
 // swapSession hält die flüchtigen Geheimnisse eines laufenden Swaps im RAM.
 type swapSession struct {
 	swapID string
+	// claimPending: SOL-Abholung läuft im Hintergrund weiter (Reservierung halten).
+	claimPending bool
 
 	// Rolle + Handelsrichtung.
 	//  isTaker: true = wir nehmen die Order an, erzeugen das Geheimnis, sperren
@@ -172,6 +174,11 @@ func (o *orchestrator) finalizeSwap(ss *swapSession) {
 		return
 	}
 	s := o.server
+	// Reservierung freigeben – außer eine SOL-Abholung läuft noch im Hintergrund
+	// (dann gibt settleOrder sie nach erfolgreicher Abholung frei).
+	if !ss.claimPending {
+		releaseOrderPart(ss.orderID, ss.swapID)
+	}
 	// Auto-Match-Sperre IMMER freigeben (egal wie der Swap endete), damit ein
 	// Rest der Order oder ein neuer Versuch wieder matchen kann.
 	if ss.takerOwnOrderID != "" && s.swapCoord != nil {
@@ -199,40 +206,93 @@ func (o *orchestrator) finalizeSwap(ss *swapSession) {
 	if s.log != nil {
 		s.log.Info("finalizeSwap: räume auf", zap.String("swap", ss.swapID), zap.String("phase", string(phase)), zap.String("order", ss.orderID), zap.Float64("amount", ss.amountFND))
 	}
-	// Nur der Maker verwaltet die Order (der Taker hat keine eigene für diesen Swap).
-	if s.orderBook == nil {
+	s.settleOrder(ss.swapID, ss.orderID, ss.amountFND, ss.takerOwnOrderID)
+}
+
+// settleOrder reduziert bzw. entfernt die Order nach einem Swap und gibt die
+// hinterlegten Schlüssel frei – GENAU EINMAL je Swap (Kennzeichen Settled im
+// gespeicherten Swap). Früher nur aus finalizeSwap aufgerufen: seit die SOL-
+// Abholung im Hintergrund läuft (R478), war der Swap dort noch "nicht final",
+// und die Order blieb für immer im Buch (band Guthaben, war weiter annehmbar).
+func (s *Server) settleOrder(swapID, orderID string, amountFND float64, takerOwnOrderID string) {
+	if orderID == "" || s.orderBook == nil {
 		return
+	}
+	releaseOrderPart(orderID, swapID) // Teilmenge ist jetzt verrechnet
+	s.swapMgr.mu.Lock()
+	sw, ok := s.swapMgr.swaps[swapID]
+	if ok && sw.Settled {
+		s.swapMgr.mu.Unlock()
+		return
+	}
+	if ok {
+		sw.Settled = true
+	}
+	s.swapMgr.mu.Unlock()
+	// (Speicherung: automatischer Snapshot alle 3 s)
+	if s.log != nil {
+		s.log.Info("Order nach Swap verrechnet", zap.String("swap", swapID), zap.String("order", orderID), zap.Float64("amount", amountFND))
 	}
 	// Order um den geswappten Betrag reduzieren. Bleibt ein Rest, bleibt die
 	// Order (und die hinterlegten Keys) für weitere Teilkäufe bestehen.
-	ord, existed := s.orderBook.FindOrder(ss.orderID)
+	ord, existed := s.orderBook.FindOrder(orderID)
 	if existed {
 		remainingBefore := ord.AmountFND
-		s.orderBook.reduceOrder(ss.orderID, ss.amountFND)
-		// Wenn nach der Reduzierung nichts mehr übrig ist, Keys freigeben.
-		if remainingBefore-ss.amountFND <= 0.00000001 && s.swapCoord != nil {
-			s.swapCoord.releaseKeys(ss.orderID)
+		s.orderBook.reduceOrder(orderID, amountFND)
+		if remainingBefore-amountFND <= 0.00000001 && s.swapCoord != nil {
+			s.swapCoord.releaseKeys(orderID)
 		}
 	} else if s.swapCoord != nil {
-		s.swapCoord.releaseKeys(ss.orderID)
+		s.swapCoord.releaseKeys(orderID)
 	}
-	// Beim Auto-Match: auch die EIGENE Order des Takers reduzieren (die fremde
-	// Maker-Order reduziert der Maker-Node selbst).
-	if ss.takerOwnOrderID != "" {
-		if myOrd, ok := s.orderBook.FindOrder(ss.takerOwnOrderID); ok {
+	// Beim Auto-Match: auch die EIGENE Order des Takers reduzieren.
+	if takerOwnOrderID != "" {
+		if myOrd, ok := s.orderBook.FindOrder(takerOwnOrderID); ok {
 			remBefore := myOrd.AmountFND
-			s.orderBook.reduceOrder(ss.takerOwnOrderID, ss.amountFND)
-			if remBefore-ss.amountFND <= 0.00000001 && s.swapCoord != nil {
-				s.swapCoord.releaseKeys(ss.takerOwnOrderID)
+			s.orderBook.reduceOrder(takerOwnOrderID, amountFND)
+			if remBefore-amountFND <= 0.00000001 && s.swapCoord != nil {
+				s.swapCoord.releaseKeys(takerOwnOrderID)
 			}
 		}
-		// Auto-Match-Sperre freigeben, damit ein Rest der Order erneut matchen kann.
 		if s.swapCoord != nil {
 			s.swapCoord.mu.Lock()
-			delete(s.swapCoord.activeMatches, ss.takerOwnOrderID)
-			delete(s.swapCoord.activeSince, ss.takerOwnOrderID)
+			delete(s.swapCoord.activeMatches, takerOwnOrderID)
+			delete(s.swapCoord.activeSince, takerOwnOrderID)
 			s.swapCoord.mu.Unlock()
 		}
+	}
+}
+
+// markSwapDone: eigene Seite erfolgreich eingelöst.
+func (s *Server) markSwapDone(swapID string) {
+	s.swapMgr.mu.Lock()
+	if sw, ok := s.swapMgr.swaps[swapID]; ok {
+		sw.Done = true
+	}
+	s.swapMgr.mu.Unlock()
+	// (Speicherung: automatischer Snapshot alle 3 s)
+}
+
+// settleFinishedSwaps: holt das Verrechnen für erfolgreiche, aber noch nicht
+// verrechnete Anbieter-Swaps nach (auch Altfälle von vor R487).
+func (s *Server) settleFinishedSwaps() {
+	type item struct {
+		id, orderID string
+		amount      float64
+	}
+	var list []item
+	s.swapMgr.mu.RLock()
+	for _, sw := range s.swapMgr.swaps {
+		if sw == nil || sw.Settled || sw.OrderID == "" || !strings.HasPrefix(sw.ID, "seller-") {
+			continue
+		}
+		if sw.Done || sw.Phase == SwapSolClaimed {
+			list = append(list, item{sw.ID, sw.OrderID, sw.AmountFND})
+		}
+	}
+	s.swapMgr.mu.RUnlock()
+	for _, it := range list {
+		s.settleOrder(it.id, it.orderID, it.amount, "")
 	}
 }
 
@@ -333,7 +393,7 @@ func (o *orchestrator) lockGive(ctx context.Context, ss *swapSession, s *Server)
 		return true
 	}
 	// giveChain == "fnd"
-	txHash, _, _, err := s.submitFndLock(ss.fndSeed, ss.counterpartyFnd, ss.amountFND, ss.secretHash, ss.fndTimelock())
+	txHash, _, _, err := s.submitFndLock(ss.fndSeed, ss.counterpartyFnd, ss.amountFND, ss.secretHash, s.fndTimelockFor(ss))
 	if err != nil {
 		s.setSwapPhase(ss.swapID, SwapExpired, "FND-Lock fehlgeschlagen: "+err.Error())
 		return false
@@ -348,26 +408,46 @@ func (o *orchestrator) lockGive(ctx context.Context, ss *swapSession, s *Server)
 // waitForMakerLock (Taker-Sicht): wartet auf den Lock des Makers auf DESSEN
 // Give-Chain (die Gegen-Chain zu unserer Give-Chain). Gibt die Lock-ID/Signatur.
 func (o *orchestrator) waitForMakerLock(ctx context.Context, ss *swapSession, s *Server) (string, bool) {
+	id, ok := "", false
 	if ss.giveChain == "sol" {
 		// Maker gibt FND → wir warten auf FND-Lock an unsere FND-Adresse.
-		return o.waitForFndLock(ctx, ss, s)
+		id, ok = o.waitForFndLock(ctx, ss, s)
+	} else if o.waitForSolLock(ctx, ss, s) {
+		// Maker gibt SOL → wir warten auf SOL-Lock.
+		id, ok = "sol", true
 	}
-	// Maker gibt SOL → wir warten auf SOL-Lock.
-	if o.waitForSolLock(ctx, ss, s) {
-		return "sol", true
+	if !ok {
+		return "", false
 	}
-	return "", false
+	// Sperre der Gegenseite prüfen (Betrag, Empfänger, Restlaufzeit) – sonst
+	// NICHT einlösen (das Geheimnis würde enthüllt, ohne dass sich das lohnt).
+	if err := s.verifyCounterpartyLock(ctx, ss, id); err != nil {
+		s.setSwapPhase(ss.swapID, SwapExpired, "Sperre des Anbieters passt nicht: "+err.Error()+" – nicht eingelöst, eigene Sperre wird nach Ablauf zurückgeholt")
+		return "", false
+	}
+	return id, true
 }
 
 // waitForTakerLock (Maker-Sicht): wartet auf den Lock des Takers.
 func (o *orchestrator) waitForTakerLock(ctx context.Context, ss *swapSession, s *Server) bool {
+	id, ok := "", false
 	if ss.giveChain == "sol" {
 		// Wir geben SOL, Taker gibt FND → warten auf FND-Lock.
-		_, ok := o.waitForFndLock(ctx, ss, s)
-		return ok
+		id, ok = o.waitForFndLock(ctx, ss, s)
+	} else {
+		// Wir geben FND, Taker gibt SOL → warten auf SOL-Lock.
+		ok = o.waitForSolLock(ctx, ss, s)
 	}
-	// Wir geben FND, Taker gibt SOL → warten auf SOL-Lock.
-	return o.waitForSolLock(ctx, ss, s)
+	if !ok {
+		return false
+	}
+	// Sperre des Käufers prüfen, BEVOR wir selbst sperren: Betrag, Empfänger
+	// (wir) und eine Frist, die unsere eigene Sperre deutlich überdauert.
+	if err := s.verifyCounterpartyLock(ctx, ss, id); err != nil {
+		s.setSwapPhase(ss.swapID, SwapExpired, "Sperre des Käufers passt nicht: "+err.Error()+" – nichts gesperrt")
+		return false
+	}
+	return true
 }
 
 // claimTake (Taker): löst auf der Maker-Give-Chain ein. otherLockID ist bei FND
@@ -442,7 +522,8 @@ func (o *orchestrator) claimTakeWithSecret(ctx context.Context, ss *swapSession,
 			s.setSwapPhase(ss.swapID, SwapFndClaimed, "FND-Claim fehlgeschlagen: "+err.Error())
 			return
 		}
-		s.setSwapPhase(ss.swapID, SwapSolClaimed, "")
+		s.setSwapPhase(ss.swapID, SwapSolClaimed, "FND abgeholt – Swap abgeschlossen")
+		s.markSwapDone(ss.swapID)
 		return
 	}
 	// Taker gab SOL → wir lösen SOL ein – mit Wiederholung in eigener Goroutine
@@ -455,8 +536,16 @@ func (o *orchestrator) claimTakeWithSecret(ctx context.Context, ss *swapSession,
 		return
 	}
 	keyCopy := append(solana.PrivateKey(nil), ss.solKey...)
-	go s.redeemSolWithRetry(ss.swapID, keyCopy, takerSol, ss.secretHash, secret, time.Now().Add(solClaimWindow))
-	// Phase "SOL abgeholt" setzt redeemSolWithRetry bei Erfolg.
+	// Alle Werte KOPIEREN: der Swap-Ablauf endet vor der Abholung und nullt ss.
+	swapID, orderID, amount, ownOrder, hash := ss.swapID, ss.orderID, ss.amountFND, ss.takerOwnOrderID, ss.secretHash
+	ss.claimPending = true
+	go func() {
+		// Phase "SOL abgeholt" setzt redeemSolRetry; danach Order verrechnen.
+		if s.redeemSolRetry(swapID, keyCopy, takerSol, hash, secret, time.Now().Add(solClaimWindow), SwapSolClaimed, SwapFndClaimed) {
+			s.markSwapDone(swapID)
+			s.settleOrder(swapID, orderID, amount, ownOrder)
+		}
+	}()
 }
 
 // scheduleRefund wählt den richtigen Refund je nach Give-Chain.
@@ -796,6 +885,7 @@ func (s *Server) resumeSolClaimsLoop() {
 	time.Sleep(45 * time.Second) // Chain-Sync abwarten
 	for {
 		s.resumeSolClaimsOnce()
+		s.settleFinishedSwaps() // erfolgreiche, aber unverrechnete Swaps (Orders aus dem Buch)
 		time.Sleep(2 * time.Minute)
 	}
 }
@@ -806,6 +896,7 @@ func (s *Server) resumeSolClaimsOnce() {
 	}
 	type pending struct {
 		id, orderID, buyerSol, sellerSol, hashlock, fndHTLC string
+		amount                                              float64
 	}
 	var list []pending
 	s.swapMgr.mu.RLock()
@@ -817,7 +908,7 @@ func (s *Server) resumeSolClaimsOnce() {
 		if !strings.Contains(sw.Note, "SOL-Claim fehlgeschlagen") && !strings.Contains(sw.Note, "SOL-Abholung fehlgeschlagen") {
 			continue
 		}
-		list = append(list, pending{sw.ID, sw.OrderID, sw.BuyerSol, sw.SellerSol, sw.Hashlock, sw.FndHTLCID})
+		list = append(list, pending{sw.ID, sw.OrderID, sw.BuyerSol, sw.SellerSol, sw.Hashlock, sw.FndHTLCID, sw.AmountFND})
 	}
 	s.swapMgr.mu.RUnlock()
 	for _, p := range list {
@@ -844,7 +935,12 @@ func (s *Server) resumeSolClaimsOnce() {
 			s.setSwapPhase(p.id, SwapFndClaimed, "SOL-Abholung wartet: auf diesem Node anmelden (Wallet hinterlegt), dann wird automatisch abgeholt")
 			continue
 		}
-		go s.redeemSolWithRetry(p.id, key, takerSol, hash, secret, time.Now().Add(solClaimWindow))
+		go func(p pending, key solana.PrivateKey, takerSol solana.PublicKey, hash, secret [32]byte) {
+			if s.redeemSolRetry(p.id, key, takerSol, hash, secret, time.Now().Add(solClaimWindow), SwapSolClaimed, SwapFndClaimed) {
+				s.markSwapDone(p.id)
+				s.settleOrder(p.id, p.orderID, p.amount, "")
+			}
+		}(p, key, takerSol, hash, secret)
 	}
 }
 
@@ -882,4 +978,29 @@ func (s *Server) findSolKeyFor(orderID, sellerSol string) solana.PrivateKey {
 		}
 	}
 	return nil
+}
+
+// fndTimelockFor: FND-Frist in Blöcken. Erst-Sperrender (Käufer): feste 34 560
+// Blöcke – da ein Block nie schneller als BlockTime (5 s) kommt, sind das
+// mindestens 48 h. Zweit-Sperrender (Anbieter): aus der GEMESSENEN Blockzeit so
+// berechnet, dass die Frist in echter Zeit ~24 h beträgt. Sonst dauerte sie bei
+// langsameren Blöcken (ausgefallene Validatoren → Ersatzrunden) länger und
+// könnte die 48 h des Käufers erreichen – dann könnte er SOL zurückholen UND
+// die FND noch einlösen.
+func (s *Server) fndTimelockFor(ss *swapSession) uint64 {
+	if ss.isTaker {
+		return firstLockerTimelockBlocks
+	}
+	avg := float64(chain.BlockTime)
+	if s.chain != nil {
+		avg = s.chain.AvgBlockSeconds(720)
+	}
+	blocks := uint64(24 * 3600 / avg)
+	if blocks > secondLockerTimelockBlocks {
+		blocks = secondLockerTimelockBlocks
+	}
+	if blocks < 720 {
+		blocks = 720
+	}
+	return blocks
 }

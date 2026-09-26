@@ -100,7 +100,7 @@ func (s *Server) resumeRefundsOnce() {
 	cutoff := time.Now().Add(-14 * 24 * time.Hour).Unix()
 	s.swapMgr.mu.RLock()
 	for _, sw := range s.swapMgr.swaps {
-		if sw == nil || sw.Phase == SwapRefunded || (sw.CreatedAt > 0 && sw.CreatedAt < cutoff) {
+		if sw == nil || sw.Phase == SwapRefunded || sw.Phase == SwapDiscarded || (sw.CreatedAt > 0 && sw.CreatedAt < cutoff) {
 			continue
 		}
 		list = append(list, cand{sw.ID, sw.FndHTLCID, sw.Hashlock, sw.BuyerSol, sw.SellerSol})
@@ -222,10 +222,68 @@ func (s *Server) tryClaimFndWithSolSecret(swapID string, hash [32]byte, keys []o
 			s.setSwapPhase(swapID, SwapSolClaimed, "FND-Abholung fehlgeschlagen: "+truncate(err.Error(), 140)+" – nächster Versuch in 5 min")
 			return
 		}
-		s.setSwapPhase(swapID, SwapFndClaimed, "FND abgeholt (Geheimnis aus der Solana-Einlösung)")
+		s.setSwapPhase(swapID, SwapSolClaimed, "FND abgeholt (Geheimnis aus der Solana-Einlösung)")
+		s.markSwapDone(swapID)
+		s.swapMgr.mu.RLock()
+		var orderID string
+		var amount float64
+		if sw, ok := s.swapMgr.swaps[swapID]; ok {
+			orderID, amount = sw.OrderID, sw.AmountFND
+		}
+		s.swapMgr.mu.RUnlock()
+		s.settleOrder(swapID, orderID, amount, "")
 		if s.log != nil {
 			s.log.Info("FND mit Geheimnis aus Solana abgeholt", zap.String("swap", swapID))
 		}
 		return
+	}
+}
+
+// ── Altlasten aus einer früheren Chain ─────────────────────────────────────
+// Nach einem Chain-Neustart (z.B. R477) blieben Swaps der alten Chain als
+// "laufend" stehen: ihre FND-Sperren gibt es auf der neuen Chain nicht. Sie
+// werden als "discarded" markiert und von allen Prüfschleifen übersprungen.
+// Kriterium: vor Block 1 der aktuellen Chain angelegt, nicht abgeschlossen und
+// – falls eine FND-Sperre vermerkt ist – diese existiert hier nicht.
+func (s *Server) discardOldChainSwapsLoop() {
+	time.Sleep(90 * time.Second) // Chain-Sync abwarten
+	for {
+		s.discardOldChainSwaps()
+		time.Sleep(24 * time.Hour)
+	}
+}
+
+func (s *Server) discardOldChainSwaps() {
+	if s.chain == nil || s.swapMgr == nil {
+		return
+	}
+	first := int64(s.chain.FirstBlockTime())
+	if first == 0 {
+		return
+	}
+	n := 0
+	s.swapMgr.mu.Lock()
+	for _, sw := range s.swapMgr.swaps {
+		if sw == nil || sw.CreatedAt == 0 || sw.CreatedAt >= first || sw.Done || sw.Settled {
+			continue
+		}
+		switch sw.Phase {
+		case SwapSolClaimed, SwapRefunded, SwapDiscarded:
+			continue
+		}
+		if sw.FndHTLCID != "" {
+			if id, err := hash32FromHex(sw.FndHTLCID); err == nil {
+				if _, ok := s.chain.GetHTLC(id); ok {
+					continue // Sperre existiert auf dieser Chain → keine Altlast
+				}
+			}
+		}
+		sw.Phase = SwapDiscarded
+		sw.Note = "verworfen (Chain-Neustart) – gehörte zu einer früheren Chain"
+		n++
+	}
+	s.swapMgr.mu.Unlock()
+	if n > 0 && s.log != nil {
+		s.log.Info("Altlasten aus früherer Chain verworfen", zap.Int("swaps", n))
 	}
 }

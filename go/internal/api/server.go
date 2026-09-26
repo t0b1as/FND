@@ -232,6 +232,7 @@ func (s *Server) WithOrderBook(node p2pNode) *Server {
 	s.swapCoord.loadDeposits() // hinterlegte Schlüssel nach Neustart zurückholen
 	go s.resumeSolClaimsLoop() // offene SOL-Abholungen nach Neustart wieder aufnehmen
 	go s.resumeRefundsLoop()   // abgelaufene eigene Sperren zurückholen (anhand der Chain)
+	go s.discardOldChainSwapsLoop() // Altlasten früherer Chains verwerfen
 	// Swap-Init-Protokoll am p2pNode registrieren (falls Orderbuch aktiv).
 	if s.orderBook != nil && s.orderBook.Node() != nil {
 		s.swapCoord.registerProtocol(s.orderBook.Node())
@@ -419,7 +420,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R485"
+const NodeRevision = "R490"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

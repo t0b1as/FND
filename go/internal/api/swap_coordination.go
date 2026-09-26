@@ -14,6 +14,7 @@ package api
 //  4. Der Orchestrator fährt den atomaren Swap wie gehabt.
 
 import (
+	"fmt"
 	"bytes"
 	"context"
 	crand "crypto/rand"
@@ -121,6 +122,33 @@ func (sc *swapCoordinator) handleSwapInit(peerID string, data []byte) []byte {
 		return []byte(`{"ok":false,"error":"ungültiger Hashlock"}`)
 	}
 
+	// Menge und Preis aus der EIGENEN Order – nie aus der Nachricht des Käufers
+	// übernehmen (ein manipulierter Node könnte sonst mehr FND anfragen oder
+	// einen niedrigeren SOL-Betrag nennen).
+	ord, found := sc.server.orderBook.FindOrder(msg.OrderID)
+	if !found || !ord.isActive() {
+		return []byte(`{"ok":false,"error":"Order nicht mehr aktiv"}`)
+	}
+	if !sc.server.sameSolNet(ord) {
+		return []byte(`{"ok":false,"error":"Order gehört zu einem anderen Solana-Netz"}`)
+	}
+	if msg.TakerGivesSol != (ord.Side == OrderSell) {
+		return []byte(`{"ok":false,"error":"Handelsrichtung passt nicht zur Order"}`)
+	}
+	swapID := "seller-" + msg.OrderID + "-" + msg.Hashlock[:8]
+	amountFND := msg.AmountFND
+	if amountFND <= 0 {
+		return []byte(`{"ok":false,"error":"Menge ungültig"}`)
+	}
+	// Teilmenge reservieren (bis zum Ende dieses Swaps), damit parallele
+	// Teilkäufe nicht mehr verkaufen, als die Order hergibt.
+	if avail, ok := reserveOrderPart(msg.OrderID, swapID, amountFND, ord.AmountFND); !ok {
+		b, _ := json.Marshal(map[string]any{"ok": false,
+			"error": fmt.Sprintf("Order nicht mehr in dieser Menge verfügbar – frei: %.4f FND", avail)})
+		return b
+	}
+	amountSOL := amountFND * ord.PriceSOL // gleiche Formel wie beim Käufer
+
 	// Verkäufer-Seite starten. Der Maker gibt das Gegenteil dessen, was der
 	// Taker gibt: Taker gibt SOL → Maker gibt FND, und umgekehrt.
 	makerGiveChain := "fnd"
@@ -128,7 +156,7 @@ func (sc *swapCoordinator) handleSwapInit(peerID string, data []byte) []byte {
 		makerGiveChain = "sol"
 	}
 	ss := &swapSession{
-		swapID:          "seller-" + msg.OrderID,
+		swapID:          swapID,
 		orderID:         msg.OrderID,
 		isTaker:         false,
 		giveChain:       makerGiveChain,
@@ -137,8 +165,8 @@ func (sc *swapCoordinator) handleSwapInit(peerID string, data []byte) []byte {
 		secretHash:      hash,
 		counterpartySol: msg.BuyerSol,
 		counterpartyFnd: msg.BuyerFnd,
-		amountSOL:       msg.AmountSOL,
-		amountFND:       msg.AmountFND,
+		amountSOL:       amountSOL,
+		amountFND:       amountFND,
 	}
 	// Eigene Empfangsadressen aus der eigenen Order (der Maker empfängt auf der
 	// Kette, die er NICHT weggibt, und braucht dort die Adresse zum Lock-Finden).
@@ -153,7 +181,7 @@ func (sc *swapCoordinator) handleSwapInit(peerID string, data []byte) []byte {
 	s.swapMgr.mu.Lock()
 	s.swapMgr.swaps[ss.swapID] = &Swap{
 		ID: ss.swapID, OrderID: msg.OrderID, Phase: SwapInitiated,
-		Hashlock: msg.Hashlock, AmountFND: msg.AmountFND, AmountSOL: msg.AmountSOL,
+		Hashlock: msg.Hashlock, AmountFND: amountFND, AmountSOL: amountSOL,
 		CreatedAt: time.Now().Unix(),
 	}
 	s.swapMgr.mu.Unlock()
@@ -195,7 +223,7 @@ func (sc *swapCoordinator) triggerRemoteSwap(ctx context.Context, node p2pNode,
 		takerGiveChain = "fnd"
 	}
 	ss := &swapSession{
-		swapID:          "buyer-" + msg.OrderID,
+		swapID:          "buyer-" + msg.OrderID + "-" + msg.Hashlock[:8],
 		orderID:         msg.OrderID,
 		isTaker:         true,
 		giveChain:       takerGiveChain,
@@ -474,4 +502,56 @@ func (sc *swapCoordinator) autoTriggerSwap(my, other *Order) bool {
 	// Bei Erfolg bleibt sie, bis der Orchestrator den Swap abschließt – oder
 	// der Wächter nach autoSwapTimeout eingreift.
 	return err == nil
+}
+
+// ── Reservierung von Teilmengen ─────────────────────────────────────────────
+// Bis ein Swap endet, ist seine Menge reserviert. Reduziert wird die Order
+// erst beim Verrechnen (settleOrder); dazwischen verhindert die Reservierung,
+// dass zwei Käufer zusammen mehr kaufen, als die Order hergibt.
+
+type orderReservation struct {
+	amount float64
+	since  time.Time
+}
+
+var (
+	reservMu sync.Mutex
+	reserv   = map[string]map[string]orderReservation{} // orderID → swapID → Reservierung
+)
+
+// reserveOrderPart reserviert amount für swapID; liefert die freie Menge und ob es klappte.
+func reserveOrderPart(orderID, swapID string, amount, orderAmount float64) (float64, bool) {
+	reservMu.Lock()
+	defer reservMu.Unlock()
+	m := reserv[orderID]
+	if m == nil {
+		m = map[string]orderReservation{}
+		reserv[orderID] = m
+	}
+	used := 0.0
+	for id, r := range m {
+		if time.Since(r.since) > 72*time.Hour { // verwaiste Reservierung (Absturz o.ä.)
+			delete(m, id)
+			continue
+		}
+		used += r.amount
+	}
+	free := orderAmount - used
+	if amount > free+0.00000001 {
+		return free, false
+	}
+	m[swapID] = orderReservation{amount: amount, since: time.Now()}
+	return free - amount, true
+}
+
+// releaseOrderPart gibt die Reservierung eines Swaps frei.
+func releaseOrderPart(orderID, swapID string) {
+	reservMu.Lock()
+	defer reservMu.Unlock()
+	if m := reserv[orderID]; m != nil {
+		delete(m, swapID)
+		if len(m) == 0 {
+			delete(reserv, orderID)
+		}
+	}
 }

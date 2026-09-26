@@ -13,6 +13,7 @@ package api
 // abgezogen – dieselben FND/SOL lassen sich nicht mehrfach anbieten.
 
 import (
+	"strings"
 	"context"
 	"fmt"
 	"math"
@@ -142,9 +143,18 @@ func (s *Server) checkSOLFunds(ctx context.Context, typ OrderType, amountFND, pr
 	}
 	// In offenen Kauf-Orders derselben Adresse gebundenes SOL.
 	var committed float64
+	var committedIDs []string
 	for _, o := range s.myOpenOrders() {
-		if o.Side == OrderBuy && o.SolAddress == solAddr && o.PriceSOL > 0 {
+		if o.Side == OrderBuy && o.SolAddress == solAddr && o.PriceSOL > 0 && s.sameSolNet(o) {
 			committed += o.AmountFND * o.PriceSOL
+			tag := o.ID
+			if len(tag) > 8 {
+				tag = tag[:8]
+			}
+			if o.SolNet == "" {
+				tag += " (Netz unbekannt, vor R486)"
+			}
+			committedIDs = append(committedIDs, tag)
 		}
 	}
 
@@ -163,8 +173,10 @@ func (s *Server) checkSOLFunds(ctx context.Context, typ OrderType, amountFND, pr
 	avail := math.Max(0, bal-committed)
 	msg := fmt.Sprintf("Nicht genug SOL: verfügbar %.6f SOL, benötigt %.6f SOL (inkl. %.3f SOL für Gebühren)",
 		avail, cost+float64(solFeeBufferLamports)/1e9, float64(solFeeBufferLamports)/1e9)
+	msg += fmt.Sprintf(" – Guthaben der Solana-Wallet: %.6f SOL", bal)
 	if committed > 0 {
-		msg += fmt.Sprintf(" – %.6f SOL sind bereits in offenen Kauf-Orders gebunden", committed)
+		msg += fmt.Sprintf("; davon %.6f SOL gebunden in offenen Kauf-Orders %s – nicht mehr benötigte unter „Meine Orders“ stornieren",
+			committed, strings.Join(committedIDs, ", "))
 	}
 	return &orderFundsError{Msg: msg, Detail: map[string]any{
 		"currency": "SOL", "balance": bal, "committed": committed,
@@ -267,7 +279,7 @@ func (s *Server) checkTakeFunds(ctx context.Context, order *Order, amountFND flo
 		}
 		var committed float64
 		for _, o := range s.myOpenOrders() {
-			if o.ID != excludeOrderID && o.Side == OrderBuy && o.SolAddress == takerSolAddr && o.PriceSOL > 0 {
+			if o.ID != excludeOrderID && o.Side == OrderBuy && o.SolAddress == takerSolAddr && o.PriceSOL > 0 && s.sameSolNet(o) {
 				committed += o.AmountFND * o.PriceSOL
 			}
 		}

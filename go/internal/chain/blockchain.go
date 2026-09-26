@@ -168,6 +168,43 @@ func (bc *Blockchain) AmIProposerNext() bool {
 	return bc.valSet.IsProposerForRound(bc.proposer, bc.height+1, 0)
 }
 
+// FirstBlockTime: Zeitstempel von Block 1 der aktuellen Chain (0 = noch keiner).
+// Alles, was davor angelegt wurde, gehört zu einer früheren Chain.
+func (bc *Blockchain) FirstBlockTime() uint64 {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	if bc.height < 1 {
+		return 0
+	}
+	if b, err := bc.loadBlock(1); err == nil && b != nil {
+		return b.Header.Timestamp
+	}
+	return 0
+}
+
+// AvgBlockSeconds: mittlere Blockzeit über die letzten n Blöcke (aus den
+// Zeitstempeln). Zu kurze Historie → Sollwert BlockTime. Nie unter BlockTime.
+func (bc *Blockchain) AvgBlockSeconds(n uint64) float64 {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	if n == 0 || bc.height < 50 {
+		return float64(BlockTime)
+	}
+	if n > bc.height {
+		n = bc.height
+	}
+	head, err1 := bc.loadBlock(bc.height)
+	old, err2 := bc.loadBlock(bc.height - n)
+	if err1 != nil || err2 != nil || head == nil || old == nil || head.Header.Timestamp <= old.Header.Timestamp {
+		return float64(BlockTime)
+	}
+	avg := float64(head.Header.Timestamp-old.Header.Timestamp) / float64(n)
+	if avg < float64(BlockTime) {
+		return float64(BlockTime)
+	}
+	return avg
+}
+
 // StakeOf liefert den aktiv gestakten Betrag einer Adresse (uFND).
 func (bc *Blockchain) StakeOf(a Address) *big.Int {
 	bc.mu.RLock()

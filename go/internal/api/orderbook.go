@@ -61,6 +61,11 @@ type Order struct {
 	ExpiresAt  int64     `json:"expires_at"`  // Unix-Sekunden; danach ungültig
 	FndAddress string    `json:"fnd_address"` // FND-Adresse (Empfang bei Kauf, Zahlung bei Verkauf)
 	SolAddress string    `json:"sol_address"` // Solana-Adresse (Zahlung bei Kauf, Empfang bei Verkauf)
+	// Solana-Netz der Order ("mainnet"/"devnet"). Dieselbe Solana-Adresse gilt
+	// in allen Netzen – ohne Vermerk band eine Devnet-Test-Order Mainnet-
+	// Guthaben und war auf Mainnet annehmbar. Nicht Teil der ID (ältere Nodes
+	// ignorieren das Feld). Leer = vor R486 angelegt, Netz unbekannt.
+	SolNet string `json:"sol_net,omitempty"`
 }
 
 // isActive prüft, ob die Order noch gültig (nicht abgelaufen) ist.
@@ -439,6 +444,7 @@ func (s *Server) orderCreate(c *gin.Context) {
 		CreatedAt: now, ExpiresAt: now + ttl,
 		FndAddress: fndAddr,
 		SolAddress: req.SolAddress,
+		SolNet:     s.solNetName(),
 	}
 	o.ID = orderID(o)
 	s.orderBook.addOrder(o)
@@ -466,7 +472,7 @@ func (s *Server) orderListMine(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"orders": s.orderBook.listMyOrders()})
+	c.JSON(http.StatusOK, gin.H{"orders": s.orderBook.listMyOrders(), "sol_net": s.solNetName()})
 }
 
 // orderBookGet liefert das gesamte Netz-Orderbuch (eigene + entdeckte).
@@ -483,16 +489,24 @@ func (s *Server) orderBookGet(c *gin.Context) {
 		return
 	}
 	c.Data(http.StatusOK, "application/json", wrapOrderBook(
-		s.orderBook.discoveredJSON(), s.orderBook.listMyOrders()))
+		s.orderBook.discoveredJSON(), s.orderBook.listMyOrders(), s.solNetName()))
 }
 
 // wrapOrderBook verpackt entdeckte Peer-Orders + eigene Orders in ein JSON.
-func wrapOrderBook(peersJSON []byte, mine []*Order) []byte {
+// sol_net: Netz dieses Nodes – der Shop blendet Orders anderer Netze aus.
+func wrapOrderBook(peersJSON []byte, mine []*Order, solNet string) []byte {
 	out, _ := json.Marshal(map[string]interface{}{
-		"peers": json.RawMessage(peersJSON),
-		"mine":  mine,
+		"peers":   json.RawMessage(peersJSON),
+		"mine":    mine,
+		"sol_net": solNet,
 	})
 	return out
+}
+
+// sameSolNet: gehört die Order zum Netz dieses Nodes? Leer (vor R486) zählt
+// als "möglicherweise" – bei der Deckung vorsichtshalber mitgezählt.
+func (s *Server) sameSolNet(o *Order) bool {
+	return o.SolNet == "" || o.SolNet == s.solNetName()
 }
 
 // orderID berechnet eine eindeutige ID aus den Order-Feldern (blake3).

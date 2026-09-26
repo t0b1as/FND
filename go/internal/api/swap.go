@@ -49,6 +49,7 @@ const (
 	SwapFndClaimed   SwapPhase = "fnd_claimed"   // Käufer hat FND eingelöst (S enthüllt)
 	SwapSolClaimed   SwapPhase = "sol_claimed"   // Verkäufer hat SOL eingelöst → fertig
 	SwapRefunded     SwapPhase = "refunded"      // abgebrochen, zurückgegeben
+	SwapDiscarded    SwapPhase = "discarded"   // Altlast: gehörte zu einer früheren Chain (Neustart)
 	SwapExpired      SwapPhase = "expired"
 )
 
@@ -68,6 +69,10 @@ type Swap struct {
 	FndHTLCID   string    `json:"fnd_htlc_id,omitempty"`  // ID des Fundus-HTLC
 	SolLockSig  string    `json:"sol_lock_sig,omitempty"` // Solana-Tx-Signatur des SOL-Locks
 	CreatedAt   int64     `json:"created_at"`
+	// Done: Swap erfolgreich abgeschlossen (eigene Seite eingelöst).
+	// Settled: Order wurde dafür reduziert/entfernt (genau einmal, auch über Neustarts).
+	Done    bool `json:"done,omitempty"`
+	Settled bool `json:"settled,omitempty"`
 	ExpiresAt   int64     `json:"expires_at"`
 }
 
@@ -845,6 +850,11 @@ func (s *Server) swapBuy(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Order nicht gefunden"})
 		return
 	}
+	if order.SolNet != "" && order.SolNet != s.solNetName() {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Diese Order stammt aus dem Solana-Netz „" + order.SolNet +
+			"“, dieser Node nutzt „" + s.solNetName() + "“ – nicht annehmbar"})
+		return
+	}
 
 	// Teilmenge: nicht mehr als die Order hergibt; 0 → ganze Order.
 	amountFND := order.AmountFND
@@ -913,7 +923,8 @@ func (s *Server) swapBuy(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Gegenseite nicht erreichbar: " + err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "swap_id": "buyer-" + req.OrderID, "hashlock": hex.EncodeToString(hash[:])})
+	hl := hex.EncodeToString(hash[:])
+	c.JSON(http.StatusOK, gin.H{"ok": true, "swap_id": "buyer-" + req.OrderID + "-" + hl[:8], "hashlock": hl})
 }
 
 // swapListAll listet alle Swaps mit Phase und Notiz (Diagnose).

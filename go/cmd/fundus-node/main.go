@@ -910,12 +910,13 @@ func runBlockProductionLoop(ctx context.Context, bc *chain.Blockchain, mp *chain
 			if !my {
 				continue
 			}
-			// Txs aus dem Mempool nehmen (leerer Mempool → kein Block, um die
-			// Kette nicht mit Leerblöcken zu fluten).
+			// Txs aus dem Mempool nehmen. AUCH OHNE Transaktionen wird ein Block
+			// gebaut (alle BlockTime = 5 s): Die Fristen der FND-Sperren zählen
+			// in Blöcken – ohne regelmäßige Blöcke dauerten "24 h" bei wenig
+			// Betrieb Wochen, und die Reihenfolge der Swap-Fristen kehrte sich um
+			// (Käufer hätte SOL zurückholen UND FND einlösen können).
+			// Speicher: ~15–25 GB in 10 Jahren für die leeren Blöcke.
 			txs := mp.Take(500)
-			if len(txs) == 0 {
-				continue
-			}
 			blk, err := bc.ProduceBlockRound(txs, uint64(time.Now().Unix()), round)
 			if err != nil {
 				// Produktion fehlgeschlagen (z.B. nicht mein Zug wegen Race, oder
@@ -924,10 +925,13 @@ func runBlockProductionLoop(ctx context.Context, bc *chain.Blockchain, mp *chain
 				log.Warn("PoA: Block-Produktion fehlgeschlagen", zap.Error(err))
 				continue
 			}
-			log.Info("PoA: Block produziert",
-				zap.Uint64("height", blk.Header.Height),
-				zap.Uint64("round", round),
-				zap.Int("txs", len(blk.Transactions)))
+			if len(blk.Transactions) > 0 || blk.Header.Height%720 == 0 {
+				// Leere Blöcke nur stündlich loggen (sonst alle 5 s eine Zeile).
+				log.Info("PoA: Block produziert",
+					zap.Uint64("height", blk.Header.Height),
+					zap.Uint64("round", round),
+					zap.Int("txs", len(blk.Transactions)))
+			}
 			// Block an Peers broadcasten, damit sie ihn übernehmen.
 			if blockJSON, e := bc.ExportBlockJSON(blk.Header.Height); e == nil {
 				if bcaster != nil {

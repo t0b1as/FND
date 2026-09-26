@@ -126,10 +126,16 @@ async function loadBook(){
       Object.assign(o, extra||{});
       all.push(o);
     }
+    // Orders aus einem ANDEREN Solana-Netz (z.B. Devnet-Tests) ausblenden –
+    // sie wären hier nicht annehmbar. Ohne Vermerk (vor R486): anzeigen.
+    const myNet = d.sol_net || "";
     (d.peers||[]).forEach(function(p){
       let orders = [];
       try { orders = (typeof p.orders === "string") ? JSON.parse(p.orders) : p.orders; } catch(e){}
-      (orders||[]).forEach(function(o){ addOrder(o, {_peer: p.peer_id}); });
+      (orders||[]).forEach(function(o){
+        if (o && o.sol_net && myNet && o.sol_net !== myNet) return;
+        addOrder(o, {_peer: p.peer_id});
+      });
     });
     (d.mine||[]).forEach(function(o){ addOrder(o, {_mine: true}); });
     // Asks = Verkaufsorders (jemand verkauft FND, ich kann kaufen), aufsteigend nach Preis.
@@ -270,7 +276,8 @@ function pollSwapStatus(swapID, btn, ov){
   const phaseNames = {
     initiated:"gestartet", sol_locked:"SOL gesperrt", fnd_locked:"FND gesperrt",
     fnd_claimed:"eingelöst…", sol_claimed:"abgeschlossen", refunded:"zurückerstattet",
-    expired:"abgelaufen"
+    expired:"abgelaufen",
+    discarded: "verworfen (Chain-Neustart)"
   };
   const iv = setInterval(async function(){
     try {
@@ -281,7 +288,7 @@ function pollSwapStatus(swapID, btn, ov){
       const label = phaseNames[p]||p;
       if (p==="sol_claimed" || p==="fnd_claimed"){
         clearInterval(iv); finishBtn(btn, ov, true); loadBook(); loadMine();
-      } else if (p==="refunded" || p==="expired"){
+      } else if (p==="refunded" || p==="expired" || p==="discarded"){
         clearInterval(iv);
         btn.disabled = false;
         btn.textContent = "✗ "+label+" — Schließen";
@@ -401,9 +408,16 @@ async function loadMine(){
     const box = document.getElementById("ob-mine");
     const orders = d.orders||[];
     if (!orders.length){ box.innerHTML='<div class="meta">Keine offenen Orders.</div>'; return; }
+    const myNet = d.sol_net || "";
     box.innerHTML = orders.map(function(o){
+      // Netz-Kennzeichen: fremdes Netz oder unbekannt (vor R486) → sichtbar
+      // machen, damit veraltete Test-Orders erkannt und storniert werden.
+      let net = "";
+      if (o.sol_net && myNet && o.sol_net !== myNet) net = ' <span class="ob-net-tag">'+o.sol_net+'</span>';
+      else if (!o.sol_net) net = ' <span class="ob-net-tag" title="vor R486 angelegt – Solana-Netz unbekannt">Netz ?</span>';
       return '<div class="ob-mine-row">'+
-        '<span class="'+(o.side==="buy"?"ob-buy-head":"ob-sell-head")+'">'+(o.side==="buy"?OB.buy:OB.sell)+'</span>'+
+        '<span class="'+(o.side==="buy"?"ob-buy-head":"ob-sell-head")+'">'+(o.side==="buy"?OB.buy:OB.sell)+net+'</span>'+
+        '<span class="ob-id" title="Order-ID">'+String(o.id||"").slice(0,8)+'</span>'+
         '<span>'+Number(o.amount_fnd).toFixed(2)+' FND</span>'+
         '<span>'+(o.type==="market"?OB.market:Number(o.price_sol).toFixed(8)+" SOL")+'</span>'+
         '<button class="btn-sm btn-danger" onclick="cancelOrder(\''+o.id+'\')">✕</button></div>';
