@@ -55,7 +55,7 @@ function Run([string]$what, [scriptblock]$cmd) {
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$ScriptStand = "R483"   # Stand dieses Skripts (bei jedem Release mitgezogen)
+$ScriptStand = "R485"   # Stand dieses Skripts (bei jedem Release mitgezogen)
 Write-Host "push-release.ps1 - Stand $ScriptStand" -ForegroundColor Cyan
 
 # -- 1. Voraussetzungen -------------------------------------------------------

@@ -416,6 +416,60 @@
     inp.addEventListener("keydown", function(e){ if (e.key === "Enter") save(); });
   };
 
+  // ── Solana-Wallet (aus derselben Wallet abgeleitet) ───────────────────────
+  // (R484 wiederhergestellt – war beim Profil-Umbau in R480 versehentlich entfernt)
+  window.walletSolana = async function(){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    walletBusy("Solana-Wallet wird geladen …" + (window.WALLET && window.WALLET.linked ? "" : " (Wallet nicht hinterlegt: ~10 s)"));
+    let d;
+    try {
+      const r = await fetch("/api/v1/wallet/sol", {credentials:"same-origin"});
+      d = await r.json();
+      walletBusy(null);
+      if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
+    } catch(e){ walletBusy(null); alert("✗ " + e.message); return; }
+    const bal = (d.sol != null) ? (Number(d.sol).toFixed(6).replace(".", ",") + " SOL") : ("– (" + walletEsc(d.balance_error || "nicht abrufbar") + ")");
+    const ov = walletCard("Solana-Wallet",
+      '<p class="wallet-hint">Aus deiner Fundus-Wallet abgeleitet – dieselben Seed-Wörter ergeben auf jedem Node dieselbe Adresse. Im Shop wird sie automatisch verwendet.</p>'+
+      '<div style="font-family:monospace;font-size:13px;word-break:break-all">'+walletEsc(d.address)+'</div>'+
+      '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b>'+bal+'</b>'+(d.cluster ? ' <span style="color:#fb3">(' + walletEsc(d.cluster) + ' – Testnetz)</span>' : '')+'</p>'+
+      '<p class="wallet-hint">In laufenden Swaps gesperrte SOL liegen im Swap-Konto des Programms, nicht hier – sie erscheinen nach Abschluss bzw. Rückholung wieder.</p>'+
+      '<button class="wallet-submit" id="sol-copy">Adresse kopieren</button>'+
+      '<p class="wallet-hint" style="margin-top:12px"><b>SOL senden</b></p>'+
+      '<input class="wallet-input" id="sol-to" placeholder="Empfänger (Solana-Adresse)" autocomplete="off" spellcheck="false">'+
+      '<input class="wallet-input" id="sol-amt" type="number" min="0" step="0.000001" placeholder="Betrag in SOL">'+
+      '<button class="wallet-submit" id="sol-send">Senden</button>'+
+      '<p class="wallet-hint" id="sol-out"></p>'+
+      '<p class="wallet-hint" style="margin-top:12px"><a href="#" id="sol-export">Für Phantom/Solflare exportieren …</a></p>');
+    ov.querySelector("#sol-copy").onclick = function(){
+      if (navigator.clipboard) navigator.clipboard.writeText(d.address);
+      this.textContent = "✓ Kopiert";
+    };
+    const out = ov.querySelector("#sol-out");
+    ov.querySelector("#sol-send").onclick = async function(){
+      const to = ov.querySelector("#sol-to").value.trim();
+      const amt = parseFloat(String(ov.querySelector("#sol-amt").value).replace(",", "."));
+      if (!to || !(amt > 0)) { out.textContent = "Bitte Empfänger und Betrag eingeben."; return; }
+      if (!confirm(amt + " SOL an\n" + to + "\nsenden? Solana-Überweisungen sind endgültig.")) return;
+      const b = this; b.disabled = true; out.textContent = "⏳ Wird gesendet …";
+      try {
+        const r = await walletPost("/api/v1/wallet/sol/send", {to: to, amount_sol: amt});
+        const cl = r.cluster ? "?cluster=" + encodeURIComponent(r.cluster) : "";
+        out.innerHTML = "✓ Gesendet – <a href=\"https://explorer.solana.com/tx/" + encodeURIComponent(r.signature) + cl + "\" target=\"_blank\" rel=\"noopener\">im Explorer ansehen</a>";
+      } catch(e){ out.textContent = "✗ " + e.message; }
+      b.disabled = false;
+    };
+    ov.querySelector("#sol-export").onclick = async function(e){
+      e.preventDefault();
+      if (!confirm("Privaten Schlüssel anzeigen?\n\nWer diesen Schlüssel hat, kann über dein SOL verfügen. Nur in einer eigenen Wallet-App (Phantom, Solflare) importieren, niemals weitergeben.")) return;
+      try {
+        const r = await walletPost("/api/v1/wallet/sol/export", {});
+        out.innerHTML = '<span style="color:#f66">Privater Schlüssel (Base58) – in Phantom unter „Privaten Schlüssel importieren“:</span><br>'+
+          '<code style="word-break:break-all;font-size:12px">'+walletEsc(r.secret_base58)+'</code>';
+      } catch(err){ out.textContent = "✗ " + err.message; }
+    };
+  };
+
   window.walletUnlink = async function(){
     const m = document.getElementById("wallet-menu"); if (m) m.remove();
     if (!confirm("Hinterlegte Wallet für diesen Login entfernen? Die Wallet selbst und ihr Guthaben bleiben unberührt.")) return;

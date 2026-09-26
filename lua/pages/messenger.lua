@@ -278,6 +278,16 @@ const MSGT = ]] .. (require("cjson.safe").encode({
   .msg-layout.chat-open       .msg-sidebar { display:none; }
   .msg-back      { display:inline-flex !important; }
   .contact-item  { min-height:48px; }
+  /* Chat-Kopf: Bild + Name statt des riesigen Adressfelds */
+  .msg-layout.chat-open #chat-with-addr { display:none; }
+  #chat-with-name { display:block; font-size:16px !important; font-weight:600; color:var(--text);
+                    margin-left:0 !important; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .msg-header    { align-items:center; }
+  .msg-av-slot .msg-av { width:36px; height:36px; }
+  .msg-call-buttons .btn { min-height:38px !important; padding:4px 9px !important; font-size:16px; }
+  /* Online-Liste: Kennung klein, Knopf kompakt */
+  .online-item .online-id { font-size:10px; }
+  .online-add    { padding:0 10px !important; line-height:26px !important; }
   .msg-main      { min-height:0; gap:6px; }
   .msg-messages  { flex:1; min-height:0; }
 

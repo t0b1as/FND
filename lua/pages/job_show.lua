@@ -364,6 +364,19 @@ async function signAs(role) {
   checkAllSigned();
 }
 
+// Knopf "Unterzeichnen" oben: springt zu den Signaturen (die Rolle – Auftrag-
+// geber oder Auftragnehmer – wählt man dort). Die Funktion fehlte bisher, der
+// Knopf tat nichts.
+function signContract() {
+  const card = document.getElementById('sig-employer-card');
+  const sec = card ? card.closest('.contract-section') || card : null;
+  if (!sec) return;
+  sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  sec.style.transition = 'box-shadow .3s';
+  sec.style.boxShadow = '0 0 0 3px var(--green, #22c55e)';
+  setTimeout(function(){ sec.style.boxShadow = ''; }, 1600);
+}
+
 function checkAllSigned() {
   if (signatures.employer && signatures.contractor) {
     document.getElementById('sig-status-badge').textContent = JT.fully_signed;

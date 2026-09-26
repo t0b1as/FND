@@ -159,6 +159,11 @@ function _M.header(title_key, active)
     local t, lang = i18n.init()
     local rev = read_revision()
 
+    -- Dynamische Seiten NIE zwischenspeichern: mobile Browser (WebKit/iOS)
+    -- zeigten nach einem Update sonst weiter die alte Seite (z.B. beim
+    -- Zurückkehren in einen Tab). Statische Dateien tragen ?v=<Revision>.
+    ngx.header["Cache-Control"] = "no-store, no-cache, must-revalidate"
+
     -- TOS-Guard: beim ersten Aufruf auf /tos weiterleiten
     -- Ausnahme: /tos selbst und /static/ werden nicht geprüft
     local uri = ngx.var.uri or ""

@@ -451,7 +451,18 @@ func applyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 
 	// 7. Webserver neu laden, Node neu starten, Helper im Hintergrund neu starten.
 	if nginxChanged || fileExists(filepath.Join(opt.InstallDir, "lua")) {
-		_ = exec.Command("systemctl", "reload", "openresty").Run()
+		// OpenResty hält geladene Lua-Seiten im Speicher (lua_code_cache): ohne
+		// erfolgreichen Reload liefert es weiter die ALTEN Seiten aus, obwohl die
+		// Revision neu angezeigt wird. Fehler daher nicht ignorieren – notfalls
+		// neu starten.
+		if out, err := exec.Command("systemctl", "reload", "openresty").CombinedOutput(); err != nil {
+			logf("Update: openresty reload fehlgeschlagen (%v: %s) – starte openresty neu", err, strings.TrimSpace(string(out)))
+			if out2, err2 := exec.Command("systemctl", "restart", "openresty").CombinedOutput(); err2 != nil {
+				logf("Update: openresty-Neustart fehlgeschlagen: %v: %s", err2, strings.TrimSpace(string(out2)))
+			}
+		} else {
+			logf("Update: Webserver neu geladen (neue Seiten aktiv)")
+		}
 	}
 	if opt.RestartCmd != "" {
 		logf("Update: Neustart via %q", opt.RestartCmd)
