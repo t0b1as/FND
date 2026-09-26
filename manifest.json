@@ -1,8 +1,8 @@
 {
-  "version": "R477",
-  "description": "FUNDUS R477 - Konsens deterministisch, Chain-Neustart",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R477/FND-R477-update.zip",
-  "node_argon2": "8387999049d07f415d1e6744a7ab570f44731c8c8f12655d3ea3994ccab8bf35",
-  "published_at": "2026-09-26T08:53:09.1697323Z",
-  "signature": "0x0e14081d5f631b9a139b27f223cb57188164296a9fef97e97c54e77eed9dade512e38353cfde247a0bb8952c161ca9470a7bc8663c39133c5f8336e888e203421b"
+  "version": "R478",
+  "description": "FUNDUS R478 - Fingerprinting",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R478/FND-R478-update.zip",
+  "node_argon2": "4960cc366042df60c8eb8a82bc3e3ca3a979e55abfc49ab2efab0b3b1caba416",
+  "published_at": "2026-09-26T09:34:32.807Z",
+  "signature": "0x2c38eba981c4b1c99d7a95e17ece4a785a5dee80c6621692c03b2a29ca459c59664ca15e177ba61d8e19a5e8ef8fade6fa5d59d3a7ee31d7757f8f386c9f73b81b"
 }
