@@ -182,3 +182,33 @@ func (bc *Blockchain) ListHTLCs() []HTLC {
 	}
 	return out
 }
+
+// BlockHashAt: Hash des Blocks auf Höhe h (0 = Genesis). ok=false, wenn unbekannt.
+func (bc *Blockchain) BlockHashAt(h uint64) ([32]byte, bool) {
+	if h == 0 {
+		return bc.GenesisHeaderHash(), true
+	}
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	if h > bc.height {
+		return [32]byte{}, false
+	}
+	blk, err := bc.loadBlock(h)
+	if err != nil || blk == nil {
+		return [32]byte{}, false
+	}
+	return blk.Header.Hash(), true
+}
+
+// HashOfBlockJSON: Höhe und Hash eines Blocks im Wire-Format (ohne ihn einzuspielen).
+func (bc *Blockchain) HashOfBlockJSON(data []byte) ([32]byte, uint64, error) {
+	var w wireBlock
+	if err := json.Unmarshal(data, &w); err != nil {
+		return [32]byte{}, 0, err
+	}
+	blk, err := wireToBlock(&w)
+	if err != nil {
+		return [32]byte{}, 0, err
+	}
+	return blk.Header.Hash(), blk.Header.Height, nil
+}

@@ -1,6 +1,8 @@
 package p2p
 
 import (
+	"strings"
+	"bytes"
 	"sync"
 	"context"
 	"encoding/json"
@@ -41,6 +43,9 @@ type ChainBridge interface {
 	// ein synchronisierender Peer sie übernehmen kann (dezentrale Set-Verbreitung
 	// ohne lokale Config).
 	ValidatorAddrs() []string
+	// Für die Astwahl bei Abzweigungen:
+	BlockHashAt(h uint64) ([32]byte, bool)
+	HashOfBlockJSON(data []byte) ([32]byte, uint64, error)
 	// LearnValidators übernimmt von einem Peer empfangene Validator-Adressen als
 	// zusätzliche Quelle für die eigene Set-Ableitung.
 	LearnValidators(hexAddrs []string)
@@ -216,6 +221,9 @@ func (n *Node) SyncChainFromPeer(peerID string) {
 			// Peer liegt auf einer anderen Abzweigung: seine Höhe darf die eigene
 			// Blockproduktion nicht blockieren.
 			notePeerHead(peerID, head.Height, true)
+			if strings.Contains(err.Error(), "prev_hash") {
+				go n.resolveFork(peerID, c, head.Height)
+			}
 			break
 		}
 		imported++
@@ -311,4 +319,143 @@ func (n *Node) MaxPeerHeight(maxAge time.Duration) (uint64, bool) {
 		}
 	}
 	return max, known
+}
+
+// ── Astwahl bei Abzweigungen ────────────────────────────────────────────────
+// Bauen zwei Validatoren auf derselben Höhe je einen Block (Verzögerung, ein
+// paar Sekunden Uhrenabweichung in der Ersatzrunde), behielt bisher jeder seinen
+// eigenen – die Chain lief für immer getrennt weiter. Jetzt gilt eine Regel, die
+// jeder Node gleich auswertet: Es gilt der Ast, dessen ERSTER ABWEICHENDER BLOCK
+// den kleineren Hash hat. Wer auf dem anderen Ast liegt, legt seine Chain
+// beiseite (gesichert) und startet neu; die Sync-Sperre beim Start sorgt dafür,
+// dass er erst den gültigen Ast übernimmt und dann wieder baut.
+
+const forkSearchDepth = 500
+
+var (
+	forkMu          sync.Mutex
+	forkLastPeer    = map[string]time.Time{}
+	forkLastSwitch  time.Time
+	forkLoseHandler func(reason string)
+	forkNote        string
+	forkNoteAt      time.Time
+)
+
+// SetForkLoseHandler: wird aufgerufen, wenn dieser Node auf dem verlierenden Ast
+// liegt (main: Chain beiseitelegen und neu starten).
+func SetForkLoseHandler(f func(reason string)) {
+	forkMu.Lock()
+	forkLoseHandler = f
+	forkMu.Unlock()
+}
+
+// LastForkNote: letzte Meldung zur Astwahl (für die Statusanzeige), sonst "".
+func (n *Node) LastForkNote() string {
+	forkMu.Lock()
+	defer forkMu.Unlock()
+	if time.Since(forkNoteAt) > 30*time.Minute {
+		return ""
+	}
+	return forkNote
+}
+
+func setForkNote(msg string) {
+	forkMu.Lock()
+	forkNote, forkNoteAt = msg, time.Now()
+	forkMu.Unlock()
+}
+
+// peerBlockHash: Hash des Peer-Blocks auf Höhe h.
+func (n *Node) peerBlockHash(ctx context.Context, peerID string, c ChainBridge, h uint64) ([32]byte, bool) {
+	req, _ := json.Marshal(chainSyncRequest{Kind: "block", Height: h})
+	raw, err := n.SendAndReceive(ctx, peerID, ChainSyncProtocol, req)
+	if err != nil {
+		return [32]byte{}, false
+	}
+	var resp chainSyncResponse
+	if json.Unmarshal(raw, &resp) != nil || resp.Error != "" || len(resp.Block) == 0 {
+		return [32]byte{}, false
+	}
+	hash, bh, err := c.HashOfBlockJSON(resp.Block)
+	if err != nil || bh != h {
+		return [32]byte{}, false
+	}
+	return hash, true
+}
+
+func (n *Node) resolveFork(peerID string, c ChainBridge, peerHeight uint64) {
+	forkMu.Lock()
+	if t, ok := forkLastPeer[peerID]; ok && time.Since(t) < 5*time.Minute {
+		forkMu.Unlock()
+		return
+	}
+	forkLastPeer[peerID] = time.Now()
+	forkMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	top := c.Height()
+	if peerHeight < top {
+		top = peerHeight
+	}
+	lo := uint64(0)
+	if top > forkSearchDepth {
+		lo = top - forkSearchDepth
+	}
+	// Gemeinsamen Vorfahren suchen (rückwärts).
+	ancestor, found := uint64(0), false
+	for h := top; ; h-- {
+		ours, ok1 := c.BlockHashAt(h)
+		theirs, ok2 := n.peerBlockHash(ctx, peerID, c, h)
+		if h == 0 {
+			theirs, ok2 = ours, ok1 // Genesis ist per Konstruktion gleich
+		}
+		if ok1 && ok2 && ours == theirs {
+			ancestor, found = h, true
+			break
+		}
+		if h == lo || h == 0 {
+			break
+		}
+	}
+	if !found {
+		msg := fmt.Sprintf("Abzweigung zu Peer %s tiefer als %d Blöcke – Chain dieses Nodes bitte von Hand zurücksetzen (--reset-chain), falls er nicht der Mehrheit folgt", shortPeer(peerID), forkSearchDepth)
+		setForkNote(msg)
+		n.log.Warn("Chain: " + msg)
+		return
+	}
+	k := ancestor + 1
+	ours, ok1 := c.BlockHashAt(k)
+	theirs, ok2 := n.peerBlockHash(ctx, peerID, c, k)
+	if !ok1 || !ok2 {
+		return // einer der Äste endet am Vorfahren – kein echter Konflikt
+	}
+	if bytes.Compare(ours[:], theirs[:]) < 0 {
+		msg := fmt.Sprintf("Abzweigung ab Block %d erkannt – eigener Ast gilt (kleinerer Hash); Peer %s wechselt", k, shortPeer(peerID))
+		setForkNote(msg)
+		n.log.Info("Chain: " + msg)
+		return
+	}
+	// Wir liegen auf dem verlierenden Ast.
+	forkMu.Lock()
+	if !forkLastSwitch.IsZero() && time.Since(forkLastSwitch) < 10*time.Minute {
+		forkMu.Unlock()
+		return // höchstens ein Astwechsel alle 10 min
+	}
+	forkLastSwitch = time.Now()
+	h := forkLoseHandler
+	forkMu.Unlock()
+	msg := fmt.Sprintf("Abzweigung ab Block %d – der Ast von Peer %s gilt (kleinerer Hash); wechsle: Chain wird gesichert und neu synchronisiert", k, shortPeer(peerID))
+	setForkNote(msg)
+	n.log.Warn("Chain: " + msg)
+	if h != nil {
+		h(msg)
+	}
+}
+
+func shortPeer(p string) string {
+	if len(p) > 12 {
+		return p[:6] + "…" + p[len(p)-4:]
+	}
+	return p
 }

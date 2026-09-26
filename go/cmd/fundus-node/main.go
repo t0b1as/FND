@@ -567,6 +567,20 @@ func main() {
 					zap.String("genesis_hash", hex.EncodeToString(gh[:])))
 				// Chain an P2P anbinden: Aufhol-Sync beim Peer-Connect + Live-Block-Topic.
 				node.AttachChain(ctx, bc)
+				// Astwahl: Liegt dieser Node auf dem verlierenden Ast einer Abzweigung,
+				// Chain GESICHERT beiseitelegen und mit Fehlercode beenden – systemd
+				// startet neu (Restart=on-failure), die Sync-Sperre übernimmt den
+				// gültigen Ast, bevor wieder gebaut wird.
+				forkChainDir := chainDir
+				p2p.SetForkLoseHandler(func(reason string) {
+					backup := forkChainDir + ".fork-" + time.Now().Format("20060102-150405")
+					log.Warn("Chain: Astwechsel – sichere eigene Chain und starte neu", zap.String("grund", reason), zap.String("sicherung", backup))
+					if err := os.Rename(forkChainDir, backup); err != nil {
+						log.Error("Chain: Sichern für Astwechsel fehlgeschlagen – kein Wechsel", zap.Error(err))
+						return
+					}
+					os.Exit(3)
+				})
 			}
 		}
 	}

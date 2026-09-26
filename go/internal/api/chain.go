@@ -70,6 +70,11 @@ func (s *Server) chainStatus(c *gin.Context) {
 		out["my_last_block"] = lastProd
 		out["my_last_stake_block"] = lastStake
 		out["producer_running"] = ProducerRunning.Load()
+		if fn, ok := interface{}(s.node).(interface{ LastForkNote() string }); ok {
+			if note := fn.LastForkNote(); note != "" {
+				out["fork_note"] = note
+			}
+		}
 		if !(canSign && inSet) {
 			switch {
 			case !canSign:
