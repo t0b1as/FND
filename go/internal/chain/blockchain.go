@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"math/big"
 	"crypto/ecdsa"
 	"encoding/json"
 	"errors"
@@ -165,6 +166,16 @@ func (bc *Blockchain) AmIProposerNext() bool {
 		return false // kein Schlüssel → kann ohnehin nicht produzieren
 	}
 	return bc.valSet.IsProposerForRound(bc.proposer, bc.height+1, 0)
+}
+
+// StakeOf liefert den aktiv gestakten Betrag einer Adresse (uFND).
+func (bc *Blockchain) StakeOf(a Address) *big.Int {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	if bc.state == nil {
+		return new(big.Int)
+	}
+	return bc.state.Stake(a)
 }
 
 // ConsensusSelf: eigene Validator-Adresse (Node-Wallet), ob ein Signier-
@@ -404,22 +415,11 @@ func (bc *Blockchain) deriveValidatorSetLocked() {
 		}
 	}
 
-	// 3. Bootstrap-Set (konfigurierte FUNDUS_VALIDATORS) IMMER mitzählen, solange
-	// es gesetzt ist. Es ist die vertrauenswürdige Startkonfiguration der Gründungs-
-	// Nodes — sie kennen sich gegenseitig. Würde man es nach dem ersten Block
-	// abschalten, fiele ein Validator, der noch nicht produziert hat, aus dem Set,
-	// und die Rotation bräche zusammen. Ein Node ohne Config (leeres Bootstrap-Set)
-	// lernt die Validatoren stattdessen per Historie, Stake und Peer-Sync (Punkt 4).
-	if bc.bootstrapVal != nil {
-		for _, a := range bc.bootstrapVal.List() {
-			add(a)
-		}
-	}
-
-	// 4. Von Peers gelernte Validatoren (dezentrale Verbreitung ohne Config).
-	// So kennt ein neu beigetretener Node die aktiven Validatoren, auch wenn seine
-	// Historie noch zu kurz ist, um sie aus Block-Produzenten abzuleiten.
-	for a := range bc.learnedValidators {
+	// 3. Gründungs-Validatoren (fest eincompiliert, siehe founders.go). Gleiches
+	// Programm = gleiche Liste auf allen Nodes. FRÜHER stand hier die lokale
+	// FUNDUS_VALIDATORS-Liste und (Punkt 4) von Peers gelernte Adressen – beide
+	// sind pro Node verschieden, die Sets wichen ab, und die Chain zerfiel.
+	for _, a := range foundingAddrs() {
 		add(a)
 	}
 
@@ -429,7 +429,7 @@ func (bc *Blockchain) deriveValidatorSetLocked() {
 			return
 		}
 	}
-	// Fallback: nichts Ableitbares → Bootstrap-Set (nur der Startfall).
+	// Fallback (nur wenn auch die Gründer-Liste leer/ungültig wäre).
 	bc.valSet = bc.bootstrapVal
 }
 
@@ -453,23 +453,11 @@ func (bc *Blockchain) ValidatorAddrs() []string {
 // leitet das aktive Set neu ab. Die gelernten Adressen bleiben nur so lange
 // wirksam, wie sie durch Historie oder Stake bestätigt werden — sie sind eine
 // Anlaufhilfe, keine dauerhafte Autorität.
-func (bc *Blockchain) LearnValidators(hexAddrs []string) {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-	if bc.learnedValidators == nil {
-		bc.learnedValidators = map[Address]bool{}
-	}
-	changed := false
-	for _, hx := range hexAddrs {
-		if a, ok := AddressFromHex(hx); ok && !bc.learnedValidators[a] {
-			bc.learnedValidators[a] = true
-			changed = true
-		}
-	}
-	if changed {
-		bc.deriveValidatorSetLocked()
-	}
-}
+// Seit R477 OHNE Wirkung auf das Set: gelernte Adressen sind pro Node
+// verschieden (wer von wem wann synchronisiert) und machten das Set
+// nicht-deterministisch. Das Set ergibt sich nur noch aus Chain + Gründern.
+// Die Methode bleibt für die Schnittstelle (p2p/chainsync) bestehen.
+func (bc *Blockchain) LearnValidators(hexAddrs []string) {}
 
 // RefreshValidatorSet leitet das aktive Set nach einem Block neu ab (öffentlicher
 // Wrapper mit Lock). Wird nach Produktion und Import aufgerufen.

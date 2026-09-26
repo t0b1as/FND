@@ -10,8 +10,8 @@ import (
 // erkannt. Dieser Test dokumentiert die aktuelle Version und schützt davor, sie
 // versehentlich ohne Bewusstsein zu verändern.
 func TestStateSchemaVersionInRoot(t *testing.T) {
-	if StateSchemaVersion != 0x05 {
-		t.Fatalf("StateSchemaVersion = 0x%02x, erwartet 0x05 — wurde das Format bewusst geändert? Dann diesen Test UND die Historie anpassen.", StateSchemaVersion)
+	if StateSchemaVersion != 0x0b {
+		t.Fatalf("StateSchemaVersion = 0x%02x, erwartet 0x0b — wurde das Format bewusst geändert? Dann diesen Test UND die Historie anpassen.", StateSchemaVersion)
 	}
 
 	// Zwei leere States müssen denselben Root haben (deterministisch).

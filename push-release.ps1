@@ -55,7 +55,7 @@ function Run([string]$what, [scriptblock]$cmd) {
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$ScriptStand = "R476"   # Stand dieses Skripts (bei jedem Release mitgezogen)
+$ScriptStand = "R477"   # Stand dieses Skripts (bei jedem Release mitgezogen)
 Write-Host "push-release.ps1 - Stand $ScriptStand" -ForegroundColor Cyan
 
 # -- 1. Voraussetzungen -------------------------------------------------------
@@ -125,6 +125,37 @@ if (-not (Test-Path $KeyFile)) { Fail "Signaturschluessel fehlt: $KeyFile" }
 $keyFull = (Resolve-Path $KeyFile -ErrorAction Stop).Path
 Ok "git, gh, go, fundus-admin, Schluessel vorhanden"
 
+# -- Quellcode-Fingerabdruck -----------------------------------------------------
+# SHA-256 ueber alle .go-Dateien in cmd/fundus-node, cmd/fundus-helper, internal
+# (Pfade relativ zu go/, mit "/", ordinal sortiert; je Datei: Pfad, 0x00, Inhalt,
+# 0x00). Erste 16 Hex-Zeichen. Identisch zur Berechnung beim Packen (SOURCE_FP).
+# Erkennt gemischte/veraltete Quellordner, bevor gebaut wird.
+function Get-FundusSourceFP([string]$GoDir) {
+    $root = (Resolve-Path $GoDir).Path.TrimEnd('\', '/')
+    $list = New-Object System.Collections.Generic.List[string]
+    foreach ($d in @('cmd\fundus-node', 'cmd\fundus-helper', 'internal')) {
+        $p = Join-Path $root $d
+        if (Test-Path $p) {
+            Get-ChildItem -Path $p -Recurse -File -Force | Where-Object { $_.Extension -eq '.go' } | ForEach-Object {
+                $list.Add($_.FullName.Substring($root.Length + 1).Replace('\', '/'))
+            }
+        }
+    }
+    $arr = $list.ToArray()
+    [Array]::Sort($arr, [StringComparer]::Ordinal)
+    $ms = New-Object System.IO.MemoryStream
+    $zero = [byte[]]@(0)
+    foreach ($rel in $arr) {
+        $nb = [System.Text.Encoding]::UTF8.GetBytes($rel)
+        $ms.Write($nb, 0, $nb.Length); $ms.Write($zero, 0, 1)
+        $cb = [System.IO.File]::ReadAllBytes((Join-Path $root ($rel.Replace('/', '\'))))
+        $ms.Write($cb, 0, $cb.Length); $ms.Write($zero, 0, 1)
+    }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $h = $sha.ComputeHash($ms.ToArray())
+    return ((($h | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 16))
+}
+
 # -- 2. Revision lesen --------------------------------------------------------
 Step "Revision ermitteln"
 $work = Join-Path ([IO.Path]::GetTempPath()) ("fnd-release-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
@@ -138,6 +169,14 @@ if (-not $revNum) { Fail "revision.txt im ZIP fehlt oder ist leer" }
 $VER = "R$revNum"
 $goRev = (Select-String -Path (Join-Path $src "go\internal\api\server.go") -Pattern 'NodeRevision = "(R\d+)"').Matches[0].Groups[1].Value
 if ($goRev -ne $VER) { Fail "revision.txt ($VER) passt nicht zu NodeRevision im Code ($goRev)" }
+$fp = Get-FundusSourceFP (Join-Path $src "go")
+$fpFile = Join-Path $src "go\SOURCE_FP"
+if (Test-Path $fpFile) {
+    $want = (Get-Content $fpFile -TotalCount 1).Trim()
+    if ($want -and $want -ne $fp) {
+        Write-Host "  [WARNUNG] Quellcode-Fingerabdruck $fp statt $want (SOURCE_FP im ZIP) - bitte melden." -ForegroundColor Yellow
+    } else { Ok "Quellcode-Fingerabdruck $fp stimmt" }
+} else { Info "Kein SOURCE_FP im ZIP - Fingerabdruck $fp (ungeprueft)" }
 Ok "Version $VER"
 # Beide Pakete muessen zur selben Revision gehoeren - sonst signiert ein altes
 # fundus-admin (z.B. mit veralteter Signaturpruefung).
@@ -168,7 +207,7 @@ try {
         $env:GOOS = "linux"; $env:GOARCH = $arch; $env:CGO_ENABLED = "0"
         if ($arch -eq "arm") { $env:GOARM = "7" } else { Remove-Item Env:GOARM -ErrorAction SilentlyContinue }
         Run "Build fundus-node ($arch)" {
-            & $GO build -trimpath -ldflags "-s -w -X main.Version=$VER" -o (Join-Path $bund "bin\fundus-node-linux-$arch") ./cmd/fundus-node
+            & $GO build -trimpath -ldflags "-s -w -X main.Version=$VER -X github.com/fundus/node/internal/api.SourceFingerprint=$fp" -o (Join-Path $bund "bin\fundus-node-linux-$arch") ./cmd/fundus-node
         }
         Run "Build fundus-helper ($arch)" {
             & $GO build -trimpath -ldflags "-s -w -X main.Version=$VER" -o (Join-Path $bund "bin\fundus-helper-linux-$arch") ./cmd/fundus-helper

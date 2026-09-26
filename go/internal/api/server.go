@@ -417,10 +417,15 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R476"
+const NodeRevision = "R477"
+
+// SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
+// wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
+// Passt sie nicht zu go/SOURCE_FP des Pakets, war der Build gemischt.
+var SourceFingerprint = "unbekannt"
 
 func (s *Server) getHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision})
+	c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision, "source_fp": SourceFingerprint})
 }
 
 func (s *Server) getStatus(c *gin.Context) {

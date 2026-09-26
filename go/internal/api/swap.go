@@ -745,8 +745,24 @@ func (s *Server) swapHTLCList(c *gin.Context) {
 	}
 	list := s.chain.ListHTLCs()
 	out := make([]gin.H, 0, len(list))
+	// Optional ?sender=0x… : nur Sperren dieser Adresse
+	var onlySender chain.Address
+	filter := false
+	if q := c.Query("sender"); q != "" {
+		if a, ok := chain.AddressFromHex(q); ok {
+			onlySender, filter = a, true
+		}
+	}
 	for _, h := range list {
+		if filter && h.Sender != onlySender {
+			continue
+		}
+		amt := "0"
+		if h.Amount != nil {
+			amt = uFNDToFND(h.Amount.String())
+		}
 		out = append(out, gin.H{
+			"amount_fnd": amt,
 			"id":        hex.EncodeToString(h.ID[:]),
 			"sender":    h.Sender.Hex(),
 			"recipient": h.Recipient.Hex(),

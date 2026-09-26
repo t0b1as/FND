@@ -23,7 +23,10 @@ import (
 //   0x06       Fee-Split (Transfer-Gebühr 50/50 Node/Collector) — ändert Salden
 //   0x07       + redeemedSolTxs (SOL→FND-Brücke auf native Chain)
 //   0x08       + stakes (Validator-Stake mit Unbonding) — R036
-const StateSchemaVersion byte = 0x0a
+// 0x0b (R477): Konsens deterministisch (Gründer + Historie + Stake, keine
+// lokale Liste/gelernten Adressen) – erzwingt einen Neustart der Chain auf
+// allen Nodes (die alten Chains waren durch abweichende Sets zerfallen).
+const StateSchemaVersion byte = 0x0b
 
 // State ist der Weltzustand: Adresse → Account, plus offene Escrows (Spec §7a).
 // Phase 1 hielt nur Konten; Escrows kommen als zweiter committeter Teilbaum dazu.

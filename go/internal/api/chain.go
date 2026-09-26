@@ -61,7 +61,11 @@ func (s *Server) chainStatus(c *gin.Context) {
 		"i_am_validator":    canSign && inSet,
 	}
 	if !(canSign && inSet) {
-		out["hint"] = "Dieser Node baut keine Blöcke. Damit er es tut: seine my_validator_addr in FUNDUS_VALIDATORS auf ALLEN Nodes identisch eintragen und neu starten."
+		if !canSign {
+			out["hint"] = "Dieser Node hat keinen Signierschlüssel (Node-Wallet gesperrt oder fehlt) – auf der Wallet-Seite entsperren."
+		} else {
+			out["hint"] = "Dieser Node ist (noch) kein Validator. Validator wird er per Stake: mind. 10 FND an my_validator_addr (Node-Wallet) überweisen, dann auf der Wallet-Seite staken."
+		}
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -79,11 +83,24 @@ func (s *Server) chainAccount(c *gin.Context) {
 	bal, nonce := s.chain.AccountInfo(addr)
 	// uFND → FND (1e9) für die Anzeige.
 	fnd := uFNDToFND(bal)
+	// Wohin ist das Guthaben? Gestakt und in Swap-Sperren (HTLC) gebunden.
+	staked := s.chain.StakeOf(addr)
+	locked := new(big.Int)
+	nLocked := 0
+	for _, h := range s.chain.ListHTLCs() {
+		if h.Sender == addr && h.State == chain.HTLCLocked && h.Amount != nil {
+			locked.Add(locked, h.Amount)
+			nLocked++
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"address": addr.Hex(),
-		"ufnd":    bal,
-		"fnd":     fnd,
-		"nonce":   nonce,
+		"address":        addr.Hex(),
+		"ufnd":           bal,
+		"fnd":            fnd,
+		"nonce":          nonce,
+		"staked_fnd":     uFNDToFND(staked.String()),
+		"htlc_locked_fnd": uFNDToFND(locked.String()),
+		"htlc_locked_count": nLocked,
 	})
 }
 

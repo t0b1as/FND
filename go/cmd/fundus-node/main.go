@@ -508,43 +508,38 @@ func main() {
 				// (genau der Fehler "nicht dein Zug, Proposer ist 0xea55…").
 				// Alle Nodes müssen dieselbe Liste konfiguriert haben, damit die
 				// Rundenzuordnung übereinstimmt.
-				var valAddrs []chain.Address
-				for _, vh := range cfg.Validators {
-					if a, ok := chain.AddressFromHex(vh); ok {
-						valAddrs = append(valAddrs, a)
-					} else {
-						log.Warn("Konsens: ungültige Validator-Adresse übersprungen", zap.String("addr", vh))
-					}
+				// Seit R477: Validator-Set deterministisch = Gründer (fest
+				// eincompiliert) ∪ Produzenten der letzten Blöcke ∪ aktive Staker.
+				// FUNDUS_VALIDATORS und von Peers Gelerntes zählen NICHT mehr – sie
+				// sind pro Node verschieden, die Sets wichen ab, und die Chain
+				// zerfiel (5 Pis, 4 Chains). Ebenso entfällt der "Solo-Start"
+				// (Node ohne Liste = eigener Einzel-Validator = eigene Chain).
+				if len(cfg.Validators) > 0 {
+					log.Warn("FUNDUS_VALIDATORS wird seit R477 ignoriert: Validatoren = Gründer (im Programm) + Stake. "+
+						"Weitere Nodes werden per Stake (Wallet-Seite, 10 FND auf der Node-Wallet) Validator.",
+						zap.Strings("ignoriert", cfg.Validators))
 				}
-				// Fallback: Ist keine Validator-Liste gesetzt, ist dieser Node sein
-				// eigener alleiniger Proposer (sauberer Solo-Start) — aber NUR wenn
-				// er einen Signier-Schlüssel hat. NIE der Fee-Collector.
-				if len(valAddrs) == 0 && proposerValid {
-					valAddrs = []chain.Address{proposer}
-				}
-				if len(valAddrs) == 0 {
-					// Weder konfigurierte Validatoren noch eigener Schlüssel →
-					// Konsens kann nicht aktiviert werden. Node läuft als Sync-Node.
-					log.Warn("Konsens NICHT aktiviert: kein Validator-Set und kein eigener Signier-Schlüssel. Node synchronisiert nur.")
-				} else if vs, verr := chain.NewValidatorSet(valAddrs); verr == nil {
+				if vs, verr := chain.FoundingValidatorSet(); verr == nil {
 					bc.SetConsensus(vs, consensusKey)
-					isValidator := consensusKey != nil && vs.Contains(proposer)
-					log.Info("PoA-Konsens aktiv",
-						zap.Int("validators", vs.Len()),
-						zap.Bool("dieser_node_ist_validator", isValidator),
-						zap.String("proposer", proposer.Hex()))
-					if !isValidator && proposerValid {
-						log.Warn("Dieser Node baut KEINE Blöcke: seine Validator-Adresse steht nicht in FUNDUS_VALIDATORS. "+
-							"Soll er Blöcke bauen, die Adresse auf ALLEN Nodes identisch eintragen (sonst hängt die Chain, "+
-							"sobald kein anderer Validator läuft).", zap.String("eigene_validator_adresse", proposer.Hex()))
+					self, canSign, inSet := bc.ConsensusSelf()
+					log.Info("PoA-Konsens aktiv (deterministisch: Gründer + Historie + Stake)",
+						zap.Int("validators", len(bc.ValidatorAddrs())),
+						zap.Bool("dieser_node_ist_validator", canSign && inSet),
+						zap.String("eigene_validator_adresse", self))
+					if canSign && !inSet {
+						log.Info("Dieser Node ist (noch) kein Validator. Validator wird er per Stake: "+
+							"mind. 10 FND auf seine Node-Wallet überweisen und auf der Wallet-Seite staken.",
+							zap.String("node_wallet", self))
 					}
-					// Automatischen Produktions-Loop nur starten, wenn dieser Node
-					// überhaupt Validator ist (sonst reiner Sync-Node).
-					if isValidator {
+					// Produktions-Loop für JEDEN Node mit Schlüssel: er prüft je
+					// Runde, ob er dran ist. Früher nur bei Validatoren zum
+					// Startzeitpunkt – wer später per Stake beitrat, baute bis zum
+					// nächsten Neustart keinen Block.
+					if canSign {
 						go runBlockProductionLoop(ctx, bc, mempool, node, log)
 					}
 				} else {
-					log.Warn("Konsens: Validator-Set ungültig — Chain läuft ohne PoA (Einzelnode)", zap.Error(verr))
+					log.Warn("Konsens: Gründer-Set ungültig — Chain läuft ohne PoA", zap.Error(verr))
 				}
 
 				log.Info("Fundus-Chain aktiv (PoA-Konsens: Multi-Node mit Round-Robin-Produktion)",

@@ -37,6 +37,7 @@ param(
     [switch]$WriteEnv    = $false,  # fundus.env (über)schreiben; sonst nur bei Erstinstallation
     [switch]$Rebuild     = $false,  # Binary neu kompilieren erzwingen
     [switch]$BuildOnly   = $false,  # nur Node+Helper bauen (bin\), kein Deploy (fuer deploy-all-pis)
+    [switch]$IgnoreSourceFP = $false,  # Fingerabdruck-Pruefung des Quellordners uebergehen (Notausgang)
     [string]$GoCmd       = "",      # Go-Toolchain (z.B. "go1.25.4"), leer = auto
     [string]$BootstrapPeer = "",    # Multiaddr eines bekannten Peers (z.B. /ip4/10.10.11.39/tcp/4001/p2p/12D3...)
     [string]$SwapHtlcProgram = "",  # Solana-HTLC-Programm-ID für Atomic Swaps (leer = Swap-Ausführung inaktiv)
@@ -52,6 +53,37 @@ param(
 # =============================================================================
 #  Hilfsfunktionen
 # =============================================================================
+# -- Quellcode-Fingerabdruck -----------------------------------------------------
+# SHA-256 ueber alle .go-Dateien in cmd/fundus-node, cmd/fundus-helper, internal
+# (Pfade relativ zu go/, mit "/", ordinal sortiert; je Datei: Pfad, 0x00, Inhalt,
+# 0x00). Erste 16 Hex-Zeichen. Identisch zur Berechnung beim Packen (SOURCE_FP).
+# Erkennt gemischte/veraltete Quellordner, bevor gebaut wird.
+function Get-FundusSourceFP([string]$GoDir) {
+    $root = (Resolve-Path $GoDir).Path.TrimEnd('\', '/')
+    $list = New-Object System.Collections.Generic.List[string]
+    foreach ($d in @('cmd\fundus-node', 'cmd\fundus-helper', 'internal')) {
+        $p = Join-Path $root $d
+        if (Test-Path $p) {
+            Get-ChildItem -Path $p -Recurse -File -Force | Where-Object { $_.Extension -eq '.go' } | ForEach-Object {
+                $list.Add($_.FullName.Substring($root.Length + 1).Replace('\', '/'))
+            }
+        }
+    }
+    $arr = $list.ToArray()
+    [Array]::Sort($arr, [StringComparer]::Ordinal)
+    $ms = New-Object System.IO.MemoryStream
+    $zero = [byte[]]@(0)
+    foreach ($rel in $arr) {
+        $nb = [System.Text.Encoding]::UTF8.GetBytes($rel)
+        $ms.Write($nb, 0, $nb.Length); $ms.Write($zero, 0, 1)
+        $cb = [System.IO.File]::ReadAllBytes((Join-Path $root ($rel.Replace('/', '\'))))
+        $ms.Write($cb, 0, $cb.Length); $ms.Write($zero, 0, 1)
+    }
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    $h = $sha.ComputeHash($ms.ToArray())
+    return ((($h | ForEach-Object { $_.ToString('x2') }) -join '').Substring(0, 16))
+}
+
 function Write-Step([string]$msg)  { Write-Host "`n  --> $msg" -ForegroundColor Cyan }
 function Write-Ok([string]$msg)    { Write-Host "      [OK]      $msg" -ForegroundColor Green }
 function Write-Fixed([string]$msg) { Write-Host "      [BEHOBEN] $msg" -ForegroundColor Yellow }
@@ -105,6 +137,20 @@ function Invoke-LocalBuild([string]$targetArch) {
         else { Write-Fail "go.mod nicht gefunden - 'go'-Ordner fehlt neben dem Skript." }
     }
 
+    # Gemischten/veralteten Quellordner erkennen, BEVOR gebaut wird (vor tidy).
+    $fp = Get-FundusSourceFP $goDir
+    $fpFile = Join-Path $goDir "SOURCE_FP"
+    if (Test-Path $fpFile) {
+        $want = (Get-Content $fpFile -TotalCount 1).Trim()
+        if ($want -and $want -ne $fp) {
+            if ($IgnoreSourceFP) {
+                Write-Host "      [WARNUNG] Fingerabdruck $fp statt $want - uebergangen (-IgnoreSourceFP)" -ForegroundColor Yellow
+            } else {
+                Write-Fail "Quellcode passt nicht zum Paket (Fingerabdruck $fp statt $want). Der Ordner 'go' ist gemischt oder veraltet: loeschen und FND.zip frisch entpacken. (Notausgang: -IgnoreSourceFP)"
+            }
+        } else { Write-Ok "Quellcode-Fingerabdruck $fp stimmt mit dem Paket ueberein" }
+    } else { Write-Info "Kein go\SOURCE_FP gefunden - Fingerabdruck $fp (ungeprueft)" }
+
     Push-Location $goDir
     try {
         Write-Info "Dependencies laden (go mod tidy)..."
@@ -123,7 +169,7 @@ function Invoke-LocalBuild([string]$targetArch) {
         $outFile = Join-Path $outDir "fundus-node"
 
         Write-Info "Kompiliere (dauert 1-3 Min)..."
-        (& $script:GoBin build -ldflags="-s -w -X main.Version=R$(((Get-Content (Join-Path $PSScriptRoot 'revision.txt') -TotalCount 1 -ErrorAction SilentlyContinue) -replace '\D',''))" -o $outFile ./cmd/fundus-node 2>&1 | ForEach-Object { "$_" }) | Out-Host
+        (& $script:GoBin build -ldflags="-s -w -X main.Version=R$(((Get-Content (Join-Path $PSScriptRoot 'revision.txt') -TotalCount 1 -ErrorAction SilentlyContinue) -replace '\D','')) -X github.com/fundus/node/internal/api.SourceFingerprint=$fp" -o $outFile ./cmd/fundus-node 2>&1 | ForEach-Object { "$_" }) | Out-Host
         if ($LASTEXITCODE -ne 0) { Write-Fail "Build fehlgeschlagen" }
 
         $sz = [math]::Round((Get-Item $outFile).Length / 1MB, 1)
