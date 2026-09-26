@@ -15,11 +15,13 @@
 $PiIPs   = @("10.10.11.25", "10.10.11.39", "10.10.11.71", "10.10.11.72", "10.10.11.73")
 $PiUser  = "tobias"
 
-# Solana-Swap-Konfiguration (wird gezielt in jede fundus.env gesetzt, ohne die
-# uebrige env zu ueberschreiben). Fuer den Produktivbetrieb spaeter leeren oder den
-# lokalen Laptop-RPC gegen Devnet/Mainnet tauschen.
-$SwapHtlcProgram = "DZ96w28m8tZPM3vjJHFrLXJnonWbqtTAvgZ46c2SdXtb"
-$SolanaRpc       = "http://10.10.11.85:8899"
+# Solana-Swap-Konfiguration: LEER lassen = die Einstellungen jedes Pi bleiben
+# unangetastet (Programm-ID in fundus.env, Solana-Zugang in den Einstellungen).
+# Frueher standen hier die alte Test-ID und ein lokaler Laptop-RPC - jedes
+# Deploy-All ueberschrieb damit die fundus.env ALLER Pis (Swaps gesperrt).
+# Nur ausfuellen, wenn ALLE Pis bewusst umgestellt werden sollen.
+$SwapHtlcProgram = ""
+$SolanaRpc       = ""
 
 # --- Zugangsdaten einmal abfragen (sicher, nicht im Skript hinterlegt) ---
 Write-Host "Zugangsdaten fuer das Deploy auf alle Pis (werden nur an die Fenster weitergegeben):" -ForegroundColor Cyan

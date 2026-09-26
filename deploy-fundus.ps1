@@ -41,8 +41,8 @@ param(
     [switch]$AllowDowngrade = $false,  # aelteres Programm als das laufende hochladen (Notausgang)
     [string]$GoCmd       = "",      # Go-Toolchain (z.B. "go1.25.4"), leer = auto
     [string]$BootstrapPeer = "",    # Multiaddr eines bekannten Peers (z.B. /ip4/10.10.11.39/tcp/4001/p2p/12D3...)
-    [string]$SwapHtlcProgram = "",  # Solana-HTLC-Programm-ID für Atomic Swaps (leer = Swap-Ausführung inaktiv)
-    [string]$SolanaRpc     = "",    # Solana-RPC-URL (z.B. http://10.10.11.85:8899 lokal, oder Devnet/Mainnet)
+    [string]$SwapHtlcProgram = "",  # Solana-HTLC-Programm-ID (leer = bestehende fundus.env nicht aendern; Erstinstallation: Standard-ID)
+    [string]$SolanaRpc     = "",    # Solana-RPC-URL(s) (leer = nicht aendern; Erstinstallation: oeffentlicher Mainnet-Endpunkt)
     [string]$SudoPass    = "",      # sudo-Passwort (spart interaktive Abfrage)
     [string]$CertPass    = "",      # Cert-/Wallet-Passphrase (spart interaktive Abfrage)
     [string]$AdminPass   = "",      # Admin-Web-Passwort (Basic-Auth, getrennt vom Linux-Account); leer = htpasswd unverändert lassen
@@ -785,8 +785,8 @@ if ((-not $envPresent) -or $WriteEnv) {
         "FUNDUS_STORAGE_DIR=$RemoteDir/chunks",
         "# Filesharing: -1=auto 50% des freien Speichers, 0=aus, >0=feste GB",
         "FUNDUS_STORAGE_OFFER_GB=-1",
-        "FUNDUS_SWAP_HTLC_PROGRAM=$SwapHtlcProgram",
-        "FUNDUS_SHOP_SOLANA_RPC=$SolanaRpc"
+        "FUNDUS_SWAP_HTLC_PROGRAM=$(if ($SwapHtlcProgram) { $SwapHtlcProgram } else { 'B1ysbjJT1f7dWvVwMp55oo1KYu4GwnwKeCF12DhL7K2N' })",
+        "FUNDUS_SHOP_SOLANA_RPC=$(if ($SolanaRpc) { $SolanaRpc } else { 'https://api.mainnet-beta.solana.com' })"
     )
     # Mit \n verbinden (Unix-Zeilenenden), via base64 sicher uebertragen
     $envText  = ($envLines -join "`n") + "`n"
@@ -819,6 +819,7 @@ fi
     Invoke-SSH $cmd
     Write-Ok "env gesetzt: $key"
 }
+# Nur wenn AUSDRUECKLICH uebergeben (leer = die Werte auf dem Pi bleiben).
 Set-EnvVar "FUNDUS_SWAP_HTLC_PROGRAM" $SwapHtlcProgram
 Set-EnvVar "FUNDUS_SHOP_SOLANA_RPC" $SolanaRpc
 

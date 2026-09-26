@@ -195,6 +195,7 @@ func (sc *swapCoordinator) handleSwapInit(peerID string, data []byte) []byte {
 	s.swapMgr.swaps[ss.swapID] = &Swap{
 		ID: ss.swapID, OrderID: msg.OrderID, Phase: SwapInitiated,
 		Hashlock: msg.Hashlock, AmountFND: amountFND, AmountSOL: amountSOL,
+		Buyer: msg.BuyerFnd, BuyerSol: msg.BuyerSol, Seller: ord.FndAddress, SellerSol: ord.SolAddress,
 		CreatedAt: time.Now().Unix(),
 	}
 	s.swapMgr.mu.Unlock()
@@ -258,6 +259,7 @@ func (sc *swapCoordinator) triggerRemoteSwap(ctx context.Context, node p2pNode,
 	s.swapMgr.swaps[ss.swapID] = &Swap{
 		ID: ss.swapID, OrderID: msg.OrderID, Phase: SwapInitiated,
 		Hashlock: msg.Hashlock, AmountFND: msg.AmountFND, AmountSOL: msg.AmountSOL,
+		Buyer: msg.BuyerFnd, BuyerSol: msg.BuyerSol, Seller: sellerFnd, SellerSol: sellerSol,
 		CreatedAt: time.Now().Unix(),
 	}
 	s.swapMgr.mu.Unlock()

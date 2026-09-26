@@ -896,6 +896,14 @@ func runBlockProductionLoop(ctx context.Context, bc *chain.Blockchain, mp *chain
 	ticker := time.NewTicker(tickIntervalFor(chain.BlockTime))
 	defer ticker.Stop()
 	log.Info("PoA-Produktions-Loop gestartet", zap.Uint64("block_time_s", chain.BlockTime))
+	// Erst abgleichen, dann bauen: Ein frisch gestarteter Validator baute sonst
+	// sofort eigene Blöcke (Höhe 0, alter Genesis → "ich bin dran") und eröffnete
+	// eine eigene Chain, bevor die Verbindung zu den anderen stand.
+	loopStart := time.Now()
+	peers, _ := bcaster.(interface {
+		MaxPeerHeight(time.Duration) (uint64, bool)
+	})
+	lastWaitLog := time.Time{}
 
 	for {
 		select {
@@ -909,6 +917,20 @@ func runBlockProductionLoop(ctx context.Context, bc *chain.Blockchain, mp *chain
 			my, round := bc.TurnAt(0)
 			if !my {
 				continue
+			}
+			if peers != nil {
+				maxH, known := peers.MaxPeerHeight(10 * time.Minute)
+				if !known && time.Since(loopStart) < 30*time.Second {
+					continue // Start: bis zu 30 s auf Auskunft der Peers warten
+				}
+				if maxH > bc.Height()+1 {
+					if time.Since(lastWaitLog) > time.Minute {
+						lastWaitLog = time.Now()
+						log.Info("PoA: Peer ist weiter – erst synchronisieren, dann bauen",
+							zap.Uint64("eigene_hoehe", bc.Height()), zap.Uint64("peer_hoehe", maxH))
+					}
+					continue
+				}
 			}
 			// Txs aus dem Mempool nehmen. AUCH OHNE Transaktionen wird ein Block
 			// gebaut (alle BlockTime = 5 s): Die Fristen der FND-Sperren zählen

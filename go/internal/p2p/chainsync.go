@@ -1,6 +1,7 @@
 package p2p
 
 import (
+	"sync"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -190,6 +191,8 @@ func (n *Node) SyncChainFromPeer(peerID string) {
 			zap.String("our", ourGenesis[:12]), zap.String("their", safePrefix(head.Genesis, 12)))
 		return
 	}
+	notePeerHead(peerID, head.Height, false)
+
 	// 2b. Validator-Set des Peers übernehmen (dezentrale Verbreitung ohne Config).
 	// So erfährt ein neu beigetretener Node die aktiven Validatoren direkt vom Netz.
 	if len(head.Validators) > 0 {
@@ -210,6 +213,9 @@ func (n *Node) SyncChainFromPeer(peerID string) {
 		}
 		if err := c.ImportBlockJSON(bresp.Block); err != nil {
 			n.log.Warn("Chain-Sync: Block abgelehnt", zap.Uint64("height", h), zap.Error(err))
+			// Peer liegt auf einer anderen Abzweigung: seine Höhe darf die eigene
+			// Blockproduktion nicht blockieren.
+			notePeerHead(peerID, head.Height, true)
 			break
 		}
 		imported++
@@ -263,4 +269,46 @@ func safePrefix(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// ── Höhen der Peers (für die Blockproduktion) ───────────────────────────────
+// Ein frisch gestarteter Validator baute sofort Blöcke – noch bevor er sich mit
+// den anderen abgeglichen hatte – und eröffnete so eine eigene Chain (Fork).
+// Die Produktion fragt deshalb MaxPeerHeight: Ist ein Peer weiter, wird erst
+// synchronisiert. Peers auf einer fremden Abzweigung zählen nicht.
+
+type peerHeadInfo struct {
+	height uint64
+	fork   bool
+	at     time.Time
+}
+
+var (
+	peerHeadsMu sync.Mutex
+	peerHeads   = map[string]peerHeadInfo{}
+)
+
+func notePeerHead(peerID string, height uint64, fork bool) {
+	peerHeadsMu.Lock()
+	peerHeads[peerID] = peerHeadInfo{height: height, fork: fork, at: time.Now()}
+	peerHeadsMu.Unlock()
+}
+
+// MaxPeerHeight: höchste gemeldete Höhe gleicher Chain (nicht älter als maxAge)
+// und ob überhaupt ein Peer Auskunft gegeben hat.
+func (n *Node) MaxPeerHeight(maxAge time.Duration) (uint64, bool) {
+	peerHeadsMu.Lock()
+	defer peerHeadsMu.Unlock()
+	var max uint64
+	known := false
+	for _, h := range peerHeads {
+		if time.Since(h.at) > maxAge {
+			continue
+		}
+		known = true
+		if !h.fork && h.height > max {
+			max = h.height
+		}
+	}
+	return max, known
 }

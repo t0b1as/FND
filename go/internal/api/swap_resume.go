@@ -11,6 +11,9 @@ package api
 // angemeldete Sitzung (ohne Argon2-Ableitung).
 
 import (
+	"encoding/json"
+	"encoding/binary"
+	"encoding/base64"
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
@@ -93,6 +96,7 @@ func (s *Server) resumeRefundsOnce() {
 	}
 	type cand struct {
 		id, fndHTLC, hashlock, buyerSol, sellerSol string
+		solOnly                                    bool // verworfen: FND-Sperre gibt es nicht mehr, SOL-Sperre evtl. schon
 	}
 	var list []cand
 	// Nur Swaps der letzten 14 Tage (alle Fristen liegen weit darunter) –
@@ -100,10 +104,10 @@ func (s *Server) resumeRefundsOnce() {
 	cutoff := time.Now().Add(-14 * 24 * time.Hour).Unix()
 	s.swapMgr.mu.RLock()
 	for _, sw := range s.swapMgr.swaps {
-		if sw == nil || sw.Phase == SwapRefunded || sw.Phase == SwapDiscarded || (sw.CreatedAt > 0 && sw.CreatedAt < cutoff) {
+		if sw == nil || sw.Phase == SwapRefunded || sw.Done || (sw.CreatedAt > 0 && sw.CreatedAt < cutoff) {
 			continue
 		}
-		list = append(list, cand{sw.ID, sw.FndHTLCID, sw.Hashlock, sw.BuyerSol, sw.SellerSol})
+		list = append(list, cand{sw.ID, sw.FndHTLCID, sw.Hashlock, sw.BuyerSol, sw.SellerSol, sw.Phase == SwapDiscarded})
 	}
 	s.swapMgr.mu.RUnlock()
 	if len(list) == 0 {
@@ -126,7 +130,7 @@ func (s *Server) resumeRefundsOnce() {
 			}
 		}
 		// ── FND: eigene, noch gesperrte, abgelaufene Sperre ──
-		if c.fndHTLC != "" {
+		if c.fndHTLC != "" && !c.solOnly {
 			if id, err := hash32FromHex(c.fndHTLC); err == nil {
 				if h, ok := s.chain.GetHTLC(id); ok && h.State == chain.HTLCLocked && height >= h.Timelock {
 					for _, k := range keys {
@@ -155,16 +159,22 @@ func (s *Server) resumeRefundsOnce() {
 		if err != nil {
 			continue
 		}
-		for _, addr := range []string{c.buyerSol, c.sellerSol} {
-			if addr == "" {
+		// Die Adressen fehlten bis R497 in automatischen Swap-Einträgen – daher
+		// jeden eigenen Schlüssel prüfen: Kontoadresse = f(Schlüssel, Hashlock).
+		tried := map[string]bool{}
+		for _, k := range keys {
+			if k.sol == nil {
 				continue
 			}
-			for _, k := range keys {
-				if k.sol == nil || k.sol.PublicKey().String() != addr {
-					continue
-				}
-				s.trySolRefund(c.id, k.sol, hash)
+			pub := k.sol.PublicKey().String()
+			if tried[pub] {
+				continue
 			}
+			tried[pub] = true
+			if (c.buyerSol != "" || c.sellerSol != "") && pub != c.buyerSol && pub != c.sellerSol {
+				continue // Adressen bekannt und passen nicht
+			}
+			s.trySolRefund(c.id, k.sol, hash)
 		}
 	}
 }
@@ -181,8 +191,12 @@ func (s *Server) trySolRefund(swapID string, key solana.PrivateKey, hash [32]byt
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	if ok, cerr := (&orchestrator{}).solAccountCheck(ctx, s, pda.String()); cerr != nil || !ok {
+	expiry, ok, cerr := s.solLockExpiry(ctx, pda)
+	if cerr != nil || !ok {
 		return // kein offenes Swap-Konto (eingelöst, zurückgeholt oder nie gesperrt)
+	}
+	if slot, serr := s.solCurrentSlot(ctx); serr != nil || slot < expiry {
+		return // Frist noch nicht abgelaufen – keine Transaktion versuchen
 	}
 	if _, rerr := client.Refund(ctx, key, hash); rerr == nil {
 		s.setSwapPhase(swapID, SwapRefunded, "SOL zurückgeholt (Frist abgelaufen)")
@@ -286,4 +300,41 @@ func (s *Server) discardOldChainSwaps() {
 	if n > 0 && s.log != nil {
 		s.log.Info("Altlasten aus früherer Chain verworfen", zap.Int("swaps", n))
 	}
+}
+
+// solLockExpiry: Ablauf-Slot eines Swap-Kontos (ok=false: Konto existiert nicht).
+func (s *Server) solLockExpiry(ctx context.Context, pda solana.PublicKey) (uint64, bool, error) {
+	res, err := s.swapMgr.solanaRPCCall(ctx, "getAccountInfo", []interface{}{
+		pda.String(), map[string]interface{}{"encoding": "base64", "commitment": "confirmed"},
+	})
+	if err != nil {
+		return 0, false, err
+	}
+	var v struct {
+		Value *struct {
+			Data  []string `json:"data"`
+			Owner string   `json:"owner"`
+		} `json:"value"`
+	}
+	if json.Unmarshal(res, &v) != nil || v.Value == nil || len(v.Value.Data) == 0 || v.Value.Owner != s.swapMgr.htlcProgramID {
+		return 0, false, nil
+	}
+	raw, err := base64.StdEncoding.DecodeString(v.Value.Data[0])
+	if err != nil || len(raw) < 24 {
+		return 0, false, nil
+	}
+	return binary.LittleEndian.Uint64(raw[16:24]), true, nil
+}
+
+// solCurrentSlot: aktueller Slot (confirmed).
+func (s *Server) solCurrentSlot(ctx context.Context) (uint64, error) {
+	res, err := s.swapMgr.solanaRPCCall(ctx, "getSlot", []interface{}{map[string]interface{}{"commitment": "confirmed"}})
+	if err != nil {
+		return 0, err
+	}
+	var slot uint64
+	if err := json.Unmarshal(res, &slot); err != nil {
+		return 0, err
+	}
+	return slot, nil
 }
