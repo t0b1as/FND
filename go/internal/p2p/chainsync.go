@@ -565,3 +565,68 @@ func (n *Node) LastClockNote() string {
 	}
 	return clockNote
 }
+
+// ── Sync-Übersicht ──────────────────────────────────────────────────────────
+
+// PeerSyncInfo: Stand eines Peers im Vergleich zur eigenen Chain.
+type PeerSyncInfo struct {
+	Peer        string `json:"peer"`
+	Height      uint64 `json:"height"`
+	Compared    uint64 `json:"compared_height"`
+	SameGenesis bool   `json:"same_genesis"`
+	SameChain   bool   `json:"same_chain"`
+	Error       string `json:"error,omitempty"`
+}
+
+// PeerSyncReport fragt alle verbundenen Peers nach ihrer Höhe und vergleicht
+// den Blockhash auf der gemeinsamen Höhe (gleicher Ast = gleicher Hash).
+func (n *Node) PeerSyncReport(ctx context.Context) (uint64, []PeerSyncInfo) {
+	n.mu.RLock()
+	c := n.chain
+	n.mu.RUnlock()
+	if c == nil {
+		return 0, nil
+	}
+	ourH := c.Height()
+	ourGenesis := fmt.Sprintf("%x", c.GenesisHeaderHash())
+	peers := n.Peers()
+	out := make([]PeerSyncInfo, len(peers))
+	var wg sync.WaitGroup
+	for i, p := range peers {
+		wg.Add(1)
+		go func(i int, pid string) {
+			defer wg.Done()
+			info := PeerSyncInfo{Peer: pid}
+			headReq, _ := json.Marshal(chainSyncRequest{Kind: "head", Genesis: ourGenesis})
+			raw, err := n.SendAndReceive(ctx, pid, ChainSyncProtocol, headReq)
+			var head chainSyncResponse
+			if err != nil || json.Unmarshal(raw, &head) != nil || head.Error != "" {
+				info.Error = "keine Chain-Auskunft (kein Fundus-Node oder nicht erreichbar)"
+				out[i] = info
+				return
+			}
+			info.Height = head.Height
+			info.SameGenesis = head.Genesis == ourGenesis
+			if !info.SameGenesis {
+				info.Error = "andere Chain (abweichender Genesis – altes Programm?)"
+				out[i] = info
+				return
+			}
+			h := ourH
+			if head.Height < h {
+				h = head.Height
+			}
+			info.Compared = h
+			mine, ok1 := c.BlockHashAt(h)
+			theirs, ok2 := n.peerBlockHash(ctx, pid, c, h)
+			if !ok1 || !ok2 {
+				info.Error = "Block zum Vergleich nicht abrufbar"
+			} else {
+				info.SameChain = mine == theirs
+			}
+			out[i] = info
+		}(i, p.String())
+	}
+	wg.Wait()
+	return ourH, out
+}

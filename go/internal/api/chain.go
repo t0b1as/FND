@@ -6,6 +6,7 @@ package api
 // hier zunächst Status, Konto-Abfrage und manuelle Block-Produktion.
 
 import (
+	"github.com/fundus/node/internal/p2p"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 func (s *Server) registerChainRoutes() {
 	g := s.router.Group("/api/v1/chain")
 	g.GET("/status", s.chainStatus)               // Höhe, Head-Hash, Mempool-Größe
+	g.GET("/peers", s.chainPeers)                 // Sync-Übersicht: liegen alle Peers auf demselben Ast?
 	g.GET("/account", s.chainAccount)             // Saldo + Nonce einer Adresse
 	g.POST("/tx", s.chainSubmitTx)                // signierte Tx in den Mempool
 	g.POST("/send", s.chainSend)                  // serverseitig signieren+einreichen (aus Seed)
@@ -498,4 +500,31 @@ func (s *Server) mempoolMaintenance() {
 		}
 		cancel()
 	}
+}
+
+// GET /api/v1/chain/peers – Sync-Übersicht über alle verbundenen Peers.
+func (s *Server) chainPeers(c *gin.Context) {
+	rep, ok := interface{}(s.node).(interface {
+		PeerSyncReport(ctx context.Context) (uint64, []p2p.PeerSyncInfo)
+	})
+	if !ok || s.chain == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Chain/P2P nicht aktiv"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+	defer cancel()
+	ourH, peers := rep.PeerSyncReport(ctx)
+	same, other := 0, 0
+	for _, p := range peers {
+		if p.SameChain {
+			same++
+		} else if p.Error == "" || !p.SameGenesis {
+			other++
+		}
+	}
+	summary := fmt.Sprintf("%d Peer(s) auf demselben Ast", same)
+	if other > 0 {
+		summary += fmt.Sprintf(", %d auf einem ANDEREN", other)
+	}
+	c.JSON(http.StatusOK, gin.H{"our_height": ourH, "summary": summary, "peers": peers})
 }

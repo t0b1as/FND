@@ -10,6 +10,7 @@ package api
 // bekundung: "Ich biete X FND zum Preis Y in SOL".
 
 import (
+	"sort"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -350,34 +351,83 @@ func (ob *OrderBook) Run(ctx context.Context) {
 // empfangenen Orders (billiger Read fürs Frontend). Push-Orders erscheinen so
 // sofort, ohne auf den nächsten Poll zu warten.
 func (ob *OrderBook) discoveredJSON() []byte {
+	// Aus der MASSGEBLICHEN Liste bauen: discoveredOrders wird bei jeder Abfrage
+	// aus den Angaben der Anbieter neu aufgebaut UND bei jeder Push-Nachricht
+	// sofort korrigiert (reduziert/entfernt). Früher kam hier das rohe Ergebnis
+	// der letzten Abfrage (bis zu 30 s alt) – ausgeführte Orders standen so noch
+	// mit alter Menge im Buch, entfernte blieben sichtbar.
+	byID := map[string]*Order{}
 	ob.discMu.RLock()
-	pollData := ob.discovered
+	for id, o := range ob.discoveredOrders {
+		if o != nil && o.isActive() {
+			byID[id] = o
+		}
+	}
 	ob.discMu.RUnlock()
-
-	// Gepushte Orders als eigene "Peer-Gruppe" anhängen (nur aktive).
 	ob.pushMu.RLock()
-	pushed := make([]*Order, 0, len(ob.pushedOrders))
-	for _, o := range ob.pushedOrders {
-		if o.isActive() {
-			pushed = append(pushed, o)
+	for id, o := range ob.pushedOrders {
+		if o != nil && o.isActive() {
+			byID[id] = o // Push ist mindestens so aktuell wie die Abfrage
 		}
 	}
 	ob.pushMu.RUnlock()
 
 	type peerOrders struct {
-		PeerID string          `json:"peer_id"`
-		Orders json.RawMessage `json:"orders"`
+		PeerID string   `json:"peer_id"`
+		Orders []*Order `json:"orders"`
 	}
-	var groups []peerOrders
-	if len(pollData) > 0 {
-		_ = json.Unmarshal(pollData, &groups)
+	groups := map[string]*peerOrders{}
+	var order []string
+	for _, o := range byID {
+		pid := o.MakerPeer
+		if pid == "" {
+			pid = "push"
+		}
+		g, ok := groups[pid]
+		if !ok {
+			g = &peerOrders{PeerID: pid}
+			groups[pid] = g
+			order = append(order, pid)
+		}
+		g.Orders = append(g.Orders, o)
 	}
-	if len(pushed) > 0 {
-		pj, _ := json.Marshal(pushed)
-		groups = append(groups, peerOrders{PeerID: "push", Orders: pj})
+	sort.Strings(order)
+	out := make([]*peerOrders, 0, len(order))
+	for _, pid := range order {
+		out = append(out, groups[pid])
 	}
-	out, _ := json.Marshal(groups)
-	return out
+	j, _ := json.Marshal(out)
+	return j
+}
+
+// noteFill: nach einem eigenen, erfolgreichen Kauf die gekaufte Menge sofort
+// von der fremden Order abziehen (die Bestätigung des Anbieters folgt einige
+// Sekunden später, sobald er seine Seite abgeholt hat).
+func (ob *OrderBook) noteFill(orderID string, amountFND float64) {
+	if orderID == "" || amountFND <= 0 {
+		return
+	}
+	apply := func(m map[string]*Order) {
+		if o, ok := m[orderID]; ok && o != nil {
+			cp := *o
+			cp.AmountFND -= amountFND
+			if cp.AmountFND <= 0.00000001 {
+				delete(m, orderID)
+			} else {
+				m[orderID] = &cp
+			}
+		}
+	}
+	ob.discMu.Lock()
+	if ob.discoveredOrders != nil {
+		apply(ob.discoveredOrders)
+	}
+	ob.discMu.Unlock()
+	ob.pushMu.Lock()
+	if ob.pushedOrders != nil {
+		apply(ob.pushedOrders)
+	}
+	ob.pushMu.Unlock()
 }
 
 // ── API-Handler ─────────────────────────────────────────────────────────────

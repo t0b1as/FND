@@ -339,7 +339,10 @@ async function handleIncomingMessage(msg) {
         }
         if (known) { known.unread = (known.unread||0) + 1; }
         renderContacts();
-        const who = known ? known.alias : sid.slice(0,10)+'…';
+        // Anzeigenamen/Profilbild des Absenders nachladen (sonst nur Adresse).
+        await loadNames([sid]).catch(function(){});
+        renderContacts();
+        const who = displayName(sid, known);
         showToast('Neue Nachricht von '+who, (payload.text||'').slice(0,60));
         if (window.playPling) window.playPling(); // Ton bei eingehender Nachricht
     }
@@ -915,6 +918,23 @@ function renderContacts() {
     }
 }
 
+// Chat-Kopf: Bild + Anzeigename groß, Adresse klein (Klick kopiert).
+function renderChatHeader(contact) {
+    const fid = String(contact.fundusID || '').toLowerCase();
+    const name = displayName(fid, contact);
+    const nameEl = document.getElementById('chat-with-name');
+    if (nameEl) nameEl.textContent = name;
+    const sub = document.getElementById('chat-with-sub');
+    if (sub) {
+        sub.textContent = fid ? fid.slice(0, 10) + '…' + fid.slice(-6) : '';
+        sub.onclick = function(){ if (navigator.clipboard) navigator.clipboard.writeText(fid); sub.textContent = '✓ Adresse kopiert'; setTimeout(function(){ sub.textContent = fid.slice(0, 10) + '…' + fid.slice(-6); }, 1200); };
+    }
+    const avSlot = document.getElementById('chat-avatar');
+    if (avSlot) avSlot.innerHTML = avatarHTML(fid, name);
+    const hdr = document.getElementById('chat-header');
+    if (hdr) hdr.classList.add('has-chat');
+}
+
 function openChat(contact) {
     activeChat = contact;
     if (contact) { contact.unread = 0; } // ungelesen-Zähler zurücksetzen
@@ -924,9 +944,12 @@ function openChat(contact) {
     if (noChat) noChat.style.display = 'none';
     document.getElementById('chat-header').style.display = 'flex';
     document.getElementById('input-row').style.display = 'flex';
-    document.getElementById('chat-with-name').textContent = displayName(contact.fundusID, contact);
-    const avSlot = document.getElementById('chat-avatar');
-    if (avSlot) avSlot.innerHTML = avatarHTML(contact.fundusID, displayName(contact.fundusID, contact));
+    renderChatHeader(contact);
+    // Name/Bild noch unbekannt? Nachladen und Kopf + Liste aktualisieren.
+    loadNames([contact.fundusID]).then(function(){
+        if (activeChat === contact) renderChatHeader(contact);
+        renderContacts();
+    }).catch(function(){});
     // Mobil: Chat bildschirmfüllend (← führt zurück zur Liste)
     const lay = document.querySelector('.msg-layout');
     if (lay) lay.classList.add('chat-open');

@@ -436,6 +436,8 @@ async function cancelOrder(id){
 setSide("buy");
 loadRate(); loadBook(); loadMine();
 setInterval(function(){ loadBook(); loadMine(); }, 5000);
+// Swap-Schritte, Senden (auch aus anderen Tabs): Buch sofort neu laden.
+window.addEventListener("fundus:balances", function(){ loadBook(); loadMine(); });
 setInterval(loadRate, 30000); // Kurs alle 30s aktualisieren
 </script>
 ]],

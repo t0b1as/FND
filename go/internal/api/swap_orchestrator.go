@@ -327,6 +327,11 @@ func (o *orchestrator) runTaker(ctx context.Context, ss *swapSession, s *Server)
 	if !o.claimTake(ctx, ss, s, otherLockID) {
 		return
 	}
+	// Gekaufte Menge sofort im eigenen Orderbuch abziehen (der Anbieter bestätigt
+	// erst, nachdem er seinerseits eingelöst hat).
+	if s.orderBook != nil {
+		s.orderBook.noteFill(ss.orderID, ss.amountFND)
+	}
 	// Der Maker liest S von der Chain und löst seinerseits ein.
 }
 

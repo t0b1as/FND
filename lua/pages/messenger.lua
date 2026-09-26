@@ -71,7 +71,8 @@ ngx.print([[
       <input type="text" id="chat-with-addr" class="msg-addr-input"
              ]] .. 'placeholder="' .. t("messenger.recipient_addr") .. '"' .. [[
              oninput="updateSendState()" onchange="setRecipientFromAddr()">
-      <span class="meta" id="chat-with-name" style="font-size:11px;margin-left:4px"></span>
+      <span id="chat-with-name" class="msg-chat-name"></span>
+      <span id="chat-with-sub" class="msg-chat-sub" title="Adresse kopieren"></span>
     </div>
     <div class="msg-call-buttons">
       <button class="btn" ]] .. 'title="' .. t("messenger.title_audio") .. '"' .. [[ onclick="startCall('audio')">🎙️</button>
@@ -131,6 +132,19 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 <style>
 .msg-layout      { display:flex; gap:1rem; height:calc(100vh - 140px); align-items:stretch; }
 .msg-back        { display:none; width:auto !important; min-height:0; padding:4px 10px; flex:0 0 auto; }
+/* Spezifischer als die globale Regel "button.btn { display:inline-flex }" –
+   sonst erschien der Zurück-Knopf auch am Desktop. */
+.msg-header .msg-back { display:none; }
+/* Geöffneter Chat: Bild + Name groß, Adresse klein darunter (Klick kopiert);
+   das Adressfeld nur, solange kein Chat offen ist. */
+.msg-header.has-chat #chat-with-addr { display:none; }
+.msg-chat-name   { display:block; font-size:16px; font-weight:600; color:var(--text);
+                   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.msg-chat-sub    { display:block; font-family:monospace; font-size:11px; color:var(--muted); cursor:pointer;
+                   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.msg-chat-sub:empty, .msg-chat-name:empty { display:none; }
+.msg-header      { align-items:center; }
+.msg-call-buttons .btn { padding:6px 12px; }
 .msg-av-slot:empty { display:none; }
 .msg-av-slot     { flex:0 0 auto; display:inline-flex; }
 .msg-av-wrap     { position:relative; flex:0 0 auto; display:inline-flex; }
