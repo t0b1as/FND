@@ -279,12 +279,15 @@ function pollSwapStatus(swapID, btn, ov){
     expired:"abgelaufen",
     discarded: "verworfen (Chain-Neustart)"
   };
+  let lastPhase = "";
   const iv = setInterval(async function(){
     try {
       const r = await fetch("/api/v1/swap/"+swapID);
       if(!r.ok){ return; }
       const d = await r.json();
       const p = d.phase||"?";
+      // Jeder Phasenwechsel bewegt Guthaben (Sperren = ab, Einlösen = zu).
+      if (p !== lastPhase) { lastPhase = p; if (window.fundusBalanceChanged) window.fundusBalanceChanged(); }
       const label = phaseNames[p]||p;
       if (p==="sol_claimed" || p==="fnd_claimed"){
         clearInterval(iv); finishBtn(btn, ov, true); loadBook(); loadMine();

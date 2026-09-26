@@ -416,6 +416,27 @@
     inp.addEventListener("keydown", function(e){ if (e.key === "Enter") save(); });
   };
 
+  // ── Guthaben geändert: gemeinsames Signal für alle Anzeigen ───────────────
+  // Nach Senden, Staken oder einem Swap-Schritt: sofort und noch zweimal nach
+  // 6 s / 12 s aktualisieren (FND-Buchungen wirken erst mit dem nächsten Block).
+  // BroadcastChannel: auch eine offene Wallet-Seite in einem anderen Tab.
+  (function(){
+    let chan = null;
+    try { chan = new BroadcastChannel("fundus-balances"); } catch(e){}
+    let burst = 0;
+    function emit(){ try { window.dispatchEvent(new CustomEvent("fundus:balances")); } catch(e){} }
+    function schedule(){
+      const my = ++burst;
+      emit();
+      [6000, 12000].forEach(function(t){ setTimeout(function(){ if (my === burst) emit(); }, t); });
+    }
+    window.fundusBalanceChanged = function(){
+      schedule();
+      if (chan) { try { chan.postMessage("changed"); } catch(e){} }
+    };
+    if (chan) chan.onmessage = function(){ schedule(); };
+  })();
+
   // ── Solana-Wallet (aus derselben Wallet abgeleitet) ───────────────────────
   // (R484 wiederhergestellt – war beim Profil-Umbau in R480 versehentlich entfernt)
   window.walletSolana = async function(){
@@ -432,12 +453,15 @@
     const ov = walletCard("Solana-Wallet",
       '<p class="wallet-hint">Aus deiner Fundus-Wallet abgeleitet – dieselben Seed-Wörter ergeben auf jedem Node dieselbe Adresse. Im Shop wird sie automatisch verwendet.</p>'+
       '<div style="font-family:monospace;font-size:13px;word-break:break-all">'+walletEsc(d.address)+'</div>'+
-      '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b>'+bal+'</b>'+(d.cluster ? ' <span style="color:#fb3">(' + walletEsc(d.cluster) + ' – Testnetz)</span>' : '')+'</p>'+
+      '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b id="sol-bal">'+bal+'</b>'+(d.cluster ? ' <span style="color:#fb3">(' + walletEsc(d.cluster) + ' – Testnetz)</span>' : '')+'</p>'+
       '<p class="wallet-hint">In laufenden Swaps gesperrte SOL liegen im Swap-Konto des Programms, nicht hier – sie erscheinen nach Abschluss bzw. Rückholung wieder.</p>'+
       '<button class="wallet-submit" id="sol-copy">Adresse kopieren</button>'+
       '<p class="wallet-hint" style="margin-top:12px"><b>SOL senden</b></p>'+
       '<input class="wallet-input" id="sol-to" placeholder="Empfänger (Solana-Adresse)" autocomplete="off" spellcheck="false">'+
-      '<input class="wallet-input" id="sol-amt" type="number" min="0" step="0.000001" placeholder="Betrag in SOL">'+
+      '<div style="display:flex;gap:6px;align-items:center">'+
+        '<input class="wallet-input" id="sol-amt" type="number" min="0" step="0.000001" placeholder="Betrag in SOL" style="flex:1">'+
+        '<button type="button" class="wallet-linkbtn" id="sol-all" title="Gesamtes Guthaben abzüglich Gebühr – Konto danach leer">Alles</button>'+
+      '</div>'+
       '<button class="wallet-submit" id="sol-send">Senden</button>'+
       '<p class="wallet-hint" id="sol-out"></p>'+
       '<p class="wallet-hint" style="margin-top:12px"><a href="#" id="sol-export">Für Phantom/Solflare exportieren …</a></p>');
@@ -446,16 +470,44 @@
       this.textContent = "✓ Kopiert";
     };
     const out = ov.querySelector("#sol-out");
+    const amtEl = ov.querySelector("#sol-amt");
+    // Guthaben aktuell halten: bei "Guthaben geändert" und alle 20 s, solange offen.
+    async function refreshSolBal(){
+      if (!document.body.contains(ov)) { window.removeEventListener("fundus:balances", refreshSolBal); clearInterval(solIv); return; }
+      try {
+        const r = await fetch("/api/v1/wallet/sol", {credentials:"same-origin"});
+        const nd = await r.json();
+        if (r.ok && nd.sol != null) {
+          d.sol = nd.sol;
+          const el = ov.querySelector("#sol-bal");
+          const txt = Number(nd.sol).toFixed(6).replace(".", ",") + " SOL";
+          if (el && el.textContent !== txt) el.textContent = txt;
+        }
+      } catch(e){}
+    }
+    window.addEventListener("fundus:balances", refreshSolBal);
+    const solIv = setInterval(refreshSolBal, 20000);
+    let sendAll = false; // "Alles": Server rechnet exakt Guthaben − Gebühr (Konto danach leer)
+    ov.querySelector("#sol-all").onclick = function(){
+      if (d.sol == null) { out.textContent = "Guthaben unbekannt – bitte Betrag eingeben."; return; }
+      const max = Math.max(0, Number(d.sol) - 0.000005);
+      amtEl.value = max.toFixed(9).replace(/0+$/, "").replace(/\.$/, "");
+      sendAll = true;
+      out.textContent = "Gesamtes Guthaben abzüglich Gebühr – die Wallet ist danach leer.";
+    };
+    amtEl.addEventListener("input", function(){ sendAll = false; });
     ov.querySelector("#sol-send").onclick = async function(){
       const to = ov.querySelector("#sol-to").value.trim();
-      const amt = parseFloat(String(ov.querySelector("#sol-amt").value).replace(",", "."));
+      const amt = parseFloat(String(amtEl.value).replace(",", "."));
       if (!to || !(amt > 0)) { out.textContent = "Bitte Empfänger und Betrag eingeben."; return; }
-      if (!confirm(amt + " SOL an\n" + to + "\nsenden? Solana-Überweisungen sind endgültig.")) return;
+      if (!confirm((sendAll ? "Gesamtes Guthaben (" + amt + " SOL)" : amt + " SOL") + " an\n" + to + "\nsenden? Solana-Überweisungen sind endgültig.")) return;
       const b = this; b.disabled = true; out.textContent = "⏳ Wird gesendet …";
       try {
-        const r = await walletPost("/api/v1/wallet/sol/send", {to: to, amount_sol: amt});
+        const r = await walletPost("/api/v1/wallet/sol/send", sendAll ? {to: to, all: true} : {to: to, amount_sol: amt});
         const cl = r.cluster ? "?cluster=" + encodeURIComponent(r.cluster) : "";
         out.innerHTML = "✓ Gesendet – <a href=\"https://explorer.solana.com/tx/" + encodeURIComponent(r.signature) + cl + "\" target=\"_blank\" rel=\"noopener\">im Explorer ansehen</a>";
+        sendAll = false; amtEl.value = "";
+        window.fundusBalanceChanged && window.fundusBalanceChanged();
       } catch(e){ out.textContent = "✗ " + e.message; }
       b.disabled = false;
     };

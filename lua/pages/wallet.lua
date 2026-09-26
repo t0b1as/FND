@@ -602,9 +602,15 @@ async function walTransfer(){
     out.innerHTML = WT.sent_tx + '<code>'+d.tx_hash+'</code>' +
       (d.payee_note ? '<br><span class="meta">ℹ ' + String(d.payee_note).replace(/[<>&]/g, '') + '</span>' : '');
     out.style.color='var(--grn)';
-    if (window.walOpenAddress) { await walShowBalance(window.walOpenAddress); }
+    if (window.fundusBalanceChanged) { window.fundusBalanceChanged(); }       // sofort + nach dem nächsten Block
+    else if (window.walOpenAddress) { await walShowBalance(window.walOpenAddress); }
   } catch(e){ out.textContent='✗ '+e.message; out.style.color='var(--red)'; }
 }
+// "Guthaben geändert" (Senden, Staken, Swap – auch aus anderen Tabs): Anzeigen auffrischen.
+window.addEventListener('fundus:balances', function(){
+  if (window.walOpenAddress) { walShowBalance(window.walOpenAddress).catch(function(){}); }
+  if (window.nodeWalletAddr) { openNodeWallet().catch(function(){}); loadStakeStatus().catch(function(){}); }
+});
 async function walMint(){
   const out = document.getElementById('wal-mint-out');
   const toEl = document.getElementById('wal-mint-to');
@@ -740,7 +746,7 @@ async function doStake(){
     const d = await r.json();
     if (r.ok){
       if (out){ out.textContent = WT.stake_ok; out.style.color='var(--grn)'; }
-      setTimeout(loadStakeStatus, 2000);
+      setTimeout(loadStakeStatus, 2000); window.fundusBalanceChanged && window.fundusBalanceChanged();
     } else {
       if (out){ out.textContent = '✗ ' + (d.error || WT.error_word); out.style.color='var(--red)'; }
     }
@@ -761,7 +767,7 @@ async function doUnstake(){
     const d = await r.json();
     if (r.ok){
       if (out){ out.textContent = WT.stake_unstaked; out.style.color='var(--grn)'; }
-      setTimeout(loadStakeStatus, 2000);
+      setTimeout(loadStakeStatus, 2000); window.fundusBalanceChanged && window.fundusBalanceChanged();
     } else {
       if (out){ out.textContent = '✗ ' + (d.error || WT.error_word); out.style.color='var(--red)'; }
     }

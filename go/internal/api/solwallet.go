@@ -161,6 +161,7 @@ func (s *Server) walletSolSend(c *gin.Context) {
 	var req struct {
 		To        string  `json:"to"`
 		AmountSOL float64 `json:"amount_sol"`
+		All       bool    `json:"all"` // gesamtes Guthaben abzüglich Gebühr (Konto danach leer)
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültige Anfrage"})
@@ -171,7 +172,7 @@ func (s *Server) walletSolSend(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Solana-Adresse"})
 		return
 	}
-	if req.AmountSOL <= 0 || req.AmountSOL > 1e7 {
+	if !req.All && (req.AmountSOL <= 0 || req.AmountSOL > 1e7) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültiger Betrag"})
 		return
 	}
@@ -193,9 +194,32 @@ func (s *Server) walletSolSend(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
+	if req.All {
+		if bal <= solTxFeeLamports {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Kein Guthaben zum Senden (nur die Gebühr wäre gedeckt)"})
+			return
+		}
+		lamports = bal - solTxFeeLamports // Konto danach leer – erlaubt
+	}
 	if bal < lamports+solTxFeeLamports {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Nicht genug SOL: %.6f vorhanden, %.6f nötig (inkl. Gebühr)",
 			float64(bal)/1e9, float64(lamports+solTxFeeLamports)/1e9)})
+		return
+	}
+	// Absender: Ein Konto muss danach LEER sein oder mindestens die Mindestreserve
+	// (Mietfreiheit, ~0,00089 SOL) behalten – ein Rest dazwischen lehnt Solana ab
+	// ("insufficient funds for rent").
+	if rest := bal - lamports - solTxFeeLamports; rest > 0 && rest < solRentMinLamports {
+		maxKeep := int64(bal) - int64(solTxFeeLamports) - int64(solRentMinLamports)
+		msg := fmt.Sprintf("Nach dem Senden blieben %.6f SOL übrig – Solana verlangt aber, dass ein Konto leer ist oder mindestens %.6f SOL (Mindestreserve) behält. ",
+			float64(rest)/1e9, float64(solRentMinLamports)/1e9)
+		if maxKeep > 0 {
+			msg += fmt.Sprintf("Möglich: höchstens %.6f SOL senden (Rest bleibt stehen) oder „Alles senden“ (%.6f SOL, Konto danach leer).",
+				float64(maxKeep)/1e9, float64(bal-solTxFeeLamports)/1e9)
+		} else {
+			msg += fmt.Sprintf("Möglich: „Alles senden“ (%.6f SOL, Konto danach leer).", float64(bal-solTxFeeLamports)/1e9)
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
 	// Neues (leeres) Empfängerkonto braucht mindestens die Mindestreserve.
