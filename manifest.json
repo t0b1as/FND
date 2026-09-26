@@ -1,8 +1,8 @@
 {
-  "version": "R485",
-  "description": "FUNDUS R485 - Messenger Layout",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R485/FND-R485-update.zip",
-  "node_argon2": "e668ec8a4480321683680b0e0a46364dfa242964b825cebc4b3d5585a089a271",
-  "published_at": "2026-09-26T12:17:39.6926531Z",
-  "signature": "0x2bc84ed6c2fd0b7e54ecd27a595ec4b3d1edbf29a6040ac5abee4781cf60692f616e6b8fbd0ed597ba405b23dd08804a8f4b18dd45270e177d0f2fef9faddeca1b"
+  "version": "R490",
+  "description": "FUNDUS R490 - Block Time 5s",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R490/FND-R490-update.zip",
+  "node_argon2": "1fef7c1df296dd63a8bb5669ad6d8b51e61eb5560d7e0614ac019d3bd9ec3974",
+  "published_at": "2026-09-26T13:15:24.9399275Z",
+  "signature": "0x453a90427b2f46e2e50ebc909734eb18875c488ad574cab9cd4591a0334815075ab5dfa7ea7e47214999d1017c8f9c5425509653adc5112b5ba9a5acc861db9d1b"
 }
