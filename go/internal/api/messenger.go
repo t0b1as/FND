@@ -147,7 +147,7 @@ func (s *Server) registerMessengerRoutes() {
 	g := s.router.Group("/api/v1")
 	{
 		// Identitäts-Ableitung (Argon2id auf Server-Seite)
-		g.POST("/identity/derive",  s.identityDerive)
+		g.POST("/identity/derive",  s.loginThrottleMiddleware(), s.identityDerive) // Anmeldebremse (öffentlich)
 		g.GET("/identity/me",       s.identityMe)
 		g.GET("/identity/seed",     s.identitySeedWords) // Wallet-Seed anzeigen (eigene Session)
 		g.POST("/identity/email-dir/publish", s.emailDirPublish) // opt-in email→FundusID

@@ -29,6 +29,7 @@ func (s *Server) registerFileRoutes() {
 	// statt 404 (was die Lua-Seite als HTML missinterpretiert → "deaktiviert"
 	// + "Unexpected token '<'" beim Upload).
 	g := s.router.Group("/api/v1/files")
+	g.Use(s.uploadAuthMiddleware()) // Uploads von außen nur mit Anmeldung
 	{
 		g.POST("/upload",        s.fileUpload)
 		g.GET("/download/:hash", s.fileDownload)

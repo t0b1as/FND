@@ -28,7 +28,7 @@ func (s *Server) registerWalletRoutes() {
 	g.POST("/derive",   s.walletDerive)   // Seed/Email+PW → Adresse (Vorschau)
 	g.GET("/balance",   s.walletBalance)   // Saldo einer Adresse
 	g.POST("/transfer", s.walletTransfer)  // FND überweisen (ephemer signiert)
-	g.POST("/open", s.walletOpen)          // Wallet ableiten (256 MiB, wie fnd-wallet)
+	g.POST("/open", s.loginThrottleMiddleware(), s.walletOpen) // Wallet ableiten (256 MiB) – Anmeldebremse
 	g.POST("/link", s.walletLink)          // für den Login hinterlegen (verschlüsselt, lokal)
 	g.DELETE("/link", s.walletUnlink)
 	g.POST("/migrate", s.walletMigrate)    // Guthaben der alten Adresse (vor R456) umziehen

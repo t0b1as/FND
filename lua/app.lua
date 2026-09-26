@@ -16,7 +16,7 @@ local router = require "router"
 -- Seiten vom entfernten Node über den P2P-Tunnel geholt. So funktionieren alle
 -- Links der fremden Seiten. Beenden über /api/v1/remote/exit.
 do
-    local rp = ngx.var.cookie_fundus_remote
+    local rp = (ngx.var.fundus_lan == "1") and ngx.var.cookie_fundus_remote or nil  -- nur aus dem Heimnetz
     if rp and #rp >= 40 and #rp <= 64 and rp:match("^[1-9A-HJ-NP-Za-km-z]+$") then
         return ngx.exec("/api/v1/proxy/" .. rp .. ngx.var.uri, ngx.var.args)
     end
