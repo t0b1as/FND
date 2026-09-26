@@ -35,10 +35,35 @@ type orderFundsError struct {
 	Detail map[string]any
 }
 
+// solClaimFeeLamports: Wer SOL ERHÄLT, muss die Abholung auf Solana selbst
+// bezahlen (Gebühr ~0,000005 SOL). Ohne jedes SOL scheitert sie mit "no record
+// of a prior credit". 0,002 SOL deckt auch Wiederholungen großzügig ab.
+const solClaimFeeLamports uint64 = 2_000_000
+
+// checkSolClaimFee: hat die Solana-Wallet, die SOL erhalten soll, genug für die Abholgebühr?
+func (s *Server) checkSolClaimFee(ctx context.Context, solAddr, who string) *orderFundsError {
+	if solAddr == "" {
+		return nil
+	}
+	bal, err := s.solBalanceLamports(ctx, solAddr)
+	if err != nil {
+		return &orderFundsError{Msg: "SOL-Guthaben für die Abholgebühr nicht prüfbar (" + err.Error() + ")"}
+	}
+	if bal < solClaimFeeLamports {
+		return &orderFundsError{Msg: fmt.Sprintf("%s braucht etwas SOL für die Abholgebühr: mind. %.3f SOL, vorhanden %.6f SOL (Menü oben rechts → Solana-Wallet → Adresse, dorthin SOL senden)",
+			who, float64(solClaimFeeLamports)/1e9, float64(bal)/1e9)}
+	}
+	return nil
+}
+
 func (s *Server) checkOrderFunds(ctx context.Context, side OrderSide, typ OrderType, amountFND, priceSOL float64, fndAddr, solAddr string) *orderFundsError {
 	switch side {
 	case OrderSell:
-		return s.checkFNDFunds(amountFND, fndAddr)
+		if e := s.checkFNDFunds(amountFND, fndAddr); e != nil {
+			return e
+		}
+		// Verkäufer erhält SOL → muss die Abholung bezahlen können.
+		return s.checkSolClaimFee(ctx, solAddr, "Deine Solana-Wallet")
 	case OrderBuy:
 		return s.checkSOLFunds(ctx, typ, amountFND, priceSOL, solAddr)
 	}
@@ -264,6 +289,12 @@ func (s *Server) checkTakeFunds(ctx context.Context, order *Order, amountFND flo
 				"Der Anbieter hat nicht mehr genug FND (%.4f FND vorhanden, %.4f FND nötig) – die Order ist nicht mehr gedeckt",
 				uToFNDFloat(mbal), uToFNDFloat(needFNDU)), Detail: map[string]any{"maker_uncovered": true}}
 		}
+		// Anbieter erhält SOL → muss die Abholung bezahlen können (sonst bliebe
+		// der Swap nach dem FND-Tausch bei der SOL-Abholung hängen).
+		if e := s.checkSolClaimFee(ctx, order.SolAddress, "Die Solana-Wallet des Anbieters"); e != nil {
+			e.Detail = map[string]any{"maker_uncovered": true}
+			return e
+		}
 		return nil
 	}
 
@@ -295,6 +326,10 @@ func (s *Server) checkTakeFunds(ctx context.Context, order *Order, amountFND flo
 			msg += fmt.Sprintf(" – %.4f FND sind in deinen offenen Verkaufs-Orders gebunden", uToFNDFloat(committed))
 		}
 		return &orderFundsError{Msg: msg}
+	}
+	// Annehmender erhält SOL → Abholgebühr.
+	if e := s.checkSolClaimFee(ctx, takerSolAddr, "Deine Solana-Wallet"); e != nil {
+		return e
 	}
 	// 2. Anbieter zahlt SOL.
 	mbal, err := s.solBalanceLamports(ctx, order.SolAddress)

@@ -445,20 +445,18 @@ func (o *orchestrator) claimTakeWithSecret(ctx context.Context, ss *swapSession,
 		s.setSwapPhase(ss.swapID, SwapSolClaimed, "")
 		return
 	}
-	// Taker gab SOL → wir lösen SOL ein.
-	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
-	if err != nil {
-		return
-	}
+	// Taker gab SOL → wir lösen SOL ein – mit Wiederholung in eigener Goroutine
+	// und EIGENER Schlüsselkopie (das Aufräumen nach dem Swap nullt die
+	// hinterlegten Schlüssel; eine leere Solana-Wallet für die Gebühr ließ die
+	// Abholung früher nach einem einzigen Versuch endgültig scheitern).
 	takerSol, err := solana.PublicKeyFromBase58(ss.counterpartySol)
 	if err != nil {
+		s.setSwapPhase(ss.swapID, SwapFndClaimed, "SOL-Abholung: Käufer-Adresse ungültig")
 		return
 	}
-	if _, err := client.Redeem(ctx, ss.solKey, takerSol, ss.secretHash, secret); err != nil {
-		s.setSwapPhase(ss.swapID, SwapFndClaimed, "SOL-Claim fehlgeschlagen: "+err.Error())
-		return
-	}
-	s.setSwapPhase(ss.swapID, SwapSolClaimed, "")
+	keyCopy := append(solana.PrivateKey(nil), ss.solKey...)
+	go s.redeemSolWithRetry(ss.swapID, keyCopy, takerSol, ss.secretHash, secret, time.Now().Add(solClaimWindow))
+	// Phase "SOL abgeholt" setzt redeemSolWithRetry bei Erfolg.
 }
 
 // scheduleRefund wählt den richtigen Refund je nach Give-Chain.
@@ -701,4 +699,179 @@ func (ss *swapSession) currentPhase(s *Server) SwapPhase {
 		return sw.Phase
 	}
 	return SwapInitiated
+}
+
+// ── SOL-Abholung mit Wiederholung + Wiederaufnahme nach Neustart ──────────────
+
+// solClaimWindow: so lange wird die Abholung versucht (die SOL-Sperre des
+// Käufers als Erst-Sperrer läuft ~48 h; danach kann er zurückholen).
+const solClaimWindow = 46 * time.Hour
+
+var (
+	solClaimMu      sync.Mutex
+	solClaimRunning = map[string]bool{} // Swap-ID → Abholung läuft bereits
+)
+
+// friendlySolClaimErr übersetzt häufige Abholfehler.
+func friendlySolClaimErr(err error, payer solana.PublicKey) string {
+	e := err.Error()
+	switch {
+	case strings.Contains(e, "no record of a prior credit") || strings.Contains(e, "insufficient funds for fee") ||
+		strings.Contains(e, "InsufficientFundsForFee"):
+		return "deine Solana-Wallet " + payer.String() + " hat kein SOL für die Gebühr – bitte mind. 0,01 SOL dorthin senden (Menü → Solana-Wallet)"
+	case strings.Contains(e, "429") || strings.Contains(strings.ToLower(e), "too many"):
+		return "Solana-RPC drosselt (zu viele Anfragen)"
+	}
+	return truncate(e, 160)
+}
+
+// redeemSolWithRetry holt die SOL mit dem Geheimnis ab und versucht es bei
+// Fehlern jede Minute erneut, bis es klappt, das Konto nicht mehr existiert
+// (bereits abgeholt/zurückgeholt) oder die Frist abläuft.
+func (s *Server) redeemSolWithRetry(swapID string, key solana.PrivateKey, takerSol solana.PublicKey,
+	hash, secret [32]byte, deadline time.Time) {
+	solClaimMu.Lock()
+	if solClaimRunning[swapID] {
+		solClaimMu.Unlock()
+		return
+	}
+	solClaimRunning[swapID] = true
+	solClaimMu.Unlock()
+	defer func() {
+		solClaimMu.Lock()
+		delete(solClaimRunning, swapID)
+		solClaimMu.Unlock()
+		for i := range key {
+			key[i] = 0
+		}
+	}()
+	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
+	if err != nil {
+		s.setSwapPhase(swapID, SwapFndClaimed, "SOL-Abholung: "+err.Error())
+		return
+	}
+	pda, _, perr := client.deriveSwapPDA(takerSol, hash)
+	for attempt := 1; ; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		if perr == nil {
+			// Swap-Konto weg → bereits abgeholt oder vom Käufer zurückgeholt.
+			if ok, cerr := (&orchestrator{}).solAccountCheck(ctx, s, pda.String()); cerr == nil && !ok {
+				cancel()
+				s.setSwapPhase(swapID, SwapFndClaimed, "SOL-Swap-Konto existiert nicht mehr (bereits abgeholt oder vom Käufer zurückgeholt)")
+				return
+			}
+		}
+		_, rerr := client.Redeem(ctx, key, takerSol, hash, secret)
+		cancel()
+		if rerr == nil {
+			s.setSwapPhase(swapID, SwapSolClaimed, "SOL abgeholt")
+			if s.log != nil {
+				s.log.Info("SOL abgeholt", zap.String("swap", swapID), zap.Int("versuch", attempt))
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			s.setSwapPhase(swapID, SwapFndClaimed, "SOL-Abholung aufgegeben (Frist abgelaufen): "+friendlySolClaimErr(rerr, key.PublicKey()))
+			return
+		}
+		s.setSwapPhase(swapID, SwapFndClaimed, fmt.Sprintf("SOL-Abholung fehlgeschlagen (Versuch %d): %s – nächster Versuch in 1 min",
+			attempt, friendlySolClaimErr(rerr, key.PublicKey())))
+		time.Sleep(time.Minute)
+	}
+}
+
+// resumeSolClaimsLoop: nimmt nach einem Neustart Verkäufer-Swaps wieder auf,
+// deren FND bereits eingelöst sind (Geheimnis öffentlich), deren SOL aber noch
+// nicht abgeholt wurden. Schlüssel: hinterlegte Order-Schlüssel oder – falls
+// schon freigegeben – die angemeldete Sitzung, deren Solana-Adresse passt.
+func (s *Server) resumeSolClaimsLoop() {
+	time.Sleep(45 * time.Second) // Chain-Sync abwarten
+	for {
+		s.resumeSolClaimsOnce()
+		time.Sleep(2 * time.Minute)
+	}
+}
+
+func (s *Server) resumeSolClaimsOnce() {
+	if s.swapMgr == nil || s.chain == nil || s.swapMgr.htlcProgramID == "" {
+		return
+	}
+	type pending struct {
+		id, orderID, buyerSol, sellerSol, hashlock, fndHTLC string
+	}
+	var list []pending
+	s.swapMgr.mu.RLock()
+	for _, sw := range s.swapMgr.swaps {
+		if sw == nil || !strings.HasPrefix(sw.ID, "seller-") || sw.Phase != SwapFndClaimed ||
+			sw.BuyerSol == "" || sw.Hashlock == "" || sw.FndHTLCID == "" {
+			continue
+		}
+		if !strings.Contains(sw.Note, "SOL-Claim fehlgeschlagen") && !strings.Contains(sw.Note, "SOL-Abholung fehlgeschlagen") {
+			continue
+		}
+		list = append(list, pending{sw.ID, sw.OrderID, sw.BuyerSol, sw.SellerSol, sw.Hashlock, sw.FndHTLCID})
+	}
+	s.swapMgr.mu.RUnlock()
+	for _, p := range list {
+		solClaimMu.Lock()
+		running := solClaimRunning[p.id]
+		solClaimMu.Unlock()
+		if running {
+			continue
+		}
+		secret, ok := s.findRevealedSecret(p.fndHTLC)
+		if !ok {
+			continue
+		}
+		hash, err := hash32FromHex(p.hashlock)
+		if err != nil {
+			continue
+		}
+		takerSol, err := solana.PublicKeyFromBase58(p.buyerSol)
+		if err != nil {
+			continue
+		}
+		key := s.findSolKeyFor(p.orderID, p.sellerSol)
+		if key == nil {
+			s.setSwapPhase(p.id, SwapFndClaimed, "SOL-Abholung wartet: auf diesem Node anmelden (Wallet hinterlegt), dann wird automatisch abgeholt")
+			continue
+		}
+		go s.redeemSolWithRetry(p.id, key, takerSol, hash, secret, time.Now().Add(solClaimWindow))
+	}
+}
+
+// findSolKeyFor: Solana-Schlüssel des Verkäufers – aus den hinterlegten Order-
+// Schlüsseln oder aus einer angemeldeten Sitzung mit passender Adresse (nur
+// Sitzungen mit bereits vorhandenem Wallet-Schlüssel, keine Argon2-Ableitung).
+func (s *Server) findSolKeyFor(orderID, sellerSol string) solana.PrivateKey {
+	if s.swapCoord != nil {
+		s.swapCoord.mu.Lock()
+		if d, ok := s.swapCoord.deposits[orderID]; ok && len(d.solKey) == 64 {
+			k := append(solana.PrivateKey(nil), d.solKey...)
+			s.swapCoord.mu.Unlock()
+			return k
+		}
+		s.swapCoord.mu.Unlock()
+	}
+	sessionMu.RLock()
+	sessions := make([]*Session, 0, len(sessionStore))
+	for _, sess := range sessionStore {
+		sessions = append(sessions, sess)
+	}
+	sessionMu.RUnlock()
+	for _, sess := range sessions {
+		if sess == nil || sess.identity == nil || sess.identity.ChainAddr() == "" {
+			continue
+		}
+		ck, err := sess.identity.ChainPrivateKey()
+		if err != nil {
+			continue
+		}
+		k := solKeyFromChain(ck)
+		ck.D.SetInt64(0)
+		if sellerSol == "" || k.PublicKey().String() == sellerSol {
+			return k
+		}
+	}
+	return nil
 }
