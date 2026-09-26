@@ -198,6 +198,24 @@ func (n *Node) SyncChainFromPeer(peerID string) {
 	}
 	notePeerHead(peerID, head.Height, false)
 
+	// 2a. Liegen wir auf demselben Ast? Auf der gemeinsamen Höhe die Blockhashes
+	// vergleichen – IMMER, nicht nur wenn der Peer weiter ist. (Wachsen zwei Äste
+	// gleich schnell, gab es nie "etwas nachzuholen", und die Abzweigung blieb
+	// unbemerkt: jeder Validator baute seinen Ast allein weiter.)
+	if ours := c.Height(); ours > 0 && head.Height > 0 {
+		h := ours
+		if head.Height < h {
+			h = head.Height
+		}
+		if mine, ok := c.BlockHashAt(h); ok {
+			if theirs, ok2 := n.peerBlockHash(ctx, peerID, c, h); ok2 && theirs != mine {
+				notePeerHead(peerID, head.Height, true)
+				go n.resolveFork(peerID, c, head.Height)
+				return
+			}
+		}
+	}
+
 	// 2b. Validator-Set des Peers übernehmen (dezentrale Verbreitung ohne Config).
 	// So erfährt ein neu beigetretener Node die aktiven Validatoren direkt vom Netz.
 	if len(head.Validators) > 0 {
