@@ -1,8 +1,8 @@
 {
-  "version": "R495",
-  "description": "FUNDUS R495 - Session Recovery at Power Loss",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R495/FND-R495-update.zip",
-  "node_argon2": "7bb31a6591f819e7b61f8e9806553a9ef3d93b6abf307c31e1e4de9ae6ecc4de",
-  "published_at": "2026-09-26T14:52:49.283308Z",
-  "signature": "0x061d669033fbb137bccb4a0fd99d2946ff85f3a3d04c5bd1732e39d2808f78d46a6e944e2a2654c95e4078064e6e6d481c599277185c5c9a9acd66c7ac9ec7e71c"
+  "version": "R496",
+  "description": "FUNDUS R496 - Session Recovery",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R496/FND-R496-update.zip",
+  "node_argon2": "72e8ada1a56a55ae0ce66ae82f3669d24aa2b0db3b4040918f8470934766752f",
+  "published_at": "2026-09-26T15:28:31.7686053Z",
+  "signature": "0x9d04823ce2975f0e791476687671f7d67ea2d4b87b729b8b6221413f837d6593122f2e8ea4deff87fc52cc10ce90e335a09e971ac3e9184c24a78aac285106e01b"
 }
