@@ -330,8 +330,6 @@ func (n *Node) MaxPeerHeight(maxAge time.Duration) (uint64, bool) {
 // beiseite (gesichert) und startet neu; die Sync-Sperre beim Start sorgt dafür,
 // dass er erst den gültigen Ast übernimmt und dann wieder baut.
 
-const forkSearchDepth = 500
-
 var (
 	forkMu          sync.Mutex
 	forkLastPeer    = map[string]time.Time{}
@@ -398,32 +396,37 @@ func (n *Node) resolveFork(peerID string, c ChainBridge, peerHeight uint64) {
 	if peerHeight < top {
 		top = peerHeight
 	}
-	lo := uint64(0)
-	if top > forkSearchDepth {
-		lo = top - forkSearchDepth
-	}
-	// Gemeinsamen Vorfahren suchen (rückwärts).
-	ancestor, found := uint64(0), false
-	for h := top; ; h-- {
+	// Gemeinsamen Vorfahren per BINÄRSUCHE finden: Weichen zwei Äste einmal ab,
+	// unterscheiden sich ALLE späteren Blöcke (jeder enthält den Hash seines
+	// Vorgängers). "Gleicher Hash auf Höhe h" gilt also genau bis zum Vorfahren –
+	// monoton, daher genügen ~log2(Höhe) Anfragen (1 Mio. Blöcke ≈ 20), egal wie
+	// tief die Abzweigung liegt. Genesis (Höhe 0) ist per Konstruktion gleich.
+	same := func(h uint64) (bool, bool) {
+		if h == 0 {
+			return true, true
+		}
 		ours, ok1 := c.BlockHashAt(h)
 		theirs, ok2 := n.peerBlockHash(ctx, peerID, c, h)
-		if h == 0 {
-			theirs, ok2 = ours, ok1 // Genesis ist per Konstruktion gleich
+		if !ok1 || !ok2 {
+			return false, false // nicht abrufbar → später erneut versuchen
 		}
-		if ok1 && ok2 && ours == theirs {
-			ancestor, found = h, true
-			break
+		return ours == theirs, true
+	}
+	lo, hi := uint64(0), top
+	for lo < hi {
+		mid := lo + (hi-lo+1)/2
+		eq, ok := same(mid)
+		if !ok {
+			n.log.Warn("Chain: Astwahl abgebrochen – Block des Peers nicht abrufbar", zap.String("peer", shortPeer(peerID)), zap.Uint64("hoehe", mid))
+			return
 		}
-		if h == lo || h == 0 {
-			break
+		if eq {
+			lo = mid
+		} else {
+			hi = mid - 1
 		}
 	}
-	if !found {
-		msg := fmt.Sprintf("Abzweigung zu Peer %s tiefer als %d Blöcke – Chain dieses Nodes bitte von Hand zurücksetzen (--reset-chain), falls er nicht der Mehrheit folgt", shortPeer(peerID), forkSearchDepth)
-		setForkNote(msg)
-		n.log.Warn("Chain: " + msg)
-		return
-	}
+	ancestor := lo
 	k := ancestor + 1
 	ours, ok1 := c.BlockHashAt(k)
 	theirs, ok2 := n.peerBlockHash(ctx, peerID, c, k)
