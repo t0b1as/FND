@@ -8,6 +8,7 @@ package api
 // Jetzt werden Betrag, Empfänger (man selbst) und Restlaufzeit geprüft.
 
 import (
+	"time"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -24,8 +25,7 @@ import (
 
 // Mindest-Restlaufzeit der fremden Sperre, um sicher einlösen zu können (~1 h).
 const (
-	verifyMarginSlots  = 9000 // Solana, ~400 ms/Slot
-	verifyMarginBlocks = 720  // Fundus-Chain, ~5 s/Block
+	verifyMarginSlots = 9000 // Solana, ~400 ms/Slot (FND-Seite: zeitbasiert, fndBlocksFor)
 )
 
 // verifySolLock prüft das Swap-Konto (Anchor: 8 Byte Diskriminator, dann
@@ -129,9 +129,12 @@ func (s *Server) verifyCounterpartyLock(ctx context.Context, ss *swapSession, fn
 		return s.verifySolLock(ctx, pda, uint64(ss.amountSOL*1_000_000_000), ss.solKey.PublicKey(), minSlots)
 	}
 	// Ich gebe SOL → Gegenseite hat FND gesperrt (an meine Adresse).
-	minBlocks := uint64(verifyMarginBlocks)
+	// Spielraum in ECHTER Zeit (1 h), umgerechnet mit der gemessenen Blockzeit.
+	minBlocks := s.fndBlocksFor(time.Hour)
 	if !ss.isTaker {
-		minBlocks += secondLockerTimelockBlocks
+		// Der Käufer sperrte zuerst: seine Frist muss unsere (Zweit-)Sperre
+		// deutlich überdauern – unsere Frist plus 1 h.
+		minBlocks += s.fndSecondLockBlocks()
 	}
 	return s.verifyFndLock(fndLockID, fndToUFND(ss.amountFND), minBlocks)
 }

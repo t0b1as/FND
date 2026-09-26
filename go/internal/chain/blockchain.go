@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"sort"
 	"math/big"
 	"crypto/ecdsa"
 	"encoding/json"
@@ -182,27 +183,47 @@ func (bc *Blockchain) FirstBlockTime() uint64 {
 	return 0
 }
 
-// AvgBlockSeconds: mittlere Blockzeit über die letzten n Blöcke (aus den
-// Zeitstempeln). Zu kurze Historie → Sollwert BlockTime. Nie unter BlockTime.
+// AvgBlockSeconds: typische Blockzeit als MEDIAN der letzten Blockabstände
+// (höchstens 240). Der Median ist robust gegen einzelne lange Pausen – etwa aus
+// der Zeit vor den regelmäßigen Blöcken (R489) oder Validator-Ausfällen; ein
+// Mittelwert wurde davon so verzerrt, dass Swap-Fristen falsch ausfielen.
+// Zu kurze Historie → Sollwert BlockTime. Nie unter BlockTime.
 func (bc *Blockchain) AvgBlockSeconds(n uint64) float64 {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
-	if n == 0 || bc.height < 50 {
+	if n > 240 {
+		n = 240
+	}
+	if n < 10 || bc.height < 20 {
 		return float64(BlockTime)
 	}
-	if n > bc.height {
-		n = bc.height
+	if n >= bc.height {
+		n = bc.height - 1
 	}
-	head, err1 := bc.loadBlock(bc.height)
-	old, err2 := bc.loadBlock(bc.height - n)
-	if err1 != nil || err2 != nil || head == nil || old == nil || head.Header.Timestamp <= old.Header.Timestamp {
+	var gaps []float64
+	prev, err := bc.loadBlock(bc.height - n)
+	if err != nil || prev == nil {
 		return float64(BlockTime)
 	}
-	avg := float64(head.Header.Timestamp-old.Header.Timestamp) / float64(n)
-	if avg < float64(BlockTime) {
+	for h := bc.height - n + 1; h <= bc.height; h++ {
+		cur, err := bc.loadBlock(h)
+		if err != nil || cur == nil {
+			return float64(BlockTime)
+		}
+		if cur.Header.Timestamp >= prev.Header.Timestamp {
+			gaps = append(gaps, float64(cur.Header.Timestamp-prev.Header.Timestamp))
+		}
+		prev = cur
+	}
+	if len(gaps) == 0 {
 		return float64(BlockTime)
 	}
-	return avg
+	sort.Float64s(gaps)
+	med := gaps[len(gaps)/2]
+	if med < float64(BlockTime) {
+		return float64(BlockTime)
+	}
+	return med
 }
 
 // StakeOf liefert den aktiv gestakten Betrag einer Adresse (uFND).

@@ -15,6 +15,7 @@ package api
 //   der Verkäufer die SOL einlösen — der Käufer braucht also genug Zeitpuffer.
 
 import (
+	"math"
 	"strconv"
 	"fmt"
 	"context"
@@ -312,7 +313,13 @@ func (o *orchestrator) runTaker(ctx context.Context, ss *swapSession, s *Server)
 	// 2. Warten, bis der Maker auf SEINER Give-Chain gesperrt hat.
 	otherLockID, ok := o.waitForMakerLock(ctx, ss, s)
 	if !ok {
-		s.setSwapPhase(ss.swapID, SwapExpired, "Maker hat nicht gesperrt — Refund eingeplant")
+		// Einen genaueren Grund (z.B. "Sperre des Anbieters passt nicht: …") NICHT
+		// überschreiben – nur ergänzen.
+		if n := ss.currentNote(s); strings.Contains(n, "passt nicht") {
+			s.setSwapPhase(ss.swapID, SwapExpired, n)
+		} else {
+			s.setSwapPhase(ss.swapID, SwapExpired, "Anbieter hat nicht gesperrt — eigene Sperre wird nach Ablauf zurückgeholt")
+		}
 		o.scheduleRefund(ss)
 		return
 	}
@@ -987,16 +994,37 @@ func (s *Server) fndTimelockFor(ss *swapSession) uint64 {
 	if ss.isTaker {
 		return firstLockerTimelockBlocks
 	}
-	avg := float64(chain.BlockTime)
+	return s.fndSecondLockBlocks()
+}
+
+// fndBlockSeconds: typische Blockzeit (Median), nie unter BlockTime.
+func (s *Server) fndBlockSeconds() float64 {
 	if s.chain != nil {
-		avg = s.chain.AvgBlockSeconds(720)
+		return s.chain.AvgBlockSeconds(240)
 	}
-	blocks := uint64(24 * 3600 / avg)
+	return float64(chain.BlockTime)
+}
+
+// fndBlocksFor: wie viele Blöcke entsprechen der Dauer d (aufgerundet)?
+func (s *Server) fndBlocksFor(d time.Duration) uint64 {
+	b := uint64(math.Ceil(d.Seconds() / s.fndBlockSeconds()))
+	if b < 1 {
+		b = 1
+	}
+	return b
+}
+
+// fndSecondLockBlocks: Frist des Zweit-Sperrenden ≈ 24 h echte Zeit, nie mehr
+// als 17 280 Blöcke und nie weniger als 4 h – deutlich über der Restlaufzeit
+// von 1 h, die die Gegenseite beim Prüfen verlangt (früher kollidierten die
+// Untergrenze 720 und die Prüfschwelle 720 → Swap scheiterte).
+func (s *Server) fndSecondLockBlocks() uint64 {
+	blocks := s.fndBlocksFor(24 * time.Hour)
 	if blocks > secondLockerTimelockBlocks {
 		blocks = secondLockerTimelockBlocks
 	}
-	if blocks < 720 {
-		blocks = 720
+	if min := s.fndBlocksFor(4 * time.Hour); blocks < min {
+		blocks = min
 	}
 	return blocks
 }
@@ -1013,4 +1041,14 @@ func pollDelay(start time.Time) time.Duration {
 	default:
 		return 30 * time.Second
 	}
+}
+
+// currentNote: aktuelle Statusnotiz eines Swaps.
+func (ss *swapSession) currentNote(s *Server) string {
+	s.swapMgr.mu.RLock()
+	defer s.swapMgr.mu.RUnlock()
+	if sw, ok := s.swapMgr.swaps[ss.swapID]; ok {
+		return sw.Note
+	}
+	return ""
 }
