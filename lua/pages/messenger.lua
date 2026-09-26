@@ -41,6 +41,8 @@ ngx.print([[
   <!-- Kontakte -->
   <div class="msg-contacts" style="margin-top:1rem">
     ]] .. "<h3>" .. t("messenger.contacts") .. "</h3>" .. [[
+    <details class="msg-addcontact">
+    <summary>+ Kontakt hinzufügen</summary>
     <div class="field">
       <input type="text" id="new-contact-id"
              ]] .. 'placeholder="' .. t("messenger.placeholder_contact") .. '"' .. [[
@@ -50,6 +52,7 @@ ngx.print([[
       <button class="btn" style="margin-top:4px;padding:4px 10px;font-size:12px"
               onclick="addContact()"]] .. ">" .. t("messenger.btn_add_contact_full") .. "</button>" .. [[
     </div>
+    </details>
     <div id="contact-list" style="margin-top:8px"></div>
   </div>
 
@@ -62,6 +65,8 @@ ngx.print([[
 
   <!-- Chat-Header -->
   <div class="msg-header" id="chat-header">
+    <button class="btn msg-back" onclick="msgShowList()" title="Zurück zu den Kontakten">←</button>
+    <span id="chat-avatar" class="msg-av-slot"></span>
     <div style="flex:1;min-width:0">
       <input type="text" id="chat-with-addr" class="msg-addr-input"
              ]] .. 'placeholder="' .. t("messenger.recipient_addr") .. '"' .. [[
@@ -125,6 +130,18 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 
 <style>
 .msg-layout      { display:flex; gap:1rem; height:calc(100vh - 140px); align-items:stretch; }
+.msg-back        { display:none; width:auto !important; min-height:0; padding:4px 10px; flex:0 0 auto; }
+.msg-av-slot:empty { display:none; }
+.msg-av-slot     { flex:0 0 auto; display:inline-flex; }
+.msg-av-wrap     { position:relative; flex:0 0 auto; display:inline-flex; }
+.msg-av          { width:32px; height:32px; border-radius:50%; object-fit:cover; flex:0 0 32px; }
+.msg-av-txt      { display:inline-flex; align-items:center; justify-content:center; background:var(--sur2);
+                   color:var(--text); font-weight:600; font-size:14px; }
+.msg-av-dot      { position:absolute; right:-3px; bottom:-4px; font-size:12px; line-height:1;
+                   text-shadow:0 0 2px var(--bg, #111); }
+.contact-item    { display:flex; align-items:center; gap:8px; }
+.msg-addcontact summary { cursor:pointer; font-size:13px; color:var(--muted); padding:4px 0; }
+.msg-addcontact[open] summary { margin-bottom:6px; }
 .msg-sidebar     { width:260px; flex-shrink:0; display:flex; flex-direction:column; gap:8px; overflow-y:auto; }
 .msg-main        { flex:1; display:flex; flex-direction:column; gap:8px; min-width:0; min-height:0; position:relative;
                    padding:0; margin:0; max-width:none; }
@@ -253,7 +270,14 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 @media (max-width:720px){
   .msg-layout    { flex-direction:column; gap:8px;
                    height:calc(100vh - 120px); height:calc(100dvh - 120px); }
-  .msg-sidebar   { width:100%; max-height:26vh; flex-shrink:0; }
+  /* Zwei Ansichten wie in gängigen Messengern: Kontaktliste bildschirmfüllend,
+     Antippen öffnet den Chat bildschirmfüllend, ← führt zurück. Früher bekam
+     die Seitenleiste nur 26 % der Höhe – die Kontakte lagen außer Sicht. */
+  .msg-sidebar   { width:100%; max-height:none; flex:1 1 auto; min-height:0; }
+  .msg-layout:not(.chat-open) .msg-main    { display:none; }
+  .msg-layout.chat-open       .msg-sidebar { display:none; }
+  .msg-back      { display:inline-flex !important; }
+  .contact-item  { min-height:48px; }
   .msg-main      { min-height:0; gap:6px; }
   .msg-messages  { flex:1; min-height:0; }
 

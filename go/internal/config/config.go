@@ -90,6 +90,7 @@ type Config struct {
 	Validators         []string // PoA-Validator-Adressen (Konsens); Fee-Collector ist implizit dabei
 	UpdateManifestURL  string   // URL zum signierten Update-Manifest (GitHub); "off" = Prüfung aus
 	UpdateAuto         bool     // true = gefundene Updates sofort installieren (Standard: nur anbieten)
+	ChainAutoReset     bool     // true = bei inkompatibler Chain automatisch neu starten (NUR Testnetz; alte Chain wird gesichert)
 	DonatePayPal       string   // PayPal-Empfänger für freiwillige Spenden im Shop; "off" = Karte aus
 	StorageRewardAddr  string // Betreiber-Wallet für Storage/Transfer-Verdienst (leer = Node-Adresse)
 	FNDFeeCollector    string // Gnosis-Chain-Gebührenadresse
@@ -194,6 +195,7 @@ func Load(log *zap.Logger) *Config {
 		Validators:         envStrList("FUNDUS_VALIDATORS", ""),
 		UpdateManifestURL:  updateURL(envStr("FUNDUS_UPDATE_MANIFEST_URL", DefaultUpdateManifestURL)),
 		UpdateAuto:         envBool("FUNDUS_UPDATE_AUTO", false),
+		ChainAutoReset:     envBool("FUNDUS_CHAIN_AUTO_RESET", false),
 		DonatePayPal:       updateURL(envStr("FUNDUS_DONATE_PAYPAL", DefaultDonatePayPal)),
 		StorageRewardAddr:  envStr("FUNDUS_STORAGE_REWARD_ADDR", ""),
 		FNDFeeCollector:    envStr("FUNDUS_FND_FEE_COLLECTOR", ""),

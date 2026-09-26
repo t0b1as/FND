@@ -48,6 +48,12 @@ func main() {
 		runMigrateChain(log)
 		return
 	}
+	// --reset-chain: bewusster Chain-Neustart (z.B. Testnetz). Die alte Chain
+	// wird GESICHERT (umbenannt), nicht gelöscht. Node vorher stoppen.
+	if len(os.Args) > 1 && os.Args[1] == "--reset-chain" {
+		runResetChain(log)
+		return
+	}
 
 	log.Info("Fundus Marketplace Node starting")
 
@@ -469,29 +475,41 @@ func main() {
 				// Block-Historie zurücksetzen (Genesis BLEIBT) und einmalig neu
 				// starten. Für ein Testnetz ohne echte Werte ist das der richtige
 				// Kompromiss; produktiv käme hier eine echte Migration hin.
-				if isReplayIncompatibility(err) {
-					log.Warn("Chain-Historie inkompatibel — setze Chain zurück (Genesis wird deterministisch neu erzeugt), Neustart der Chain",
-						zap.String("grund", err.Error()))
-					// Das GESAMTE Chain-Verzeichnis entfernen — auch genesis.json,
-					// da diese bei einem State-Root-Versionssprung selbst einen
-					// veralteten Root enthält. Der Genesis wird anschließend
-					// deterministisch aus dem Fee-Collector neu erzeugt (gleicher
-					// Hash auf allen Nodes).
-					_ = os.RemoveAll(chainDir)
-					// Genesis frisch (deterministisch) erzeugen und ablegen.
-					freshGen, _ := chain.CanonicalGenesis(feeCollector)
-					if err := os.MkdirAll(chainDir, 0o755); err == nil {
-						_, _ = chain.WriteGenesisFile(genesisPath, freshGen)
-					}
-					// Zweiter Versuch mit dem NEUEN Genesis → frischer Start ab Höhe 0.
-					if bc2, err2 := chain.NewBlockchain(chainDir, proposer, freshGen, expected); err2 == nil {
-						bc = bc2
-						genesis = freshGen
-						err = nil
-						log.Info("Chain nach Reset neu initialisiert (Höhe 0, neuer Genesis)")
+				if isReplayIncompatibility(err) && cfg.ChainAutoReset {
+					// NUR Testnetz (FUNDUS_CHAIN_AUTO_RESET=true): neu starten, die
+					// alte Chain aber SICHERN statt löschen.
+					backup := chainDir + ".reset-" + time.Now().Format("20060102-150405")
+					if rerr := os.Rename(chainDir, backup); rerr != nil {
+						log.Error("Chain-Reset: alte Chain konnte nicht gesichert werden – kein Reset", zap.Error(rerr))
+						api.ChainInitError = "Chain-Format inkompatibel; Sicherung der alten Chain fehlgeschlagen: " + rerr.Error()
 					} else {
-						log.Error("Chain-Reset fehlgeschlagen", zap.Error(err2))
+						log.Warn("Chain inkompatibel – Testnetz-Reset (FUNDUS_CHAIN_AUTO_RESET=true), alte Chain gesichert",
+							zap.String("grund", err.Error()), zap.String("sicherung", backup))
+						freshGen, _ := chain.CanonicalGenesis(feeCollector)
+						if merr := os.MkdirAll(chainDir, 0o755); merr == nil {
+							_, _ = chain.WriteGenesisFile(genesisPath, freshGen)
+						}
+						if bc2, err2 := chain.NewBlockchain(chainDir, proposer, freshGen, expected); err2 == nil {
+							bc = bc2
+							genesis = freshGen
+							err = nil
+							log.Info("Chain nach Reset neu initialisiert (Höhe 0)")
+						} else {
+							log.Error("Chain-Reset fehlgeschlagen", zap.Error(err2))
+						}
 					}
+				} else if isReplayIncompatibility(err) {
+					// STANDARD: nie automatisch zurücksetzen. Die Chain enthält echte
+					// Guthaben – ein Reset würde sie vernichten. Daten bleiben
+					// unangetastet; der Node läuft ohne Chain, bis migriert (oder
+					// das passende Programm eingespielt) wird.
+					api.ChainInitError = "Chain-Format passt nicht zu diesem Programm – Chain-Daten sind UNVERÄNDERT, Guthaben bleiben erhalten. " +
+						"Lösung: Migration bzw. das passende Programm einspielen. Nur für ein Testnetz: FUNDUS_CHAIN_AUTO_RESET=true " +
+						"oder 'fundus-node --reset-chain' (sichert die alte Chain). Grund: " + err.Error()
+					log.Error("Chain NICHT gestartet – Format inkompatibel, Daten unverändert (kein automatischer Reset)",
+						zap.Error(err), zap.String("chain_dir", chainDir))
+				} else {
+					api.ChainInitError = "Chain-Initialisierung fehlgeschlagen: " + err.Error()
 				}
 			}
 			if err == nil && bc != nil {
@@ -949,4 +967,24 @@ func runMigrateChain(log *zap.Logger) {
 	fmt.Fprintln(os.Stderr, "✓ Verifikation OK — Head-Hash stimmt. Migration verlustfrei.")
 	fmt.Fprintln(os.Stderr, "Die alten JSON-Dateien bleiben als Backup unter chain/blocks/ erhalten.")
 	fmt.Fprintln(os.Stderr, "Node kann jetzt normal gestartet werden.")
+}
+
+
+// runResetChain sichert das Chain-Verzeichnis (Umbenennen) für einen bewussten
+// Neustart ab Genesis beim nächsten Start. Nichts wird gelöscht.
+func runResetChain(log *zap.Logger) {
+	cfg := config.Load(log)
+	chainDir := filepath.Join(cfg.DataDir, "chain")
+	if _, err := os.Stat(chainDir); err != nil {
+		fmt.Println("Kein Chain-Verzeichnis gefunden:", chainDir)
+		return
+	}
+	backup := chainDir + ".reset-" + time.Now().Format("20060102-150405")
+	if err := os.Rename(chainDir, backup); err != nil {
+		fmt.Println("FEHLER: Sichern fehlgeschlagen:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Chain gesichert nach:", backup)
+	fmt.Println("Beim nächsten Start beginnt die Chain neu ab Genesis. Wiederherstellen: Node stoppen,")
+	fmt.Println("neues", chainDir, "entfernen und", backup, "zurückbenennen.")
 }

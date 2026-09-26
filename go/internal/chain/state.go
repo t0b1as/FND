@@ -26,6 +26,11 @@ import (
 // 0x0b (R477): Konsens deterministisch (Gründer + Historie + Stake, keine
 // lokale Liste/gelernten Adressen) – erzwingt einen Neustart der Chain auf
 // allen Nodes (die alten Chains waren durch abweichende Sets zerfallen).
+//
+// REGEL (ab R479, echte Werte): Diese Version NIE mehr ohne Migration erhöhen.
+// Eine Erhöhung macht jede bestehende Chain inkompatibel. Nodes setzen sie seit
+// R479 NICHT mehr automatisch zurück (Guthaben blieben sonst nicht erhalten) –
+// sie starten dann ohne Chain, bis migriert wird.
 const StateSchemaVersion byte = 0x0b
 
 // State ist der Weltzustand: Adresse → Account, plus offene Escrows (Spec §7a).

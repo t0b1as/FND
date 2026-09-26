@@ -164,6 +164,7 @@ func (s *Server) registerMessengerRoutes() {
 		g.POST("/messenger/presence", s.messengerPresence)
 		g.POST("/identity/name", s.identitySetName)   // Anzeigenamen setzen
 		g.GET("/identity/names", s.identityNames)     // Anzeigenamen nachschlagen
+		g.GET("/identity/avatar/:fid", s.identityAvatar) // Profilbild (geprüft)
 		g.GET("/messenger/online", s.messengerOnline)
 		g.GET("/messenger/contacts",  s.messengerContacts)
 		g.POST("/messenger/contacts/sync", s.contactsSync) // verschlüsselte Liste speichern
@@ -409,6 +410,7 @@ func (s *Server) identityMe(c *gin.Context) {
 		"wallet_address":  walletAddr,
 		"wallet_linked":   s.linkedAddress(sess.identity) != "",
 		"display_name":    s.ownDisplayName(sess),
+		"avatar_hash":     s.ownAvatarHash(sess),
 		"ed25519_pub_key": rec.Ed25519PubKey,
 		"created_at":      rec.CreatedAt,
 	})

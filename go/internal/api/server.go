@@ -418,15 +418,23 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R478"
+const NodeRevision = "R480"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
 // Passt sie nicht zu go/SOURCE_FP des Pakets, war der Build gemischt.
 var SourceFingerprint = "unbekannt"
 
+// ChainInitError: warum die Chain nicht läuft (z.B. inkompatibles Format –
+// Daten bleiben unangetastet). Von main gesetzt, in /health und chain/status.
+var ChainInitError string
+
 func (s *Server) getHealth(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision, "source_fp": SourceFingerprint})
+	out := gin.H{"status": "ok", "time": time.Now().Unix(), "revision": NodeRevision, "source_fp": SourceFingerprint}
+	if ChainInitError != "" {
+		out["chain_error"] = ChainInitError
+	}
+	c.JSON(http.StatusOK, out)
 }
 
 func (s *Server) getStatus(c *gin.Context) {

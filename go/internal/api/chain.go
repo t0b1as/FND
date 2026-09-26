@@ -31,7 +31,7 @@ func (s *Server) registerChainRoutes() {
 
 func (s *Server) chainStatus(c *gin.Context) {
 	if s.chain == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Chain nicht aktiv"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Chain nicht aktiv", "reason": ChainInitError})
 		return
 	}
 	head := s.chain.HeadHash()

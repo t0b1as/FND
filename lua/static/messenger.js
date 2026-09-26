@@ -212,6 +212,15 @@ function contactName(addr) {
 // vergebener Kontakt-Alias hat Vorrang; der übermittelte Name ersetzt nur die
 // automatische Kurzadresse.
 const nameCache = {}; // fundusID (klein) → Anzeigename
+const avatarCache = {}; // fundusID (klein) → Prüfsumme des Profilbilds ('' = keins)
+// Profilbild (oder Initiale) als kleiner Kreis.
+function avatarHTML(fid, name) {
+    const f = String(fid || '').toLowerCase();
+    const h = avatarCache[f];
+    if (h) return '<img class="msg-av" alt="" loading="lazy" src="/api/v1/identity/avatar/' + f + '?v=' + h + '" onerror="this.style.visibility=\'hidden\'">';
+    const ch = String(name || '').replace(/^0x/i, '').trim().slice(0, 1).toUpperCase() || '?';
+    return '<span class="msg-av msg-av-txt">' + escapeHtml(ch) + '</span>';
+}
 function isAutoAlias(c) {
     if (!c || !c.alias) return true;
     const id = String(c.fundusID || '');
@@ -230,7 +239,10 @@ async function loadNames(fids) {
     try {
         const r = await fetch('/api/v1/identity/names?ids=' + encodeURIComponent(want.join(',')), { credentials: 'same-origin' });
         const d = await r.json();
-        for (const f of want) nameCache[f] = (d.names && d.names[f]) || '';
+        for (const f of want) {
+            nameCache[f] = (d.names && d.names[f]) || '';
+            avatarCache[f] = (d.avatars && d.avatars[f]) || '';
+        }
     } catch (e) {}
 }
 async function saveMyName() {
@@ -894,7 +906,7 @@ function renderContacts() {
         const div = document.createElement('div');
         div.className = 'contact-item' + (activeChat?.fundusID === c.fundusID ? ' active' : '');
         div.innerHTML = `
-            <span class="contact-indicator" style="color:${c.online ? 'var(--color-success,#16a34a)' : '#aaa'}">●</span>
+            <span class="msg-av-wrap">${avatarHTML(c.fundusID, displayName(c.fundusID, c))}<span class="contact-indicator msg-av-dot" style="color:${c.online ? 'var(--color-success,#16a34a)' : '#aaa'}">●</span></span>
             <span class="contact-name">${escapeHtml(displayName(c.fundusID, c))}</span>
             ${c.unread ? '<span class="contact-unread">'+c.unread+'</span>' : ''}
         `;
@@ -913,6 +925,11 @@ function openChat(contact) {
     document.getElementById('chat-header').style.display = 'flex';
     document.getElementById('input-row').style.display = 'flex';
     document.getElementById('chat-with-name').textContent = displayName(contact.fundusID, contact);
+    const avSlot = document.getElementById('chat-avatar');
+    if (avSlot) avSlot.innerHTML = avatarHTML(contact.fundusID, displayName(contact.fundusID, contact));
+    // Mobil: Chat bildschirmfüllend (← führt zurück zur Liste)
+    const lay = document.querySelector('.msg-layout');
+    if (lay) lay.classList.add('chat-open');
     const addrEl = document.getElementById('chat-with-addr');
     if (addrEl) addrEl.value = contact.fundusID;
     // Ungespeicherter Kontakt (Alias ist nur die gekürzte Adresse)? Dann seine ID
@@ -1177,7 +1194,11 @@ async function loadOnline() {
         if (!r.ok) return;
         const d = await r.json();
         onlineSet = new Set((d.online || []).map(e => String(e.fundus_id).toLowerCase()));
-        for (const e of (d.online || [])) if (e.name) nameCache[String(e.fundus_id).toLowerCase()] = e.name;
+        for (const e of (d.online || [])) {
+            const f = String(e.fundus_id).toLowerCase();
+            if (e.name) nameCache[f] = e.name;
+            if (e.avatar_hash) avatarCache[f] = e.avatar_hash;
+        }
         await loadNames(Object.keys(contacts));
         window._presenceDiag = { peers: d.peers || 0, known: d.known || 0 };
         for (const c of Object.values(contacts)) c.online = onlineSet.has(String(c.fundusID).toLowerCase());
@@ -1210,7 +1231,7 @@ function renderOnline() {
     }
     for (const fid of others) {
         html += '<div class="contact-item online-item" data-fid="' + escapeHtml(fid) + '">' +
-            '<span class="contact-indicator" style="color:var(--color-success,#16a34a)">●</span>' +
+            '<span class="msg-av-wrap">' + avatarHTML(fid, nameCache[fid] || fid) + '<span class="contact-indicator msg-av-dot" style="color:var(--color-success,#16a34a)">●</span></span>' +
             (nameCache[fid]
                 ? '<span class="contact-name" title="' + escapeHtml(fid) + '">' + escapeHtml(nameCache[fid]) + ' <span class="mono online-id">' + escapeHtml(shortAddr(fid)) + '</span></span>'
                 : '<span class="contact-name mono" title="' + escapeHtml(fid) + '">' + escapeHtml(shortAddr(fid)) + '</span>') +
@@ -1261,3 +1282,9 @@ async function publishPresence(online) {
         }
     });
 })();
+
+// Mobil: zurück von der Chat-Ansicht zur Kontaktliste.
+function msgShowList() {
+    const lay = document.querySelector('.msg-layout');
+    if (lay) lay.classList.remove('chat-open');
+}

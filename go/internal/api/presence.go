@@ -33,7 +33,8 @@ type presenceEntry struct {
 	FundusID string    `json:"fundus_id"`
 	Online   bool      `json:"online"`
 	LastSeen time.Time `json:"last_seen"`
-	Name     string    `json:"name,omitempty"`
+	Name       string    `json:"name,omitempty"`
+	AvatarHash string    `json:"avatar_hash,omitempty"`
 }
 
 var (
@@ -58,6 +59,7 @@ type presencePullItem struct {
 	NameTS  int64  `json:"nt,omitempty"`
 	NameSig string `json:"ns,omitempty"`
 	Pub     string `json:"p,omitempty"`
+	Avatar  string `json:"ah,omitempty"` // Prüfsumme des Profilbilds (in der Signatur enthalten)
 }
 
 func (s *Server) registerPresence() {
@@ -70,12 +72,14 @@ func (s *Server) registerPresence() {
 		for i := range items {
 			if r, ok := s.nameRecordOf(items[i].FundusID); ok {
 				items[i].Name, items[i].NameTS, items[i].NameSig, items[i].Pub = r.Name, r.TS, r.Sig, r.Pub
+				items[i].Avatar = r.AvatarHash
 			}
 		}
 		out, _ := json.Marshal(items)
 		return out
 	})
 	go s.presencePullLoop()
+	s.registerAvatarProtocol() // Profilbilder bei Bedarf von Peers holen
 	go s.presenceAnnounceLoop()
 }
 
@@ -157,7 +161,7 @@ func (s *Server) pullPresenceOnce() {
 					continue
 				}
 				recordPresence(fid, it.Online, now.Add(-time.Duration(it.AgeSec)*time.Second))
-				s.nameFromPresence(fid, it.Pub, it.Name, it.NameSig, it.NameTS)
+				s.nameFromPresence(fid, it.Pub, it.Name, it.NameSig, it.NameTS, it.Avatar)
 			}
 		}(pid.String())
 	}
@@ -172,6 +176,7 @@ func (s *Server) handlePresence(data []byte) {
 		Name     string    `json:"name"`
 		NameTS   int64     `json:"name_ts"`
 		NameSig  string    `json:"name_sig"`
+		Avatar   string    `json:"avatar_hash"`
 	}
 	if json.Unmarshal(data, &m) != nil {
 		return
@@ -200,7 +205,7 @@ func (s *Server) handlePresence(data []byte) {
 	}
 	presenceMu.Unlock()
 	recordPresence(fid, m.Online, time.Now())
-	s.nameFromPresence(fid, m.Ed25519, m.Name, m.NameSig, m.NameTS) // signierter Name
+	s.nameFromPresence(fid, m.Ed25519, m.Name, m.NameSig, m.NameTS, m.Avatar) // signierter Name (+ Bild-Prüfsumme)
 }
 
 // recordPresence: seenAt ist IMMER eine Zeit der eigenen Uhr (Empfang bzw.
@@ -245,6 +250,7 @@ func (s *Server) messengerOnline(c *gin.Context) {
 	for i := range out {
 		if r, ok := s.nameRecordOf(out[i].FundusID); ok {
 			out[i].Name = r.Name
+			out[i].AvatarHash = r.AvatarHash
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].LastSeen.After(out[j].LastSeen) })

@@ -136,10 +136,11 @@ type Messenger struct {
 	log      *zap.Logger
 
 	// Anzeigename + signierter Namenseintrag (für Nachrichten und Präsenz).
-	nameMu  sync.RWMutex
-	name    string
-	nameTS  int64
-	nameSig string
+	nameMu     sync.RWMutex
+	name       string
+	nameTS     int64
+	nameSig    string
+	avatarHash string // Prüfsumme des Profilbilds (in der Namens-Signatur enthalten)
 
 	mu       sync.RWMutex
 	handlers []MessageHandler
@@ -445,9 +446,9 @@ func (m *Messenger) Contacts() []*Contact {
 // =============================================================================
 
 // SetDisplayName setzt den Anzeigenamen samt signiertem Namenseintrag.
-func (m *Messenger) SetDisplayName(name string, ts int64, sig string) {
+func (m *Messenger) SetDisplayName(name string, ts int64, sig string, avatarHash string) {
 	m.nameMu.Lock()
-	m.name, m.nameTS, m.nameSig = name, ts, sig
+	m.name, m.nameTS, m.nameSig, m.avatarHash = name, ts, sig, avatarHash
 	m.nameMu.Unlock()
 }
 
@@ -465,6 +466,9 @@ func (m *Messenger) PublishPresence(ctx context.Context, online bool) error {
 	m.nameMu.RLock()
 	if m.nameSig != "" {
 		status["name"], status["name_ts"], status["name_sig"] = m.name, m.nameTS, m.nameSig
+		if m.avatarHash != "" {
+			status["avatar_hash"] = m.avatarHash
+		}
 	}
 	m.nameMu.RUnlock()
 	data, _ := json.Marshal(status)

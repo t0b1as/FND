@@ -38,7 +38,7 @@
       const d = await window.fundusMe(!!force);
       if (d){
         window.WALLET = { fundusID: d.fundus_id, address: d.wallet_address || "", linked: !!d.wallet_linked,
-                          displayName: d.display_name || "", pubKey: d.ed25519_pub_key, loaded: true };
+                          displayName: d.display_name || "", avatarHash: d.avatar_hash || "", pubKey: d.ed25519_pub_key, loaded: true };
       } else {
         window.WALLET = { fundusID: null, address: null, pubKey: null, loaded: true };
       }
@@ -89,10 +89,13 @@
       const short = a.slice(0,6) + "…" + a.slice(-4);
       // Mit Anzeigenamen: Name im Knopf, Adresse im Tooltip.
       const nm = window.WALLET.displayName;
-      const label = nm ? walletEsc(nm) : short;
+      const av = window.WALLET.avatarHash
+        ? '<img class="wallet-av" alt="" src="/api/v1/identity/avatar/' + window.WALLET.fundusID.toLowerCase() + '?v=' + window.WALLET.avatarHash + '"> '
+        : '';
+      const label = av + (nm ? walletEsc(nm) : short);
       el.innerHTML = w
-        ? '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Wallet: '+w+'" onclick="walletOpenMenu()">👛 '+label+'</button>'
-        : '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Fundus-ID: '+a+' – Wallet noch nicht geöffnet" onclick="walletOpenMenu()">👤 '+label+'</button>';
+        ? '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Wallet: '+w+'" onclick="walletOpenMenu()">'+(av ? '' : '👛 ')+label+'</button>'
+        : '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Fundus-ID: '+a+' – Wallet noch nicht geöffnet" onclick="walletOpenMenu()">'+(av ? '' : '👤 ')+label+'</button>';
     } else {
       el.innerHTML = '<button class="wallet-btn wallet-out" onclick="walletOpenDialog()">Anmelden</button>';
     }
@@ -187,7 +190,7 @@
           : '<span class="meta">Wallet noch nicht geöffnet</span>') +
         '<br><span class="meta">Fundus-ID (Kontakt): ' + (W.fundusID||'') + '</span></div>'+
       (W.address ? '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(window.WALLET.address);this.textContent=\'✓ Kopiert\'">Wallet-Adresse kopieren</button>' : '')+
-      '<button onclick="walletEditName()">' + (W.displayName ? 'Namen ändern…' : 'Namen festlegen…') + '</button>'+
+      '<button onclick="walletEditName()">Profil bearbeiten… (Name, Bild)</button>'+
       '<button onclick="walletOpenWallet()">' + (W.address ? 'Wallet &amp; Guthaben' : 'Wallet öffnen') + '</button>'+
       '<button onclick="walletSolana()">Solana-Wallet</button>'+
       '<button onclick="walletLinkOther()">Andere Wallet hinterlegen…</button>'+
@@ -349,79 +352,68 @@
   };
 
   // Anzeigename (signiert, netzweit): so sehen dich andere im Messenger.
+  // Profil: Name + Bild (signiert, netzweit). Bild wird im Browser quadratisch
+  // zugeschnitten, auf 128×128 verkleinert und als JPEG unter 16 KB gespeichert.
+  function walletResizeImage(file){
+    return new Promise(function(res, rej){
+      const img = new Image();
+      img.onload = function(){
+        const S = 128, c = document.createElement("canvas");
+        c.width = S; c.height = S;
+        const m = Math.min(img.width, img.height);
+        c.getContext("2d").drawImage(img, (img.width - m) / 2, (img.height - m) / 2, m, m, 0, 0, S, S);
+        let q = 0.85, d = c.toDataURL("image/jpeg", q);
+        while (d.length > 20000 && q > 0.35) { q -= 0.1; d = c.toDataURL("image/jpeg", q); }
+        URL.revokeObjectURL(img.src);
+        res(d);
+      };
+      img.onerror = function(){ rej(new Error("Bild nicht lesbar")); };
+      img.src = URL.createObjectURL(file);
+    });
+  }
   window.walletEditName = function(){
     const m = document.getElementById("wallet-menu"); if (m) m.remove();
-    const cur = (window.WALLET && window.WALLET.displayName) || "";
-    const ov = walletCard("Dein Name",
-      '<p class="wallet-hint">So sehen dich andere im Messenger – in Kontakten, „Im Netz online“ und bei deinen Nachrichten. 1–32 Zeichen; leer lassen zum Entfernen.</p>'+
-      '<input type="text" class="wallet-input" id="w-name" maxlength="32" autocomplete="nickname" placeholder="z.B. Tobias" value="'+walletEsc(cur)+'">'+
+    const W = window.WALLET || {};
+    const cur = W.displayName || "";
+    const curAv = W.avatarHash ? "/api/v1/identity/avatar/" + String(W.fundusID).toLowerCase() + "?v=" + W.avatarHash : "";
+    const ov = walletCard("Dein Profil",
+      '<p class="wallet-hint">So sehen dich andere im Messenger – in Kontakten, „Im Netz online“ und bei deinen Nachrichten.</p>'+
+      '<div class="wallet-profile-row">'+
+        '<div class="wallet-profile-av" id="w-av-prev">' + (curAv ? '<img alt="" src="' + curAv + '">' : '<span>🙂</span>') + '</div>'+
+        '<div class="wallet-profile-btns">'+
+          '<label class="wallet-filebtn">Bild wählen…<input type="file" id="w-av-file" accept="image/*" hidden></label>'+
+          '<button type="button" class="wallet-linkbtn" id="w-av-del"' + (curAv ? '' : ' style="display:none"') + '>Bild entfernen</button>'+
+        '</div>'+
+      '</div>'+
+      '<input type="text" class="wallet-input" id="w-name" maxlength="32" autocomplete="nickname" placeholder="Name (1–32 Zeichen)" value="'+walletEsc(cur)+'">'+
       '<button class="wallet-submit" id="w-name-save">Speichern</button>'+
       '<p class="wallet-hint" id="w-name-out"></p>');
     const inp = ov.querySelector("#w-name"), out = ov.querySelector("#w-name-out"), btn = ov.querySelector("#w-name-save");
+    const prev = ov.querySelector("#w-av-prev"), del = ov.querySelector("#w-av-del");
+    let avatar; // undefined = unverändert, "" = entfernen, Data-URL = neu
+    ov.querySelector("#w-av-file").onchange = async function(){
+      const f = this.files && this.files[0]; if (!f) return;
+      try {
+        avatar = await walletResizeImage(f);
+        prev.innerHTML = '<img alt="" src="' + avatar + '">';
+        del.style.display = "";
+        out.textContent = "Bild übernommen – mit „Speichern“ bestätigen.";
+      } catch(e){ out.textContent = "✗ " + e.message; }
+    };
+    del.onclick = function(){ avatar = ""; prev.innerHTML = "<span>🙂</span>"; del.style.display = "none"; };
     async function save(){
       btn.disabled = true; out.textContent = "⏳ Wird gespeichert …";
       try {
-        const d = await walletPost("/api/v1/identity/name", {name: inp.value});
-        out.textContent = d.name ? "✓ Andere sehen dich jetzt als „" + d.name + "“." : "✓ Name entfernt.";
+        const body = { name: inp.value };
+        if (avatar !== undefined) body.avatar = avatar;
+        const d = await walletPost("/api/v1/identity/name", body);
+        out.textContent = "✓ Profil gespeichert" + (d.name ? " – andere sehen dich als „" + d.name + "“." : ".");
         if (window.walletRefresh) await walletRefresh(true);
         setTimeout(function(){ ov.remove(); }, 1200);
       } catch(e){ out.textContent = "✗ " + e.message; btn.disabled = false; }
     }
     btn.onclick = save;
     inp.addEventListener("keydown", function(e){ if (e.key === "Enter") save(); });
-    setTimeout(function(){ inp.focus(); inp.select(); }, 50);
-  };
-
-  // ── Solana-Wallet (aus derselben Wallet abgeleitet) ───────────────────────
-  window.walletSolana = async function(){
-    const m = document.getElementById("wallet-menu"); if (m) m.remove();
-    walletBusy("Solana-Wallet wird geladen …" + (window.WALLET && window.WALLET.linked ? "" : " (Wallet nicht hinterlegt: ~10 s)"));
-    let d;
-    try {
-      const r = await fetch("/api/v1/wallet/sol", {credentials:"same-origin"});
-      d = await r.json();
-      walletBusy(null);
-      if (!r.ok || d.error) throw new Error(d.error || ("HTTP " + r.status));
-    } catch(e){ walletBusy(null); alert("✗ " + e.message); return; }
-    const bal = (d.sol != null) ? (Number(d.sol).toFixed(6).replace(".", ",") + " SOL") : ("– (" + walletEsc(d.balance_error || "nicht abrufbar") + ")");
-    const ov = walletCard("Solana-Wallet",
-      '<p class="wallet-hint">Aus deiner Fundus-Wallet abgeleitet – dieselben Seed-Wörter ergeben auf jedem Node dieselbe Adresse. Im Shop wird sie automatisch verwendet.</p>'+
-      '<div style="font-family:monospace;font-size:13px;word-break:break-all">'+walletEsc(d.address)+'</div>'+
-      '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b>'+bal+'</b>'+(d.cluster ? ' <span style="color:#fb3">(' + walletEsc(d.cluster) + ' – Testnetz)</span>' : '')+'</p>'+
-      '<button class="wallet-submit" id="sol-copy">Adresse kopieren</button>'+
-      '<p class="wallet-hint" style="margin-top:12px"><b>SOL senden</b></p>'+
-      '<input class="wallet-input" id="sol-to" placeholder="Empfänger (Solana-Adresse)" autocomplete="off" spellcheck="false">'+
-      '<input class="wallet-input" id="sol-amt" type="number" min="0" step="0.000001" placeholder="Betrag in SOL">'+
-      '<button class="wallet-submit" id="sol-send">Senden</button>'+
-      '<p class="wallet-hint" id="sol-out"></p>'+
-      '<p class="wallet-hint" style="margin-top:12px"><a href="#" id="sol-export">Für Phantom/Solflare exportieren …</a></p>');
-    ov.querySelector("#sol-copy").onclick = function(){
-      if (navigator.clipboard) navigator.clipboard.writeText(d.address);
-      this.textContent = "✓ Kopiert";
-    };
-    const out = ov.querySelector("#sol-out");
-    ov.querySelector("#sol-send").onclick = async function(){
-      const to = ov.querySelector("#sol-to").value.trim();
-      const amt = parseFloat(String(ov.querySelector("#sol-amt").value).replace(",", "."));
-      if (!to || !(amt > 0)) { out.textContent = "Bitte Empfänger und Betrag eingeben."; return; }
-      if (!confirm(amt + " SOL an\n" + to + "\nsenden? Solana-Überweisungen sind endgültig.")) return;
-      const b = this; b.disabled = true; out.textContent = "⏳ Wird gesendet …";
-      try {
-        const r = await walletPost("/api/v1/wallet/sol/send", {to: to, amount_sol: amt});
-        const cl = r.cluster ? "?cluster=" + encodeURIComponent(r.cluster) : "";
-        out.innerHTML = "✓ Gesendet – <a href=\"https://explorer.solana.com/tx/" + encodeURIComponent(r.signature) + cl + "\" target=\"_blank\" rel=\"noopener\">im Explorer ansehen</a>";
-      } catch(e){ out.textContent = "✗ " + e.message; }
-      b.disabled = false;
-    };
-    ov.querySelector("#sol-export").onclick = async function(e){
-      e.preventDefault();
-      if (!confirm("Privaten Schlüssel anzeigen?\n\nWer diesen Schlüssel hat, kann über dein SOL verfügen. Nur in einer eigenen Wallet-App (Phantom, Solflare) importieren, niemals weitergeben.")) return;
-      try {
-        const r = await walletPost("/api/v1/wallet/sol/export", {});
-        out.innerHTML = '<span style="color:#f66">Privater Schlüssel (Base58) – in Phantom unter „Privaten Schlüssel importieren“:</span><br>'+
-          '<code style="word-break:break-all;font-size:12px">'+walletEsc(r.secret_base58)+'</code>';
-      } catch(err){ out.textContent = "✗ " + err.message; }
-    };
   };
 
   window.walletUnlink = async function(){
