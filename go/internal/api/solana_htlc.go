@@ -16,11 +16,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/rpc"
-	confirm "github.com/gagliardetto/solana-go/rpc/sendAndConfirmTransaction"
-	"github.com/gagliardetto/solana-go/rpc/ws"
 	"github.com/mr-tron/base58"
 	"lukechampine.com/blake3"
 )
@@ -250,22 +249,37 @@ func (c *solHTLCClient) sendIx(ctx context.Context, signer solana.PrivateKey,
 		return "", fmt.Errorf("Signieren fehlgeschlagen: %w", err)
 	}
 
-	wsClient, err := ws.Connect(ctx, c.wsURL)
+	// Senden mit Vorab-Simulation auf Stufe "confirmed" – dieselbe Stufe, mit
+	// der die Gegenseite eine Sperre sieht. Mit der Standardstufe "finalized"
+	// sah die Simulation ein eben bestätigtes Swap-Konto auf Mainnet noch ~13 s
+	// lang NICHT ("AccountNotInitialized", Error 3012).
+	sig, err := rpcClient.SendTransactionWithOpts(ctx, tx, rpc.TransactionOpts{
+		PreflightCommitment: rpc.CommitmentConfirmed,
+	})
 	if err != nil {
-		// Ohne WS senden wir trotzdem (ohne auf Bestätigung zu warten).
-		sig, serr := rpcClient.SendTransaction(ctx, tx)
-		if serr != nil {
-			return "", fmt.Errorf("Senden fehlgeschlagen: %w", serr)
+		return "", fmt.Errorf("Senden fehlgeschlagen: %w", err)
+	}
+	// Bestätigung per Statusabfrage (ohne WebSocket – mit jedem RPC-Anbieter gleich).
+	deadline := time.Now().Add(75 * time.Second)
+	for time.Now().Before(deadline) {
+		st, serr := rpcClient.GetSignatureStatuses(ctx, true, sig)
+		if serr == nil && st != nil && len(st.Value) > 0 && st.Value[0] != nil {
+			v := st.Value[0]
+			if v.Err != nil {
+				return sig.String(), fmt.Errorf("Transaktion auf der Chain fehlgeschlagen: %v", v.Err)
+			}
+			cs := string(v.ConfirmationStatus)
+			if cs == "confirmed" || cs == "finalized" {
+				return sig.String(), nil
+			}
 		}
-		return sig.String(), nil
+		select {
+		case <-ctx.Done():
+			return sig.String(), fmt.Errorf("Bestätigung abgebrochen: %w", ctx.Err())
+		case <-time.After(2 * time.Second):
+		}
 	}
-	defer wsClient.Close()
-
-	sig, err := confirm.SendAndConfirmTransaction(ctx, rpcClient, wsClient, tx)
-	if err != nil {
-		return "", fmt.Errorf("Senden/Bestätigen fehlgeschlagen: %w", err)
-	}
-	return sig.String(), nil
+	return sig.String(), fmt.Errorf("Transaktion gesendet (%s), aber nach 75 s nicht bestätigt", sig.String())
 }
 
 // ── kleine Helfer ────────────────────────────────────────────────────────────

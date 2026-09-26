@@ -391,12 +391,12 @@ func (o *orchestrator) claimTake(ctx context.Context, ss *swapSession, s *Server
 	if err != nil {
 		return false
 	}
-	if _, err := client.Redeem(ctx, ss.solKey, makerSol, ss.secretHash, ss.secret); err != nil {
-		s.setSwapPhase(ss.swapID, SwapSolLocked, "SOL-Claim fehlgeschlagen: "+err.Error())
-		return false
-	}
-	s.setSwapPhase(ss.swapID, SwapFndClaimed, "") // Phase generisch: "erste Einlösung erfolgt"
-	return true
+	_ = client
+	// Mit Wiederholung (eigene Schlüsselkopie). Frist 20 h: Die SOL-Sperre des
+	// Anbieters (Zweit-Sperrer) läuft ~24 h, danach könnte er zurückholen.
+	keyCopy := append(solana.PrivateKey(nil), ss.solKey...)
+	return s.redeemSolRetry(ss.swapID, keyCopy, makerSol, ss.secretHash, ss.secret,
+		time.Now().Add(20*time.Hour), SwapFndClaimed, SwapSolLocked)
 }
 
 // waitForReveal (Maker): wartet, bis der Taker eingelöst und S enthüllt hat.
@@ -730,10 +730,18 @@ func friendlySolClaimErr(err error, payer solana.PublicKey) string {
 // (bereits abgeholt/zurückgeholt) oder die Frist abläuft.
 func (s *Server) redeemSolWithRetry(swapID string, key solana.PrivateKey, takerSol solana.PublicKey,
 	hash, secret [32]byte, deadline time.Time) {
+	s.redeemSolRetry(swapID, key, takerSol, hash, secret, deadline, SwapSolClaimed, SwapFndClaimed)
+}
+
+// redeemSolRetry: gemeinsamer Kern für Anbieter und Annehmenden. initiator =
+// wer die SOL gesperrt hat (bildet mit dem Hashlock die Kontoadresse).
+// Liefert true bei Erfolg.
+func (s *Server) redeemSolRetry(swapID string, key solana.PrivateKey, takerSol solana.PublicKey,
+	hash, secret [32]byte, deadline time.Time, okPhase, failPhase SwapPhase) bool {
 	solClaimMu.Lock()
 	if solClaimRunning[swapID] {
 		solClaimMu.Unlock()
-		return
+		return false
 	}
 	solClaimRunning[swapID] = true
 	solClaimMu.Unlock()
@@ -747,8 +755,8 @@ func (s *Server) redeemSolWithRetry(swapID string, key solana.PrivateKey, takerS
 	}()
 	client, err := newSolHTLCClient(s.swapMgr.solRPC, s.swapMgr.htlcProgramID)
 	if err != nil {
-		s.setSwapPhase(swapID, SwapFndClaimed, "SOL-Abholung: "+err.Error())
-		return
+		s.setSwapPhase(swapID, failPhase, "SOL-Abholung: "+err.Error())
+		return false
 	}
 	pda, _, perr := client.deriveSwapPDA(takerSol, hash)
 	for attempt := 1; ; attempt++ {
@@ -757,24 +765,24 @@ func (s *Server) redeemSolWithRetry(swapID string, key solana.PrivateKey, takerS
 			// Swap-Konto weg → bereits abgeholt oder vom Käufer zurückgeholt.
 			if ok, cerr := (&orchestrator{}).solAccountCheck(ctx, s, pda.String()); cerr == nil && !ok {
 				cancel()
-				s.setSwapPhase(swapID, SwapFndClaimed, "SOL-Swap-Konto existiert nicht mehr (bereits abgeholt oder vom Käufer zurückgeholt)")
-				return
+				s.setSwapPhase(swapID, failPhase, "SOL-Swap-Konto existiert nicht mehr (bereits abgeholt oder zurückgeholt)")
+				return false
 			}
 		}
 		_, rerr := client.Redeem(ctx, key, takerSol, hash, secret)
 		cancel()
 		if rerr == nil {
-			s.setSwapPhase(swapID, SwapSolClaimed, "SOL abgeholt")
+			s.setSwapPhase(swapID, okPhase, "SOL abgeholt")
 			if s.log != nil {
 				s.log.Info("SOL abgeholt", zap.String("swap", swapID), zap.Int("versuch", attempt))
 			}
-			return
+			return true
 		}
 		if time.Now().After(deadline) {
-			s.setSwapPhase(swapID, SwapFndClaimed, "SOL-Abholung aufgegeben (Frist abgelaufen): "+friendlySolClaimErr(rerr, key.PublicKey()))
-			return
+			s.setSwapPhase(swapID, failPhase, "SOL-Abholung aufgegeben (Frist abgelaufen): "+friendlySolClaimErr(rerr, key.PublicKey()))
+			return false
 		}
-		s.setSwapPhase(swapID, SwapFndClaimed, fmt.Sprintf("SOL-Abholung fehlgeschlagen (Versuch %d): %s – nächster Versuch in 1 min",
+		s.setSwapPhase(swapID, failPhase, fmt.Sprintf("SOL-Abholung fehlgeschlagen (Versuch %d): %s – nächster Versuch in 1 min",
 			attempt, friendlySolClaimErr(rerr, key.PublicKey())))
 		time.Sleep(time.Minute)
 	}
