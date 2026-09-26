@@ -252,6 +252,7 @@ func (sc *swapCoordinator) triggerRemoteSwap(ctx context.Context, node p2pNode,
 		ownFnd:          msg.BuyerFnd,
 		takerOwnOrderID: takerOwnOrderID,
 	}
+	sc.rememberTaker(ss) // Geheimnis + Einlöse-Schlüssel verschlüsselt sichern (übersteht Neustart)
 	s := sc.server
 	s.swapMgr.mu.Lock()
 	s.swapMgr.swaps[ss.swapID] = &Swap{

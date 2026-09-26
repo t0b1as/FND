@@ -889,6 +889,7 @@ func (s *Server) resumeSolClaimsLoop() {
 	for {
 		s.resumeSolClaimsOnce()
 		s.settleFinishedSwaps() // erfolgreiche, aber unverrechnete Swaps (Orders aus dem Buch)
+		s.resumeTakersOnce()    // unterbrochene Käufer-Swaps fortsetzen
 		time.Sleep(2 * time.Minute)
 	}
 }
