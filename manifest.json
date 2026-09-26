@@ -1,8 +1,8 @@
 {
-  "version": "R478",
-  "description": "FUNDUS R478 - Fingerprinting",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R478/FND-R478-update.zip",
-  "node_argon2": "4960cc366042df60c8eb8a82bc3e3ca3a979e55abfc49ab2efab0b3b1caba416",
-  "published_at": "2026-09-26T09:34:32.807Z",
-  "signature": "0x2c38eba981c4b1c99d7a95e17ece4a785a5dee80c6621692c03b2a29ca459c59664ca15e177ba61d8e19a5e8ef8fade6fa5d59d3a7ee31d7757f8f386c9f73b81b"
+  "version": "R480",
+  "description": "FUNDUS R480 - Messenger Avatars",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R480/FND-R480-update.zip",
+  "node_argon2": "dc5fe6b203a26adcae48dafcdcab371e4349053ee11eb0ae151a9077e6741102",
+  "published_at": "2026-09-26T11:45:11.1424452Z",
+  "signature": "0x02ce7ce33fe319685c063b7d72a457be5f1d071e070927eb7792ac0365ea12f8426f84aa676c3167567d07cb7532f14acc50072fbfe758c6c16a8c3d3a3d0da51b"
 }
