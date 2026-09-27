@@ -1987,3 +1987,20 @@ audio.fm-viewer-media { width:min(560px,100%); box-shadow:none; }
   .brand .brand-logo { width:30px; height:30px; }
   .nav-update { font-size:.62rem; padding:1px 7px; }
 }
+
+/* Kopfzeile mobil (R514): die Größen müssen "nav .brand" (spezifischer) schlagen;
+   der Menü-Knopf darf nie schrumpfen oder verdrängt werden; im Profil-Knopf
+   nur Avatar/Symbol, ohne Name/Adresse. */
+.burger { flex-shrink:0; }
+nav { min-width:0; }
+@media (max-width: 600px) {
+  .wallet-label { display:none; }
+  .wallet-btn.wallet-in { padding:4px 8px; min-width:0; }
+  .wallet-btn.wallet-in .wallet-av { width:26px; height:26px; margin:0; }
+  .wallet-ico { font-size:18px; }
+}
+@media (max-width: 480px) {
+  nav .brand { font-size:1.2rem; gap:.35rem; letter-spacing:-0.3px; }
+  nav .brand .brand-logo { width:28px; height:28px; }
+  nav { padding-left:.75rem; padding-right:.5rem; }
+}

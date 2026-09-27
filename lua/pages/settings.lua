@@ -105,6 +105,79 @@ ngx.print([[
   setInterval(load, 30000);
 })();
 </script>
+
+<!-- ── Chain-Zustand ──────────────────────────────────────────── -->
+<div class="set-card" id="chain-health">
+  <div class="set-head"><h3>Chain-Zustand</h3></div>
+  <div class="set-body">
+    <div id="ch-summary" class="status-line">Lade …</div>
+    <div id="ch-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin:10px 0"></div>
+    <div id="ch-notes"></div>
+    <div style="font-size:13px;font-weight:600;margin:12px 0 4px">Peers</div>
+    <div id="ch-peers" class="meta">Lade …</div>
+    <p class="meta" style="margin-top:8px">„Gleiche Chain“ = Blockhash auf der gemeinsamen Höhe stimmt überein. Höhenabweichungen von 1–2 Blöcken sind normal.
+    Abzweigungen löst der Node selbst (Astwahl); abweichender Genesis heißt: altes Programm auf dem Peer.</p>
+  </div>
+</div>
+<script>
+(function(){
+  function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function tile(label, val, color){
+    return '<div style="background:var(--surface-2,#1c2030);border-radius:8px;padding:8px 10px">' +
+      '<div class="meta" style="font-size:11px">' + esc(label) + '</div>' +
+      '<div style="font-weight:700;font-size:15px;' + (color ? 'color:' + color : '') + ';word-break:break-all">' + val + '</div></div>';
+  }
+  function note(txt, color){
+    return '<div style="margin:6px 0;padding:8px 10px;border-radius:8px;border-left:3px solid ' + color + ';background:rgba(255,255,255,.03);font-size:13px">' + esc(txt) + '</div>';
+  }
+  var G = 'var(--green,#00e676)', R = '#f66', Y = '#fb3';
+  async function load(){
+    var sumEl = document.getElementById('ch-summary');
+    try {
+      var r = await fetch('/api/v1/chain/status', {credentials:'same-origin'});
+      var d = await r.json();
+      if (!r.ok) { sumEl.textContent = '✗ Chain nicht aktiv' + (d.reason ? ': ' + d.reason : ''); sumEl.style.color = R; return; }
+      var val = !!d.i_am_validator;
+      document.getElementById('ch-grid').innerHTML =
+        tile('Höhe', esc(d.height)) +
+        tile('Kopf-Hash', '<span style="font-family:monospace;font-size:12px">' + esc(String(d.head_hash||'').slice(0,16)) + '…</span>') +
+        tile('Mempool', esc(d.mempool)) +
+        tile('Validatoren', esc(d.validators)) +
+        tile('Dieser Node', val ? 'Validator ✓' : 'kein Validator', val ? G : Y) +
+        (d.my_stake_fnd !== undefined ? tile('Eigener Stake', esc(d.my_stake_fnd) + ' FND') : '') +
+        (d.producer_running !== undefined ? tile('Blockproduktion', d.producer_running ? 'läuft ✓' : 'aus', d.producer_running ? G : Y) : '');
+      var notes = '';
+      if (d.hint && !val) notes += note(d.hint, Y);
+      if (d.fork_note) notes += note('Astwahl: ' + d.fork_note, Y);
+      if (d.clock_note) notes += note(d.clock_note, R);
+      document.getElementById('ch-notes').innerHTML = notes;
+    } catch(e){ sumEl.textContent = '✗ Status nicht abrufbar: ' + e.message; sumEl.style.color = R; return; }
+    try {
+      var r2 = await fetch('/api/v1/chain/peers', {credentials:'same-origin'});
+      var p = await r2.json();
+      if (!r2.ok) throw new Error(p.error || ('HTTP ' + r2.status));
+      var peers = (p.peers || []).filter(function(x){ return !x.error || !x.same_genesis; });
+      var other = peers.filter(function(x){ return !x.same_chain; }).length;
+      sumEl.textContent = (other ? '⚠ ' : '✓ ') + p.summary;
+      sumEl.style.color = other ? Y : G;
+      document.getElementById('ch-peers').innerHTML = (p.peers || []).map(function(x){
+        var st, col;
+        if (x.same_chain) { st = 'gleiche Chain'; col = G; }
+        else if (x.same_genesis === false && !x.error) { st = 'andere Chain'; col = R; }
+        else if (x.error && x.error.indexOf('Genesis') >= 0) { st = 'altes Programm (anderer Genesis)'; col = R; }
+        else if (x.error) { st = 'keine Chain-Auskunft'; col = 'var(--muted)'; }
+        else { st = 'anderer Ast'; col = Y; }
+        return '<div style="display:flex;gap:8px;align-items:center;font-size:13px;padding:3px 0;flex-wrap:wrap">' +
+          '<span style="color:' + col + '">●</span>' +
+          '<code style="font-size:11px">' + esc(String(x.peer).slice(0,8) + '…' + String(x.peer).slice(-6)) + '</code>' +
+          '<span>' + st + '</span>' +
+          (x.height ? '<span class="meta">Höhe ' + esc(x.height) + '</span>' : '') + '</div>';
+      }).join('') || 'Keine Peers verbunden.';
+    } catch(e){ document.getElementById('ch-peers').textContent = 'Peer-Übersicht nicht abrufbar: ' + e.message; }
+  }
+  load(); setInterval(load, 15000);
+})();
+</script>
 <style>
 .upd-progress { margin-top:12px; padding:10px 12px; border:1px solid var(--brd); border-radius:10px; }
 .upd-bar { height:8px; background:var(--sur2); border-radius:999px; overflow:hidden; }

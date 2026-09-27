@@ -92,10 +92,10 @@
       const av = window.WALLET.avatarHash
         ? '<img class="wallet-av" alt="" src="/api/v1/identity/avatar/' + window.WALLET.fundusID.toLowerCase() + '?v=' + window.WALLET.avatarHash + '"> '
         : '';
-      const label = av + (nm ? walletEsc(nm) : short);
+      const label = av + '<span class="wallet-label">' + (nm ? walletEsc(nm) : short) + '</span>';
       el.innerHTML = w
-        ? '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Wallet: '+w+'" onclick="walletOpenMenu()">'+(av ? '' : '👛 ')+label+'</button>'
-        : '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Fundus-ID: '+a+' – Wallet noch nicht geöffnet" onclick="walletOpenMenu()">'+(av ? '' : '👤 ')+label+'</button>';
+        ? '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Wallet: '+w+'" onclick="walletOpenMenu()">'+(av ? '' : '<span class="wallet-ico">👛</span> ')+label+'</button>'
+        : '<button class="wallet-btn wallet-in" title="'+(nm ? walletEsc(nm)+' · ' : '')+'Fundus-ID: '+a+' – Wallet noch nicht geöffnet" onclick="walletOpenMenu()">'+(av ? '' : '<span class="wallet-ico">👤</span> ')+label+'</button>';
     } else {
       el.innerHTML = '<button class="wallet-btn wallet-out" onclick="walletOpenDialog()">Anmelden</button>';
     }
@@ -191,7 +191,7 @@
         '<br><span class="meta">Fundus-ID (Kontakt): ' + (W.fundusID||'') + '</span></div>'+
       (W.address ? '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(window.WALLET.address);this.textContent=\'✓ Kopiert\'">Wallet-Adresse kopieren</button>' : '')+
       '<button onclick="walletEditName()">Profil bearbeiten… (Name, Bild)</button>'+
-      '<button onclick="walletOpenWallet()">' + (W.address ? 'Wallet &amp; Guthaben' : 'Wallet öffnen') + '</button>'+
+      (W.address ? '<button onclick="walletFND()">FND-Wallet</button>' : '<button onclick="walletOpenWallet()">Wallet öffnen</button>')+
       '<button onclick="walletSolana()">Solana-Wallet</button>'+
       '<button onclick="walletLinkOther()">Andere Wallet hinterlegen…</button>'+
       (W.linked ? '<button onclick="walletUnlink()">Hinterlegung aufheben</button>' : '')+
@@ -436,6 +436,78 @@
     };
     if (chan) chan.onmessage = function(){ schedule(); };
   })();
+
+  // ── FND-Wallet: gleicher Aufbau wie die Solana-Wallet ────────────────────
+  // Adresse, Guthaben, Kopieren, Senden (aus der angemeldeten Wallet – die
+  // Überweisung nutzt ohne Seed-Angabe den Sitzungsschlüssel).
+  window.walletFND = async function(){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    const W = window.WALLET || {};
+    if (!W.address) { return window.walletOpenWallet(); }
+    let bal = null, balTxt = "…";
+    async function fetchBal(){
+      try {
+        const r = await fetch("/api/v1/chain/account?address=" + encodeURIComponent(W.address), {credentials:"same-origin"});
+        const d = await r.json();
+        if (r.ok && d.fnd != null) { bal = Number(d.fnd); return String(d.fnd).replace(".", ",") + " FND"; }
+        return "– (" + walletEsc(d.error || "nicht abrufbar") + ")";
+      } catch(e){ return "– (nicht abrufbar)"; }
+    }
+    balTxt = await fetchBal();
+    const ov = walletCard("FND-Wallet",
+      '<p class="wallet-hint">Deine Wallet auf der Fundus-Chain. Überweisungen werden mit dem nächsten Block wirksam (alle 5 s).</p>'+
+      '<div style="font-family:monospace;font-size:13px;word-break:break-all">'+walletEsc(W.address)+'</div>'+
+      '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b id="fnd-bal">'+balTxt+'</b></p>'+
+      '<button class="wallet-submit" id="fnd-copy">Adresse kopieren</button>'+
+      '<p class="wallet-hint" style="margin-top:12px"><b>FND senden</b></p>'+
+      '<input class="wallet-input" id="fnd-to" placeholder="Empfänger (0x… oder Fundus-ID)" autocomplete="off" spellcheck="false">'+
+      '<div style="display:flex;gap:6px;align-items:center">'+
+        '<input class="wallet-input" id="fnd-amt" type="number" min="0" step="0.000000001" placeholder="Betrag in FND" style="flex:1">'+
+        '<button type="button" class="wallet-linkbtn" id="fnd-all" title="Gesamtes Guthaben – die Gebühr (1,8 %) geht davon ab">Alles</button>'+
+      '</div>'+
+      '<p class="wallet-hint" id="fnd-fee"></p>'+
+      '<button class="wallet-submit" id="fnd-send">Senden</button>'+
+      '<p class="wallet-hint" id="fnd-out"></p>'+
+      (W.linked ? '' : '<p class="wallet-hint" style="margin-top:12px"><a href="#" id="fnd-more">Wallet als Login-Wallet hinterlegen …</a></p>'));
+    const out = ov.querySelector("#fnd-out"), amtEl = ov.querySelector("#fnd-amt"), feeEl = ov.querySelector("#fnd-fee");
+    let sendAll = false;
+    function showFee(){
+      const a = parseFloat(String(amtEl.value).replace(",", "."));
+      if (!(a > 0)) { feeEl.textContent = ""; return; }
+      feeEl.textContent = sendAll
+        ? "Alles: Empfänger erhält ca. " + (a / 1.018).toFixed(6).replace(".", ",") + " FND (Gebühr 1,8 % geht ab)."
+        : "Gebühr 1,8 %: ca. " + (a * 0.018).toFixed(6).replace(".", ",") + " FND zusätzlich.";
+    }
+    ov.querySelector("#fnd-copy").onclick = function(){ if (navigator.clipboard) navigator.clipboard.writeText(W.address); this.textContent = "✓ Kopiert"; };
+    ov.querySelector("#fnd-all").onclick = function(){
+      if (bal == null) { out.textContent = "Guthaben unbekannt – bitte Betrag eingeben."; return; }
+      amtEl.value = String(bal); sendAll = true; showFee();
+    };
+    amtEl.addEventListener("input", function(){ sendAll = false; showFee(); });
+    ov.querySelector("#fnd-send").onclick = async function(){
+      const to = ov.querySelector("#fnd-to").value.trim();
+      const amt = String(amtEl.value).replace(",", ".").trim();
+      if (!to || !(parseFloat(amt) > 0)) { out.textContent = "Bitte Empfänger und Betrag eingeben."; return; }
+      if (!confirm((sendAll ? "Gesamtes Guthaben (" + amt + " FND, Gebühr geht ab)" : amt + " FND (+1,8 % Gebühr)") + " an\n" + to + "\nsenden?")) return;
+      const b = this; b.disabled = true; out.textContent = "⏳ Wird gesendet …";
+      try {
+        const r = await walletPost("/api/v1/wallet/transfer", {to: to, amount_fnd: amt, fee_mode: sendAll ? "inclusive" : "added"});
+        out.textContent = "✓ Gesendet – wird mit dem nächsten Block wirksam" + (r.tx_hash ? " (Tx " + String(r.tx_hash).slice(0, 12) + "…)" : "") + ".";
+        amtEl.value = ""; sendAll = false; showFee();
+        window.fundusBalanceChanged && window.fundusBalanceChanged();
+      } catch(e){ out.textContent = "✗ " + e.message; }
+      b.disabled = false;
+    };
+    const more = ov.querySelector("#fnd-more");
+    if (more) more.onclick = function(e){ e.preventDefault(); ov.remove(); window.walletOpenWallet(); };
+    // Guthaben aktuell halten (Signal + alle 20 s, solange offen)
+    async function refresh(){
+      if (!document.body.contains(ov)) { window.removeEventListener("fundus:balances", refresh); clearInterval(iv); return; }
+      const t = await fetchBal(); const el = ov.querySelector("#fnd-bal"); if (el && el.textContent !== t) el.textContent = t;
+    }
+    window.addEventListener("fundus:balances", refresh);
+    const iv = setInterval(refresh, 20000);
+  };
 
   // ── Solana-Wallet (aus derselben Wallet abgeleitet) ───────────────────────
   // (R484 wiederhergestellt – war beim Profil-Umbau in R480 versehentlich entfernt)
