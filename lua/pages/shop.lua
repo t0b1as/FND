@@ -44,6 +44,15 @@ return function()
         <label>%s</label>
         <input type="number" id="ord-price" min="0" step="0.00000001" placeholder="0.00000000" oninput="updatePreview()">
       </div>
+      <div class="field">
+        <label>Gültigkeit</label>
+        <select id="ord-ttl">
+          <option value="86400">1 Tag</option>
+          <option value="604800" selected>7 Tage</option>
+          <option value="2592000">30 Tage</option>
+          <option value="-1">unbegrenzt</option>
+        </select>
+      </div>
       <div class="field" style="border-top:1px solid var(--border);padding-top:10px;margin-top:6px">
         <label style="color:var(--text-dim)">Schlüssel hinterlegen — beide nötig: einer zum Zahlen (sperren), einer zum Einlösen des Erhaltenen. Bleiben lokal im RAM, werden nie propagiert.</label>
         <input type="text" id="ord-solkey" placeholder="leer = deine Fundus-Solana-Wallet · sonst Mnemonic/Base58" style="margin-top:6px">
@@ -368,7 +377,8 @@ async function submitOrder(){
   try {
     const r = await fetch("/api/v1/orders", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ side: currentSide, type: currentType, amount_fnd: amt, price_sol: price, sol_address: soladdr, fnd_address: fndaddr })
+      body: JSON.stringify({ side: currentSide, type: currentType, amount_fnd: amt, price_sol: price, sol_address: soladdr, fnd_address: fndaddr,
+                             ttl_sec: parseInt((document.getElementById("ord-ttl")||{}).value || "604800", 10) })
     });
     let d;
     try { d = await r.json(); }
@@ -423,11 +433,29 @@ async function loadMine(){
         '<span class="ob-id" title="Order-ID">'+String(o.id||"").slice(0,8)+'</span>'+
         '<span>'+Number(o.amount_fnd).toFixed(2)+' FND</span>'+
         '<span>'+(o.type==="market"?OB.market:Number(o.price_sol).toFixed(8)+" SOL")+'</span>'+
+        '<span class="ob-exp" title="Gültigkeit">'+orderExpText(o.expires_at)+'</span>'+
+        '<button class="btn-sm" title="Gültigkeit ab jetzt auf 7 Tage setzen" onclick="renewOrder(\''+o.id+'\')">+7 T</button>'+
         '<button class="btn-sm btn-danger" onclick="cancelOrder(\''+o.id+'\')">✕</button></div>';
     }).join("");
   } catch(e){}
 }
 
+// Restlaufzeit einer Order als kurzer Text.
+function orderExpText(exp){
+  if (!exp) return "unbegrenzt";
+  const sec = exp - Math.floor(Date.now()/1000);
+  if (sec <= 0) return "abgelaufen";
+  if (sec < 3600) return "noch " + Math.ceil(sec/60) + " min";
+  if (sec < 86400) return "noch " + Math.ceil(sec/3600) + " h";
+  return "noch " + Math.ceil(sec/86400) + " T";
+}
+async function renewOrder(id){
+  try {
+    const r = await fetch("/api/v1/orders/" + id + "/renew", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ttl_sec: 604800})});
+    if (!r.ok) { const d = await r.json().catch(function(){ return {}; }); alert("✗ " + (d.error || ("HTTP " + r.status))); }
+  } catch(e){}
+  loadMine(); loadBook();
+}
 async function cancelOrder(id){
   try { await fetch("/api/v1/orders/"+id, {method:"DELETE"}); loadBook(); loadMine(); } catch(e){}
 }

@@ -275,6 +275,7 @@ func (ob *OrderBook) Run(ctx context.Context) {
 		}
 		out := []peerOrders{}
 		myID := ob.node.ID().String()
+		responded := map[string]bool{} // Peers, die in dieser Runde geantwortet haben
 		for _, p := range ob.node.Peers() {
 			pid := p.String()
 			if pid == myID {
@@ -286,6 +287,7 @@ func (ob *OrderBook) Run(ctx context.Context) {
 			if err != nil || len(data) == 0 || string(data) == "null" {
 				continue
 			}
+			responded[pid] = true
 			out = append(out, peerOrders{PeerID: pid, Orders: json.RawMessage(data)})
 		}
 		j, _ := json.Marshal(out)
@@ -303,6 +305,22 @@ func (ob *OrderBook) Run(ctx context.Context) {
 						dm[o.ID] = o
 					}
 				}
+			}
+		}
+		// Gnadenfrist: Antwortet ein Anbieter einmal nicht (Neustart, Update,
+		// langsames Relay), seine Orders bis zu 5 min stehen lassen – statt sie
+		// sofort aus allen Büchern zu nehmen. Antwortet er und führt eine Order
+		// nicht mehr, verschwindet sie sofort (normaler Weg).
+		now := time.Now()
+		for pid := range responded {
+			orderPeerLastOK[pid] = now
+		}
+		for id, o := range ob.discoveredOrders {
+			if _, has := dm[id]; has || o == nil || responded[o.MakerPeer] || !o.isActive() {
+				continue
+			}
+			if t, ok := orderPeerLastOK[o.MakerPeer]; ok && now.Sub(t) < 5*time.Minute {
+				dm[id] = o
 			}
 		}
 		ob.discoveredOrders = dm
@@ -464,9 +482,14 @@ func (s *Server) orderCreate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Menge muss > 0 sein"})
 		return
 	}
+	// Gültigkeit: 0 = Standard (7 Tage, früher 24 h – Orders verschwanden
+	// dann stillschweigend), < 0 = unbegrenzt, höchstens 1 Jahr.
 	ttl := req.TTLSec
-	if ttl <= 0 {
-		ttl = 24 * 3600 // Standard: 24 Stunden
+	if ttl == 0 {
+		ttl = 7 * 24 * 3600
+	}
+	if ttl > 365*24*3600 {
+		ttl = 365 * 24 * 3600
 	}
 	now := time.Now().Unix()
 	maker := ""
@@ -496,7 +519,7 @@ func (s *Server) orderCreate(c *gin.Context) {
 		Maker: maker, MakerPeer: peerID,
 		Side: req.Side, Type: req.Type,
 		AmountFND: req.AmountFND, PriceSOL: req.PriceSOL,
-		CreatedAt: now, ExpiresAt: now + ttl,
+		CreatedAt: now, ExpiresAt: orderExpiry(now, ttl),
 		FndAddress: fndAddr,
 		SolAddress: req.SolAddress,
 		SolNet:     s.solNetName(),
@@ -711,4 +734,56 @@ func (ob *OrderBook) load() {
 			ob.pushToAll(OrderPush{Action: "upsert", Order: o})
 		}
 	}()
+}
+
+// orderPeerLastOK: letzte erfolgreiche Order-Abfrage je Peer (unter discMu).
+var orderPeerLastOK = map[string]time.Time{}
+
+// orderExpiry: Ablaufzeit aus Gültigkeit (ttl < 0 = unbegrenzt → 0).
+func orderExpiry(now, ttl int64) int64 {
+	if ttl < 0 {
+		return 0
+	}
+	return now + ttl
+}
+
+// renewMyOrder: Gültigkeit einer eigenen Order neu setzen und verteilen.
+func (ob *OrderBook) renewMyOrder(id string, exp int64) (*Order, bool) {
+	ob.mu.Lock()
+	o, ok := ob.myOrders[id]
+	if !ok {
+		ob.mu.Unlock()
+		return nil, false
+	}
+	o.ExpiresAt = exp
+	cp := *o
+	ob.mu.Unlock()
+	ob.save()
+	ob.pushToAll(OrderPush{Action: "upsert", ID: id, Order: &cp})
+	return &cp, true
+}
+
+// POST /api/v1/orders/:id/renew {ttl_sec} – eigene Order verlängern.
+func (s *Server) orderRenew(c *gin.Context) {
+	if s.orderBook == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Orderbuch nicht aktiv"})
+		return
+	}
+	var req struct {
+		TTLSec int64 `json:"ttl_sec"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	ttl := req.TTLSec
+	if ttl == 0 {
+		ttl = 7 * 24 * 3600
+	}
+	if ttl > 365*24*3600 {
+		ttl = 365 * 24 * 3600
+	}
+	o, ok := s.orderBook.renewMyOrder(c.Param("id"), orderExpiry(time.Now().Unix(), ttl))
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Order nicht gefunden (bereits abgelaufen oder storniert?)"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "expires_at": o.ExpiresAt})
 }

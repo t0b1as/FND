@@ -350,6 +350,7 @@ func (s *Server) registerRoutes() {
 		orders.GET("/mine",   s.orderListMine)
 		orders.GET("/book",   s.orderBookGet)
 		orders.DELETE("/:id", s.orderCancel)
+		orders.POST("/:id/renew", s.orderRenew) // eigene Order verlängern
 	}
 
 	// Atomarer FND↔SOL-Swap (HTLC-Koordination)
@@ -426,7 +427,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R520"
+const NodeRevision = "R521"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
