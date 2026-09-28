@@ -72,7 +72,7 @@ Das Script installiert bei Bedarf automatisch:
 - `unzip`, `curl`, `git`, `jq`, `logrotate`
 - OpenResty (nginx + LuaJIT)
 - Node.js 20 LTS
-- Ollama + Modelle (`moondream2`, `llama3.2:1b`)
+- Ollama (die Modelle lädt der Node beim Start selbst – je nach Einstellung, siehe LLM-Analyse)
 - System-User `fundus`
 - Alle Verzeichnisse und Berechtigungen
 - systemd Service + Logrotate-Konfiguration
@@ -151,23 +151,36 @@ FUNDUS_METER_PROTOCOL=mock
 ## LLM-Analyse
 
 Artikel-Bilder + Sprach-Kommentar werden lokal auf dem Pi ausgewertet.
+Welches Modell passt, hängt vom Arbeitsspeicher ab. Das Bildmodell übernimmt
+auch Analysen ohne Foto – es liegt also nur ein Modell im Speicher.
 
-```env
+| Pi | Einstellung | Hinweis |
+|---|---|---|
+| **Pi 4/5 ab 4 GB** | `FUNDUS_LLM_MODEL=moondream` (~1,8 GB) | **empfohlen** – volle Analyse inklusive Fotos |
+| **Pi 3 (1 GB)** | `FUNDUS_LLM_MODEL=ahmadwaqar/smolvlm2-256m-video` (~175 MB) | **experimentell** – Community-Modell, nur Englisch, Speicher knapp, langsam |
+| **Pi 3 (1 GB)** | `FUNDUS_LLM_ENABLED=false` | ohne KI – sicherste Wahl |
+
+Beim Pi 3 bleiben neben System, Fundus-Node und der Anmeldung (kurzzeitig 256 MB)
+nur etwa 500–600 MB für ein Modell. moondream (~1,8 GB) passt dort nicht.
+
+```bash
 FUNDUS_LLM_ENABLED=true
-FUNDUS_LLM_MODEL=moondream2    # multimodal, 1.8 GB
+FUNDUS_LLM_MODEL=moondream          # Pi 4/5
+FUNDUS_LLM_KEEP_ALIVE=1m            # Modell nach 1 min aus dem Speicher nehmen
 ```
 
-Ollama muss laufen: 
+Ollama muss laufen:
 
-```env
+```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ```
+
 `sudo systemctl start ollama`
 
 Modelle manuell laden:
 ```bash
-ollama pull moondream2   # Bild + Text (Haupt-Modell)
-ollama pull llama3.2:1b  # nur Text (Fallback + Jobs)
+ollama pull moondream                          # Pi 4/5 ab 4 GB (empfohlen)
+ollama pull ahmadwaqar/smolvlm2-256m-video     # Pi 3 – experimentell
 ```
 
 ---

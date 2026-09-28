@@ -9,6 +9,7 @@ package api
 // die Stake-VERARBEITUNG (applyStake), aber keinen Weg, eine Stake-Tx zu SENDEN.
 
 import (
+	"fmt"
 	"encoding/hex"
 	"math/big"
 	"net/http"
@@ -61,7 +62,35 @@ func (s *Server) stakeOrUnstake(c *gin.Context, isStake bool) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "eigene Adresse ungültig"})
 		return
 	}
-	_, nonce := s.chain.AccountInfo(self)
+	balStr, nonce := s.chain.AccountInfo(self)
+	// Nonce: auch wartende Transaktionen derselben Wallet berücksichtigen
+	// (z.B. automatische Rückkehr ins Validator-Set, Auszahlung) – sonst
+	// bekämen beide dieselbe Nummer und eine würde verworfen.
+	if s.mempool != nil {
+		for _, ptx := range s.mempool.Pending() {
+			if ptx != nil && ptx.From == self && ptx.Nonce >= nonce {
+				nonce = ptx.Nonce + 1
+			}
+		}
+	}
+	// Guthaben: Betrag + Gebühr (1,8 %) müssen auf der NODE-Wallet frei sein –
+	// sonst verwirft der Validator die Transaktion später stillschweigend.
+	if isStake {
+		bal, okB := new(big.Int).SetString(balStr, 10)
+		need := new(big.Int).Add(amount, chain.StakeFee(amount))
+		if !okB || bal.Cmp(need) < 0 {
+			max := new(big.Int)
+			if okB && bal.Sign() > 0 {
+				// höchstens: bal / 1,018 (Betrag + 1,8 % Gebühr)
+				max.Mul(bal, big.NewInt(1000))
+				max.Div(max, big.NewInt(1018))
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf(
+				"Die Node-Wallet (%s) hat %s FND frei – Staken von %s FND braucht %s FND (inkl. 1,8 %% Gebühr). Höchstens %s FND stakbar; sonst zuerst FND an die Node-Wallet senden.",
+				addrHex, uFNDToFND(balStr), uFNDToFND(amount.String()), uFNDToFND(need.String()), uFNDToFND(max.String()))})
+			return
+		}
+	}
 
 	var tx *chain.Transaction
 	var err error

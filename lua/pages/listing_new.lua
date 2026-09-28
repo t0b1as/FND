@@ -34,13 +34,20 @@ return function()
     ngx.print(string.format([[
 <section class="step" id="step-images">
   <div class="step-header"><span class="step-num">1</span><h2>%s</h2></div>
-  <div class="drop-zone" id="image-drop"
-       onclick="document.getElementById('image-input').click()">
+  <div class="drop-zone" id="image-drop">
     <div class="drop-icon">📷</div>
     <div class="drop-title">%s</div>
     <div class="drop-sub">%s</div>
+    <div class="drop-btns">
+      <button type="button" class="btn" onclick="event.stopPropagation();document.getElementById('image-camera').click()">📷 Foto aufnehmen</button>
+      <button type="button" class="btn btn-outline" onclick="event.stopPropagation();document.getElementById('image-input').click()">🖼️ Galerie / Dateien</button>
+    </div>
+    <div class="drop-sub" style="margin-top:6px">oder Bilder hierher ziehen</div>
   </div>
-  <input type="file" id="image-input" accept="image/*,video/*" multiple capture="environment" style="display:none">
+  <!-- Galerie/Dateien: OHNE capture (sonst öffnet das Handy nur die Kamera) -->
+  <input type="file" id="image-input" accept="image/*,video/*" multiple style="display:none">
+  <!-- Kamera direkt -->
+  <input type="file" id="image-camera" accept="image/*,video/*" capture="environment" style="display:none">
   <div class="image-previews" id="image-previews"></div>
   <div class="image-previews" id="video-previews" style="margin-top:8px"></div>
   <div id="video-name" class="video-name"></div>

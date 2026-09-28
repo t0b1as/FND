@@ -2004,3 +2004,11 @@ nav { min-width:0; }
   nav .brand .brand-logo { width:28px; height:28px; }
   nav { padding-left:.75rem; padding-right:.5rem; }
 }
+
+/* Marktplatz: Kamera ODER Galerie; Ablegen auf der ganzen Seite */
+.drop-btns { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:10px; }
+.drop-btns .btn { width:auto; }
+.page-drop-overlay { position:fixed; inset:0; z-index:500; display:none; align-items:center; justify-content:center;
+  background:rgba(7,9,14,.72); border:3px dashed var(--green,#00e676); color:var(--green,#00e676);
+  font-size:1.6rem; font-weight:700; pointer-events:none; }
+.page-drop-overlay.on { display:flex; }

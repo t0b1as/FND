@@ -194,7 +194,8 @@ func main() {
 	// -------------------------------------------------------------------------
 	var analyzer *llm.Analyzer
 	if cfg.LLMEnabled {
-		analyzer = llm.New("http://127.0.0.1:11434", cfg.LLMModel, "llama3.2:1b", log)
+		analyzer = llm.New("http://127.0.0.1:11434", cfg.LLMModel, cfg.LLMTextModel, log)
+		analyzer.Configure(cfg.LLMVision, cfg.LLMKeepAlive)
 
 		pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
 		if err := analyzer.Ping(pingCtx); err != nil {

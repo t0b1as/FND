@@ -735,22 +735,38 @@ async function loadStakeStatus(){
 // Staken: Node-Wallet sperrt FND als Validator-Einsatz.
 async function doStake(){
   const out = document.getElementById('stake-out');
-  const amt = parseFloat(document.getElementById('stake-amount').value) || 0;
-  if (amt < 10){ if(out){ out.textContent = WT.stake_min; out.style.color='var(--red)'; } return; }
-  if (out){ out.textContent = WT.stake_sending; out.style.color='var(--muted)'; }
+  const amt = parseFloat(String(document.getElementById('stake-amount').value).replace(',', '.')) || 0;
+  if (!(amt > 0)){ if(out){ out.textContent = WT.stake_min; out.style.color='var(--red)'; } return; }
+  function say(t, c){ if (out){ out.textContent = t; out.style.color = c; } }
+  // Vorher: aktueller Stake (Summe zählt – nachlegen ist erlaubt)
+  let before = 0;
+  try { const st = await (await fetch('/api/v1/chain/status')).json(); before = parseFloat(st.my_stake_fnd) || 0; } catch(e){}
+  if (before + amt < 10){ say('Hinweis: Validator ab insgesamt 10 FND Stake – nach diesem Stake wären es ' + (before + amt) + ' FND.', 'var(--warning,#fb3)'); }
+  else say(WT.stake_sending, 'var(--muted)');
   try {
     const r = await fetch('/api/v1/wallet/stake', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ amount_fnd: amt })
     });
     const d = await r.json();
-    if (r.ok){
-      if (out){ out.textContent = WT.stake_ok; out.style.color='var(--grn)'; }
-      setTimeout(loadStakeStatus, 2000); window.fundusBalanceChanged && window.fundusBalanceChanged();
-    } else {
-      if (out){ out.textContent = '✗ ' + (d.error || WT.error_word); out.style.color='var(--red)'; }
+    if (!r.ok){ say('✗ ' + (d.error || WT.error_word), 'var(--red)'); return; }
+    window.fundusBalanceChanged && window.fundusBalanceChanged();
+    // Auf Bestätigung warten: steht der Stake nach einem Block wirklich auf der Chain?
+    say('⏳ Stake gesendet – warte auf Bestätigung im nächsten Block …', 'var(--muted)');
+    for (let i = 0; i < 12; i++){
+      await new Promise(function(res){ setTimeout(res, 2500); });
+      try {
+        const st = await (await fetch('/api/v1/chain/status')).json();
+        const now = parseFloat(st.my_stake_fnd) || 0;
+        if (now > before + 1e-9){
+          say('✓ Stake bestätigt: ' + now + ' FND gestakt' + (st.i_am_validator ? ' – dieser Node ist Validator.' : ' – Validator ab 10 FND, Aufnahme ins Set mit dem nächsten Block.'), 'var(--grn)');
+          loadStakeStatus(); return;
+        }
+      } catch(e){}
     }
-  } catch(e){ if(out){ out.textContent = '✗ ' + e.message; out.style.color='var(--red)'; } }
+    say('✗ Nach 30 s nicht auf der Chain bestätigt. Mögliche Gründe: die Validatoren sind nicht erreichbar (Einstellungen → Chain-Zustand), oder dieser Node liegt auf einem anderen Ast. Das Guthaben ist nicht verloren – die Transaktion wurde nicht ausgeführt.', 'var(--red)');
+    loadStakeStatus();
+  } catch(e){ say('✗ ' + e.message, 'var(--red)'); }
 }
 
 // Unstaken: gestakte FND freigeben (Sperrfrist bis zur Rückzahlung).

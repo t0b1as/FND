@@ -320,16 +320,45 @@ function showVideoThumbnail(file, container) {
 
 imageInput?.addEventListener("change", (e) => {
     handleMediaFiles(e.target.files);
+    e.target.value = "";
 });
 
-const dropZone = document.getElementById("image-drop");
-dropZone?.addEventListener("dragover",  e  => { e.preventDefault(); dropZone.classList.add("drag-over"); });
-dropZone?.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
-dropZone?.addEventListener("drop", e => {
-    e.preventDefault();
-    dropZone.classList.remove("drag-over");
-    handleMediaFiles(e.dataTransfer.files);
+document.getElementById("image-camera")?.addEventListener("change", (e) => {
+    handleMediaFiles(e.target.files);
+    e.target.value = "";
 });
+
+// Ablegen auf der GANZEN Seite: Früher nahm nur die Fläche selbst Dateien an –
+// knapp daneben öffnete der Browser das Bild und die Seite war weg.
+const dropZone = document.getElementById("image-drop");
+(function(){
+    if (!dropZone) return;
+    let depth = 0;
+    const overlay = document.createElement("div");
+    overlay.className = "page-drop-overlay";
+    overlay.textContent = "Bilder hier ablegen";
+    document.body.appendChild(overlay);
+    const hasFiles = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf("Files") >= 0;
+    const show = on => { overlay.classList.toggle("on", on); dropZone.classList.toggle("drag-over", on); };
+    window.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); depth++; show(true); });
+    window.addEventListener("dragover",  e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+    window.addEventListener("dragleave", e => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (!depth) show(false); });
+    window.addEventListener("drop", e => {
+        e.preventDefault();          // Browser soll die Datei NICHT selbst öffnen
+        depth = 0; show(false);
+        const dt = e.dataTransfer;
+        let files = dt && dt.files && dt.files.length ? Array.from(dt.files) : [];
+        if (!files.length && dt && dt.items) {
+            for (const it of dt.items) { if (it.kind === "file") { const f = it.getAsFile(); if (f) files.push(f); } }
+        }
+        if (!files.length) {
+            // Z.B. ein Bild aus einem anderen Browser-Tab: kommt nur als Adresse an.
+            mktMediaMsg("Keine Datei erkannt – bitte das Bild vom Computer bzw. aus dem Datei-Explorer hierher ziehen (Bilder aus Webseiten kommen nur als Link an).");
+            return;
+        }
+        handleMediaFiles(files);
+    });
+})();
 
 function renderPreviews(files) {
     imagePreviews.innerHTML = "";

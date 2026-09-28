@@ -126,6 +126,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	// Lokale Anfragen sind unberührt. MUSS vor der Routen-Registrierung stehen.
 	r.Use(s.tunnelGuardMiddleware())
 	r.Use(s.ownerGuardMiddleware())
+	r.Use(s.publicHeavyGuard()) // von außen: connect nur Heimnetz, Analyse/Streams nur angemeldet + begrenzt
 
 	s.registerRoutes()
 	s.registerAnalyzeRoutes()
@@ -425,7 +426,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R514"
+const NodeRevision = "R519"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

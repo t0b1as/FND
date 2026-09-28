@@ -1,6 +1,7 @@
 // Package llm kommuniziert mit einem lokal laufenden Ollama-Dienst.
-// Standardmodell: moondream2 (1.8 B, multimodal, läuft auf Pi 3).
-// Fallback für reine Text-Analyse: llama3.2:1b
+// Bildmodell (Standard "moondream", ~1,8 GB) nur mit genug RAM (Pi 4/5 ab 4 GB).
+// Reine Textanalysen nutzen standardmäßig DASSELBE Modell (nur eins im Speicher);
+// ein eigenes Textmodell ist per FUNDUS_LLM_TEXT_MODEL möglich.
 package llm
 
 import (
@@ -41,21 +42,33 @@ type Analyzer struct {
 	baseURL     string
 	model       string
 	textModel   string
+	vision      bool   // Fotos an das Bildmodell schicken?
+	keepAlive   string // Ollama keep_alive (Speicher nach Gebrauch freigeben)
 	httpClient  *http.Client
 	priceSearch *ProductSearcher
 	log         *zap.Logger
 }
 
+// Configure: Fotoanalyse an/aus und wie lange Ollama das Modell hält.
+func (a *Analyzer) Configure(vision bool, keepAlive string) {
+	a.vision = vision
+	if keepAlive != "" {
+		a.keepAlive = keepAlive
+	}
+}
+
 // New erstellt einen Analyzer.
 func New(baseURL, model, textModel string, log *zap.Logger) *Analyzer {
 	if baseURL == ""   { baseURL   = "http://127.0.0.1:11434" }
-	if model == ""     { model     = "moondream2" }
-	if textModel == "" { textModel = "llama3.2:1b" }
+	if model == ""     { model     = "moondream" }
+	if textModel == "" { textModel = model } // ein Modell für beides: spart Speicher
 
 	return &Analyzer{
 		baseURL:     baseURL,
 		model:       model,
 		textModel:   textModel,
+		vision:      true,
+		keepAlive:   "1m",
 		log:         log,
 		priceSearch: NewProductSearcher(log),
 		httpClient: &http.Client{
@@ -102,11 +115,20 @@ func (a *Analyzer) Analyze(ctx context.Context, req AnalyzeRequest) (*AnalysisRe
 	var rawResponse string
 	var err error
 
-	if len(b64Images) > 0 {
+	if len(b64Images) > 0 && a.vision {
 		rawResponse, err = a.callOllama(ctx, a.model, prompt, b64Images)
+		// Modell kann keine Bilder (reines Textmodell eingetragen) oder ist zu
+		// groß → nur den Text auswerten, statt ganz zu scheitern.
+		if err != nil && req.VoiceText != "" {
+			a.log.Warn("Bildanalyse fehlgeschlagen – werte nur den Text aus", zap.String("model", a.model), zap.Error(err))
+			rawResponse, err = a.callOllama(ctx, a.textModel, ListingPrompt(req.VoiceText, 0, ParseLang(lang)), nil)
+		}
 	} else {
-		// Kein Bild → reines Textmodell
-		rawResponse, err = a.callOllama(ctx, a.textModel, prompt, nil)
+		if req.VoiceText == "" {
+			return nil, fmt.Errorf("Fotoanalyse ist auf diesem Node abgeschaltet (zu wenig RAM für ein Bildmodell) – bitte eine Beschreibung oder einen Sprachkommentar angeben")
+		}
+		// Kein Bild bzw. keine Fotoanalyse → reines Textmodell
+		rawResponse, err = a.callOllama(ctx, a.textModel, ListingPrompt(req.VoiceText, 0, ParseLang(lang)), nil)
 	}
 
 	if err != nil {
@@ -179,7 +201,11 @@ func (a *Analyzer) Ping(ctx context.Context) error {
 // EnsureModel stellt sicher dass das Modell lokal verfügbar ist.
 // Lädt es herunter falls nötig (dauert beim ersten Mal einige Minuten auf dem Pi).
 func (a *Analyzer) EnsureModel(ctx context.Context) error {
-	for _, model := range []string{a.model, a.textModel} {
+	models := []string{a.textModel}
+	if a.vision && a.model != a.textModel {
+		models = append(models, a.model) // Bildmodell nur, wenn Fotoanalyse an ist und es ein anderes ist
+	}
+	for _, model := range models {
 		a.log.Info("Ensuring model is available", zap.String("model", model))
 		if err := a.pullModel(ctx, model); err != nil {
 			a.log.Warn("Model pull failed", zap.String("model", model), zap.Error(err))
@@ -197,6 +223,7 @@ type ollamaRequest struct {
 	Prompt  string   `json:"prompt"`
 	Images  []string `json:"images,omitempty"` // Base64-kodierte Bilder
 	Stream  bool     `json:"stream"`
+	KeepAlive string `json:"keep_alive,omitempty"` // Speicher nach Gebrauch freigeben (Pi 3: RAM knapp)
 	Options struct {
 		Temperature float64 `json:"temperature"`
 		NumPredict  int     `json:"num_predict"`
@@ -220,6 +247,7 @@ func (a *Analyzer) callOllama(ctx context.Context, model, prompt string, images 
 		Prompt: prompt,
 		Images: images,
 		Stream: false,
+		KeepAlive: a.keepAlive,
 	}
 	body.Options.Temperature = 0.3  // niedrig = konsistentere Ausgaben
 	body.Options.NumPredict  = 1024 // max Token

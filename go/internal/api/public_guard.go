@@ -138,3 +138,72 @@ func (s *Server) uploadAuthMiddleware() gin.HandlerFunc {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Hochladen nur für angemeldete Nutzer – bitte oben rechts anmelden."})
 	}
 }
+
+// ── Teure bzw. heikle Endpunkte für Aufrufer von außen ──────────────────────
+//  - /api/v1/connect: Node wählt beliebige Adressen an (Diagnose) → nur Heimnetz,
+//    sonst ließe sich darüber ins Heimnetz hineinschauen.
+//  - /api/v1/analyze: KI-Analyse (Ollama) → nur mit Anmeldung, max. 6 je 10 min.
+//  - /api/v1/files/stream/: ffmpeg-Umverpackung → nur mit Anmeldung, max. 2
+//    gleichzeitig von außen (sonst ist der Prozessor schnell ausgelastet).
+
+var (
+	analyzeMu    sync.Mutex
+	analyzeHits  = map[string][]time.Time{}
+	extStreamSem = make(chan struct{}, 2)
+)
+
+func (s *Server) publicHeavyGuard() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		p := c.Request.URL.Path
+		isConnect := p == "/api/v1/connect"
+		isAnalyze := p == "/api/v1/analyze"
+		isStream := strings.HasPrefix(p, "/api/v1/files/stream/")
+		if (!isConnect && !isAnalyze && !isStream) || isLANRequest(c) {
+			c.Next()
+			return
+		}
+		if isConnect {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "nur aus dem Heimnetz"})
+			return
+		}
+		if sess := s.getSession(c); sess == nil || sess.identity == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
+			return
+		}
+		if isAnalyze {
+			ip, now := clientIP(c), time.Now()
+			analyzeMu.Lock()
+			kept := analyzeHits[ip][:0]
+			for _, t := range analyzeHits[ip] {
+				if now.Sub(t) < 10*time.Minute {
+					kept = append(kept, t)
+				}
+			}
+			if len(kept) >= 6 {
+				analyzeHits[ip] = kept
+				analyzeMu.Unlock()
+				c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Analysen – bitte in einigen Minuten erneut versuchen."})
+				return
+			}
+			analyzeHits[ip] = append(kept, now)
+			if len(analyzeHits) > 5000 {
+				for k, v := range analyzeHits {
+					if len(v) == 0 || now.Sub(v[len(v)-1]) > 10*time.Minute {
+						delete(analyzeHits, k)
+					}
+				}
+			}
+			analyzeMu.Unlock()
+			c.Next()
+			return
+		}
+		// Stream: höchstens 2 gleichzeitig von außen
+		select {
+		case extStreamSem <- struct{}{}:
+			defer func() { <-extStreamSem }()
+			c.Next()
+		default:
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Gerade laufen zu viele Videos – bitte gleich erneut versuchen."})
+		}
+	}
+}

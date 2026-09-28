@@ -31,7 +31,10 @@ type Config struct {
 
 	// Feature-Flags
 	LLMEnabled bool   // LLM-Analyse aktiviert
-	LLMModel   string // Modell-Pfad für llama.cpp
+	LLMModel   string // Bildmodell (Ollama), z.B. "moondream" – nur mit genug RAM (Pi 4/5 ab 4 GB)
+	LLMTextModel string // optionales eigenes Textmodell; leer = Bildmodell auch für reine Textanalyse
+	LLMVision    bool   // Fotos analysieren? false = nur Text (Pi 3: Bildmodelle zu groß)
+	LLMKeepAlive string // wie lange Ollama das Modell im Speicher hält ("1m"; Pi 3: RAM knapp)
 
 	// Smartmeter
 	MeterProtocol  string
@@ -152,7 +155,10 @@ func Load(log *zap.Logger) *Config {
 		DataDir:    envStr("FUNDUS_DATA_DIR", "/opt/fundus/data"),
 		LogDir:     envStr("FUNDUS_LOG_DIR", "/var/log/fundus"),
 		LLMEnabled: envBool("FUNDUS_LLM_ENABLED", false),
-		LLMModel:   envStr("FUNDUS_LLM_MODEL", "moondream2"),
+		LLMModel:   envStr("FUNDUS_LLM_MODEL", "moondream"),
+		LLMTextModel: envStr("FUNDUS_LLM_TEXT_MODEL", ""), // leer = dasselbe Modell wie für Fotos
+		LLMVision:    envBool("FUNDUS_LLM_VISION", true),
+		LLMKeepAlive: envStr("FUNDUS_LLM_KEEP_ALIVE", "1m"),
 
 		MeterProtocol: envStr("FUNDUS_METER_PROTOCOL", ""),
 		MeterPort:     envStr("FUNDUS_METER_PORT", "/dev/ttyUSB0"),
