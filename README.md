@@ -47,6 +47,9 @@ libp2p), daher wird auf dem PC kompiliert.
 # 64-Bit Pi-OS (Standard, Pi 3/4/5 mit aarch64):
 powershell -File .\deploy-fundus.ps1 -PiHost 192.168.1.100 -PiUser pi
 
+# Mit Definition des fundus Admin Passworts:
+.\deploy-fundus.ps1 -PiHost 10.10.11.39 -PiUser tobias -Rebuild -SudoPass "..." -CertPass "..." -AdminPass '...'
+
 # 32-Bit Pi-OS (armv7l): am Pi mit 'uname -m' pruefen
 powershell -File .\deploy-fundus.ps1 -PiHost 192.168.1.100 -PiUser pi -Arch arm
 ```
@@ -154,7 +157,12 @@ FUNDUS_LLM_ENABLED=true
 FUNDUS_LLM_MODEL=moondream2    # multimodal, 1.8 GB
 ```
 
-Ollama muss laufen: `sudo systemctl start ollama`
+Ollama muss laufen: 
+
+```env
+curl -fsSL https://ollama.com/install.sh | sh
+```
+`sudo systemctl start ollama`
 
 Modelle manuell laden:
 ```bash
