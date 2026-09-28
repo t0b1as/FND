@@ -456,6 +456,12 @@ func (s *Server) fileEarnings(c *gin.Context) {
 // nodeSeedGet liefert die Seed-Wörter der neu erzeugten Node-Wallet, ohne sie zu
 // verbrauchen (mehrfach abrufbar, bis der Betreiber die Sicherung bestätigt).
 func (s *Server) nodeSeedGet(c *gin.Context) {
+	// Seed-Wörter der Node-Wallet: nur für den Betreiber (direkt lokal oder per
+	// Admin-Passwort über nginx). Früher ohne jede Prüfung abrufbar.
+	if !s.isAdminRequest(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Nur für den Betreiber (Admin-Passwort)"})
+		return
+	}
 	if s.fileStore == nil || !s.fileStore.NodeSeedAvailable() {
 		c.JSON(http.StatusOK, gin.H{"available": false})
 		return
