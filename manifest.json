@@ -1,8 +1,8 @@
 {
-  "version": "R522",
-  "description": "FUNDUS R522",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R522/FND-R522-update.zip",
-  "node_argon2": "14c097875eea84467baf4516bc319543f92033a10820dc85c75bc0a29ae4345b",
-  "published_at": "2026-09-28T13:40:21.266033Z",
-  "signature": "0x825309bc24e3b4026a7af4881b657e422fdeab95aef28f7b1739a3b865d43545635a71a49eca9b6f2794fb4ccce5cb1cce8978db19096d00adb3da6b5ba8582f1b"
+  "version": "R523",
+  "description": "FUNDUS R523",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R523/FND-R523-update.zip",
+  "node_argon2": "fcff6199e99201c193c4bb9a67b7c05f44584832ec4b508521e38fbbbe728cbf",
+  "published_at": "2026-09-28T14:16:19.8102546Z",
+  "signature": "0x35feb07e57a867f7d5befb1c4080a2576ccea248177bceb19fb884766b506a5f3157c396839adc959db34a7bc5cf88a9abf8616a817acbce2b5a7240a06d12601b"
 }
