@@ -226,7 +226,10 @@ func NewNode(ctx context.Context, cfg *config.Config, store *storage.Store, log 
 		// Verbindungsaufbau gedacht und würden einen Tunnel sofort kappen.
 		// Aktiv wird der Dienst nur, wenn AutoNAT den Node als öffentlich
 		// erreichbar erkennt – hinter NAT schadet die Option nicht.
-		opts = append(opts, libp2p.EnableRelayService(relayv2.WithInfiniteLimits()))
+		// Zugangsregel: unbegrenzt NUR für Fundus-Nodes (sprechen "/fundus/…"-
+		// Protokolle). Ohne Regel hätte jeder libp2p-Teilnehmer über diesen
+		// Anschluss Datenverkehr vermitteln lassen können.
+		opts = append(opts, libp2p.EnableRelayService(relayv2.WithInfiniteLimits(), relayv2.WithACL(fundusRelayACLInst)))
 	}
 	// Erreichbarkeit vorgeben, statt auf AutoNAT zu warten (bei wenigen Nodes
 	// bleibt AutoNAT oft lange "unbekannt" – dann starten weder Relay-Dienst
@@ -242,6 +245,8 @@ func NewNode(ctx context.Context, cfg *config.Config, store *storage.Store, log 
 	if err != nil {
 		return nil, fmt.Errorf("create libp2p host: %w", err)
 	}
+	fundusRelayACLInst.setPeerstore(h.Peerstore()) // Relay-Zugangsregel braucht die Protokoll-Liste der Peers
+
 
 	// -------------------------------------------------------------------------
 	//  DHT – adaptiver Modus basierend auf Erreichbarkeit
@@ -1485,4 +1490,57 @@ func (n *Node) connectionKeeper(ctx context.Context) {
 			}(pid)
 		}
 	}
+}
+
+// ── Relay-Zugangsregel: nur Fundus-Nodes ────────────────────────────────────
+
+type fundusRelayACL struct {
+	mu sync.RWMutex
+	ps interface {
+		GetProtocols(peer.ID) ([]protocol.ID, error)
+	}
+}
+
+var fundusRelayACLInst = &fundusRelayACL{}
+
+func (a *fundusRelayACL) setPeerstore(ps interface {
+	GetProtocols(peer.ID) ([]protocol.ID, error)
+}) {
+	a.mu.Lock()
+	a.ps = ps
+	a.mu.Unlock()
+}
+
+// fundusState: 1 = spricht Fundus-Protokolle, 0 = nachweislich nicht, -1 = noch unbekannt.
+func (a *fundusRelayACL) fundusState(p peer.ID) int {
+	a.mu.RLock()
+	ps := a.ps
+	a.mu.RUnlock()
+	if ps == nil {
+		return -1
+	}
+	protos, err := ps.GetProtocols(p)
+	if err != nil || len(protos) == 0 {
+		return -1 // Protokoll-Austausch (identify) noch nicht abgeschlossen
+	}
+	for _, pr := range protos {
+		if strings.HasPrefix(string(pr), "/fundus/") {
+			return 1
+		}
+	}
+	return 0
+}
+
+// AllowReserve: "über dich erreichbar sein" nur für Fundus-Nodes. Ist der
+// Protokoll-Austausch noch nicht durch, ablehnen – der Client versucht es kurz
+// darauf erneut.
+func (a *fundusRelayACL) AllowReserve(p peer.ID, _ multiaddr.Multiaddr) bool {
+	return a.fundusState(p) == 1
+}
+
+// AllowConnect: Verbindungen nur ZU Fundus-Nodes (die haben eine Reservierung).
+// Der Anrufer muss ebenfalls Fundus sprechen; ist das noch unbekannt, wird
+// zugelassen – das Ziel nimmt ohnehin nur Fundus-Protokolle an.
+func (a *fundusRelayACL) AllowConnect(src peer.ID, _ multiaddr.Multiaddr, dest peer.ID) bool {
+	return a.fundusState(dest) == 1 && a.fundusState(src) != 0
 }
