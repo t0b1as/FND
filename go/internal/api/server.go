@@ -427,7 +427,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R522"
+const NodeRevision = "R523"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -437,6 +437,10 @@ var SourceFingerprint = "unbekannt"
 // ChainInitError: warum die Chain nicht läuft (z.B. inkompatibles Format –
 // Daten bleiben unangetastet). Von main gesetzt, in /health und chain/status.
 var ChainInitError string
+
+// FileStoreError: warum der Dateispeicher nicht läuft (von main gesetzt; leer =
+// läuft oder bewusst abgeschaltet). Sonst fehlten Bilder kommentarlos.
+var FileStoreError string
 
 // ProducerRunning: läuft die Blockproduktion dieses Nodes? (von main gesetzt)
 var ProducerRunning atomic.Bool

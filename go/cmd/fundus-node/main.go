@@ -317,6 +317,7 @@ func main() {
 		fs, err = filestore.New(fsCfg, &filestoreP2PAdapter{node}, log)
 		if err != nil {
 			log.Warn("FileStore Init fehlgeschlagen – Filesharing deaktiviert", zap.Error(err))
+			api.FileStoreError = "Dateispeicher konnte nicht gestartet werden: " + err.Error()
 			fs = nil
 		} else {
 			go fs.RunReplicationManager(ctx)

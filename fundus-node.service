@@ -42,6 +42,9 @@ TimeoutStopSec=30
 KillMode=mixed
 
 # Warten bis Port 3000 frei ist (falls alter Prozess noch läuft)
+# Eigentümer der Datenordner vor jedem Start korrigieren ("+" = als root): lief
+# der Node einmal als root, kann der Dienst seine Dateien sonst nicht öffnen.
+ExecStartPre=+/bin/sh -c 'for d in /opt/fundus/data /opt/fundus/chunks; do [ -d "$d" ] && find "$d" ! -user fundus -exec chown -h fundus:fundus {} + ; done; true'
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 10); do ! ss -ltn | grep -q ":3000 " && break; sleep 1; done'
 
 # -----------------------------------------------------------------------------

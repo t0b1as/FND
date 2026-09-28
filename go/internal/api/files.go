@@ -157,7 +157,11 @@ func (s *Server) fileUpload(c *gin.Context) {
 // GET /api/v1/files/download/:hash
 func (s *Server) fileDownload(c *gin.Context) {
 	if s.fileStore == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Filesharing deaktiviert"})
+		msg := "Filesharing deaktiviert"
+		if FileStoreError != "" {
+			msg = FileStoreError
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": msg})
 		return
 	}
 	hash := strings.ToLower(c.Param("hash"))
@@ -280,7 +284,11 @@ func (s *Server) fileThumbnail(c *gin.Context) {
 // Download-Bereitschaft nach Upload, während die Replikation noch läuft).
 func (s *Server) fileAvailability(c *gin.Context) {
 	if s.fileStore == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Filesharing deaktiviert"})
+		msg := "Filesharing deaktiviert"
+		if FileStoreError != "" {
+			msg = FileStoreError
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": msg})
 		return
 	}
 	hash := strings.ToLower(c.Param("hash"))
@@ -300,7 +308,11 @@ func (s *Server) fileAvailability(c *gin.Context) {
 // Replikatzahl über alle Chunks).
 func (s *Server) fileRedundancy(c *gin.Context) {
 	if s.fileStore == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Filesharing deaktiviert"})
+		msg := "Filesharing deaktiviert"
+		if FileStoreError != "" {
+			msg = FileStoreError
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": msg})
 		return
 	}
 	hash := strings.ToLower(c.Param("hash"))
@@ -1100,7 +1112,11 @@ func (s *Server) fileList(c *gin.Context) {
 // DELETE /api/v1/files/info/:hash — Datei aus lokalem Index + Freigabe entfernen
 func (s *Server) fileDelete(c *gin.Context) {
 	if s.fileStore == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Filesharing deaktiviert"})
+		msg := "Filesharing deaktiviert"
+		if FileStoreError != "" {
+			msg = FileStoreError
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": msg})
 		return
 	}
 	hash := strings.ToLower(c.Param("hash"))

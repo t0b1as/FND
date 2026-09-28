@@ -150,6 +150,7 @@ ngx.print([[
       if (d.hint && !val) notes += note(d.hint, Y);
       if (d.fork_note) notes += note('Astwahl: ' + d.fork_note, Y);
       if (d.clock_note) notes += note(d.clock_note, R);
+      if (d.filestore_error) notes += note(d.filestore_error + ' – Bilder/Dateien sind nicht abrufbar. Meist falsche Dateirechte; der Helper korrigiert sie automatisch, danach Node neu starten.', R);
       document.getElementById('ch-notes').innerHTML = notes;
     } catch(e){ sumEl.textContent = '✗ Status nicht abrufbar: ' + e.message; sumEl.style.color = R; return; }
     try {

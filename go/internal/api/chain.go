@@ -101,6 +101,9 @@ func (s *Server) chainStatus(c *gin.Context) {
 	} else if !(canSign && inSet) {
 		out["hint"] = "Dieser Node hat keinen Signierschlüssel (Node-Wallet gesperrt oder fehlt) – auf der Wallet-Seite entsperren."
 	}
+	if FileStoreError != "" {
+		out["filestore_error"] = FileStoreError
+	}
 	c.JSON(http.StatusOK, out)
 }
 

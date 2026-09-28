@@ -130,6 +130,7 @@ func main() {
 
 	// Setup-Hotspot "FUNDUS Rnnn", wenn kein WLAN verbunden ist (FUNDUS_SETUP_AP).
 	go setupAPWatch(ctx)
+	go ownershipWatch(ctx) // Datenordner wieder fundus zuordnen (falls der Node einmal als root lief)
 
 	// Periodischer Scan als robuster Auffang für das Einstecken (falls die
 	// udev-Regel nicht greift) und für spät auftauchende Geräte nach dem Boot.

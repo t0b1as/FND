@@ -143,7 +143,7 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 .msg-chat-sub    { display:block; font-family:monospace; font-size:11px; color:var(--muted); cursor:pointer;
                    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .msg-chat-sub:empty, .msg-chat-name:empty { display:none; }
-.msg-header      { align-items:center; }
+.msg-header      { align-items:center; gap:12px; }   /* Abstand wie Innenrand links (12px) */
 .msg-call-buttons .btn { padding:6px 12px; }
 .msg-av-slot:empty { display:none; }
 .msg-av-slot     { flex:0 0 auto; display:inline-flex; }
@@ -306,7 +306,7 @@ const MSGT = ]] .. (require("cjson.safe").encode({
   .msg-messages  { flex:1; min-height:0; }
 
   /* Kopfzeile: Adresse schrumpft, Anruf-Knöpfe bleiben sichtbar */
-  .msg-header    { gap:6px; padding:6px 8px; }
+  .msg-header    { gap:8px; padding:6px 8px; }   /* Abstand wie Innenrand links (8px) */
   .msg-call-buttons { gap:4px; flex-shrink:0; }
   .msg-call-buttons .btn { width:auto; min-height:40px; padding:6px 10px; min-width:0; }
 
