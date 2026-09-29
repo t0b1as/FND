@@ -13,7 +13,7 @@
     { key:"certificates", path:"/certificates", label:"Zertifikate",  icon:"📜", beta:true, color:"blue" },
     { key:"shop",         path:"/shop",         label:"FND/SOL",      icon:"💰", color:"green",  defQuick:true },
     { key:"jobs",         path:"/jobs",         label:"Jobs",         icon:"💼", beta:true, color:"purple" },
-    { key:"files",        path:"/files",        label:"Dateien",      icon:"📁", color:"pink",   defQuick:true },
+    { key:"files",        path:"/files",        label:"Dateien",      icon:"📁", color:"pink",   defQuick:true, quickPath:"/shared", quickLabel:"Freigaben" },
     { key:"messenger",    path:"/messenger",    label:"Messenger",    icon:"💬", beta:true, color:"blue", defQuick:true },
     { key:"partner",      path:"/partner",      label:"Fundus Love",  icon:"💗", color:"rose", defQuick:true },
     { key:"wallet",       path:"/wallet",       label:"Wallet",       icon:"👛", color:"gold",   defQuick:true }
@@ -70,9 +70,11 @@
       window.NAV_ITEMS.forEach(function(it){
         if (v[it.key] && v[it.key].quick){
           const a = document.createElement("a");
-          a.href = it.path;
+          // Leiste kann ein eigenes Ziel haben (Dateien → öffentliche Freigaben;
+          // die Verwaltung /files bleibt im Menü, nur im Heimnetz erreichbar).
+          a.href = it.quickPath || it.path;
           a.className = "nav-quick-btn nqb-"+(it.color||"green");
-          a.title = it.label;
+          a.title = it.quickLabel || it.label;
           a.innerHTML = '<span class="nqi">'+it.icon+'</span>';
           // Ungelesen-Badge für Messenger direkt mit einbauen (aus persistentem
           // Zähler), sonst löscht dieser innerHTML-Rebuild das von msgnotify

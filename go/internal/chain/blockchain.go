@@ -749,6 +749,41 @@ func (bc *Blockchain) persistBlock(blk *Block) error {
 	return os.Rename(tmp, bc.blockPath(blk.Header.Height))
 }
 
+// RewindTo setzt die Kette auf Höhe h zurück (Astwechsel bis zum gemeinsamen
+// Vorfahren statt kompletter Neu-Synchronisation). Es wird nur meta.json auf
+// Höhe h und deren Blockhash gesetzt; der Zustand wird beim nächsten Start aus
+// den gespeicherten Blöcken 0..h neu aufgebaut (load() spielt nur bis zur Höhe
+// aus meta.json ab). Blöcke oberhalb von h bleiben im Speicher liegen und werden
+// beim Nachladen des gültigen Asts überschrieben. Der Aufrufer beendet danach
+// den Prozess (Neustart durch systemd).
+func (bc *Blockchain) RewindTo(h uint64) error {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	if h > bc.height {
+		return fmt.Errorf("chain: Rückbau auf %d nicht möglich (Höhe %d)", h, bc.height)
+	}
+	blk, err := bc.loadBlock(h)
+	if err != nil || blk == nil {
+		return fmt.Errorf("chain: Block %d für Rückbau nicht lesbar: %v", h, err)
+	}
+	hh := blk.Header.Hash()
+	m := chainMeta{Height: h, HeadHash: fmt.Sprintf("%x", hh[:]), SchemaVersion: StateSchemaVersion}
+	data, _ := json.MarshalIndent(m, "", "  ")
+	tmp := filepath.Join(bc.dir, "meta.json.tmp")
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, filepath.Join(bc.dir, "meta.json")); err != nil {
+		return err
+	}
+	// Nachvollziehbarkeit: Rückbauten protokollieren.
+	if f, err := os.OpenFile(filepath.Join(bc.dir, "rewind.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+		fmt.Fprintf(f, "%s Rückbau von Höhe %d auf %d (Head %x)\n", time.Now().Format(time.RFC3339), bc.height, h, hh[:8])
+		f.Close()
+	}
+	return nil
+}
+
 func (bc *Blockchain) saveMeta() error {
 	hh := bc.head.Hash()
 	m := chainMeta{Height: bc.height, HeadHash: fmt.Sprintf("%x", hh[:]), SchemaVersion: StateSchemaVersion}

@@ -574,7 +574,15 @@ func main() {
 				// startet neu (Restart=on-failure), die Sync-Sperre übernimmt den
 				// gültigen Ast, bevor wieder gebaut wird.
 				forkChainDir := chainDir
-				p2p.SetForkLoseHandler(func(reason string) {
+				p2p.SetForkLoseHandler(func(reason string, ancestor uint64) {
+					// Bevorzugt: nur bis zum gemeinsamen Vorfahren zurückbauen –
+					// der gemeinsame Teil bleibt, nachgeladen wird nur der Rest.
+					if err := bc.RewindTo(ancestor); err == nil {
+						log.Warn("Chain: Astwechsel – Rückbau bis zum gemeinsamen Vorfahren, Neustart", zap.String("grund", reason), zap.Uint64("vorfahr", ancestor))
+						os.Exit(3)
+					} else {
+						log.Warn("Chain: Rückbau nicht möglich – sichere ganze Chain", zap.Error(err))
+					}
 					backup := forkChainDir + ".fork-" + time.Now().Format("20060102-150405")
 					log.Warn("Chain: Astwechsel – sichere eigene Chain und starte neu", zap.String("grund", reason), zap.String("sicherung", backup))
 					if err := os.Rename(forkChainDir, backup); err != nil {

@@ -149,7 +149,9 @@ func (s *Server) uploadAuthMiddleware() gin.HandlerFunc {
 var (
 	analyzeMu    sync.Mutex
 	analyzeHits  = map[string][]time.Time{}
-	extStreamSem = make(chan struct{}, 2)
+	extStreamSem   = make(chan struct{}, 4) // von außen gesamt (Umverpacken kopiert nur, rechnet nicht um)
+	extStreamMu    sync.Mutex
+	extStreamPerIP = map[string]int{}
 )
 
 func (s *Server) publicHeavyGuard() gin.HandlerFunc {
@@ -169,9 +171,14 @@ func (s *Server) publicHeavyGuard() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "nur aus dem Heimnetz"})
 			return
 		}
-		if sess := s.getSession(c); sess == nil || sess.identity == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
-			return
+		// Streams (MKV → MP4 per ffmpeg) auch OHNE Anmeldung: Freigaben sind
+		// öffentlich gedacht (/shared). Schutz des Prozessors über die
+		// Begrenzung unten (max. 4 gleichzeitig, 3 je Besucher).
+		if !isStream {
+			if sess := s.getSession(c); sess == nil || sess.identity == nil {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
+				return
+			}
 		}
 		if isAnalyze {
 			ip, now := clientIP(c), time.Now()
@@ -200,7 +207,24 @@ func (s *Server) publicHeavyGuard() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		// Stream: höchstens 2 gleichzeitig von außen
+		// Stream: höchstens 4 gleichzeitig von außen, 3 je Besucher-Adresse
+		// (iOS/Safari stellt für ein Video mehrere kurze Anfragen parallel).
+		ip := clientIP(c)
+		extStreamMu.Lock()
+		if extStreamPerIP[ip] >= 3 {
+			extStreamMu.Unlock()
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Videos gleichzeitig – bitte andere Videos zuerst schließen."})
+			return
+		}
+		extStreamPerIP[ip]++
+		extStreamMu.Unlock()
+		defer func() {
+			extStreamMu.Lock()
+			if extStreamPerIP[ip]--; extStreamPerIP[ip] <= 0 {
+				delete(extStreamPerIP, ip)
+			}
+			extStreamMu.Unlock()
+		}()
 		select {
 		case extStreamSem <- struct{}{}:
 			defer func() { <-extStreamSem }()
@@ -208,5 +232,88 @@ func (s *Server) publicHeavyGuard() gin.HandlerFunc {
 		default:
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Gerade laufen zu viele Videos – bitte gleich erneut versuchen."})
 		}
+	}
+}
+
+// ── Schreibende Anfragen von außen: grundsätzlich verboten ──────────────────
+// Ein Audit aller Endpunkte (R529) ergab, dass viele schreibende Funktionen
+// keine eigene Prüfung haben – im Heimnetz unkritisch, von außen nicht (u.a.
+// Ordner-Freigaben beliebiger Pfade anlegen, fremde Angebote/Orders löschen,
+// Swap-Zustände ändern). Statt jede einzeln abzusichern, gilt für Aufrufer
+// von AUSSEN (nicht Heimnetz, nicht P2P-Tunnel):
+//   1. Betreiber-/Infrastruktur-Pfade: gesperrt (nur Heimnetz).
+//   2. Durch Schlüssel/Signatur geschützte bzw. Anmelde-Pfade: offen.
+//   3. Alles andere: nur mit Anmeldung.
+
+var extWriteLANOnly = []string{
+	"/api/v1/shares",        // Ordner-Freigaben (Pfade auf dem Pi!)
+	"/api/v1/topology/",     // Energie-Netz: Verbindungen, Gebühren
+	"/api/v1/grid/",         // Kapazität, Handel im Energie-Netz
+	"/api/v1/meter/",        // Zählerstände
+	"/api/v1/energy",        // Energie-Token anlegen
+	"/api/v1/certificates",  // Zertifikate ausstellen
+	"/api/v1/addressbook",   // Adressbuch des Nodes
+	"/api/v1/files/manifest",
+	"/api/v1/swap/auto/",    // automatischer Handel des Nodes
+}
+
+var extWriteOpen = []string{
+	"/api/v1/identity/derive",  // Anmeldung (mit Anmeldebremse)
+	"/api/v1/wallet/open",      // Wallet öffnen (mit Anmeldebremse)
+	"/api/v1/wallet/derive",
+	"/api/v1/chain/tx",         // signierte Transaktion
+	"/api/v1/chain/send",       // mit Seed-Wörtern
+	"/api/v1/swap/keyaddr",     // Adresse aus mitgeschicktem Schlüssel
+	"/api/v1/swap/derive-addrs",
+	"/api/v1/swap/secret",
+	"/api/v1/swap/fnd/",        // Sperren/Einlösen: Schlüssel im Anfragetext
+	"/api/v1/swap/sol/",
+}
+
+// isSwapPhasePath: /api/v1/swap/<id>/phase – Zustand eines Swaps setzen.
+func isSwapPhasePath(p string) bool {
+	return strings.HasPrefix(p, "/api/v1/swap/") && strings.HasSuffix(p, "/phase")
+}
+
+func hasAnyPrefix(p string, list []string) bool {
+	for _, pre := range list {
+		if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) externalWriteGuard() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		m := c.Request.Method
+		p := c.Request.URL.Path
+		if isLANRequest(c) || !strings.HasPrefix(p, "/api/") {
+			c.Next()
+			return
+		}
+		// Lesend: Hinterlegungs-Übersicht und Adressbuch sind Betreiber-Sache.
+		if m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions {
+			// Adressbuch = echte Adressen des Betreibers → von außen nicht lesbar.
+			if p == "/api/v1/swap/deposits" || strings.HasPrefix(p, "/api/v1/addressbook") {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "nur aus dem Heimnetz"})
+				return
+			}
+			c.Next()
+			return
+		}
+		if hasAnyPrefix(p, extWriteLANOnly) || isSwapPhasePath(p) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "nur aus dem Heimnetz"})
+			return
+		}
+		if hasAnyPrefix(p, extWriteOpen) {
+			c.Next()
+			return
+		}
+		if sess := s.getSession(c); sess == nil || sess.identity == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
+			return
+		}
+		c.Next()
 	}
 }

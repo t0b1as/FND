@@ -13,7 +13,11 @@ return function()
   if ro then
     ngx.print([==[<script>document.documentElement.classList.add('fm-ro');window.FM_READONLY=true;</script>
 <style>html.fm-ro .files-stats-row, html.fm-ro .file-card:not(.fm-list-card), html.fm-ro .info-notice, html.fm-ro .files-drives-card{display:none!important}
-html.fm-ro .fm-list-card .file-card-head{gap:8px;flex-wrap:wrap}</style>]==])
+html.fm-ro .fm-list-card .file-card-head{gap:8px;flex-wrap:wrap}
+/* Filterfeld wie das Texteingabefeld im Messenger */
+#fm-filter{flex:1;min-width:140px;max-width:420px;padding:11px 16px;border-radius:22px;border:1px solid var(--border);
+  background:var(--bg,#0e0e1a);color:var(--text);font-size:14px;transition:border-color .18s ease, box-shadow .18s ease}
+#fm-filter:focus{outline:none;border-color:var(--green-ctrl);box-shadow:0 0 0 3px rgba(23,168,98,0.18), 0 0 14px rgba(23,168,98,0.22)}</style>]==])
   end
 
   local stats, _ = render.api_get("/v1/files/stats")
@@ -551,7 +555,7 @@ async function loadFilesShared() {
     const h3 = head.querySelector('h3'); if (h3) h3.textContent = 'Freigaben im Fundus-Netz';
     const inp = document.createElement('input');
     inp.type = 'search'; inp.id = 'fm-filter'; inp.placeholder = 'Filtern …';
-    inp.style.cssText = 'flex:1;min-width:140px;max-width:360px';
+    // Aussehen per CSS (#fm-filter), wie das Messenger-Eingabefeld
     inp.oninput = function(){ window._fmFilter = this.value.trim().toLowerCase(); renderFileList(); };
     head.insertBefore(inp, head.querySelector('button'));
   }

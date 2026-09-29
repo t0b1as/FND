@@ -1,0 +1,4 @@
+# Einstiegspunkte ins Fundus-Netz für neue Nodes (install.sh liest diese Datei).
+# Eine Multiaddr pro Zeile, z.B. der öffentlich erreichbare Node (Port 4001 weitergeleitet):
+#   /dns4/fnd.resolve.bar/tcp/4001/p2p/12D3KooW…
+# Die Peer-ID steht auf dem Node unter:  curl -s http://127.0.0.1:3000/api/v1/node

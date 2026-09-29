@@ -10,6 +10,7 @@ package api
 // bekundung: "Ich biete X FND zum Preis Y in SOL".
 
 import (
+	"strings"
 	"sort"
 	"context"
 	"encoding/hex"
@@ -67,6 +68,9 @@ type Order struct {
 	// Guthaben und war auf Mainnet annehmbar. Nicht Teil der ID (ältere Nodes
 	// ignorieren das Feld). Leer = vor R486 angelegt, Netz unbekannt.
 	SolNet string `json:"sol_net,omitempty"`
+	// Creator: Fundus-ID des angemeldeten Erstellers ("" = Node-eigen).
+	// Nur er darf stornieren/verlängern (R530).
+	Creator string `json:"creator,omitempty"`
 }
 
 // isActive prüft, ob die Order noch gültig (nicht abgelaufen) ist.
@@ -516,6 +520,7 @@ func (s *Server) orderCreate(c *gin.Context) {
 		return
 	}
 	o := &Order{
+		Creator: s.sessionFID(c),
 		Maker: maker, MakerPeer: peerID,
 		Side: req.Side, Type: req.Type,
 		AmountFND: req.AmountFND, PriceSOL: req.PriceSOL,
@@ -536,6 +541,10 @@ func (s *Server) orderCancel(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Orderbuch nicht aktiv"})
 		return
 	}
+	if o, ok := s.orderBook.getMyOrder(c.Param("id")); ok && !s.mayModify(c, o.Creator) {
+		denyNotCreator(c, "diese Order stornieren")
+		return
+	}
 	if s.orderBook.removeOrder(c.Param("id")) {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 		return
@@ -550,7 +559,23 @@ func (s *Server) orderListMine(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"orders": []interface{}{}})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"orders": s.orderBook.listMyOrders(), "sol_net": s.solNetName()})
+	// Nur die eigenen: angemeldet → Orders dieses Nutzers (plus Node-eigene,
+	// wenn aus dem Heimnetz); ohne Anmeldung aus dem Heimnetz → alle (Betreiber).
+	fid := s.sessionFID(c)
+	lan := isLANRequest(c)
+	out := make([]*Order, 0)
+	for _, o := range s.orderBook.listMyOrders() {
+		cr := strings.ToLower(o.Creator)
+		switch {
+		case fid != "" && cr == fid:
+			out = append(out, o)
+		case lan && cr == "":
+			out = append(out, o)
+		case fid == "" && lan:
+			out = append(out, o)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"orders": out, "sol_net": s.solNetName()})
 }
 
 // orderBookGet liefert das gesamte Netz-Orderbuch (eigene + entdeckte).
@@ -780,10 +805,26 @@ func (s *Server) orderRenew(c *gin.Context) {
 	if ttl > 365*24*3600 {
 		ttl = 365 * 24 * 3600
 	}
+	if cur, ok := s.orderBook.getMyOrder(c.Param("id")); ok && !s.mayModify(c, cur.Creator) {
+		denyNotCreator(c, "diese Order verlängern")
+		return
+	}
 	o, ok := s.orderBook.renewMyOrder(c.Param("id"), orderExpiry(time.Now().Unix(), ttl))
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Order nicht gefunden (bereits abgelaufen oder storniert?)"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "expires_at": o.ExpiresAt})
+}
+
+// getMyOrder: eigene Order (Kopie) nach ID.
+func (ob *OrderBook) getMyOrder(id string) (*Order, bool) {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	o, ok := ob.myOrders[id]
+	if !ok || o == nil {
+		return nil, false
+	}
+	cp := *o
+	return &cp, true
 }

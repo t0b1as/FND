@@ -355,14 +355,14 @@ var (
 	forkMu          sync.Mutex
 	forkLastPeer    = map[string]time.Time{}
 	forkLastSwitch  time.Time
-	forkLoseHandler func(reason string)
+	forkLoseHandler func(reason string, ancestor uint64)
 	forkNote        string
 	forkNoteAt      time.Time
 )
 
 // SetForkLoseHandler: wird aufgerufen, wenn dieser Node auf dem verlierenden Ast
 // liegt (main: Chain beiseitelegen und neu starten).
-func SetForkLoseHandler(f func(reason string)) {
+func SetForkLoseHandler(f func(reason string, ancestor uint64)) {
 	forkMu.Lock()
 	forkLoseHandler = f
 	forkMu.Unlock()
@@ -496,11 +496,11 @@ func (n *Node) resolveFork(peerID string, c ChainBridge, peerHeight uint64) {
 	forkLastSwitch = time.Now()
 	h := forkLoseHandler
 	forkMu.Unlock()
-	msg := fmt.Sprintf("Abzweigung ab Block %d – der Ast von Peer %s gilt (%s); wechsle: Chain wird gesichert und neu synchronisiert", k, shortPeer(peerID), why)
+	msg := fmt.Sprintf("Abzweigung ab Block %d – der Ast von Peer %s gilt (%s); wechsle: Rückbau auf Block %d, dann Nachladen", k, shortPeer(peerID), why, ancestor)
 	setForkNote(msg)
 	n.log.Warn("Chain: " + msg)
 	if h != nil {
-		h(msg)
+		h(msg, ancestor)
 	}
 }
 

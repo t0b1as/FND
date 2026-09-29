@@ -127,6 +127,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	r.Use(s.tunnelGuardMiddleware())
 	r.Use(s.ownerGuardMiddleware())
 	r.Use(s.publicHeavyGuard()) // von außen: connect nur Heimnetz, Analyse/Streams nur angemeldet + begrenzt
+	r.Use(s.externalWriteGuard()) // von außen: Schreiben nur angemeldet, Betreiber-Pfade nur Heimnetz
 
 	s.registerRoutes()
 	s.registerAnalyzeRoutes()
@@ -141,6 +142,8 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerSearchRoutes()
 	s.registerJobSearchRoutes()
 	s.registerFileSearchRoutes()
+	s.router.GET("/api/v1/nodes/overview", s.nodesOverview) // Übersicht aller Nodes (nur Heimnetz)
+	s.registerNodeInfo()                                     // P2P: "Wie geht es dir?"
 	s.registerWalletRoutes()
 	s.registerChainRoutes()
 
@@ -427,7 +430,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R527"
+const NodeRevision = "R531"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -741,6 +744,7 @@ func (s *Server) createListing(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	stripCreatorFields(body) // nur der Server setzt den Ersteller
 	// Beschreibung als Rich-Text sanitizen (nur sichere Formatierungs-Tags).
 	if desc, ok := body["description"].(string); ok {
 		body["description"] = sanitizeRichText(desc)
@@ -774,6 +778,8 @@ func (s *Server) createListing(c *gin.Context) {
 		sum := blake3.Sum256([]byte(hstr))
 		body["content_hash"] = "0x" + hex.EncodeToString(sum[:])
 	}
+	// Ersteller (angemeldeter Nutzer) + seine Signatur über den Inhalts-Hash.
+	s.signCreator(c, body, "listing")
 	record := &storage.Record{
 		ID:        generateID(),
 		Type:      storage.RecordListing,
@@ -833,6 +839,11 @@ func (s *Server) updateListing(c *gin.Context) {
 		return
 	}
 
+	// Nutzer-Prüfung: nur der angemeldete Ersteller (oder Betreiber).
+	if cr, _ := existing.Data["creator_fid"].(string); !s.mayModify(c, cr) {
+		denyNotCreator(c, "dieses Angebot bearbeiten")
+		return
+	}
 	// Eigentümer-Prüfung: nur der erstellende Node darf ändern.
 	// Ausnahme: UNSIGNIERTE Altbestände (vor Einführung der Signatur/
 	// persistenten Identität erstellt) duerfen lokal uebernommen werden –
@@ -853,6 +864,7 @@ func (s *Server) updateListing(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	stripCreatorFields(body) // Ersteller ist nicht änderbar
 	// Beschreibung als Rich-Text sanitizen (nur sichere Formatierungs-Tags).
 	if desc, ok := body["description"].(string); ok {
 		body["description"] = sanitizeRichText(desc)
@@ -915,6 +927,11 @@ func (s *Server) deleteListing(c *gin.Context) {
 		return
 	}
 
+	// Nutzer-Prüfung: nur der angemeldete Ersteller (oder Betreiber).
+	if cr, _ := existing.Data["creator_fid"].(string); !s.mayModify(c, cr) {
+		denyNotCreator(c, "dieses Angebot löschen")
+		return
+	}
 	// Eigentümer-Prüfung: nur der Ersteller darf loeschen.
 	// Unsignierte Altbestände duerfen lokal geloescht werden (Adoption).
 	isLegacy := len(existing.Signature) == 0

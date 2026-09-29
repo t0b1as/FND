@@ -179,6 +179,74 @@ ngx.print([[
   load(); setInterval(load, 15000);
 })();
 </script>
+
+<!-- ── Node-Übersicht ─────────────────────────────────────────── -->
+<div class="set-card" id="node-overview">
+  <div class="set-head"><h3>Node-Übersicht</h3></div>
+  <div class="set-body">
+    <div id="no-summary" class="status-line">Lade …</div>
+    <div style="overflow-x:auto;margin-top:8px"><table id="no-table" class="no-table"></table></div>
+    <p class="meta" style="margin-top:8px">Rot: andere Revision als die Mehrheit, Uhr &gt; 2 s daneben, Dateispeicher oder Chain aus.
+    Gelb: mehr als 3 Blöcke Rückstand oder kürzliche Astwahl. Grau: keine Antwort (Node vor R531 oder nicht erreichbar).</p>
+  </div>
+</div>
+<style>
+.no-table { border-collapse:collapse; width:100%; font-size:13px; }
+.no-table th, .no-table td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); white-space:nowrap; vertical-align:top; }
+.no-table th { color:var(--muted); font-weight:600; font-size:12px; }
+.no-table td.bad  { color:#f66; font-weight:600; }
+.no-table td.warn { color:#fb3; }
+.no-table tr.gone td { color:var(--muted); }
+.no-table .note { white-space:normal; max-width:320px; font-size:12px; }
+</style>
+<script>
+(function(){
+  function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function dur(s){ s = Number(s)||0; if (s < 3600) return Math.floor(s/60) + ' min'; if (s < 86400) return Math.floor(s/3600) + ' h'; return Math.floor(s/86400) + ' T'; }
+  function gb(v){ var n = Number(v); return isFinite(n) ? n.toFixed(1) : '–'; }
+  async function load(){
+    var sum = document.getElementById('no-summary');
+    try {
+      var r = await fetch('/api/v1/nodes/overview', {credentials:'same-origin'});
+      var d = await r.json();
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      var nodes = d.nodes || [];
+      var ok = nodes.filter(function(n){ return !n.error; });
+      // Mehrheits-Revision und höchste Höhe als Bezug
+      var cnt = {}; ok.forEach(function(n){ cnt[n.revision] = (cnt[n.revision]||0) + 1; });
+      var major = Object.keys(cnt).sort(function(a,b){ return cnt[b]-cnt[a]; })[0] || '';
+      var maxH = Math.max.apply(null, ok.map(function(n){ return n.height||0; }).concat([0]));
+      var issues = 0;
+      var rows = nodes.map(function(n){
+        if (n.error) return '<tr class="gone"><td>' + esc(String(n.peer_id).slice(-8)) + '</td><td colspan="7">' + esc(n.error) + '</td></tr>';
+        var revBad = n.revision !== major, hWarn = (maxH - (n.height||0)) > 3, skewBad = Math.abs(n.skew_sec||0) > 2;
+        var notes = [];
+        if (n.chain_error) notes.push('<span style="color:#f66">Chain: ' + esc(n.chain_error) + '</span>');
+        if (n.filestore_error) notes.push('<span style="color:#f66">' + esc(n.filestore_error) + '</span>');
+        if (n.clock_note) notes.push('<span style="color:#f66">' + esc(n.clock_note) + '</span>');
+        if (n.fork_note) notes.push('<span style="color:#fb3">' + esc(n.fork_note) + '</span>');
+        if (revBad || hWarn || skewBad || n.chain_error || n.filestore_error || n.clock_note) issues++;
+        var st = n.storage || {};
+        return '<tr>' +
+          '<td><b>' + esc(n.name || '?') + '</b>' + (n.self ? ' <span class="meta">(dieser)</span>' : '') + '<div class="meta" style="font-size:11px">…' + esc(String(n.peer_id).slice(-8)) + '</div></td>' +
+          '<td class="' + (revBad ? 'bad' : '') + '">' + esc(n.revision) + '</td>' +
+          '<td class="' + (hWarn ? 'warn' : '') + '">' + esc(n.height) + '<div class="meta" style="font-size:11px">' + esc(String(n.head_hash||'').slice(0,8)) + '</div></td>' +
+          '<td>' + (n.producer ? '✓' : '–') + '</td>' +
+          '<td class="' + (skewBad ? 'bad' : '') + '">' + (n.self ? '±0 s' : ((n.skew_sec > 0 ? '+' : '') + n.skew_sec + ' s')) + '</td>' +
+          '<td>' + (n.storage ? gb(st.used_gb) + ' / ' + gb(st.offer_gb) + ' GB' : '<span class="meta">aus</span>') + '</td>' +
+          '<td>' + dur(n.uptime_sec) + '</td>' +
+          '<td class="note">' + (notes.join('<br>') || '<span class="meta">–</span>') + '</td></tr>';
+      }).join('');
+      document.getElementById('no-table').innerHTML =
+        '<tr><th>Node</th><th>Revision</th><th>Höhe</th><th>Blöcke</th><th>Uhr</th><th>Speicher</th><th>Läuft seit</th><th>Hinweise</th></tr>' + rows;
+      var gone = nodes.length - ok.length;
+      sum.textContent = (issues ? '⚠ ' : '✓ ') + ok.length + ' Node(s) antworten' + (issues ? ', ' + issues + ' mit Auffälligkeiten' : ', alles in Ordnung') + (gone ? ' · ' + gone + ' ohne Antwort' : '');
+      sum.style.color = issues ? '#fb3' : 'var(--green,#00e676)';
+    } catch(e){ sum.textContent = '✗ Übersicht nicht abrufbar: ' + e.message; sum.style.color = '#f66'; }
+  }
+  load(); setInterval(load, 20000);
+})();
+</script>
 <style>
 .upd-progress { margin-top:12px; padding:10px 12px; border:1px solid var(--brd); border-radius:10px; }
 .upd-bar { height:8px; background:var(--sur2); border-radius:999px; overflow:hidden; }
