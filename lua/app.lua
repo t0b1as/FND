@@ -103,7 +103,7 @@ local routes = {
 
     -- Öffentliche, nur lesende Freigaben (auch von außen erreichbar)
     { method = "GET",  pattern = "^/shared$",
-      handler = require "pages.shared" },
+      handler = require "pages.files" },   -- Nur-Lese-Modus (erkennt /shared)
 
     -- Netz-Topologie: Node-Profil, Verbindungen, Routing
     { method = "GET",  pattern = "^/topology$",

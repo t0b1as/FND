@@ -58,7 +58,7 @@ return function()
     <div class="tile-value">%d</div>
     <div class="tile-label">%s</div>
   </a>
-  <a href="/files" class="tile tile-pink" data-nav-key="files" data-nav-zone="landing">
+  <a href="/shared" class="tile tile-pink" data-nav-key="files" data-nav-zone="landing">
     <div class="tile-glow"></div>
     <div class="tile-icon">&#128190;</div>
     <div class="tile-value">&#10516;</div>

@@ -5,7 +5,16 @@ local cjson  = require "cjson.safe"
 
 return function()
   ngx.header["Content-Type"] = "text/html"
-  local t = render.header("files.title", "files")
+  -- /shared: dieselbe Dateiansicht, NUR LESEND (auch von außen). Zeigt die
+  -- Freigaben des ganzen Fundus-Netzes; Verwaltung ist ausgeblendet und
+  -- serverseitig ohnehin nur aus dem Heimnetz erreichbar.
+  local ro = (ngx.var.uri == "/shared")
+  local t = render.header(ro and "nav.shared_label" or "files.title", ro and "shared" or "files")
+  if ro then
+    ngx.print([==[<script>document.documentElement.classList.add('fm-ro');window.FM_READONLY=true;</script>
+<style>html.fm-ro .files-stats-row, html.fm-ro .file-card:not(.fm-list-card), html.fm-ro .info-notice, html.fm-ro .files-drives-card{display:none!important}
+html.fm-ro .fm-list-card .file-card-head{gap:8px;flex-wrap:wrap}</style>]==])
+  end
 
   local stats, _ = render.api_get("/v1/files/stats")
   local storageEnabled = stats and stats.enabled
@@ -144,7 +153,7 @@ ngx.print(string.format([[
 </div>
 
 <!-- ── Eigene Dateien ────────────────────────────────────── -->
-<div class="file-card">
+<div class="file-card fm-list-card">
   <div class="file-card-head">
     <h3>%s</h3>
     <button class="btn-sm" onclick="loadFiles()">↻ %s</button>
@@ -531,7 +540,54 @@ async function uploadFile(file, password, redundancy) {
 }
 
 // ── Dateiliste ──────────────────────────────────────────────
+// Nur-Lese-Modus (/shared): ALLE Freigaben im Fundus-Netz laden (leere Suche),
+// Treffer anderer Nodes kommen nach und nach dazu. Das Filterfeld filtert und
+// sortiert nur die geladene Liste – es startet keine neue Netzsuche.
+async function loadFilesShared() {
+  const list = document.getElementById('file-list');
+  const card = list.closest('.file-card');
+  const head = card && card.querySelector('.file-card-head');
+  if (head && !document.getElementById('fm-filter')) {
+    const h3 = head.querySelector('h3'); if (h3) h3.textContent = 'Freigaben im Fundus-Netz';
+    const inp = document.createElement('input');
+    inp.type = 'search'; inp.id = 'fm-filter'; inp.placeholder = 'Filtern …';
+    inp.style.cssText = 'flex:1;min-width:140px;max-width:360px';
+    inp.oninput = function(){ window._fmFilter = this.value.trim().toLowerCase(); renderFileList(); };
+    head.insertBefore(inp, head.querySelector('button'));
+  }
+  list.innerHTML = '<div class="empty-hint">⏳ Suche Freigaben im Netz …</div>';
+  const seen = {};
+  window._fmFiles = [];
+  function add(hits){
+    let n = 0;
+    (hits || []).forEach(function(h){
+      const k = String(h.hash || '').toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(k) || seen[k]) return;
+      seen[k] = 1; n++;
+      window._fmFiles.push({ hash: k, name: h.name, size: h.size, mime_type: h.mime_type, encrypted: h.encrypted, from_peer: h.from_peer });
+    });
+    return n;
+  }
+  let sid = '';
+  try {
+    const r = await fetch('/api/v1/files/search?q=', {credentials:'same-origin'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    sid = d.search_id; add(d.hits);
+    if (window._fmFiles.length) renderFileList();
+  } catch(e) { list.innerHTML = '<div class="empty-hint">Freigaben nicht abrufbar: ' + e.message + '</div>'; return; }
+  for (let i = 0; i < 6; i++) {
+    await new Promise(function(res){ setTimeout(res, 1500); });
+    try {
+      const r2 = await fetch('/api/v1/files/search/results?id=' + encodeURIComponent(sid), {credentials:'same-origin'});
+      if (add((await r2.json()).hits)) renderFileList();
+    } catch(e) {}
+  }
+  if (!window._fmFiles.length) list.innerHTML = '<div class="empty-hint">Im Netz sind derzeit keine Dateien freigegeben.</div>';
+}
+
 async function loadFiles() {
+  if (window.FM_READONLY) return loadFilesShared();
   // Dateien aus dem persönlichen Index (eigener Endpoint, nicht stats)
   const r     = await fetch('/api/v1/files/list', {credentials:'same-origin'});
   const data  = await r.json().catch(()=>({}));
@@ -603,12 +659,15 @@ function showToast(msg) {
 
 function renderFileList() {
   const list = document.getElementById('file-list');
-  const files = (window._fmFiles || []).slice();
+  const RO = !!window.FM_READONLY;
+  const flt = window._fmFilter || '';
+  const files = (window._fmFiles || []).filter(function(f){ return !flt || String(f.name || '').toLowerCase().indexOf(flt) >= 0; });
+  if (!files.length && flt) { list.innerHTML = '<div class="empty-hint">Keine Datei passt zum Filter.</div>'; return; }
   const { col, dir } = window._fmSort;
   files.sort((a, b) => {
     let av, bv;
     if (col === 'size') { av = a.size||0; bv = b.size||0; }
-    else if (col === 'redundancy') { av = a._red||0; bv = b._red||0; }
+    else if (col === 'redundancy') { av = RO ? String(a.from_peer||'') : (a._red||0); bv = RO ? String(b.from_peer||'') : (b._red||0); }
     else { av = (a.name||'').toLowerCase(); bv = (b.name||'').toLowerCase(); }
     if (av < bv) return -1*dir;
     if (av > bv) return 1*dir;
@@ -619,7 +678,7 @@ function renderFileList() {
     '<span class="fname" onclick="sortFiles(\'name\')">'+FT.col_name+arrow('name')+'</span>'+
     '<span class="fsize" onclick="sortFiles(\'size\')">'+FT.col_size+arrow('size')+'</span>'+
     '<span class="fhash">'+FT.col_hash+'</span>'+
-    '<span class="fredundancy" title="'+FT.redundancy_col+'" onclick="sortFiles(\'redundancy\')">NRED'+arrow('redundancy')+'</span>'+
+    '<span class="fredundancy" title="'+(RO ? 'Quelle' : FT.redundancy_col)+'" onclick="sortFiles(\'redundancy\')">'+(RO ? 'Quelle' : 'NRED')+arrow('redundancy')+'</span>'+
     '<span class="fbtns"></span></div>';
   html += files.map(f => {
     const nm = f.name || FT.unnamed;
@@ -651,17 +710,17 @@ function renderFileList() {
       <span class="fname${mk ? ' fm-media' : ''}"${mk ? ` onclick="fmOpenMedia('${f.hash}')"` : ''} title="${(nm||'').replace(/"/g,'&quot;')}${inPartner ? ' – im Partnerprofil verwendet' : ''}${mk ? ' – klicken zum Anzeigen' : ''}">${inPartner ? '<span class="fm-partner-tag">💞 Partner</span> ' : ''}${mk ? (mk === 'image' ? '🖼 ' : mk === 'audio' ? '♪ ' : '▶ ') : ''}${disp}</span>
       <span class="fsize">${fmtSize(f.size||0)}</span>
       <span class="fhash" style="cursor:pointer" title="${FT.copy_hash_hint||'Klicken zum Kopieren'}" onclick="copyHash('${f.hash||''}')">${(f.hash||'').slice(0,14)}…</span>
-      <span class="fredundancy" id="${rid}" style="color:var(--muted)" title="${FT.redundancy_col}">·</span>
+      <span class="fredundancy" id="${rid}" style="color:var(--muted);font-size:12px" title="${RO ? 'Quelle' : FT.redundancy_col}">${RO ? (f.from_peer === 'local' ? 'dieser Node' : '…' + String(f.from_peer||'').slice(-6)) : '·'}</span>
       <div class="fbtns">
-        <button class="${shareCls}" onclick="toggleShare('${f.hash}','${nm.replace(/'/g,"")}',${f.size||0},'${(f.mime_type||"")}',${isEnc},${shared})" title="${shared?FT.unshare:FT.make_findable}">${shared?'✅':'🔗'}</button>
+        ${RO ? '' : `<button class="${shareCls}" onclick="toggleShare('${f.hash}','${nm.replace(/'/g,"")}',${f.size||0},'${(f.mime_type||"")}',${isEnc},${shared})" title="${shared?FT.unshare:FT.make_findable}">${shared?'✅':'🔗'}</button>`}
         <button class="btn-sm" onclick="downloadFile('${f.hash}','${nm.replace(/'/g,"")}')">↓</button>
-        <button class="btn-sm btn-danger" onclick="deleteFile('${f.hash}')">✕</button>
+        ${RO ? '' : `<button class="btn-sm btn-danger" onclick="deleteFile('${f.hash}')">✕</button>`}
       </div>
     </div>`;
   }).join('');
   list.innerHTML = html;
   // Redundanz pro Datei lazy nachladen (nur echte Dateien, keine Ordner).
-  (window._fmFiles || []).forEach(f => { if (!f.is_dir) loadRedundancy(f.hash); });
+  if (!RO) (window._fmFiles || []).forEach(f => { if (!f.is_dir) loadRedundancy(f.hash); });
 }
 
 // ── Ordner-Baum-Navigation ──────────────────────────────────
@@ -1527,7 +1586,7 @@ async function loadDirBrowser(path) {
 
 
 loadFiles();
-loadDirShares();
+if (!window.FM_READONLY) loadDirShares();
 </script>
 ]],
   t("files.upload"),

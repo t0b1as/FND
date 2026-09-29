@@ -107,7 +107,9 @@ func (s *Server) fileSearchLocal(q string) []FileSearchHit {
 		return nil
 	}
 	var matches []filestore.SharedFile
-	matches = s.fileStore.SearchShared(q, 50)
+	// Leere Suche = alle Freigaben (Seite /shared zeigt standardmäßig alles);
+	// Grenze je Node großzügig, damit auch größere Freigaben vollständig sind.
+	matches = s.fileStore.SearchShared(q, 300)
 	hits := make([]FileSearchHit, 0, len(matches))
 	for _, f := range matches {
 		hits = append(hits, FileSearchHit{
