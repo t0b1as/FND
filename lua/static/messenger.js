@@ -494,16 +494,21 @@ async function setRecipientFromAddr() {
             }
         } catch(e) { activeChat = null; updateSendState(); return; }
     }
+    // Unfertige/ungültige Adresse: Feld stehen lassen, kurzer Hinweis.
+    if (!/^0x[0-9a-f]{40}$/.test(addr)) {
+        const nameEl2 = document.getElementById('chat-with-name');
+        if (nameEl2) nameEl2.textContent = 'Adresse unvollständig (0x + 40 Zeichen) oder E-Mail eingeben';
+        activeChat = null; updateSendState(); return;
+    }
+    // Derselbe Weg wie beim Klick auf einen Kontakt: Kopf mit Bild, großem Namen
+    // und kleiner Adresse (früher blieb hier das Adressfeld stehen und der Name
+    // erschien klein darunter).
     const known = contacts[addr];
-    activeChat = {
+    openChat(known || {
         fundusID:  addr,
-        publicKey: known ? known.publicKey : (document.getElementById('chat-with-addr').dataset.resolvedKey || ''),
-        alias:     known ? known.alias : addr.slice(0,10)+'…'
-    };
-    const nameEl = document.getElementById('chat-with-name');
-    if (nameEl && !nameEl.textContent) nameEl.textContent = known ? known.alias : '';
-    updateSendState();
-    loadHistory(addr, true);
+        publicKey: document.getElementById('chat-with-addr').dataset.resolvedKey || '',
+        alias:     addr.slice(0,10)+'…'
+    });
 }
 
 async function sendText() {
@@ -1310,4 +1315,15 @@ async function publishPresence(online) {
 function msgShowList() {
     const lay = document.querySelector('.msg-layout');
     if (lay) lay.classList.remove('chat-open');
+}
+
+// Neuen Chat per Adresse beginnen: Kopf zurück in den Eingabezustand.
+function msgNewByAddr() {
+    const hdr = document.getElementById('chat-header');
+    if (hdr) hdr.classList.remove('has-chat');
+    ['chat-with-name', 'chat-with-sub'].forEach(function(id){ const e = document.getElementById(id); if (e) e.textContent = ''; });
+    const av = document.getElementById('chat-avatar'); if (av) av.innerHTML = '';
+    const inp = document.getElementById('chat-with-addr');
+    if (inp) { inp.value = ''; inp.focus(); }
+    activeChat = null; updateSendState();
 }

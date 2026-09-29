@@ -53,6 +53,9 @@ ngx.print([[
               onclick="addContact()"]] .. ">" .. t("messenger.btn_add_contact_full") .. "</button>" .. [[
     </div>
     </details>
+    <button type="button" class="btn btn-outline" style="width:100%;margin-top:8px;padding:6px 10px"
+            onclick="msgNewByAddr();var l=document.querySelector('.msg-layout');if(l)l.classList.add('chat-open');var h=document.getElementById('chat-header');if(h)h.style.display='flex';"
+            title="Chat mit einer Fundus-Adresse oder E-Mail beginnen">✎ Neuer Chat per Adresse</button>
     <div id="contact-list" style="margin-top:8px"></div>
   </div>
 
@@ -65,7 +68,7 @@ ngx.print([[
 
   <!-- Chat-Header -->
   <div class="msg-header" id="chat-header">
-    <button class="btn msg-back" onclick="msgShowList()" title="Zurück zu den Kontakten">←</button>
+    <button type="button" class="msg-back" onclick="msgShowList()" title="Zurück zu den Kontakten" aria-label="Zurück">←</button>
     <span id="chat-avatar" class="msg-av-slot"></span>
     <div style="flex:1;min-width:0">
       <input type="text" id="chat-with-addr" class="msg-addr-input"
@@ -134,7 +137,9 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 .msg-back        { display:none; width:auto !important; min-height:0; padding:4px 10px; flex:0 0 auto; }
 /* Spezifischer als die globale Regel "button.btn { display:inline-flex }" –
    sonst erschien der Zurück-Knopf auch am Desktop. */
-.msg-header .msg-back { display:none; }
+.msg-header .msg-back { display:none; background:transparent; border:0; box-shadow:none; color:var(--text);
+                        font-size:22px; line-height:1; padding:0 2px; cursor:pointer; }
+.msg-header .msg-back:hover { color:var(--green,#00e676); }
 /* Geöffneter Chat: Bild + Name groß, Adresse klein darunter (Klick kopiert);
    das Adressfeld nur, solange kein Chat offen ist. */
 .msg-header.has-chat #chat-with-addr { display:none; }

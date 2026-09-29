@@ -155,7 +155,10 @@ var (
 func (s *Server) publicHeavyGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p := c.Request.URL.Path
-		isConnect := p == "/api/v1/connect"
+		// Komplette Dateiliste bzw. Ordner des Pi durchsuchen: Betreiber-Werkzeuge,
+		// von außen ein Datenleck (private Dateien, Systempfade). Lesbar von außen
+		// sind nur ausdrücklich freigegebene Dateien (/api/v1/files/shared).
+		isConnect := p == "/api/v1/connect" || p == "/api/v1/files/list" || p == "/api/v1/files/browse"
 		isAnalyze := p == "/api/v1/analyze"
 		isStream := strings.HasPrefix(p, "/api/v1/files/stream/")
 		if (!isConnect && !isAnalyze && !isStream) || isLANRequest(c) {

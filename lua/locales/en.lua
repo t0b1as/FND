@@ -18,6 +18,7 @@ return {
     sec_account = "Account & Node",
     sec_language = "Language",
     files_label = "Files",
+    shared_label = "Shared files",
     partner_label = "Fundus Love",
     topology_label = "Network Topology",
     peers = "Peers",

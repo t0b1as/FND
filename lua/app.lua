@@ -101,6 +101,10 @@ local routes = {
     { method = "GET",  pattern = "^/peers$",
       handler = require "pages.peers" },
 
+    -- Öffentliche, nur lesende Freigaben (auch von außen erreichbar)
+    { method = "GET",  pattern = "^/shared$",
+      handler = require "pages.shared" },
+
     -- Netz-Topologie: Node-Profil, Verbindungen, Routing
     { method = "GET",  pattern = "^/topology$",
       handler = require "pages.topology" },

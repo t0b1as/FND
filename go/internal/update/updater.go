@@ -416,24 +416,22 @@ func applyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 		}
 	}
 	// Webserver-Konfiguration: nur vorhandene Dateien ersetzen, dann prüfen.
-	confDir := "/usr/local/openresty/nginx/conf/conf.d"
+	// OpenResty ODER nginx mit Lua-Modul (das Deploy-Skript unterstützt beide).
+	// Früher nur OpenResty: auf nginx-Pis kamen Konfigurationsänderungen (u.a.
+	// Schutzregeln) nie an, und nginx lieferte weiter die alten Lua-Seiten aus.
+	ws := detectWebServer()
 	nginxChanged := false
-	for src, dst := range map[string]string{
-		"fundus-http.conf":      "00-fundus-http.conf",
-		"fundus-nginx.conf":     "fundus.conf",
-		"fundus-nginx-ssl.conf": "fundus-ssl.conf",
-	} {
+	for src, dst := range ws.confFiles {
 		srcPath := filepath.Join(opt.InstallDir, "lua", src) // bereits getauschte Oberfläche
-		dstPath := filepath.Join(confDir, dst)
-		if fileExists(srcPath) && fileExists(dstPath) {
-			if err := tx.swapFile(srcPath, dstPath, 0o644, 0, 0); err != nil {
+		if fileExists(srcPath) && fileExists(dst) {
+			if err := tx.swapFile(srcPath, dst, 0o644, 0, 0); err != nil {
 				return fail(fmt.Errorf("Webserver-Konfiguration: %w", err))
 			}
 			nginxChanged = true
 		}
 	}
-	if nginxChanged {
-		if out, err := exec.Command("/usr/local/openresty/bin/openresty", "-t").CombinedOutput(); err != nil {
+	if nginxChanged && ws.testBin != "" {
+		if out, err := exec.Command(ws.testBin, "-t").CombinedOutput(); err != nil {
 			return fail(fmt.Errorf("neue Webserver-Konfiguration fehlerhaft – Rollback: %s", strings.TrimSpace(string(out))))
 		}
 	}
@@ -455,13 +453,15 @@ func applyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 		// erfolgreichen Reload liefert es weiter die ALTEN Seiten aus, obwohl die
 		// Revision neu angezeigt wird. Fehler daher nicht ignorieren – notfalls
 		// neu starten.
-		if out, err := exec.Command("systemctl", "reload", "openresty").CombinedOutput(); err != nil {
-			logf("Update: openresty reload fehlgeschlagen (%v: %s) – starte openresty neu", err, strings.TrimSpace(string(out)))
-			if out2, err2 := exec.Command("systemctl", "restart", "openresty").CombinedOutput(); err2 != nil {
-				logf("Update: openresty-Neustart fehlgeschlagen: %v: %s", err2, strings.TrimSpace(string(out2)))
+		if ws.unit == "" {
+			logf("Update: kein Webserver (openresty/nginx) erkannt – Seiten erst nach dessen Neustart aktiv")
+		} else if out, err := exec.Command("systemctl", "reload", ws.unit).CombinedOutput(); err != nil {
+			logf("Update: %s reload fehlgeschlagen (%v: %s) – starte %s neu", ws.unit, err, strings.TrimSpace(string(out)), ws.unit)
+			if out2, err2 := exec.Command("systemctl", "restart", ws.unit).CombinedOutput(); err2 != nil {
+				logf("Update: %s-Neustart fehlgeschlagen: %v: %s", ws.unit, err2, strings.TrimSpace(string(out2)))
 			}
 		} else {
-			logf("Update: Webserver neu geladen (neue Seiten aktiv)")
+			logf("Update: Webserver %s neu geladen (neue Seiten aktiv)", ws.unit)
 		}
 	}
 	if opt.RestartCmd != "" {
@@ -776,4 +776,35 @@ func extractZip(zipPath, dest string) error {
 		}
 	}
 	return nil
+}
+
+// webServer: welcher Webserver die Fundus-Oberfläche ausliefert.
+type webServer struct {
+	unit      string            // systemd-Dienst ("openresty" / "nginx")
+	testBin   string            // Programm für "-t" (Konfigurationsprüfung)
+	confFiles map[string]string // Paketdatei (lua/…) → Zielpfad
+}
+
+// detectWebServer: OpenResty bevorzugt (Standard-Installation), sonst nginx mit
+// Lua-Modul. Maßgeblich ist, welcher Dienst aktiv ist.
+func detectWebServer() webServer {
+	active := func(unit string) bool {
+		return exec.Command("systemctl", "is-active", "--quiet", unit).Run() == nil
+	}
+	if fileExists("/usr/local/openresty/bin/openresty") && (active("openresty") || !fileExists("/usr/sbin/nginx")) {
+		d := "/usr/local/openresty/nginx/conf/conf.d"
+		return webServer{unit: "openresty", testBin: "/usr/local/openresty/bin/openresty", confFiles: map[string]string{
+			"fundus-http.conf":      filepath.Join(d, "00-fundus-http.conf"),
+			"fundus-nginx.conf":     filepath.Join(d, "fundus.conf"),
+			"fundus-nginx-ssl.conf": filepath.Join(d, "fundus-ssl.conf"),
+		}}
+	}
+	if fileExists("/usr/sbin/nginx") {
+		return webServer{unit: "nginx", testBin: "/usr/sbin/nginx", confFiles: map[string]string{
+			"fundus-http.conf":      "/etc/nginx/conf.d/fundus-http.conf",
+			"fundus-nginx.conf":     "/etc/nginx/sites-available/fundus.conf",
+			"fundus-nginx-ssl.conf": "/etc/nginx/sites-available/fundus-ssl.conf",
+		}}
+	}
+	return webServer{}
 }

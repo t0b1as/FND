@@ -259,6 +259,7 @@ function _M.header(title_key, active)
   <div class="drawer-section">]] .. t("nav.sec_work") .. [[</div>
   <a href="/jobs"     class="%s" data-nav-key="jobs" data-nav-zone="burger"><span class="di">💼</span>]] .. t("nav.jobs") .. [[<span class="wip-pill">BETA</span></a>
   <a href="/files"    class="%s" data-nav-key="files" data-nav-zone="burger"><span class="di">📁</span>]] .. t("nav.files_label") .. [[</a>
+  <a href="/shared" data-nav-key="shared" data-nav-zone="burger"><span class="di">🔗</span>]] .. t("nav.shared_label") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_communication") .. [[</div>
   <a href="/messenger" class="%s" data-nav-key="messenger" data-nav-zone="burger"><span class="di">💬</span>]] .. t("nav.messenger") .. [[<span class="wip-pill">BETA</span></a>
