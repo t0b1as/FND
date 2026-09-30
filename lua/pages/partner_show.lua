@@ -3,6 +3,24 @@
 local render = require "render"
 local cjson  = require "cjson.safe"
 
+-- Hilfsfunktionen VOR dem return (nach einem return darf in Lua nichts mehr stehen).
+local function buildTags(interests)
+  if not interests or #interests == 0 then return "" end
+  local out = {}
+  for _, v in ipairs(interests) do
+    table.insert(out, '<span class="match-tag">' .. tostring(v) .. '</span>')
+  end
+  return table.concat(out)
+end
+
+-- bio_escape: einfaches HTML-Escaping für offene Profiltexte (Nickname, Bio).
+local function bio_escape(s)
+  if not s then return "" end
+  s = tostring(s)
+  s = s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
+  return s
+end
+
 return function()
   ngx.header["Content-Type"] = "text/html"
   local t = render.header("partner.matches_title", "partner")
@@ -117,21 +135,4 @@ async function contactMatch(fundusId) {
 ]])
 
   render.footer()
-end
-
-function buildTags(interests)
-  if not interests or #interests == 0 then return "" end
-  local out = {}
-  for _, v in ipairs(interests) do
-    table.insert(out, '<span class="match-tag">' .. tostring(v) .. '</span>')
-  end
-  return table.concat(out)
-end
-
--- bio_escape: einfaches HTML-Escaping für offene Profiltexte (Nickname, Bio).
-function bio_escape(s)
-  if not s then return "" end
-  s = tostring(s)
-  s = s:gsub("&", "&amp;"):gsub("<", "&lt;"):gsub(">", "&gt;"):gsub('"', "&quot;")
-  return s
 end

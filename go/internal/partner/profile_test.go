@@ -28,13 +28,12 @@ func baseProfile() *partner.Profile {
 		AgeRange:  partner.Age26_35,
 		Lat:       50.11,
 		Lon:       8.68,
-		Interests: []string{"Musik", "Wandern", "Kochen"},
+		Hobbies: []string{"Musik", "Wandern", "Kochen"},
 		Bio:       "Mag lange Spaziergänge und gutes Essen.",
 		Seeking: partner.Preference{
 			Genders:   []partner.Gender{"male"},
 			AgeRanges: []partner.AgeRange{partner.Age26_35, partner.Age36_45},
 			RadiusKm:  50,
-			Interests: []string{"Musik", "Wandern"},
 		},
 	}
 }
@@ -46,7 +45,7 @@ func remoteProfile() *partner.Profile {
 		AgeRange:  partner.Age36_45,
 		Lat:       50.15,
 		Lon:       8.70,
-		Interests: []string{"Musik", "Fotografie", "Wandern"},
+		Hobbies: []string{"Musik", "Fotografie", "Wandern"},
 		Seeking: partner.Preference{
 			Genders:   []partner.Gender{"female"},
 			AgeRanges: []partner.AgeRange{partner.Age18_25, partner.Age26_35},
@@ -153,12 +152,12 @@ func TestMakePublicAd_NoGenderInCleartext(t *testing.T) {
 
 func TestMakePublicAd_NoInterestsInCleartext(t *testing.T) {
 	profile := baseProfile()
-	profile.Interests = []string{"Musik", "Wandern", "Kochen"}
+	profile.Hobbies = []string{"Musik", "Wandern", "Kochen"}
 
 	ad, _ := partner.MakePublicAd(profile, "peer-1", mustSalt(t))
 	data, _ := ad.Marshal()
 
-	for _, interest := range profile.Interests {
+	for _, interest := range profile.Hobbies {
 		if contains(string(data), interest) {
 			t.Errorf("Interest %q must not appear in clear text in PublicAd", interest)
 		}
@@ -189,16 +188,16 @@ func TestMakePublicAd_CoordinatesRounded(t *testing.T) {
 	}
 }
 
-func TestMakePublicAd_HasInterestHashes(t *testing.T) {
+func TestMakePublicAd_HasHobbyHashes(t *testing.T) {
 	profile := baseProfile()
 	ad, _ := partner.MakePublicAd(profile, "peer-1", mustSalt(t))
 
-	if len(ad.InterestHashes) == 0 {
-		t.Error("InterestHashes must not be empty")
+	if len(ad.HobbyHashes) == 0 {
+		t.Error("HobbyHashes must not be empty")
 	}
-	if len(ad.InterestHashes) != len(profile.Interests) {
-		t.Errorf("len(InterestHashes) = %d, want %d",
-			len(ad.InterestHashes), len(profile.Interests))
+	if len(ad.HobbyHashes) != len(profile.Hobbies) {
+		t.Errorf("len(HobbyHashes) = %d, want %d",
+			len(ad.HobbyHashes), len(profile.Hobbies))
 	}
 }
 
@@ -222,8 +221,8 @@ func TestMakePublicAd_HashDeterminism(t *testing.T) {
 	if ad1.GenderHash != ad2.GenderHash {
 		t.Error("GenderHash not deterministic with same salt")
 	}
-	for i := range ad1.InterestHashes {
-		if ad1.InterestHashes[i] != ad2.InterestHashes[i] {
+	for i := range ad1.HobbyHashes {
+		if ad1.HobbyHashes[i] != ad2.HobbyHashes[i] {
 			t.Errorf("InterestHash[%d] not deterministic", i)
 		}
 	}
@@ -402,9 +401,9 @@ func TestPublicAd_MarshalUnmarshal_Roundtrip(t *testing.T) {
 	if restored.GenderHash != original.GenderHash {
 		t.Errorf("GenderHash mismatch after roundtrip")
 	}
-	if len(restored.InterestHashes) != len(original.InterestHashes) {
-		t.Errorf("InterestHashes len = %d, want %d",
-			len(restored.InterestHashes), len(original.InterestHashes))
+	if len(restored.HobbyHashes) != len(original.HobbyHashes) {
+		t.Errorf("HobbyHashes len = %d, want %d",
+			len(restored.HobbyHashes), len(original.HobbyHashes))
 	}
 }
 

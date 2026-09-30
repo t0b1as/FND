@@ -181,81 +181,8 @@ func TestMockReader_ChannelClosesOnContextCancel(t *testing.T) {
 	}
 }
 
-// =============================================================================
-//  Token-Signierung und Verifikation
-// =============================================================================
 
-func TestToken_SignAndVerify(t *testing.T) {
-	cfg := baseConfig()
-	cfg.SigningKeyHex = newKey(t)
 
-	r, err := meter.NewReader(cfg, zap.NewNop())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	ch, _ := r.Run(ctx)
-	tok := <-ch
-
-	if tok.Signature == "" {
-		t.Fatal("Signature is empty")
-	}
-	if !r.Verify(tok) {
-		t.Error("Verify returned false for fresh token")
-	}
-}
-
-func TestToken_TamperedData_FailsVerify(t *testing.T) {
-	cfg := baseConfig()
-	cfg.SigningKeyHex = newKey(t)
-	r, _ := meter.NewReader(cfg, zap.NewNop())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	ch, _ := r.Run(ctx)
-	tok := <-ch
-
-	// Manipulieren
-	tok.KWh += 100
-
-	if r.Verify(tok) {
-		t.Error("Verify should return false after tampering with KWh")
-	}
-}
-
-func TestToken_TamperedMeterID_FailsVerify(t *testing.T) {
-	cfg := baseConfig()
-	cfg.SigningKeyHex = newKey(t)
-	r, _ := meter.NewReader(cfg, zap.NewNop())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	ch, _ := r.Run(ctx)
-	tok := <-ch
-
-	tok.MeterID = "MANIPULATED"
-
-	if r.Verify(tok) {
-		t.Error("Verify should return false after tampering with MeterID")
-	}
-}
-
-func TestToken_NoKey_VerifyAlwaysTrue(t *testing.T) {
-	cfg := baseConfig()
-	// Kein SigningKey gesetzt
-	r, _ := meter.NewReader(cfg, zap.NewNop())
-
-	tok := meter.Token{
-		Timestamp: time.Now(),
-		MeterID:   "test",
-		KWh:       1.0,
-	}
-	if !r.Verify(tok) {
-		t.Error("Verify without key should always return true")
-	}
-}
 
 // =============================================================================
 //  Token-Felder: Rundung

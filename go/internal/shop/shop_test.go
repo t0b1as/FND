@@ -24,7 +24,7 @@ type mockMinter struct {
 	err          error
 }
 
-func (m *mockMinter) MintFND(_ context.Context, to string, amount float64) (string, error) {
+func (m *mockMinter) MintFND(_ context.Context, to string, amount float64, _ string) (string, error) {
 	m.mintedTo     = to
 	m.mintedAmount = amount
 	if m.err != nil {
