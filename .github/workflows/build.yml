@@ -1,0 +1,64 @@
+# Build-Prüfung bei jedem Push: kompiliert die Go-Programme (auch für den Pi),
+# prüft Lua-, JavaScript- und Shell-Syntax. Ein roter Haken im Repository heißt:
+# NICHT auf die Pis verteilen, bevor der Fehler behoben ist.
+name: Build-Prüfung
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  go:
+    name: Go kompilieren
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: Alle Pakete
+        run: go build ./...
+      - name: Pi (linux/arm64) – fundus-node
+        run: GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/fundus-node
+      - name: Pi (linux/arm64) – fundus-helper
+        run: GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/fundus-helper
+      - name: Pi (linux/arm, 32 Bit) – fundus-node
+        run: GOOS=linux GOARCH=arm GOARM=7 go build -o /dev/null ./cmd/fundus-node
+      - name: Tests kompilieren
+        run: go test -count=1 -run '^$' ./...
+      - name: go vet (nur Hinweise)
+        run: go vet ./...
+        continue-on-error: true
+
+  ui:
+    name: Oberfläche und Skripte
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Lua installieren
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lua5.1
+      - name: Lua-Syntax (alle Seiten)
+        run: |
+          fail=0
+          while IFS= read -r -d '' f; do
+            luac5.1 -p "$f" || fail=1
+          done < <(find lua -name '*.lua' -print0)
+          exit $fail
+      - name: JavaScript-Syntax
+        run: |
+          fail=0
+          for f in lua/static/*.js; do node --check "$f" || fail=1; done
+          exit $fail
+      - name: Shell-Syntax
+        run: |
+          bash -n install.sh
+          bash -n tools/setup-letsencrypt.sh

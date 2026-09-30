@@ -37,7 +37,8 @@ param(
     [string]$KeyFile = (Join-Path $HOME ".fundus\feecollector.key"),
     [string]$Notes   = "",
     [string]$GoCmd   = "go",
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$RebuildAdmin    # fundus-admin auch dann neu bauen, wenn es aktuell ist
 )
 
 # "Continue": Windows PowerShell 5.1 wertet umgeleitete stderr-Ausgaben externer
@@ -55,8 +56,11 @@ function Run([string]$what, [scriptblock]$cmd) {
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-$ScriptStand = "R531"   # Stand dieses Skripts (bei jedem Release mitgezogen)
-Write-Host "push-release.ps1 - Stand $ScriptStand" -ForegroundColor Cyan
+# Logik-Version DIESES Skripts. Wird nur erhoeht, wenn sich am Ablauf etwas
+# aendert, das fuer ein Release noetig ist. Neuere Skripte im ZIP ersetzen
+# dieses automatisch (siehe "Skripte aktualisieren").
+$ScriptVersion = 2
+Write-Host "push-release.ps1 - Skript-Version $ScriptVersion" -ForegroundColor Cyan
 
 # -- 1. Voraussetzungen -------------------------------------------------------
 Step "Voraussetzungen pruefen"
@@ -81,38 +85,59 @@ $GH  = Find-Tool "gh" @("$pf\GitHub CLI\gh.exe", "$pf86\GitHub CLI\gh.exe", "$la
     "Das ist die GitHub CLI (nicht GitHub Desktop). Installieren: winget install --id GitHub.cli - danach neues PowerShell-Fenster oeffnen und einmal 'gh auth login'."
 $GO  = Find-Tool $GoCmd @("$pf\Go\bin\go.exe", "$env:USERPROFILE\go\bin\go.exe", "$env:USERPROFILE\sdk\go\bin\go.exe") `
     "Installieren: winget install --id GoLang.Go"
-# fundus-admin IMMER frisch aus "FND admin.zip" bauen, wenn das ZIP daneben
-# liegt: so passt das Signierwerkzeug garantiert zum Code dieses Releases
-# (ein altes fundus-admin.exe kann z.B. eine veraltete Signaturpruefung haben).
-$adminRev = ""
+# fundus-admin (Signierwerkzeug) hat eine EIGENE Versionsnummer (ADMIN_VERSION
+# im Admin-Paket), unabhaengig von der Revision. FND.zip nennt in ADMIN_REQUIRED
+# die mindestens noetige. Das gebaute Werkzeug merkt sich seine Version in
+# bin\fundus-admin.version. "FND admin.zip" wird also nur gebraucht, wenn sich am
+# Signieren etwas geaendert hat – sonst genuegt das vorhandene Werkzeug.
+New-Item -ItemType Directory -Force -Path (Join-Path $here "bin") -ErrorAction Stop | Out-Null
+$FA = Join-Path $here "bin\fundus-admin.exe"
+$adminVerFile = Join-Path $here "bin\fundus-admin.version"
+function Get-HaveAdminVer {
+    if ((Test-Path $FA) -and (Test-Path $adminVerFile)) {
+        $v = ((Get-Content $adminVerFile -TotalCount 1) -replace '\D', '')
+        if ($v) { return [int]$v }
+    }
+    return 0
+}
+function Get-ZipEntryText([string]$zip, [string]$name) {
+    try {
+        $z = [IO.Compression.ZipFile]::OpenRead($zip)
+        try {
+            $e = $z.Entries | Where-Object { $_.FullName -eq $name } | Select-Object -First 1
+            if (-not $e) { return "" }
+            $r = New-Object IO.StreamReader($e.Open())
+            try { return $r.ReadToEnd() } finally { $r.Dispose() }
+        } finally { $z.Dispose() }
+    } catch { return "" }
+}
+$haveAdmin = Get-HaveAdminVer
 $adminZip = Join-Path $here "FND admin.zip"
 if (Test-Path $adminZip) {
-    Info "Baue fundus-admin aus 'FND admin.zip' (ca. 1 Min.)..."
-    $adm = Join-Path ([IO.Path]::GetTempPath()) ("fnd-admin-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
-    Expand-Archive -Path $adminZip -DestinationPath $adm -Force -ErrorAction Stop
-    # Revision des Admin-Pakets merken: muss zu FND.zip passen (Pruefung weiter unten).
-    $adminRev = ""
-    $admSrv = Join-Path $adm "go\internal\api\server.go"
-    if (Test-Path $admSrv) {
-        $mm = Select-String -Path $admSrv -Pattern 'NodeRevision = "(R\d+)"'
-        if ($mm) { $adminRev = $mm.Matches[0].Groups[1].Value }
+    $zipAdmin = [int](("0" + ((Get-ZipEntryText $adminZip "ADMIN_VERSION") -replace '\D', '')))
+    if ($RebuildAdmin -or $zipAdmin -gt $haveAdmin -or $haveAdmin -eq 0) {
+        Info "Baue fundus-admin A$zipAdmin aus 'FND admin.zip' (ca. 1 Min.)..."
+        $adm = Join-Path ([IO.Path]::GetTempPath()) ("fnd-admin-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+        Expand-Archive -Path $adminZip -DestinationPath $adm -Force -ErrorAction Stop
+        Remove-Item Env:GOOS, Env:GOARCH, Env:GOARM -ErrorAction SilentlyContinue   # fuer Windows bauen
+        Push-Location (Join-Path $adm "go")
+        try {
+            Run "go mod tidy (admin)" { & $GO mod tidy }
+            Run "Build fundus-admin" { & $GO build -ldflags "-s -w" -o $FA ./cmd/fundus-admin }
+        } finally {
+            Pop-Location
+            Remove-Item -Recurse -Force $adm -ErrorAction SilentlyContinue
+        }
+        Set-Content -Path $adminVerFile -Value $zipAdmin -Encoding ASCII
+        $haveAdmin = $zipAdmin
+        Ok "fundus-admin A$zipAdmin gebaut: $FA"
+    } else {
+        Ok "fundus-admin A$haveAdmin ist aktuell ('FND admin.zip' A$zipAdmin) - kein Neubau"
     }
-    New-Item -ItemType Directory -Force -Path (Join-Path $here "bin") -ErrorAction Stop | Out-Null
-    $FA = Join-Path $here "bin\fundus-admin.exe"
-    Remove-Item Env:GOOS, Env:GOARCH, Env:GOARM -ErrorAction SilentlyContinue   # fuer Windows bauen
-    Push-Location (Join-Path $adm "go")
-    try {
-        Run "go mod tidy (admin)" { & $GO mod tidy }
-        Run "Build fundus-admin" { & $GO build -ldflags "-s -w" -o $FA ./cmd/fundus-admin }
-    } finally {
-        Pop-Location
-        Remove-Item -Recurse -Force $adm -ErrorAction SilentlyContinue
-    }
-    Ok "fundus-admin gebaut: $FA"
+} elseif ($haveAdmin -gt 0) {
+    Ok "fundus-admin A$haveAdmin vorhanden"
 } else {
-    $FA = Find-Tool "fundus-admin" @("$here\bin\fundus-admin.exe", "$here\..\FND admin\bin\fundus-admin.exe") `
-        "'FND admin.zip' neben das Skript legen - dann wird fundus-admin automatisch gebaut."
-    Info "HINWEIS: vorhandenes fundus-admin wird verwendet - es muss zum Release passen."
+    Fail "fundus-admin fehlt oder hat keine Versionsangabe. Einmalig 'FND admin.zip' neben das Skript legen - danach nur noch, wenn ein Release es verlangt."
 }
 Info "git: $GIT"
 Info "gh:  $GH"
@@ -178,16 +203,39 @@ if (Test-Path $fpFile) {
     } else { Ok "Quellcode-Fingerabdruck $fp stimmt" }
 } else { Info "Kein SOURCE_FP im ZIP - Fingerabdruck $fp (ungeprueft)" }
 Ok "Version $VER"
-# Beide Pakete muessen zur selben Revision gehoeren - sonst signiert ein altes
-# fundus-admin (z.B. mit veralteter Signaturpruefung).
-if ($adminRev -and $adminRev -ne $VER) {
+# Signierwerkzeug: reicht die vorhandene Version fuer dieses Release?
+$reqAdminFile = Join-Path $src "ADMIN_REQUIRED"
+$reqAdmin = 0
+if (Test-Path $reqAdminFile) { $reqAdmin = [int](("0" + ((Get-Content $reqAdminFile -TotalCount 1) -replace '\D', ''))) }
+if ($haveAdmin -lt $reqAdmin) {
     $others = (Get-ChildItem -Path $here -Filter "FND admin*.zip" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name }) -join ", "
-    Fail ("'FND admin.zip' ist $adminRev, 'FND.zip' ist $VER. Bitte die passende 'FND admin.zip' neben das Skript legen. " +
+    Fail ("Dieses Release braucht fundus-admin A$reqAdmin (vorhanden: A$haveAdmin). Bitte die neue 'FND admin.zip' neben das Skript legen. " +
           "Hinweis: Der Browser speichert neue Downloads oft als 'FND admin (1).zip'. Gefunden: $others")
 }
-if ($adminRev) { Ok "FND admin.zip passt ($adminRev)" }
-if ($VER -ne $ScriptStand) {
-    Write-Host "    HINWEIS  Skript-Stand $ScriptStand, ZIP-Stand $VER - ggf. push-release.ps1 aus dem neuen ZIP verwenden." -ForegroundColor Yellow
+Ok "fundus-admin A$haveAdmin genuegt (noetig: A$reqAdmin)"
+
+# Skripte aktualisieren: Liegen im ZIP geaenderte Fassungen der Skripte, die
+# auch hier liegen, werden sie ersetzt – nur bei echter Aenderung. Ist das
+# Release-Skript selbst in einer NEUEREN Logik-Version dabei, wird nach dem
+# Ersetzen abgebrochen: bitte einfach erneut starten.
+$updated = @()
+$restart = $false
+foreach ($sn in @("push-release.ps1", "deploy-fundus.ps1", "deploy-all-pis.ps1", "deploy-fundus-arch.ps1", "build-binary.ps1")) {
+    $new = Join-Path $src $sn
+    $old = Join-Path $here $sn
+    if ((Test-Path $new) -and (Test-Path $old) -and ((Get-FileHash $new).Hash -ne (Get-FileHash $old).Hash)) {
+        if ($sn -eq "push-release.ps1") {
+            $m = Select-String -Path $new -Pattern '\$ScriptVersion = (\d+)'
+            if ($m -and [int]$m.Matches[0].Groups[1].Value -gt $ScriptVersion) { $restart = $true }
+        }
+        Copy-Item $new $old -Force -ErrorAction Stop
+        $updated += $sn
+    }
+}
+if ($updated.Count -gt 0) { Ok ("Skripte aktualisiert: " + ($updated -join ", ")) }
+if ($restart) {
+    Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    Fail "push-release.ps1 wurde auf eine neuere Version aktualisiert - bitte einfach erneut starten."
 }
 
 if (-not $DryRun) {

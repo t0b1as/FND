@@ -19,6 +19,7 @@ return {
     sec_language = "Sprache",
     files_label = "Dateien",
     shared_label = "Freigaben",
+    ratings_label = "Bewertungen",
     partner_label = "Fundus Love",
     topology_label = "Netz-Topologie",
     peers = "Peers",

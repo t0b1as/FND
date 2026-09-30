@@ -182,6 +182,9 @@ return function(captures)
                 '%s: <code style="font-size:11px">%s</code> '..
                 '<button class="btn-sm" style="padding:2px 8px;font-size:11px" onclick="copyWallet(\'%s\')">📋</button></div>',
                 t("listing.seller_wallet"), sellerWallet, sellerWallet)
+            -- Bewertungen des Verkäufers (auf diesem Node gegen die Chain geprüft)
+            walletRow = walletRow .. string.format(
+                '<div id="seller-rating" data-addr="%s" style="margin:4px 0 8px;font-size:13px"></div>', sellerWallet)
         end
         -- Versand-Erkennung: Bei Versand ein Adressfeld anzeigen und den
         -- Kaufbutton deaktivieren, bis eine Adresse eingegeben ist. Die Adresse
@@ -676,5 +679,19 @@ code           { font-family:monospace; font-size:11px; background:var(--bg); co
         t("general.confirm_delete")
     ))
 
+    ngx.print([==[<script>
+(function(){
+  var el = document.getElementById('seller-rating'); if (!el) return;
+  var a = el.getAttribute('data-addr');
+  fetch('/api/v1/ratings?addr=' + encodeURIComponent(a)).then(function(r){ return r.json(); }).then(function(d){
+    if (!d || !d.count) { el.innerHTML = '<span class="meta">Noch keine Bewertungen</span>'; return; }
+    var full = Math.round(d.avg), stars = '';
+    for (var i = 1; i <= 5; i++) stars += i <= full ? '★' : '☆';
+    el.innerHTML = '<a href="/ratings?addr=' + encodeURIComponent(a) + '" style="text-decoration:none">' +
+      '<span style="color:#f5b301;letter-spacing:1px">' + stars + '</span> ' +
+      '<b>' + d.avg.toFixed(1).replace('.', ',') + '</b> <span class="meta">(' + d.count + ' Bewertung' + (d.count === 1 ? '' : 'en') + ')</span></a>';
+  }).catch(function(){});
+})();
+</script>]==])
     render.footer()
 end

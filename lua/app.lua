@@ -98,6 +98,10 @@ local routes = {
       handler = require "pages.partner" },
 
     -- Netzwerk
+    -- Bewertungen von Handelspartnern (?escrow=… oder ?addr=…)
+    { method = "GET",  pattern = "^/ratings$",
+      handler = require "pages.ratings" },
+
     { method = "GET",  pattern = "^/peers$",
       handler = require "pages.peers" },
 

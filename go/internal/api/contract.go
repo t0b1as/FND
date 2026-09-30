@@ -18,6 +18,8 @@ package api
 //   - Blockchain-Nachweis (Escrow-ID, Tx-Hash)
 
 import (
+	"strings"
+	"html/template"
 	"lukechampine.com/blake3"
 	"encoding/hex"
 	"fmt"
@@ -441,6 +443,12 @@ func (s *Server) contractHTML(c *gin.Context) {
 	))
 
 	html := buildContractHTML(data)
+	// Link zur Bewertung des Handelspartners (erst nach Abschluss aktiv; die
+	// Seite erklärt das). Nach dem Formatieren eingesetzt, damit die
+	// Platzhalter der Vorlage unverändert bleiben.
+	rate := `<p style="text-align:center;margin:18px 0"><a href="/ratings?escrow=` +
+		template.HTMLEscapeString(data.EscrowID) + `" style="font-weight:600">⭐ Handelspartner bewerten</a></p>`
+	html = strings.Replace(html, "<footer>", rate+"\n<footer>", 1)
 	c.String(http.StatusOK, html)
 }
 

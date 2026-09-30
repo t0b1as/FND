@@ -5,6 +5,25 @@ Läuft auf einem Raspberry Pi 3 oder neuer. Kein Cloud-Account, keine zentrale I
 
 ---
 
+## Installation auf dem Pi (ohne PowerShell)
+
+1. **Raspberry Pi OS** (Lite reicht, 64 Bit empfohlen) mit dem **Raspberry Pi Imager** flashen und dort Benutzer, WLAN und SSH eintragen.
+2. Pi starten, per SSH verbinden, dann:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/t0b1as/FND/main/install.sh | sudo bash
+```
+
+Der Installer holt das neueste Release von GitHub, richtet Webserver, Dienste und
+Zertifikat ein und fragt das Admin-Passwort ab. Erneut ausführen ist gefahrlos:
+Daten, Konfiguration und Passwort bleiben erhalten. Updates kommen danach
+automatisch (Einstellungen → Software-Update).
+
+Der Node findet das Fundus-Netz von selbst (öffentliches libp2p-DHT, im Heimnetz
+per mDNS). Optional beschleunigen Einträge in `bootstrap-peers.txt` den ersten Kontakt.
+
+---
+
 ## Architektur
 
 ```

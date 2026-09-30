@@ -31,6 +31,7 @@ const (
 	RecordContacts       RecordType = "contacts"          // verschlüsselte Kontaktliste (an FundusID gebunden)
 	RecordAddressBook    RecordType = "address_book"      // lokales Wallet-Adressbuch (NICHT im Netz geteilt)
 	RecordEmailDir       RecordType = "email_dir"         // opt-in Verzeichnis: email → FundusID (signiert)
+	RecordRating         RecordType = "rating"            // Bewertung eines Handelspartners (an Escrow gebunden, signiert)
 	RecordMailbox        RecordType = "mailbox"           // Offline-Nachrichten für eine FundusID (verschlüsselt, bis Abholung)
 	RecordKeyDir         RecordType = "key_dir"           // FundusID → X25519-PubKey (für Verschlüsselung an beliebige Adressen)
 	RecordOutbox         RecordType = "outbox"            // ausgehende Nachrichten die auf den Empfänger-PubKey warten
