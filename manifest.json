@@ -1,8 +1,8 @@
 {
-  "version": "R541",
-  "description": "FUNDUS R541 - UI Overhaul",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R541/FND-R541-update.zip",
-  "node_argon2": "37ce2489cd12af047e6398a6718bcb68e2353dae8fd4c67d02e3f19f95261f7b",
-  "published_at": "2026-09-30T04:34:11.884303Z",
-  "signature": "0xd502ce0a82ed8d05aef72715557afa9db8587fa5b1a967be2880c171a2db94b0705515260a01c5dfd79912f0d79a792762034e18b1a2c1fc23bf7018b72dd4981c"
+  "version": "R542",
+  "description": "FUNDUS R542 - UI Overhaul",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R542/FND-R542-update.zip",
+  "node_argon2": "cd72e20750a4813159a6a25d5c41097c37dbab2acc404cf7c3f4e545795d0b21",
+  "published_at": "2026-09-30T05:39:37.0897694Z",
+  "signature": "0xb354644eb4e9e7451e6a1f67eaf9e08a2915d5bf7be34b80f99b621280cf8a34241147e957d5301395060fadbb31fbb1d494a92990931d2953b4841eec8c69831b"
 }
