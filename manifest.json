@@ -1,8 +1,8 @@
 {
-  "version": "R545",
-  "description": "FUNDUS R545 - UI Overhaul",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R545/FND-R545-update.zip",
-  "node_argon2": "fc6fbb3fbb47d1aa29f6f325a0132011e4d42f589f48e61e6bdff1ad6b894acc",
-  "published_at": "2026-09-30T06:49:11.8791673Z",
-  "signature": "0xb5c3f2270f55904839514c8c9f4b0170ddd288ee76506cd6974497d90a06c27c593da4e494c34c5e6ad8e7f5e4c58428bb7fa94771230cb2c20e2e385f91c9f61c"
+  "version": "R546",
+  "description": "FUNDUS R546 - install script correction",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R546/FND-R546-update.zip",
+  "node_argon2": "12c50313910d702a98ca90924fb20a0fb58b9f7a8ab392aa5e37c56b99d0f27d",
+  "published_at": "2026-09-30T08:37:35.3883359Z",
+  "signature": "0x8edaf14a7546ba56daa78fc979bc88f8ce9dfcf55b7c92584dd7f4d082a70ada3961b1ee0e075314d671c344625a18d7dbf4df423b3d627ee13c8c40508875041c"
 }
