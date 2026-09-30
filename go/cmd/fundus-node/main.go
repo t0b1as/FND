@@ -78,6 +78,8 @@ func main() {
 	// -------------------------------------------------------------------------
 	//  Storage
 	// -------------------------------------------------------------------------
+	// Bereitgelegte Wiederherstellung einspielen – VOR dem Öffnen der Datenbank.
+	api.ApplyStagedRestore(cfg.DataDir, cfg.SeedFile, log)
 	store, err := storage.New(cfg.DataDir, log)
 	if err != nil {
 		log.Fatal("Storage init failed", zap.Error(err))

@@ -272,6 +272,9 @@ func (s *Server) markSwapDone(swapID string) {
 	}
 	s.swapMgr.mu.Unlock()
 	// (Speicherung: automatischer Snapshot alle 3 s)
+	if fid := swapOwner(swapID); fid != "" {
+		s.pushNotify(fid, "✅ Swap abgeschlossen", "Dein Tausch ist abgeschlossen – das Guthaben ist gutgeschrieben.", "/shop", "swap-"+swapID, false)
+	}
 }
 
 // settleFinishedSwaps: holt das Verrechnen für erfolgreiche, aber noch nicht

@@ -247,6 +247,96 @@ ngx.print([[
   load(); setInterval(load, 20000);
 })();
 </script>
+
+<!-- ── Sicherung ──────────────────────────────────────────────── -->
+<div class="set-card" id="backup-card">
+  <div class="set-head"><h3>Sicherung</h3></div>
+  <div class="set-body">
+    <p class="meta">Täglich verschlüsselt: Node-Identität und -Wallet, Sitzungen, Swaps, Orders, Hinterlegungen, Datenbank und Konfiguration
+    (ohne Chain – die lädt der Node neu). Abgelegt mit 3 Kopien auf anderen Nodes. Wiederherstellen auf einem neuen Pi braucht nur das Sicherungspasswort.</p>
+    <div id="bk-status" class="status-line">Lade …</div>
+    <div id="bk-setup" style="display:none;margin-top:10px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px" id="bk-setup-title">Sicherung einrichten</div>
+      <input type="password" id="bk-pw1" placeholder="Sicherungspasswort (mind. 12 Zeichen)" autocomplete="new-password" style="width:100%;margin-bottom:6px">
+      <input type="password" id="bk-pw2" placeholder="Wiederholen" autocomplete="new-password" style="width:100%;margin-bottom:6px">
+      <p class="meta" style="color:#fb3">Gut aufbewahren: Ohne dieses Passwort lässt sich die Sicherung nicht öffnen – auch nicht von uns.</p>
+      <button class="btn" id="bk-setup-btn">Einrichten und jetzt sichern</button>
+    </div>
+    <div id="bk-actions" style="display:none;margin-top:10px">
+      <button class="btn" id="bk-run">Jetzt sichern</button>
+      <button class="btn btn-outline" id="bk-change">Passwort ändern</button>
+    </div>
+    <div id="bk-out" class="meta" style="margin-top:8px"></div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font-weight:600">Wiederherstellen (z.B. auf einem neuen Pi)</summary>
+      <p class="meta" style="margin-top:6px">Ersetzt Identität, Wallet und Daten DIESES Nodes durch die Sicherung. Danach startet der Node neu.
+      Der neue Pi sollte vorher einige Minuten mit dem Netz verbunden sein, damit er den Verweis auf die Sicherung kennt.</p>
+      <input type="password" id="bk-rpw" placeholder="Sicherungspasswort" autocomplete="off" style="width:100%;margin-bottom:6px">
+      <input type="text" id="bk-rhash" placeholder="optional: Hash der Sicherung" autocomplete="off" spellcheck="false" style="width:100%;margin-bottom:6px;font-family:monospace">
+      <button class="btn btn-danger" id="bk-restore">Wiederherstellen</button>
+      <div id="bk-rout" class="meta" style="margin-top:6px"></div>
+    </details>
+  </div>
+</div>
+<script>
+(function(){
+  function el(id){ return document.getElementById(id); }
+  function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  async function post(u, b){
+    var r = await fetch(u, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body: JSON.stringify(b||{})});
+    var d = {}; try { d = await r.json(); } catch(e){}
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    return d;
+  }
+  async function load(){
+    try {
+      var r = await fetch('/api/v1/admin/backup/status', {credentials:'same-origin'}); var d = await r.json();
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      var st = el('bk-status');
+      if (!d.filestore) { st.innerHTML = '<span style="color:#f66">Dateispeicher aus – die Sicherung braucht ihn zum Verteilen.</span>'; }
+      else if (!d.enabled) { st.textContent = 'Noch nicht eingerichtet.'; }
+      else if (d.last_time) {
+        var when = new Date(d.last_time*1000).toLocaleString('de-DE');
+        st.innerHTML = (d.last_error ? '<span style="color:#f66">⚠ Letzter Versuch fehlgeschlagen: ' + esc(d.last_error) + '</span><br>' : '<span style="color:var(--green,#00e676)">✓ Eingerichtet</span> · ') +
+          'letzte Sicherung ' + esc(when) + ', ' + (d.last_size/1048576).toFixed(1).replace('.', ',') + ' MB, ' + d.replicas + ' Kopien' +
+          '<div style="margin-top:4px;font-size:12px">Hash: <code style="word-break:break-all">' + esc(d.last_hash) + '</code></div>';
+      } else { st.innerHTML = (d.last_error ? '<span style="color:#f66">⚠ ' + esc(d.last_error) + '</span>' : '⏳ Eingerichtet – erste Sicherung läuft …'); }
+      el('bk-setup').style.display = d.enabled ? 'none' : '';
+      el('bk-actions').style.display = d.enabled ? '' : 'none';
+    } catch(e){ el('bk-status').textContent = '✗ ' + e.message; }
+  }
+  el('bk-setup-btn').onclick = async function(){
+    var a = el('bk-pw1').value, b = el('bk-pw2').value, out = el('bk-out');
+    if (a.length < 12) { out.textContent = 'Mindestens 12 Zeichen.'; return; }
+    if (a !== b) { out.textContent = 'Die Passwörter stimmen nicht überein.'; return; }
+    this.disabled = true;
+    try { await post('/api/v1/admin/backup/setup', {password: a}); el('bk-pw1').value = el('bk-pw2').value = '';
+      out.textContent = '✓ Eingerichtet – die erste Sicherung läuft im Hintergrund.'; setTimeout(load, 4000); }
+    catch(e){ out.textContent = '✗ ' + e.message; }
+    this.disabled = false; load();
+  };
+  el('bk-run').onclick = async function(){
+    var out = el('bk-out'); this.disabled = true; out.textContent = '⏳ Sichere … (kann eine Minute dauern)';
+    try { var d = await post('/api/v1/admin/backup/run'); out.textContent = '✓ Gesichert (' + (d.size/1048576).toFixed(1).replace('.', ',') + ' MB).'; }
+    catch(e){ out.textContent = '✗ ' + e.message; }
+    this.disabled = false; load();
+  };
+  el('bk-change').onclick = function(){ el('bk-setup').style.display = ''; el('bk-setup-title').textContent = 'Neues Sicherungspasswort'; };
+  el('bk-restore').onclick = async function(){
+    var pw = el('bk-rpw').value, out = el('bk-rout');
+    if (!pw) { out.textContent = 'Bitte das Sicherungspasswort eingeben.'; return; }
+    if (!confirm('Identität, Wallet und Daten dieses Nodes werden durch die Sicherung ersetzt. Fortfahren?')) return;
+    this.disabled = true; out.textContent = '⏳ Suche und lade die Sicherung … (kann einige Minuten dauern)';
+    try {
+      var d = await post('/api/v1/admin/backup/restore', {password: pw, hash: el('bk-rhash').value.trim()});
+      out.innerHTML = '✓ ' + d.files + ' Dateien bereitgelegt – der Node startet neu und spielt sie ein. Seite in einer Minute neu laden.<br>' +
+        'Danach einmalig per SSH übernehmen, falls vorhanden:<br><code>sudo cp /opt/fundus/data/restored-etc/fundus.env /etc/fundus/fundus.env</code><br>' +
+        '<code>sudo cp /opt/fundus/data/restored-etc/seed /etc/fundus/wallet.key</code><br><code>sudo systemctl restart fundus-node</code>';
+    } catch(e){ out.textContent = '✗ ' + e.message; this.disabled = false; }
+  };
+  load();
+})();
+</script>
 <style>
 .upd-progress { margin-top:12px; padding:10px 12px; border:1px solid var(--brd); border-radius:10px; }
 .upd-bar { height:8px; background:var(--sur2); border-radius:999px; overflow:hidden; }

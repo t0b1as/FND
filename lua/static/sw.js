@@ -66,3 +66,34 @@ self.addEventListener('fetch', (event) => {
   // Alles andere (Seiten): network-first, damit Live-Daten aktuell sind.
   // Fällt das Netz aus, gibt es (bewusst) keinen Offline-Fallback für Live-Seiten.
 });
+
+// ── Push-Benachrichtigungen (R536) ──────────────────────────────────────────
+// Der Node schickt verschlüsselte Web-Push-Nachrichten: {title, body, url, tag}.
+self.addEventListener('push', (event) => {
+  let d = {};
+  try { d = event.data ? event.data.json() : {}; } catch (e) { d = { body: event.data ? event.data.text() : '' }; }
+  const title = d.title || 'Fundus';
+  event.waitUntil(self.registration.showNotification(title, {
+    body: d.body || '',
+    icon: '/static/icon.svg',
+    badge: '/static/favicon.svg',
+    tag: d.tag || undefined,         // gleiche Art ersetzt die vorige statt zu stapeln
+    renotify: !!d.tag,
+    data: { url: d.url || '/' },
+  }));
+});
+
+// Antippen: vorhandenes Fundus-Fenster nach vorn holen, sonst neu öffnen.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const target = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) {
+      if (new URL(c.url).origin === self.location.origin) {
+        try { await c.focus(); if ('navigate' in c) await c.navigate(target); return; } catch (e) {}
+      }
+    }
+    await self.clients.openWindow(target);
+  })());
+});

@@ -161,6 +161,17 @@ func (sc *swapCoordinator) handleSwapInit(peerID string, data []byte) []byte {
 		return b
 	}
 	amountSOL := amountFND * ord.PriceSOL // gleiche Formel wie beim Käufer
+	// Push an den Ersteller der Order: Kaufanfrage; Swap gehört ihm (für "abgeschlossen").
+	setSwapOwner(swapID, ord.Creator)
+	if ord.Side == OrderSell {
+		sc.server.pushNotify(ord.Creator, "🛒 Deine Order wurde gekauft",
+			fmt.Sprintf("Jemand hat %.4f FND aus deiner Order gekauft – die Abwicklung läuft automatisch.", amountFND),
+			"/shop", "swap-"+swapID, true)
+	} else {
+		sc.server.pushNotify(ord.Creator, "🛒 Deine Order wurde bedient",
+			fmt.Sprintf("Jemand hat dir %.4f FND verkauft – die Abwicklung läuft automatisch.", amountFND),
+			"/shop", "swap-"+swapID, true)
+	}
 
 	// Verkäufer-Seite starten. Der Maker gibt das Gegenteil dessen, was der
 	// Taker gibt: Taker gibt SOL → Maker gibt FND, und umgekehrt.

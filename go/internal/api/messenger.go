@@ -291,9 +291,11 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 				if sess.broadcastWS(out) {
 				} else {
 					s.log.Warn("WS-Zustellung fehlgeschlagen")
+					s.notifyIncomingMsg(sess, payload) // App nicht offen → Push
 				}
 			} else {
 				s.log.Warn("Nachricht empfangen, aber kein aktiver WebSocket (Frontend nicht verbunden)")
+				s.notifyIncomingMsg(sess, payload) // App nicht offen → Push
 			}
 		})
 	}

@@ -56,6 +56,7 @@ const (
 	TopicEmailDir     = "fundus.emaildir"
 	TopicKeyDir       = "fundus.keydir"
 	TopicRatings      = "fundus.ratings" // Bewertungen von Handelspartnern
+	TopicBackup       = "fundus.backup"  // Verweise auf verschlüsselte Sicherungen
 	TopicUpdate       = "fundus.update"  // Signierte Update-Manifeste
 	TopicSearch       = "fundus.search"  // Netzwerkweite Such-Pings
 	TopicFileSearch   = "fundus.filesearch" // Suche nach geteilten Dateien
@@ -318,7 +319,7 @@ func NewNode(ctx context.Context, cfg *config.Config, store *storage.Store, log 
 		TopicPartner, TopicPartnerSearch, TopicUpdate, TopicSearch,
 		TopicFileSearch, TopicJobSearch,
 		TopicMailbox, TopicContacts, TopicEmailDir, TopicKeyDir,
-		TopicRatings,
+		TopicRatings, TopicBackup,
 	} {
 		if err := node.joinTopic(ctx, topicName); err != nil {
 			log.Warn("Could not join topic", zap.String("topic", topicName), zap.Error(err))

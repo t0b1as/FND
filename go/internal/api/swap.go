@@ -921,6 +921,7 @@ func (s *Server) swapBuy(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 	defer cancel()
+	setSwapOwner("buyer-"+msg.OrderID+"-"+msg.Hashlock[:8], s.sessionFID(c)) // für Push "abgeschlossen"
 	err = s.swapCoord.triggerRemoteSwap(ctx, s.orderBook.Node(), order.MakerPeer, msg,
 		solKey, s.fndWords(c, req.FndSeed), secret, order.SolAddress, order.FndAddress, takerGivesSol, "")
 	req.SolKey, req.FndSeed = "", ""

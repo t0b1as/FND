@@ -192,6 +192,7 @@
       (W.address ? '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(window.WALLET.address);this.textContent=\'✓ Kopiert\'">Wallet-Adresse kopieren</button>' : '')+
       '<button onclick="walletEditName()">Profil bearbeiten… (Name, Bild)</button>'+
       (W.address ? '<button onclick="walletFND()">FND-Wallet</button>' : '<button onclick="walletOpenWallet()">Wallet öffnen</button>')+
+      '<button onclick="walletPush()">🔔 Benachrichtigungen</button>'+
       '<button onclick="walletSolana()">Solana-Wallet</button>'+
       '<button onclick="walletLinkOther()">Andere Wallet hinterlegen…</button>'+
       (W.linked ? '<button onclick="walletUnlink()">Hinterlegung aufheben</button>' : '')+
@@ -436,6 +437,68 @@
     };
     if (chan) chan.onmessage = function(){ schedule(); };
   })();
+
+  // ── Push-Benachrichtigungen (pro Gerät) ───────────────────────────────────
+  function pushKeyBytes(b64){
+    const pad = '='.repeat((4 - b64.length % 4) % 4);
+    const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from(raw, function(c){ return c.charCodeAt(0); });
+  }
+  window.walletPush = async function(){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    const supported = ('serviceWorker' in navigator) && ('PushManager' in window) && ('Notification' in window);
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    let hint = '';
+    if (!window.isSecureContext) hint = 'Benachrichtigungen brauchen eine sichere Verbindung (https mit gültigem Zertifikat).';
+    else if (isIOS && !standalone) hint = 'Auf dem iPhone/iPad: Seite zuerst über „Teilen → Zum Home-Bildschirm" hinzufügen und von dort öffnen – dann hier einschalten.';
+    else if (!supported) hint = 'Dieser Browser unterstützt keine Push-Benachrichtigungen.';
+    const ov = walletCard("Benachrichtigungen",
+      '<p class="wallet-hint">Hinweise bei neuen Nachrichten und Anrufen, Kaufanfragen auf deine Orders und abgeschlossenen Swaps – auch wenn Fundus geschlossen ist. Gilt für dieses Gerät.</p>'+
+      '<p class="wallet-hint" id="push-state">…</p>'+
+      '<button class="wallet-submit" id="push-toggle" disabled>…</button>'+
+      '<button type="button" class="wallet-linkbtn" id="push-test" style="margin-top:8px;display:none">Test senden</button>'+
+      '<p class="wallet-hint" id="push-out"></p>');
+    const st = ov.querySelector('#push-state'), tg = ov.querySelector('#push-toggle'), ts = ov.querySelector('#push-test'), out = ov.querySelector('#push-out');
+    if (hint) { st.textContent = hint; tg.style.display = 'none'; return; }
+    let reg = null, sub = null;
+    try { reg = await navigator.serviceWorker.ready; sub = await reg.pushManager.getSubscription(); } catch(e){}
+    async function refresh(){
+      let on = false;
+      if (sub) {
+        try { const r = await fetch('/api/v1/push/status?endpoint=' + encodeURIComponent(sub.endpoint), {credentials:'same-origin'}); on = !!(await r.json()).subscribed; } catch(e){}
+      }
+      st.textContent = Notification.permission === 'denied' ? 'Im Browser blockiert – bitte in den Website-Einstellungen erlauben.' :
+                       (on ? '✓ Auf diesem Gerät eingeschaltet.' : 'Auf diesem Gerät ausgeschaltet.');
+      tg.textContent = on ? 'Ausschalten' : 'Einschalten';
+      tg.disabled = Notification.permission === 'denied';
+      ts.style.display = on ? '' : 'none';
+      tg.onclick = on ? off : onFn;
+    }
+    async function onFn(){
+      tg.disabled = true; out.textContent = '';
+      try {
+        if (await Notification.requestPermission() !== 'granted') throw new Error('Benachrichtigungen nicht erlaubt.');
+        const kr = await fetch('/api/v1/push/key'); const kd = await kr.json();
+        if (!kr.ok) throw new Error(kd.error || 'Kein Schlüssel');
+        if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(kd.public_key) });
+        await walletPost('/api/v1/push/subscribe', sub.toJSON());
+        out.textContent = '✓ Eingeschaltet. Eine Test-Benachrichtigung ist unterwegs.';
+        fetch('/api/v1/push/test', {method:'POST', credentials:'same-origin'});
+      } catch(e){ out.textContent = '✗ ' + e.message; }
+      await refresh();
+    }
+    async function off(){
+      tg.disabled = true;
+      try {
+        if (sub) { await walletPost('/api/v1/push/unsubscribe', {endpoint: sub.endpoint}); await sub.unsubscribe(); sub = null; }
+        out.textContent = 'Ausgeschaltet.';
+      } catch(e){ out.textContent = '✗ ' + e.message; }
+      await refresh();
+    }
+    ts.onclick = async function(){ out.textContent = '⏳ Gesendet – kommt in wenigen Sekunden.'; try { await fetch('/api/v1/push/test', {method:'POST', credentials:'same-origin'}); } catch(e){} };
+    await refresh();
+  };
 
   // ── FND-Wallet: gleicher Aufbau wie die Solana-Wallet ────────────────────
   // Adresse, Guthaben, Kopieren, Senden (aus der angemeldeten Wallet – die
