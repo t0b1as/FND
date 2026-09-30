@@ -1,8 +1,8 @@
 {
-  "version": "R535",
-  "description": "FUNDUS R535 - Bewertungssystem fuer den Marktplatz",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R535/FND-R535-update.zip",
-  "node_argon2": "e794a5aa03c2950e46038023848c2ef688b892bbf3884cb49fbaa757538034e6",
-  "published_at": "2026-09-30T03:31:59.6801522Z",
-  "signature": "0x221b100c9ae6b02d49ed5131199d19be6ff0490bddf5800ee27c61e0161d42d330cccc64417a5f0529fc8e8ccd8c8f604af50a3f5d49ffe99a119574a0419bee1c"
+  "version": "R538",
+  "description": "FUNDUS R538 - Push Benachrichtigungen",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R538/FND-R538-update.zip",
+  "node_argon2": "cce67a6fa0d934ce6c164432ca62669ead6b7b065b4c2610f03f9e8ee4056fff",
+  "published_at": "2026-09-30T04:03:07.5431791Z",
+  "signature": "0xe11947c4646d653659edd03a96eb3314b606063454b42c759c7e89df708cfe253e57873babd362a86732f791b289c29e8f376b27e07bf55338777038eba12f941c"
 }
