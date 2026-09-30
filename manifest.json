@@ -1,8 +1,8 @@
 {
-  "version": "R547",
-  "description": "FUNDUS R547 - install script correction",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R547/FND-R547-update.zip",
-  "node_argon2": "ec3147b855150f6c9068e370b152245015acc4f7f773b9168b2480333e3e7520",
-  "published_at": "2026-09-30T08:56:04.0556623Z",
-  "signature": "0x19775ec769c00e94617990cea3ccb9fa0daf01b6d04ec5e8383706f6602472705ddf4c3d7505bb0a672454497e0ec6129d742f9be222e2cc9a89298eab126d781c"
+  "version": "R548",
+  "description": "FUNDUS R548 - push mechanics",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R548/FND-R548-update.zip",
+  "node_argon2": "c766a3a835ff936192238962e70a623735eba74b6719b8d03f39a354f267767a",
+  "published_at": "2026-09-30T10:41:10.4590175Z",
+  "signature": "0xaea24e726d97f7ff9add87aae2d9ce6f520c0d1113db32ab08916c06cbc9767a2c9de09a47001a3264769f29c8a5ef25ed67e4af8818268d25ea769728f3d6f41b"
 }
