@@ -43,7 +43,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 	// P2P-Node und Analyzer werden als nil übergeben –
 	// Endpoints die sie brauchen geben 503 zurück, der Rest funktioniert.
-	srv := api.NewServer(cfg, nil, store, nil, nil, zap.NewNop())
+	srv := api.NewServer(cfg, nil, store, nil, nil, zap.NewNop(), "test") // letzter Parameter: Programmversion
 	return httptest.NewServer(srv.Handler())
 }
 
