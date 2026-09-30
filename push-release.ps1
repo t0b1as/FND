@@ -59,7 +59,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 # Logik-Version DIESES Skripts. Wird nur erhoeht, wenn sich am Ablauf etwas
 # aendert, das fuer ein Release noetig ist. Neuere Skripte im ZIP ersetzen
 # dieses automatisch (siehe "Skripte aktualisieren").
-$ScriptVersion = 2
+$ScriptVersion = 3
 Write-Host "push-release.ps1 - Skript-Version $ScriptVersion" -ForegroundColor Cyan
 
 # -- 1. Voraussetzungen -------------------------------------------------------
@@ -359,8 +359,13 @@ Ok "Quellcode und Tag $VER gepusht"
 Step "GitHub-Release $VER anlegen"
 $notesText = if ($Notes) { $Notes } else { "FUNDUS $VER" }
 $notesText += "`n`nInstallation auf laufenden Nodes: Einstellungen -> Software-Update -> Jetzt installieren.`nNeuinstallation: siehe MANUAL.md."
+# Quellpaket unter seinem ECHTEN Namen hochladen: "datei#name" setzt bei gh nur
+# die Anzeige-Beschriftung – der Download hieß sonst weiter "FND.zip" (404 im
+# Installer, der FND-<Rev>-source.zip lädt).
+$sourceZip = Join-Path $work "FND-$VER-source.zip"
+Copy-Item -Path (Resolve-Path $ZipPath).Path -Destination $sourceZip -Force -ErrorAction Stop
 Run "gh release create" {
-    & $GH release create $VER "$bundleZip#$assetName" "$((Resolve-Path $ZipPath).Path)#FND-$VER-source.zip" `
+    & $GH release create $VER "$bundleZip#$assetName" "$sourceZip" `
         -R $Repo -t "FUNDUS $VER" -n $notesText --verify-tag
 }
 Ok "https://github.com/$Repo/releases/tag/$VER"

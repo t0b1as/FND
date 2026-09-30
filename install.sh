@@ -95,7 +95,10 @@ if [ "$FND_VERSION" = latest ]; then
 fi
 BASE="https://github.com/$REPO/releases/download/$FND_VERSION"
 curl -fsSL -o "$TMP/update.zip" "$BASE/FND-$FND_VERSION-update.zip" || die "Update-Paket $FND_VERSION nicht gefunden."
-curl -fsSL -o "$TMP/source.zip" "$BASE/FND-$FND_VERSION-source.zip" || die "Quellpaket $FND_VERSION nicht gefunden."
+# Quellpaket: neuer Name, sonst "FND.zip" (Releases bis R546 luden es so hoch)
+curl -fsSL -o "$TMP/source.zip" "$BASE/FND-$FND_VERSION-source.zip" 2>/dev/null \
+  || curl -fsSL -o "$TMP/source.zip" "$BASE/FND.zip" \
+  || die "Quellpaket $FND_VERSION nicht gefunden."
 mkdir -p "$TMP/u" "$TMP/s"
 unzip -q "$TMP/update.zip" -d "$TMP/u"
 unzip -q "$TMP/source.zip" -d "$TMP/s"
