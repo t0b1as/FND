@@ -1855,7 +1855,7 @@ select option { background:var(--surface); color:var(--fg); }
 .fm-partner-tag { font-size: 11px; font-weight: 600; color: #ff69b4; background: rgba(255,105,180,0.15); padding: 1px 6px; border-radius: 999px; white-space: nowrap; }
 
 /* Hinweis bei unverschlüsselter Verbindung (http) */
-.http-hint { background:#5a4500; color:#ffe9a8; font-size:13px; padding:6px 36px 6px 12px; position:relative; line-height:1.4; }
+.http-hint { background:#0f3d27; color:#bff5d6; border-bottom:1px solid rgba(0,230,118,.35); font-size:13px; padding:6px 36px 6px 12px; position:relative; line-height:1.4; }
 .http-hint a { color:#fff; font-weight:600; }
 .http-hint button { position:absolute; right:6px; top:50%; transform:translateY(-50%); background:none; border:none;
                     color:#ffe9a8; font-size:20px; cursor:pointer; width:auto; min-height:0; padding:0 6px; }
@@ -2199,7 +2199,7 @@ body.has-bottom-nav [style*="position:sticky"][style*="bottom:0"] {
 /* Mobil: Linien und Rahmen in Fundus-Grün statt Grau
    (Grau wirkt mit iPhone-Night-Shift bräunlich). */
 @media (max-width: 720px) {
-  :root { --border: #1d3d2e; --border-2: #2a5b44; }
+  :root { --border: #1d3d2e; --border-2: #2a5b44; --brd: #1d3d2e; --brd2: #2a5b44; }
   nav { border-bottom-color: rgba(0,230,118,0.30); }
   .bottom-nav { border-top-color: rgba(0,230,118,0.30); }
   .nav-update { --brd: rgba(0,230,118,0.40); }

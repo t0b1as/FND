@@ -100,7 +100,7 @@ ngx.print([[
     <div class="field" id="fee-section">
       <label>
         Durchleitungsgebühr
-        <span class="meta" id="hv-note" style="color:var(--color-warning,#d97706)">
+        <span class="meta" id="hv-note" style="color:var(--color-warning,#7ee2a8)">
           (HV/EHV: wird im Routing angezeigt, aber nicht automatisch abgezogen –
           muss bilateral vereinbart werden)
         </span>

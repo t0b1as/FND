@@ -267,9 +267,14 @@ ngx.print(string.format([[
 .file-row .fbtns .btn-sm { padding:4px 8px; font-size:11px; min-height:28px; }
 /* Mobil: Grid aufbrechen, Attribute unter den Namen stapeln. */
 @media (max-width:600px) {
-  .file-row { grid-template-columns: 1fr auto; grid-template-areas: "name btns" "meta btns"; }
+  /* Größe, Quelle/Redundanz und Hash nebeneinander – früher lagen alle drei im
+     selben Rasterbereich und damit ÜBEREINANDER. */
+  .file-row { grid-template-columns: max-content max-content minmax(0,1fr) auto; column-gap:10px; row-gap:2px;
+              grid-template-areas: "name name name btns" "size red hash btns"; }
   .file-row .fname { grid-area:name; }
-  .file-row .fsize, .file-row .fhash, .file-row .fredundancy { grid-area:meta; display:inline; font-size:10px; }
+  .file-row .fsize { grid-area:size; font-size:10.5px; }
+  .file-row .fredundancy { grid-area:red; font-size:10.5px; }
+  .file-row .fhash { grid-area:hash; font-size:10.5px; min-width:0; }
   .file-row .fbtns { grid-area:btns; }
   .file-head { display:none; }
 }
