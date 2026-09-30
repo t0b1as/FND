@@ -1,8 +1,8 @@
 {
-  "version": "R538",
-  "description": "FUNDUS R538 - Push Benachrichtigungen",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R538/FND-R538-update.zip",
-  "node_argon2": "cce67a6fa0d934ce6c164432ca62669ead6b7b065b4c2610f03f9e8ee4056fff",
-  "published_at": "2026-09-30T04:03:07.5431791Z",
-  "signature": "0xe11947c4646d653659edd03a96eb3314b606063454b42c759c7e89df708cfe253e57873babd362a86732f791b289c29e8f376b27e07bf55338777038eba12f941c"
+  "version": "R539",
+  "description": "FUNDUS R539 - Bugbusting",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R539/FND-R539-update.zip",
+  "node_argon2": "43f14396861abc5b8230e75bdee52daa8c0f8caf1e29fef81aa20ff038defa5d",
+  "published_at": "2026-09-30T04:12:55.7535287Z",
+  "signature": "0x984dbd9b4216009ce01a1193b5ca675512cef969c19d5114d74eb7a54cb4d14e54bf7606ca0009ae040e5fff0992a293933a9d4a821a8f27d4f8ad0aa18e8fde1c"
 }
