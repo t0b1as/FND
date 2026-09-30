@@ -1,8 +1,8 @@
 {
-  "version": "R539",
-  "description": "FUNDUS R539 - Bugbusting",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R539/FND-R539-update.zip",
-  "node_argon2": "43f14396861abc5b8230e75bdee52daa8c0f8caf1e29fef81aa20ff038defa5d",
-  "published_at": "2026-09-30T04:12:55.7535287Z",
-  "signature": "0x984dbd9b4216009ce01a1193b5ca675512cef969c19d5114d74eb7a54cb4d14e54bf7606ca0009ae040e5fff0992a293933a9d4a821a8f27d4f8ad0aa18e8fde1c"
+  "version": "R540",
+  "description": "FUNDUS R540 - Bugbusting",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R540/FND-R540-update.zip",
+  "node_argon2": "fd1f0b0524512494211fa5cce70d18cb26480642056b0568aaa06838e7836166",
+  "published_at": "2026-09-30T04:18:26.9601717Z",
+  "signature": "0x797b98eecdc137bc2681dff71b0a47c83f8d83ca6f29236cad8bd8abbf698eed3fb4fe6e71e2ee95eb8bd9cc253eda18ffa4a3e1d3e1f8559658ab1afb52e9911b"
 }
