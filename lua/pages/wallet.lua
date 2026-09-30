@@ -138,7 +138,7 @@ ngx.print(string.format([[
 .escrow-id   { font-family:var(--mono); font-size:10px; color:var(--muted); }
 .escrow-amt  { font-weight:700; color:var(--amber); }
 .escrow-status { font-size:11px; padding:1px 7px; border-radius:9999px; font-weight:600; }
-.es-funded   { background:rgba(255,179,0,.1); color:var(--amber); border:1px solid rgba(255,179,0,.3); }
+.es-funded   { background:rgba(126,226,168,.1); color:var(--amber); border:1px solid rgba(126,226,168,.3); }
 .es-released { background:rgba(0,230,118,.1); color:var(--grn);   border:1px solid rgba(0,230,118,.3); }
 .es-disputed { background:rgba(240,82,82,.1); color:var(--red);   border:1px solid rgba(240,82,82,.3); }
 
@@ -397,7 +397,7 @@ loadEscrows().catch(()=>{});
 .earn-lbl { font-size:11px; color:var(--muted); }
 @keyframes earnFlash { 0% { transform:scale(1.25); color:var(--grn,#00e676); } 100% { transform:scale(1); } }
 .earn-flash { animation:earnFlash .6s ease-out; }
-.seed-warn { margin:10px 0; padding:12px 14px; background:rgba(245,166,35,.1);
+.seed-warn { margin:10px 0; padding:12px 14px; background:rgba(0,230,118,.1);
   border:1px solid var(--warning); border-radius:8px; }
 .seed-warn strong { color:var(--warning); font-size:13px; }
 .seed-warn p { font-size:12px; color:var(--muted); margin:4px 0 8px; line-height:1.5; }
@@ -407,8 +407,8 @@ loadEscrows().catch(()=>{});
 .seed-manage summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--txt);
   padding:6px 0; user-select:none; }
 .seed-manage summary:hover { color:var(--green); }
-.w-backup { margin-top:8px; padding:10px; background:rgba(245,166,35,.08);
-  border:1px solid rgba(245,166,35,.3); border-radius:8px; font-size:13px;
+.w-backup { margin-top:8px; padding:10px; background:rgba(0,230,118,.08);
+  border:1px solid rgba(0,230,118,.3); border-radius:8px; font-size:13px;
   word-break:break-word; font-family:monospace; }
 .w-open { margin-top:8px; padding:10px; background:rgba(0,230,118,.07);
   border:1px solid rgba(0,230,118,.3); border-radius:8px; font-size:12.5px;
@@ -422,10 +422,10 @@ loadEscrows().catch(()=>{});
   border:1px solid var(--acc) !important; margin-top:6px;
   box-shadow:0 0 0 1px rgba(56,124,255,.12); }
 .w-body .btn-warn {
-  background:rgba(245,166,35,.12); color:var(--txt);
-  border-color:rgba(245,166,35,.55) !important;
-  box-shadow:0 0 0 1px rgba(245,166,35,.12); }
-.w-body .btn-warn:hover { background:rgba(245,166,35,.2); }
+  background:rgba(0,230,118,.12); color:var(--txt);
+  border-color:rgba(0,230,118,.55) !important;
+  box-shadow:0 0 0 1px rgba(0,230,118,.12); }
+.w-body .btn-warn:hover { background:rgba(0,230,118,.2); }
 .w-body input:not([type=checkbox]), .w-body textarea {
   border:1px solid var(--brd2); }
 .w-body input:not([type=checkbox]):focus, .w-body textarea:focus {
@@ -727,7 +727,7 @@ async function loadStakeStatus(){
       (me ? '<span style="color:var(--grn)">' + WT.stake_you_are + '</span>'
           : '<span style="color:var(--muted)">' + WT.stake_you_not + '</span>') +
       (d.my_stake_fnd !== undefined ? ' &middot; Stake: <strong>' + d.my_stake_fnd + ' FND</strong>' : '') +
-      (!me && d.hint ? '<div style="margin-top:6px;color:var(--warning,#fb3);font-size:13px">' +
+      (!me && d.hint ? '<div style="margin-top:6px;color:var(--warning,#7ee2a8);font-size:13px">' +
         String(d.hint).replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }) + '</div>' : ''));
   } catch(e){}
 }
@@ -741,7 +741,7 @@ async function doStake(){
   // Vorher: aktueller Stake (Summe zählt – nachlegen ist erlaubt)
   let before = 0;
   try { const st = await (await fetch('/api/v1/chain/status')).json(); before = parseFloat(st.my_stake_fnd) || 0; } catch(e){}
-  if (before + amt < 10){ say('Hinweis: Validator ab insgesamt 10 FND Stake – nach diesem Stake wären es ' + (before + amt) + ' FND.', 'var(--warning,#fb3)'); }
+  if (before + amt < 10){ say('Hinweis: Validator ab insgesamt 10 FND Stake – nach diesem Stake wären es ' + (before + amt) + ' FND.', 'var(--warning,#7ee2a8)'); }
   else say(WT.stake_sending, 'var(--muted)');
   try {
     const r = await fetch('/api/v1/wallet/stake', {

@@ -130,7 +130,7 @@ ngx.print([[
   function note(txt, color){
     return '<div style="margin:6px 0;padding:8px 10px;border-radius:8px;border-left:3px solid ' + color + ';background:rgba(255,255,255,.03);font-size:13px">' + esc(txt) + '</div>';
   }
-  var G = 'var(--green,#00e676)', R = '#f66', Y = '#fb3';
+  var G = 'var(--green,#00e676)', R = '#f66', Y = '#7ee2a8';
   async function load(){
     var sumEl = document.getElementById('ch-summary');
     try {
@@ -195,7 +195,7 @@ ngx.print([[
 .no-table th, .no-table td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--border); white-space:nowrap; vertical-align:top; }
 .no-table th { color:var(--muted); font-weight:600; font-size:12px; }
 .no-table td.bad  { color:#f66; font-weight:600; }
-.no-table td.warn { color:#fb3; }
+.no-table td.warn { color:#7ee2a8; }
 .no-table tr.gone td { color:var(--muted); }
 .no-table .note { white-space:normal; max-width:320px; font-size:12px; }
 </style>
@@ -224,7 +224,7 @@ ngx.print([[
         if (n.chain_error) notes.push('<span style="color:#f66">Chain: ' + esc(n.chain_error) + '</span>');
         if (n.filestore_error) notes.push('<span style="color:#f66">' + esc(n.filestore_error) + '</span>');
         if (n.clock_note) notes.push('<span style="color:#f66">' + esc(n.clock_note) + '</span>');
-        if (n.fork_note) notes.push('<span style="color:#fb3">' + esc(n.fork_note) + '</span>');
+        if (n.fork_note) notes.push('<span style="color:#7ee2a8">' + esc(n.fork_note) + '</span>');
         if (revBad || hWarn || skewBad || n.chain_error || n.filestore_error || n.clock_note) issues++;
         var st = n.storage || {};
         return '<tr>' +
@@ -241,7 +241,7 @@ ngx.print([[
         '<tr><th>Node</th><th>Revision</th><th>Höhe</th><th>Blöcke</th><th>Uhr</th><th>Speicher</th><th>Läuft seit</th><th>Hinweise</th></tr>' + rows;
       var gone = nodes.length - ok.length;
       sum.textContent = (issues ? '⚠ ' : '✓ ') + ok.length + ' Node(s) antworten' + (issues ? ', ' + issues + ' mit Auffälligkeiten' : ', alles in Ordnung') + (gone ? ' · ' + gone + ' ohne Antwort' : '');
-      sum.style.color = issues ? '#fb3' : 'var(--green,#00e676)';
+      sum.style.color = issues ? '#7ee2a8' : 'var(--green,#00e676)';
     } catch(e){ sum.textContent = '✗ Übersicht nicht abrufbar: ' + e.message; sum.style.color = '#f66'; }
   }
   load(); setInterval(load, 20000);
@@ -259,7 +259,7 @@ ngx.print([[
       <div style="font-size:13px;font-weight:600;margin-bottom:4px" id="bk-setup-title">Sicherung einrichten</div>
       <input type="password" id="bk-pw1" placeholder="Sicherungspasswort (mind. 12 Zeichen)" autocomplete="new-password" style="width:100%;margin-bottom:6px">
       <input type="password" id="bk-pw2" placeholder="Wiederholen" autocomplete="new-password" style="width:100%;margin-bottom:6px">
-      <p class="meta" style="color:#fb3">Gut aufbewahren: Ohne dieses Passwort lässt sich die Sicherung nicht öffnen – auch nicht von uns.</p>
+      <p class="meta" style="color:#7ee2a8">Gut aufbewahren: Ohne dieses Passwort lässt sich die Sicherung nicht öffnen – auch nicht von uns.</p>
       <button class="btn" id="bk-setup-btn">Einrichten und jetzt sichern</button>
     </div>
     <div id="bk-actions" style="display:none;margin-top:10px">

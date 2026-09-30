@@ -194,7 +194,7 @@ return function()
   cursor:pointer;font-size:13px;font-weight:500}
 .btn-prim:hover{background:#3b7cf5}
 .btn-warn{padding:5px 13px;background:var(--amber-bg);color:var(--amber);
-  border:1px solid rgba(255,179,0,.3);border-radius:var(--rs);cursor:pointer;font-size:12.5px}
+  border:1px solid rgba(126,226,168,.3);border-radius:var(--rs);cursor:pointer;font-size:12.5px}
 .btn-sm{padding:4px 12px;font-size:12px;background:var(--sur2);border:1px solid var(--brd2);
   border-radius:var(--rs);color:var(--dim);cursor:pointer}
 .btn-sm:hover{border-color:var(--acc);color:var(--acc)}

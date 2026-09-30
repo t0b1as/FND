@@ -55,7 +55,7 @@ function M.render()
     .tos-section ul { padding-left: 1.25rem; margin: 0.5rem 0; }
     .tos-section li { margin: 0.25rem 0; }
     .tos-highlight { border-left: 3px solid var(--warning);
-                     background: rgba(240,180,0,0.08);
+                     background: rgba(126,226,168,0.08);
                      border-radius: 0 var(--r) var(--r) 0;
                      padding: 0.75rem 1rem; margin: 1.5rem 0; }
     .tos-highlight p { color: var(--warning); font-size: 14px; margin: 0; }

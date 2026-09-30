@@ -288,7 +288,7 @@ ngx.print(string.format([[
 .status-line { margin-top:8px; font-size:12.5px; color:var(--muted); }
 .empty-hint  { font-size:13px; color:var(--muted); font-style:italic; }
 .info-notice {
-  background:rgba(255,179,0,.07); border:1px solid rgba(255,179,0,.25);
+  background:rgba(126,226,168,.07); border:1px solid rgba(126,226,168,.25);
   border-radius:var(--r); padding:12px 14px; font-size:13px; color:var(--amber);
 }
 .btn-shared { background:rgba(0,230,118,.15)!important; border-color:rgba(0,230,118,.4)!important; color:#00e676!important; }
@@ -1035,7 +1035,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if (box && box.parentNode) {
     const w = document.createElement('div');
     w.className = 'empty-hint';
-    w.style.color = 'var(--warning, #fb3)';
+    w.style.color = 'var(--warning, #7ee2a8)';
     w.textContent = '⚠ Anzeige-Modul (media-viewer.js) nicht geladen – Medien öffnen es beim Klick nach. Falls das scheitert: Seite mit Strg+F5 neu laden.';
     box.parentNode.insertBefore(w, box);
   }

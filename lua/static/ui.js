@@ -71,7 +71,6 @@
     var nav = document.getElementById("bottom-nav");
     if (!nav) return;
     var path = location.pathname;
-    if (path.indexOf("/messenger") === 0) { document.body.classList.add("no-bottom-nav"); return; }
     document.body.classList.add("has-bottom-nav");
     var links = nav.querySelectorAll("a[data-bn]");
     for (var i = 0; i < links.length; i++) {

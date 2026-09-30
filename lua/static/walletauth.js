@@ -257,7 +257,7 @@
         '<button class="wallet-x" onclick="this.closest(\'.wallet-overlay\').remove()">✕</button></div>'+
         '<p class="wallet-hint" style="color:#f66">Diese Wörter sind dein Wallet-Zugang. Sicher aufbewahren, niemals teilen. Wer sie hat, kann dein FND senden.</p>'+
         (d.chain_address ? '<p class="wallet-hint">Diese Wörter öffnen die Wallet <b style="font-family:monospace">'+d.chain_address+'</b> – überall gleich (auch in fnd-wallet).</p>' : '')+
-        (d.linked_differs ? '<p class="wallet-hint" style="color:#fb3">⚠ Für deinen Login ist eine ANDERE Wallet hinterlegt ('+d.linked_address+'). Diese Wörter öffnen sie NICHT – sichere auch deren Seed-Wörter.</p>' : '')+
+        (d.linked_differs ? '<p class="wallet-hint" style="color:#7ee2a8">⚠ Für deinen Login ist eine ANDERE Wallet hinterlegt ('+d.linked_address+'). Diese Wörter öffnen sie NICHT – sichere auch deren Seed-Wörter.</p>' : '')+
         '<div style="font-family:monospace;font-size:13px;line-height:1.8;background:var(--bg,#0e0e1a);padding:12px;border-radius:8px;word-spacing:6px">'+
         d.words.join(" ")+'</div>'+
         '<button class="wallet-submit" style="margin-top:12px" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''+d.words.join(" ")+'\');this.textContent=\'✓ Kopiert\'">Kopieren</button>';
@@ -305,7 +305,7 @@
         '<div style="font-family:monospace;font-size:13px;word-break:break-all">'+walletEsc(d.address)+'</div>'+
         '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b>'+walletEsc(d.fnd)+' FND</b></p>';
       if (d.old_address) {
-        html += '<p class="wallet-hint" style="color:#fb3">Auf deiner alten Adresse (vor R456) liegen noch <b>'+walletEsc(d.old_fnd)+' FND</b> ('+walletEsc(d.old_address)+').</p>'+
+        html += '<p class="wallet-hint" style="color:#7ee2a8">Auf deiner alten Adresse (vor R456) liegen noch <b>'+walletEsc(d.old_fnd)+' FND</b> ('+walletEsc(d.old_address)+').</p>'+
           '<button class="wallet-submit" id="w-migrate">Guthaben auf die neue Adresse umziehen</button>';
       }
       if (!d.is_linked) {
@@ -588,7 +588,7 @@
     const ov = walletCard("Solana-Wallet",
       '<p class="wallet-hint">Aus deiner Fundus-Wallet abgeleitet – dieselben Seed-Wörter ergeben auf jedem Node dieselbe Adresse. Im Shop wird sie automatisch verwendet.</p>'+
       '<div style="font-family:monospace;font-size:13px;word-break:break-all">'+walletEsc(d.address)+'</div>'+
-      '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b id="sol-bal">'+bal+'</b>'+(d.cluster ? ' <span style="color:#fb3">(' + walletEsc(d.cluster) + ' – Testnetz)</span>' : '')+'</p>'+
+      '<p class="wallet-hint" style="margin-top:6px">Guthaben: <b id="sol-bal">'+bal+'</b>'+(d.cluster ? ' <span style="color:#7ee2a8">(' + walletEsc(d.cluster) + ' – Testnetz)</span>' : '')+'</p>'+
       '<p class="wallet-hint">In laufenden Swaps gesperrte SOL liegen im Swap-Konto des Programms, nicht hier – sie erscheinen nach Abschluss bzw. Rückholung wieder.</p>'+
       '<button class="wallet-submit" id="sol-copy">Adresse kopieren</button>'+
       '<p class="wallet-hint" style="margin-top:12px"><b>SOL senden</b></p>'+

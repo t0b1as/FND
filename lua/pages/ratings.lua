@@ -15,9 +15,9 @@ return function()
 <style>
 .rt-wrap { max-width:760px; margin:0 auto; }
 .rt-card { border:1px solid var(--border); border-radius:12px; background:var(--surface); padding:12px 14px; margin:10px 0; }
-.rt-stars { color:#f5b301; letter-spacing:2px; font-size:18px; }
+.rt-stars { color:#00e676; letter-spacing:2px; font-size:18px; }
 .rt-pick button { background:none; border:0; font-size:30px; color:#666; cursor:pointer; padding:0 2px; line-height:1; }
-.rt-pick button.on { color:#f5b301; }
+.rt-pick button.on { color:#00e676; }
 .rt-sum { font-size:28px; font-weight:700; }
 .rt-row { display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; }
 .rt-comment { margin-top:6px; white-space:pre-wrap; word-break:break-word; }

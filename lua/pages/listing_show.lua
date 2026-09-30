@@ -688,7 +688,7 @@ code           { font-family:monospace; font-size:11px; background:var(--bg); co
     var full = Math.round(d.avg), stars = '';
     for (var i = 1; i <= 5; i++) stars += i <= full ? '★' : '☆';
     el.innerHTML = '<a href="/ratings?addr=' + encodeURIComponent(a) + '" style="text-decoration:none">' +
-      '<span style="color:#f5b301;letter-spacing:1px">' + stars + '</span> ' +
+      '<span style="color:#00e676;letter-spacing:1px">' + stars + '</span> ' +
       '<b>' + d.avg.toFixed(1).replace('.', ',') + '</b> <span class="meta">(' + d.count + ' Bewertung' + (d.count === 1 ? '' : 'en') + ')</span></a>';
   }).catch(function(){});
 })();
