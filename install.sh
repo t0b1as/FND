@@ -20,7 +20,7 @@
 set -euo pipefail
 
 REPO="${FUNDUS_REPO:-t0b1as/FND}"
-VERSION="${FUNDUS_VERSION:-latest}"
+FND_VERSION="${FUNDUS_VERSION:-latest}"
 PREFIX=/opt/fundus
 FUSER=fundus
 ADMIN_USER=admin
@@ -41,10 +41,12 @@ case "$(uname -m)" in
   armv7l|armv8l) ARCH=arm ;;
   *) die "Nicht unterstützte Architektur $(uname -m) (Pi 3/4/5 nötig; Pi Zero/1 werden nicht unterstützt)." ;;
 esac
-. /etc/os-release
-CODENAME="${VERSION_CODENAME:-bookworm}"
+# /etc/os-release in einer Unter-Shell lesen: Die Datei setzt u.a. VERSION
+# ("13 (trixie)") und hätte sonst unsere Variablen überschrieben.
+CODENAME=$(. /etc/os-release && echo "${VERSION_CODENAME:-bookworm}")
+OS_NAME=$(. /etc/os-release && echo "${PRETTY_NAME:-Linux}")
 
-printf '\n\033[1;32m  FUNDUS – Installation\033[0m  (%s, %s, %s)\n' "$ARCH" "${PRETTY_NAME:-Linux}" "$REPO"
+printf '\n\033[1;32m  FUNDUS – Installation\033[0m  (%s, %s, %s)\n' "$ARCH" "$OS_NAME" "$REPO"
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 
@@ -87,18 +89,18 @@ ok "vorhanden"
 
 # ── 4. Release herunterladen ─────────────────────────────────────────────────
 step "Release von GitHub"
-if [ "$VERSION" = latest ]; then
-  VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name" *: *"([^"]+)".*/\1/' || true)
-  [ -n "$VERSION" ] || die "Neueste Version nicht ermittelbar (GitHub erreichbar?)."
+if [ "$FND_VERSION" = latest ]; then
+  FND_VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name" *: *"([^"]+)".*/\1/' || true)
+  [ -n "$FND_VERSION" ] || die "Neueste Version nicht ermittelbar (GitHub erreichbar?)."
 fi
-BASE="https://github.com/$REPO/releases/download/$VERSION"
-curl -fsSL -o "$TMP/update.zip" "$BASE/FND-$VERSION-update.zip" || die "Update-Paket $VERSION nicht gefunden."
-curl -fsSL -o "$TMP/source.zip" "$BASE/FND-$VERSION-source.zip" || die "Quellpaket $VERSION nicht gefunden."
+BASE="https://github.com/$REPO/releases/download/$FND_VERSION"
+curl -fsSL -o "$TMP/update.zip" "$BASE/FND-$FND_VERSION-update.zip" || die "Update-Paket $FND_VERSION nicht gefunden."
+curl -fsSL -o "$TMP/source.zip" "$BASE/FND-$FND_VERSION-source.zip" || die "Quellpaket $FND_VERSION nicht gefunden."
 mkdir -p "$TMP/u" "$TMP/s"
 unzip -q "$TMP/update.zip" -d "$TMP/u"
 unzip -q "$TMP/source.zip" -d "$TMP/s"
 [ -f "$TMP/u/bin/fundus-node-linux-$ARCH" ] || die "Programm für $ARCH fehlt im Paket."
-ok "$VERSION"
+ok "$FND_VERSION"
 
 # ── 5. Dateien einspielen ────────────────────────────────────────────────────
 step "Installieren nach $PREFIX"
