@@ -2199,7 +2199,11 @@ body.has-bottom-nav [style*="position:sticky"][style*="bottom:0"] {
 /* Mobil: Linien und Rahmen in Fundus-Grün statt Grau
    (Grau wirkt mit iPhone-Night-Shift bräunlich). */
 @media (max-width: 720px) {
-  :root { --border: #1d3d2e; --border-2: #2a5b44; --brd: #1d3d2e; --brd2: #2a5b44; }
+  /* Kräftiges Fundus-Grün mit Transparenz statt dunklem Grün: Night Shift nimmt
+     den Blauanteil heraus – dunkles Grün (wie zuvor Grau) kippt dann ins Braune,
+     dieses Grün bleibt grün (wie Revisions-/Profil-Knopf). */
+  :root { --border: rgba(0,230,118,0.22); --border-2: rgba(0,230,118,0.34);
+          --brd:    rgba(0,230,118,0.22); --brd2:     rgba(0,230,118,0.34); }
   nav { border-bottom-color: rgba(0,230,118,0.30); }
   .bottom-nav { border-top-color: rgba(0,230,118,0.30); }
   .nav-update { --brd: rgba(0,230,118,0.40); }
