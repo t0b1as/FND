@@ -2168,3 +2168,40 @@ body.has-bottom-nav #toast-stack { bottom: calc(80px + env(safe-area-inset-botto
   body.has-bottom-nav footer { margin-bottom: 4px; }
   body.no-bottom-nav .bottom-nav { display: none; }
 }
+
+/* =========================================================================
+   R542 – Menüfarben, grüne Linien mobil, klebende Leisten über der Leiste
+   ========================================================================= */
+
+/* Menü: jedes Symbol in seiner Bereichsfarbe (wie die Startseiten-Kacheln);
+   beim Überfahren und aktiven Eintrag übernimmt auch der Text die Farbe. */
+.drawer a[data-nav-key="listings"]     { --nav-c: #00e676; }
+.drawer a[data-nav-key="energy"]       { --nav-c: #ffc107; }
+.drawer a[data-nav-key="certificates"] { --nav-c: #4f8ef7; }
+.drawer a[data-nav-key="shop"]         { --nav-c: #22d3ee; }
+.drawer a[data-nav-key="jobs"]         { --nav-c: #a763f7; }
+.drawer a[data-nav-key="files"]        { --nav-c: #ec4899; }
+.drawer a[data-nav-key="shared"]       { --nav-c: #2dd4bf; }
+.drawer a[data-nav-key="messenger"]    { --nav-c: #60a5fa; }
+.drawer a[data-nav-key="partner"]      { --nav-c: #f43f5e; }
+.drawer a[data-nav-key="wallet"]       { --nav-c: #f59e0b; }
+.drawer a[data-nav-key] .di            { color: var(--nav-c, var(--green)); }
+.drawer a[data-nav-key]:hover,
+.drawer a[data-nav-key].active         { color: var(--nav-c, var(--green)); border-left-color: var(--nav-c, var(--green)); }
+
+/* Klebende Aktionsleisten (position:sticky; bottom:0) über der unteren Leiste
+   halten – sonst verdeckt sie z.B. "Profil speichern" im Partnerbereich. */
+body.has-bottom-nav .sticky-actions,
+body.has-bottom-nav [style*="position:sticky"][style*="bottom:0"] {
+  bottom: calc(66px + env(safe-area-inset-bottom, 0px)) !important;
+}
+
+/* Mobil: Linien und Rahmen in Fundus-Grün statt Grau
+   (Grau wirkt mit iPhone-Night-Shift bräunlich). */
+@media (max-width: 720px) {
+  :root { --border: #1d3d2e; --border-2: #2a5b44; }
+  nav { border-bottom-color: rgba(0,230,118,0.30); }
+  .bottom-nav { border-top-color: rgba(0,230,118,0.30); }
+  .nav-update { --brd: rgba(0,230,118,0.40); }
+  .wallet-btn { border-color: rgba(0,230,118,0.45); }
+}

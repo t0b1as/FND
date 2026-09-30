@@ -21,7 +21,7 @@ return {
     shared_label = "Shared files",
     home_label = "Home",
     ratings_label = "Ratings",
-    partner_label = "Fundus Love",
+    partner_label = "Partner",
     topology_label = "Network Topology",
     peers = "Peers",
     settings = "Settings",

@@ -496,7 +496,7 @@ return function()
     --  Aktionsleiste
     -- =========================================================================
     ngx.print(string.format([[
-<div class="form-actions" style="margin-top:1.5rem;position:sticky;bottom:0;background:var(--surface);padding:1rem 0;border-top:1px solid var(--border)">
+<div class="form-actions sticky-actions" style="margin-top:1.5rem;position:sticky;bottom:0;background:var(--surface);padding:1rem 0;border-top:1px solid var(--border)">
   <button type="submit" class="btn">%s</button>
   <span id="partner-status"></span>
 </div>

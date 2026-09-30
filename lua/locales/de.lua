@@ -21,7 +21,7 @@ return {
     shared_label = "Freigaben",
     home_label = "Start",
     ratings_label = "Bewertungen",
-    partner_label = "Fundus Love",
+    partner_label = "Partner",
     topology_label = "Netz-Topologie",
     peers = "Peers",
     settings = "Einstellungen",
