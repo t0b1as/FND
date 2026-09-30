@@ -221,6 +221,8 @@ function _M.header(title_key, active)
     document.body.insertBefore(b, document.body.firstChild);
   });
   </script>
+  <script>window.FUNDUS_ICONS=]] .. require("icons").json() .. [[;</script>
+  <script src="/static/ui.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/navvis.js?v=]] .. rev .. [["></script>
   <script src="/static/walletauth.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/msgnotify.js?v=]] .. rev .. [[" defer></script>
@@ -251,26 +253,26 @@ function _M.header(title_key, active)
 <div class="drawer-overlay" id="overlay" onclick="toggleDrawer()"></div>
 <div class="drawer" id="drawer">
   <div class="drawer-section">]] .. t("nav.sec_marketplace") .. [[</div>
-  <a href="/listings"     class="%s" data-nav-key="listings" data-nav-zone="burger"><span class="di">🛒</span>]] .. t("nav.market") .. [[</a>
-  <a href="/energy"       class="%s" data-nav-key="energy" data-nav-zone="burger"><span class="di">⚡</span>]] .. t("nav.energy") .. [[<span class="wip-pill">BETA</span></a>
-  <a href="/certificates" class="%s" data-nav-key="certificates" data-nav-zone="burger"><span class="di">📜</span>]] .. t("nav.certificates") .. [[<span class="wip-pill">BETA</span></a>
-  <a href="/shop"         class="%s" data-nav-key="shop" data-nav-zone="burger"><span class="di">💰</span>]] .. t("nav.shop") .. [[</a>
+  <a href="/listings"     class="%s" data-nav-key="listings" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("listings") .. [[</span>]] .. t("nav.market") .. [[</a>
+  <a href="/energy"       class="%s" data-nav-key="energy" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("energy") .. [[</span>]] .. t("nav.energy") .. [[<span class="wip-pill">BETA</span></a>
+  <a href="/certificates" class="%s" data-nav-key="certificates" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("certificates") .. [[</span>]] .. t("nav.certificates") .. [[<span class="wip-pill">BETA</span></a>
+  <a href="/shop"         class="%s" data-nav-key="shop" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("shop") .. [[</span>]] .. t("nav.shop") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_work") .. [[</div>
-  <a href="/jobs"     class="%s" data-nav-key="jobs" data-nav-zone="burger"><span class="di">💼</span>]] .. t("nav.jobs") .. [[<span class="wip-pill">BETA</span></a>
-  <a href="/files"    class="%s" data-nav-key="files" data-nav-zone="burger"><span class="di">📁</span>]] .. t("nav.files_label") .. [[</a>
-  <a href="/shared" data-nav-key="shared" data-nav-zone="burger"><span class="di">🔗</span>]] .. t("nav.shared_label") .. [[</a>
+  <a href="/jobs"     class="%s" data-nav-key="jobs" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("jobs") .. [[</span>]] .. t("nav.jobs") .. [[<span class="wip-pill">BETA</span></a>
+  <a href="/files"    class="%s" data-nav-key="files" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("files") .. [[</span>]] .. t("nav.files_label") .. [[</a>
+  <a href="/shared" data-nav-key="shared" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("shared") .. [[</span>]] .. t("nav.shared_label") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_communication") .. [[</div>
-  <a href="/messenger" class="%s" data-nav-key="messenger" data-nav-zone="burger"><span class="di">💬</span>]] .. t("nav.messenger") .. [[<span class="wip-pill">BETA</span></a>
-  <a href="/partner"   class="%s" data-nav-key="partner" data-nav-zone="burger" style="color:var(--rose,#ff6b9d)"><span class="di">💗</span>]] .. t("nav.partner_label") .. [[</a>
+  <a href="/messenger" class="%s" data-nav-key="messenger" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("messenger") .. [[</span>]] .. t("nav.messenger") .. [[<span class="wip-pill">BETA</span></a>
+  <a href="/partner"   class="%s" data-nav-key="partner" data-nav-zone="burger" style="color:var(--rose,#ff6b9d)"><span class="di">]] .. require("icons").svg("partner") .. [[</span>]] .. t("nav.partner_label") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_infrastructure") .. [[</div>
   <a href="/topology" class="%s"><span class="di">🗺</span>]] .. t("nav.topology_label") .. [[</a>
   <a href="/peers"    class="%s"><span class="di">🌐</span>]] .. t("nav.peers") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_account") .. [[</div>
-  <a href="/wallet"   class="%s" data-nav-key="wallet" data-nav-zone="burger"><span class="di">👛</span>]] .. t("nav.wallet") .. [[</a>
+  <a href="/wallet"   class="%s" data-nav-key="wallet" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("wallet") .. [[</span>]] .. t("nav.wallet") .. [[</a>
   <a href="/settings" class="%s"><span class="di">⚙</span>]] .. t("nav.settings") .. [[</a>
   <a href="/admin"    class="%s"><span class="di">🔧</span>]] .. t("nav.admin") .. [[</a>
   <div class="drawer-sep"></div>
@@ -328,6 +330,13 @@ if ("serviceWorker" in navigator) {
   });
 }
 </script>
+<nav class="bottom-nav" id="bottom-nav" aria-label="Hauptbereiche">
+  <a href="/" data-bn="/">]] .. require("icons").svg("home") .. [[<span>]] .. t("nav.home_label") .. [[</span></a>
+  <a href="/listings" data-bn="/listings">]] .. require("icons").svg("listings") .. [[<span>]] .. t("nav.market") .. [[</span></a>
+  <a href="/messenger" data-bn="/messenger">]] .. require("icons").svg("messenger") .. [[<span>]] .. t("nav.messenger") .. [[</span></a>
+  <a href="/wallet" data-bn="/wallet">]] .. require("icons").svg("wallet") .. [[<span>]] .. t("nav.wallet") .. [[</span></a>
+  <a href="/shared" data-bn="/shared">]] .. require("icons").svg("shared") .. [[<span>]] .. t("nav.shared_label") .. [[</span></a>
+</nav>
 <script src="/static/sodium.js"></script>
 <script src="/static/crypto.js?v=%s"></script>
 <script src="/static/progress.js?v=%s"></script>

@@ -2012,3 +2012,159 @@ nav { min-width:0; }
   background:rgba(7,9,14,.72); border:3px dashed var(--green,#00e676); color:var(--green,#00e676);
   font-size:1.6rem; font-weight:700; pointer-events:none; }
 .page-drop-overlay.on { display:flex; }
+
+/* =========================================================================
+   OPTIK-ÜBERARBEITUNG (R541)
+   Zentral, damit jede Seite profitiert. Neue Feld-Regeln mit :where()
+   (Spezifität 0): seitenspezifische Gestaltungen behalten Vorrang.
+   ========================================================================= */
+
+/* ── Skala: Schrift und Abstände ─────────────────────────────────────── */
+:root {
+  --fs-xs: 12px; --fs-sm: 13px; --fs-base: 15px; --fs-lg: 17px; --fs-xl: 20px; --fs-2xl: 26px;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+  --focus-ring: 0 0 0 3px rgba(23,168,98,0.28);
+}
+h1 { font-size: var(--fs-2xl); letter-spacing: -0.4px; line-height: 1.25; }
+h3 { font-size: var(--fs-lg); }
+.meta, small { font-size: var(--fs-sm); }
+section + section { margin-top: var(--sp-5); }
+
+/* ── Knöpfe: drei klare Stufen ───────────────────────────────────────── */
+/* 1. Hauptaktion (.btn): grün gefüllt, grüner (nicht mehr blauer) Schimmer */
+.btn, button.btn { border-radius: var(--r-md); }
+.btn:hover {
+  box-shadow: 0 6px 20px rgba(23,168,98,0.30);
+  transform: translateY(-1px);
+}
+/* 2. Nebenaktion (.btn-outline / .btn-secondary): Umriss, kein Füllton.
+   Doppelte Klasse nötig: "button.btn" (Element+Klasse) war spezifischer und
+   färbte Varianten – auch rote Lösch-Knöpfe – grün. */
+.btn.btn-outline, button.btn.btn-outline, .btn.btn-secondary, button.btn.btn-secondary,
+.btn-outline, .btn-secondary {
+  background: transparent; color: var(--text); border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+}
+.btn.btn-outline:hover, button.btn.btn-outline:hover, .btn.btn-secondary:hover, button.btn.btn-secondary:hover,
+.btn-outline:hover, .btn-secondary:hover {
+  background: var(--green-bg); border-color: var(--green-ctrl); color: var(--green);
+  box-shadow: none; transform: translateY(-1px);
+}
+/* 3. Dezent/klein (.btn-sm): neutral, damit Zeilen mit vielen Knöpfen ruhig bleiben */
+.btn-sm {
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+}
+.btn-sm:hover {
+  background: var(--green-bg); border-color: var(--green-ctrl); color: var(--green);
+  box-shadow: none; transform: none;
+}
+/* Gefährlich: rot, im gleichen Aufbau (auch gegen "button.btn") */
+.btn.btn-danger, button.btn.btn-danger {
+  background: rgba(244,67,54,0.12); color: #ff8a80; border: 1px solid rgba(244,67,54,0.45);
+  border-radius: var(--r-md);
+}
+.btn.btn-danger:hover, button.btn.btn-danger:hover {
+  background: rgba(244,67,54,0.22); color: #ffb4ab; border-color: var(--danger);
+  box-shadow: 0 6px 20px rgba(244,67,54,0.25);
+}
+/* Tastatur-Fokus sichtbar, einheitlich */
+.btn:focus-visible, .btn-sm:focus-visible, .btn-outline:focus-visible,
+.btn-secondary:focus-visible, .btn-danger:focus-visible {
+  outline: none; box-shadow: var(--focus-ring);
+}
+.btn[disabled], .btn-sm[disabled], button[disabled] { opacity: .55; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+
+/* ── Eingabefelder: einheitlich (wie im Messenger) ───────────────────── */
+:where(input:not([type]), input[type=text], input[type=password], input[type=email],
+       input[type=number], input[type=search], input[type=url], input[type=tel],
+       input[type=date], input[type=datetime-local], input[type=time], select, textarea) {
+  background: var(--bg); color: var(--text);
+  border: 1px solid var(--border-2); border-radius: var(--r-md);
+  padding: 10px 14px; font-size: var(--fs-base); font-family: inherit;
+  transition: border-color .18s ease, box-shadow .18s ease; outline: none;
+}
+:where(input, select, textarea):focus {
+  border-color: var(--green-ctrl); box-shadow: var(--focus-ring);
+}
+:where(input, textarea)::placeholder { color: var(--muted); }
+:where(textarea) { resize: vertical; }
+.field input, .field select, .field textarea { border-radius: var(--r-md); background: var(--bg); padding: 10px 14px; }
+
+/* ── Symbole ─────────────────────────────────────────────────────────── */
+.ico { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex-shrink: 0; }
+.tile-icon .ico { width: 40px; height: 40px; }
+.tile-green  .tile-icon { color: #00e676; }
+.tile-gold   .tile-icon { color: #ffc107; }
+.tile-blue   .tile-icon { color: #4f8ef7; }
+.tile-purple .tile-icon { color: #a763f7; }
+.tile-cyan   .tile-icon { color: #22d3ee; }
+.tile-pink   .tile-icon { color: #ec4899; }
+.tile-rose   .tile-icon { color: #f43f5e; }
+.tile-amber  .tile-icon { color: #f59e0b; }
+.tile-icon { display: flex; justify-content: center; filter: drop-shadow(0 0 10px currentColor) opacity(.95); }
+.drawer .di .ico { width: 19px; height: 19px; }
+.drawer .di { display: inline-flex; align-items: center; justify-content: center; width: 22px; }
+.nav-quick-btn .nqi .ico { width: 19px; height: 19px; vertical-align: middle; }
+
+/* ── Einblendungen (statt alert) ─────────────────────────────────────── */
+#toast-stack {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 1000;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 8px; align-items: center;
+  width: min(92vw, 460px); pointer-events: none;
+}
+body.has-bottom-nav #toast-stack { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+.toast {
+  pointer-events: auto; cursor: pointer; width: 100%;
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border-2);
+  border-left: 4px solid var(--accent); border-radius: var(--r-md);
+  padding: 11px 14px; font-size: var(--fs-sm); line-height: 1.45;
+  box-shadow: 0 10px 30px rgba(0,0,0,.45);
+  opacity: 0; transform: translateY(10px); transition: opacity .22s ease, transform .22s ease;
+  white-space: pre-line; word-break: break-word;
+}
+.toast.in { opacity: 1; transform: none; }
+.toast-success { border-left-color: var(--green); }
+.toast-error   { border-left-color: var(--danger); }
+
+/* ── Lade- und Leerzustände ──────────────────────────────────────────── */
+.is-loading {
+  color: transparent !important; position: relative; min-height: 44px; border-radius: var(--r-md);
+  background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 40%, var(--surface) 80%);
+  background-size: 300% 100%; animation: fundus-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes fundus-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) { .is-loading { animation: none; } }
+.empty-hint {
+  text-align: center; color: var(--muted); padding: var(--sp-6) var(--sp-4);
+  border: 1px dashed var(--border-2); border-radius: var(--r-lg); background: rgba(255,255,255,.015);
+}
+
+/* ── Untere Leiste (mobil) ───────────────────────────────────────────── */
+.bottom-nav { display: none; }
+@media (max-width: 720px) {
+  .bottom-nav {
+    /* Die Kopfzeilen-Regel "nav { … top:0 … }" gilt für JEDES nav-Element –
+       hier ausdrücklich zurücksetzen, sonst sitzt die Leiste oben. */
+    top: auto; height: auto; min-height: 0; margin: 0; gap: 0;
+    justify-content: space-around; align-items: stretch; border-bottom: 0; box-shadow: none;
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 400;
+    background: rgba(18,20,28,.92); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+  .bottom-nav a {
+    flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+    color: var(--muted); text-decoration: none; font-size: 10.5px; font-weight: 600;
+    padding: 4px 0; border-radius: var(--r-sm); min-width: 0;
+  }
+  .bottom-nav a span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .bottom-nav a .ico { width: 23px; height: 23px; }
+  .bottom-nav a.on { color: var(--green); }
+  .bottom-nav a.on .ico { filter: drop-shadow(0 0 6px rgba(0,230,118,.55)); }
+  body.has-bottom-nav { padding-bottom: calc(66px + env(safe-area-inset-bottom, 0px)); }
+  body.has-bottom-nav footer { margin-bottom: 4px; }
+  body.no-bottom-nav .bottom-nav { display: none; }
+}

@@ -30,49 +30,49 @@ return function()
 <div class="tile-grid">
   <a href="/listings" class="tile tile-green" data-nav-key="listings" data-nav-zone="landing">
     <div class="tile-glow"></div>
-    <div class="tile-icon">&#128722;</div>
+    <div class="tile-icon">]] .. require("icons").svg("listings") .. [[</div>
     <div class="tile-value">%d</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/energy" class="tile tile-gold wip" data-wip="BETA" data-nav-key="energy" data-nav-zone="landing">
     <div class="tile-glow"></div>
-    <div class="tile-icon">&#9889;</div>
+    <div class="tile-icon">]] .. require("icons").svg("energy") .. [[</div>
     <div class="tile-value">%d</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/certificates" class="tile tile-blue wip" data-wip="BETA" data-nav-key="certificates" data-nav-zone="landing">
     <div class="tile-glow"></div>
-    <div class="tile-icon">&#127894;</div>
+    <div class="tile-icon">]] .. require("icons").svg("certificates") .. [[</div>
     <div class="tile-value">%d</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/jobs" class="tile tile-purple wip" data-wip="BETA" data-nav-key="jobs" data-nav-zone="landing">
     <div class="tile-glow"></div>
-    <div class="tile-icon">&#128188;</div>
+    <div class="tile-icon">]] .. require("icons").svg("jobs") .. [[</div>
     <div class="tile-value">%d</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/peers" class="tile tile-cyan">
     <div class="tile-glow"></div>
-    <div class="tile-icon">&#127760;</div>
+    <div class="tile-icon">]] .. require("icons").svg("peers") .. [[</div>
     <div class="tile-value">%d</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/shared" class="tile tile-pink" data-nav-key="files" data-nav-zone="landing">
     <div class="tile-glow"></div>
-    <div class="tile-icon">&#128190;</div>
+    <div class="tile-icon">]] .. require("icons").svg("storage") .. [[</div>
     <div class="tile-value">&#10516;</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/partner" class="tile tile-rose" data-nav-key="partner" data-nav-zone="landing">
     <div class="tile-glow"></div>
-    <div class="tile-icon">&#129309;</div>
+    <div class="tile-icon">]] .. require("icons").svg("partner") .. [[</div>
     <div class="tile-value">&#10084;</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/wallet" class="tile tile-amber">
     <div class="tile-glow"></div>
-    <div class="tile-icon">&#128091;</div>
+    <div class="tile-icon">]] .. require("icons").svg("wallet") .. [[</div>
     <div class="tile-value">FND</div>
     <div class="tile-label">%s</div>
   </a>

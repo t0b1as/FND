@@ -75,7 +75,7 @@
           a.href = it.quickPath || it.path;
           a.className = "nav-quick-btn nqb-"+(it.color||"green");
           a.title = it.quickLabel || it.label;
-          a.innerHTML = '<span class="nqi">'+it.icon+'</span>';
+          a.innerHTML = '<span class="nqi">'+((window.FUNDUS_ICONS||{})[it.key] || it.icon)+'</span>';
           // Ungelesen-Badge für Messenger direkt mit einbauen (aus persistentem
           // Zähler), sonst löscht dieser innerHTML-Rebuild das von msgnotify
           // gesetzte Badge wieder weg.
