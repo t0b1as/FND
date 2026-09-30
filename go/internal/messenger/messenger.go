@@ -131,6 +131,8 @@ type MessageHandler func(msg *Message, payload *Payload)
 
 // Messenger verwaltet E2E-Verschlüsselung, Senden und Empfang.
 type Messenger struct {
+	sentHookMu sync.RWMutex
+	sentHook   func(recipientID string, msg *Message)
 	identity *identity.Identity
 	p2p      P2PAdapter
 	log      *zap.Logger
@@ -214,9 +216,26 @@ func (m *Messenger) SendReceipt(ctx context.Context, recipientID, recipientX2551
 	if messageID == "" || (kind != ReceiptDelivered && kind != ReceiptRead) {
 		return errors.New("messenger: ungültige Quittung")
 	}
-	_, err := m.sendPayload(ctx, recipientID, recipientX25519Hex, TypeReceipt,
+	msg, err := m.sendPayload(ctx, recipientID, recipientX25519Hex, TypeReceipt,
 		Payload{ReceiptFor: messageID, ReceiptKind: kind})
+	// Zusätzlich ins Postfach (wie Nachrichten): Ohne direkte Verbindung zum
+	// Node des Empfängers (anderes Netz) ging die Quittung sonst verloren.
+	if msg != nil {
+		m.sentHookMu.RLock()
+		h := m.sentHook
+		m.sentHookMu.RUnlock()
+		if h != nil {
+			h(recipientID, msg)
+		}
+	}
 	return err
+}
+
+// SetSentHook: wird nach dem Versand einer Quittung aufgerufen (Postfach-Ablage).
+func (m *Messenger) SetSentHook(f func(recipientID string, msg *Message)) {
+	m.sentHookMu.Lock()
+	m.sentHook = f
+	m.sentHookMu.Unlock()
 }
 
 func (m *Messenger) sendPayload(ctx context.Context, recipientID, recipientX25519Hex string, msgType MessageType, payload Payload) (*Message, error) {

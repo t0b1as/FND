@@ -148,6 +148,7 @@ func (s *Server) registerMessengerRoutes() {
 	{
 		// Identitäts-Ableitung (Argon2id auf Server-Seite)
 		g.POST("/identity/derive",  s.loginThrottleMiddleware(), s.identityDerive) // Anmeldebremse (öffentlich)
+		mailboxPumpOnce.Do(func() { go s.mailboxPumpLoop() }) // Postfächer serverseitig abholen
 		g.GET("/identity/me",       s.identityMe)
 		g.GET("/identity/seed",     s.identitySeedWords) // Wallet-Seed anzeigen (eigene Session)
 		g.POST("/identity/email-dir/publish", s.emailDirPublish) // opt-in email→FundusID
@@ -200,6 +201,10 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 	if s.node != nil {
 		p2pAdapter := &p2pMessengerAdapter{node: s.node}
 		sess.messenger = messenger.New(id, p2pAdapter, s.log)
+		// Quittungen zusätzlich ins Postfach (siehe SendReceipt).
+		sess.messenger.SetSentHook(func(rid string, m *messenger.Message) {
+			s.depositMailbox(context.Background(), rid, m)
+		})
 		// Resolver für gerichtete Zustellung: FundusID → Peer-ID aus dem keydir.
 		sess.messenger.SetPeerIDResolver(func(fundusID string) string {
 			if rec, e := s.store.Get(storage.RecordKeyDir, "keydir:"+strings.ToLower(fundusID)); e == nil && rec != nil {
@@ -1409,24 +1414,79 @@ func (s *Server) mailboxFetch(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Nicht angemeldet"})
 		return
 	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "fetched": s.drainMailbox(sess)})
+}
+
+// drainMailbox verarbeitet die Postfach-Einträge einer Sitzung serverseitig
+// (entschlüsseln, Verlauf, Live-Zustellung, Push) und entfernt sie danach.
+func (s *Server) drainMailbox(sess *Session) int {
+	if sess == nil || sess.identity == nil || sess.messenger == nil {
+		return 0
+	}
 	fid := strings.ToLower(sess.identity.FundusID)
 	prefix := "mailbox:" + fid + ":"
 	all, _ := s.store.List(storage.RecordMailbox)
 	count := 0
 	for _, r := range all {
-		if !strings.HasPrefix(r.ID, prefix) {
+		if r == nil || !strings.HasPrefix(r.ID, prefix) {
 			continue // nur Nachrichten für diese FundusID
 		}
-		if env, ok := r.Data["envelope"].(string); ok && sess.messenger != nil {
-			// Serverseitig verarbeiten: entschlüsseln + in die persistente History
-			// schreiben (über denselben Weg wie Echtzeit-Empfang). Danach ist die
-			// Nachricht dauerhaft im Verlauf → Mailbox-Eintrag kann weg.
+		if env, ok := r.Data["envelope"].(string); ok {
+			// Doppelte (direkt + Postfach) verwirft der Messenger anhand der ID.
 			sess.messenger.InjectIncoming([]byte(env))
 			count++
 		}
 		_ = s.store.Delete(storage.RecordMailbox, r.ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "fetched": count})
+	return count
+}
+
+// depositMailbox legt eine verschlüsselte Nachricht/Quittung ins Postfach des
+// Empfängers und verteilt sie im Netz (Weg ohne direkte Verbindung).
+func (s *Server) depositMailbox(ctx context.Context, recipientID string, msg *messenger.Message) {
+	if msg == nil || recipientID == "" {
+		return
+	}
+	env, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	rid := strings.ToLower(recipientID)
+	var rnd [8]byte
+	_, _ = crand.Read(rnd[:])
+	mbRec := &storage.Record{
+		ID:   "mailbox:" + rid + ":" + strconv.FormatInt(time.Now().UnixNano(), 36) + hex.EncodeToString(rnd[:]),
+		Type: storage.RecordMailbox,
+		Data: map[string]any{"recipient": rid, "envelope": string(env), "ts": time.Now().Unix()},
+	}
+	_ = s.store.Put(mbRec)
+	if s.node != nil {
+		if raw, me := json.Marshal(mbRec); me == nil {
+			_ = s.node.Publish(ctx, "fundus.mailbox", raw)
+		}
+	}
+}
+
+var mailboxPumpOnce sync.Once
+
+// mailboxPumpLoop holt alle 10 s die Postfächer aller angemeldeten Nutzer ab –
+// unabhängig davon, welche Seite (oder ob überhaupt eine) offen ist. Früher nur
+// beim Öffnen des Messengers: Nachrichten/Quittungen aus anderen Netzen (die
+// nur übers Postfach kommen) samt Push blieben bis dahin liegen.
+func (s *Server) mailboxPumpLoop() {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for range t.C {
+		sessionMu.RLock()
+		list := make([]*Session, 0, len(sessionStore))
+		for _, ss := range sessionStore {
+			list = append(list, ss)
+		}
+		sessionMu.RUnlock()
+		for _, ss := range list {
+			s.drainMailbox(ss)
+		}
+	}
 }
 
 // keyDirPublish veröffentlicht den X25519-Public-Key der angemeldeten Identität,
