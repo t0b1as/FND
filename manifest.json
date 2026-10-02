@@ -1,8 +1,8 @@
 {
-  "version": "R555",
-  "description": "FUNDUS R555 - Messenger Polished and free categories in store",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R555/FND-R555-update.zip",
-  "node_argon2": "368706904d65eaab54b514f8385828a7e1b5041e8fdaa7c38b01f750b386e024",
-  "published_at": "2026-10-02T13:05:03.0681126Z",
-  "signature": "0xe1d34d96927c00da28c33890236cc260edf02b6940045187a7fbd06c2ab810fe790676d9b47365d3ab6a945bd70fba0ef490d856c1fbb989b8599a8d2383818a1c"
+  "version": "R556",
+  "description": "FUNDUS R556 - Error Correction",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R556/FND-R556-update.zip",
+  "node_argon2": "1055ad86cfbe5f1109b5d115d9f5562c2abbfa8bef06a60a155753f86039b7d8",
+  "published_at": "2026-10-02T13:17:42.6605026Z",
+  "signature": "0x57d8f8a79258683b3c7f05995252428a6b6ed4918fdbdc875fbb7f03e920d6025a353ccc973592bf84b118b1181f05b9bc2ce5fd615fffe0c4c161b971594baf1b"
 }
