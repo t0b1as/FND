@@ -1,8 +1,8 @@
 {
-  "version": "R559",
-  "description": "FUNDUS R559 - Preview Image Quality",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R559/FND-R559-update.zip",
-  "node_argon2": "49b2a2a121cb04e4596fb85d4ccd5d9004a763e987fbcb0517eb98361970b839",
-  "published_at": "2026-10-02T15:37:20.6329095Z",
-  "signature": "0xff0665e9e307b2e62a6c539c31a544ee6d438d5411f133d21b1dcc13f0e539d86da77f542dc8560fffce44407615a5a743ffc011bd124c1d859fbd9e17c364c91c"
+  "version": "R560",
+  "description": "FUNDUS R560 - Preview Image Quality",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R560/FND-R560-update.zip",
+  "node_argon2": "9dc87535befdbc118cf73d0898470e10deb0b4132dfb6b3902f564f7cac93cb3",
+  "published_at": "2026-10-02T17:07:04.7781738Z",
+  "signature": "0x57e91b2db381699899977b94a56eef561e0a2310fca81c663aa82b97487a77200754d835039953d28e85696374f00989ce436e3ce935446b453026214ce2615c1b"
 }
