@@ -1,8 +1,8 @@
 {
-  "version": "R550",
-  "description": "FUNDUS R550 - manual reference in footer",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R550/FND-R550-update.zip",
-  "node_argon2": "6e78ca9fac8a1bd52afa6df706dd09746ae3dbedb0a9724f12407a8170714001",
-  "published_at": "2026-10-02T07:07:44.7852323Z",
-  "signature": "0x223c07720ffc3709b84ef843ac2118195c7213acbd00c1faaf5191cc086eac24425e9d30d83d0b21066edb120b2f5f5e5772ac7329a97ecd8909a7b37e2f91611b"
+  "version": "R552",
+  "description": "FUNDUS R552 - market layout improvement",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R552/FND-R552-update.zip",
+  "node_argon2": "53c3f1fd6489bccfa953591ed05826430b8cb4eed90b70904057febb4f13ca66",
+  "published_at": "2026-10-02T07:29:45.3010624Z",
+  "signature": "0x3ac095fbc4b0c2278e733243e0b02cd1dd32de3ab1214ab35ba94e76b43d93386eaee3322524976b7cec0733fa811537019fc35a009da9922aca6209736e21f61b"
 }
