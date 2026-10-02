@@ -13,6 +13,12 @@ return function()
 ngx.print([[
 <div class="set-layout">
 
+<!-- ── Reiter + Suche (R554) ───────────────────────────────────── -->
+<div class="set-tabs-wrap">
+  <div class="set-tabs" id="set-tabs"></div>
+  <input type="search" id="set-search" class="set-search" placeholder="Einstellung suchen …" autocomplete="off">
+</div>
+
 <!-- ── Software-Update ───────────────────────────────────────── -->
 <div class="set-card" id="update">
   <div class="set-head"><h3>Software-Update</h3></div>
@@ -723,6 +729,51 @@ document.addEventListener('DOMContentLoaded', updLoad);
 </div>
 
 </div><!-- set-layout -->
+<script>
+(function(){
+  // Karten nach Überschrift einem Reiter zuordnen (deutsch + englisch).
+  var TABS = [
+    ['node',     'Node',        /update|chain|node|profil|profile|revision/i],
+    ['security', 'Sicherheit',  /sicherung|backup|admin|passwort|password/i],
+    ['network',  'Netzwerk',    /solana|rpc|nat|port|wlan|wi-?fi|netz|network/i],
+    ['storage',  'Speicher',    /speicher|storage|datei|file/i],
+    ['energy',   'Energie',     /smartmeter|zähler|meter|energie|energy/i],
+    ['display',  'Darstellung', /navigation|anzeige|display|sprache|language/i]
+  ];
+  var cards = Array.prototype.slice.call(document.querySelectorAll('.set-layout > .set-card'));
+  var byTab = {};
+  cards.forEach(function(c){
+    var h = c.querySelector('.set-head h3, h3'); var title = h ? h.textContent : '';
+    var tab = 'node';
+    for (var i = 0; i < TABS.length; i++) { if (TABS[i][2].test(title)) { tab = TABS[i][0]; break; } }
+    c.setAttribute('data-tab', tab); (byTab[tab] = byTab[tab] || []).push(c);
+  });
+  var bar = document.getElementById('set-tabs'), search = document.getElementById('set-search');
+  var hashTab = (location.hash.match(/tab=(\w+)/) || [])[1];
+  var target = location.hash.replace('#', '');
+  var targetCard = target && document.getElementById(target);
+  var current = hashTab || (targetCard && targetCard.getAttribute('data-tab')) || localStorage.getItem('fundus.settings.tab') || 'node';
+  if (!byTab[current]) current = 'node';
+  function render(){
+    var q = (search.value || '').trim().toLowerCase();
+    bar.innerHTML = TABS.filter(function(t){ return byTab[ t[0] ]; }).map(function(t){
+      return '<button class="set-tab' + (t[0] === current && !q ? ' on' : '') + '" data-tab="' + t[0] + '">' + t[1] + '</button>';
+    }).join('');
+    cards.forEach(function(c){
+      var show = q ? (c.textContent.toLowerCase().indexOf(q) >= 0) : (c.getAttribute('data-tab') === current);
+      c.style.display = show ? '' : 'none';
+    });
+  }
+  bar.addEventListener('click', function(e){
+    var b = e.target.closest('.set-tab'); if (!b) return;
+    current = b.getAttribute('data-tab'); localStorage.setItem('fundus.settings.tab', current);
+    search.value = ''; history.replaceState(null, '', '#tab=' + current); render();
+  });
+  search.addEventListener('input', render);
+  render();
+  if (targetCard) setTimeout(function(){ targetCard.scrollIntoView({behavior:'smooth', block:'start'}); }, 50);
+})();
+</script>
 
 <style>
 .set-layout { display:flex; flex-direction:column; gap:12px; }
