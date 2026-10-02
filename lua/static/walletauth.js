@@ -193,6 +193,7 @@
       '<button onclick="walletEditName()">Profil bearbeiten… (Name, Bild)</button>'+
       (W.address ? '<button onclick="walletFND()">FND-Wallet</button>' : '<button onclick="walletOpenWallet()">Wallet öffnen</button>')+
       '<button onclick="walletPush()">🔔 Benachrichtigungen</button>'+
+      '<button onclick="walletMail()">✉️ E-Mail-Benachrichtigungen</button>'+
       '<button onclick="walletSolana()">Solana-Wallet</button>'+
       '<button onclick="walletLinkOther()">Andere Wallet hinterlegen…</button>'+
       (W.linked ? '<button onclick="walletUnlink()">Hinterlegung aufheben</button>' : '')+
@@ -438,6 +439,61 @@
     if (chan) chan.onmessage = function(){ schedule(); };
   })();
 
+
+  // ── E-Mail-Benachrichtigungen (R557) ──────────────────────────────────────
+  window.walletMail = async function(){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    const ov = walletCard("E-Mail-Benachrichtigungen",
+      '<p class="wallet-hint">Zusätzlich zu Push: Hinweise bei neuen Nachrichten und abgeschlossenen Geschäften per E-Mail – auch ohne geöffnete App.</p>'+
+      '<div id="ml-body">Lade …</div>');
+    const body = ov.querySelector('#ml-body');
+    async function api(method, url, b){
+      const r = await fetch(url, {method: method, credentials:'same-origin', headers: b ? {'Content-Type':'application/json'} : {}, body: b ? JSON.stringify(b) : undefined});
+      let d = {}; try { d = await r.json(); } catch(e){}
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d;
+    }
+    async function render(){
+      let d;
+      try { d = await api('GET', '/api/v1/mail/status'); } catch(e){ body.textContent = '✗ ' + e.message; return; }
+      if (!d.logged_in) { body.innerHTML = '<p class="wallet-hint">Bitte zuerst anmelden.</p>'; return; }
+      if (!d.available) { body.innerHTML = '<p class="wallet-hint">Der Betreiber dieses Nodes hat den E-Mail-Versand nicht eingerichtet.</p>'; return; }
+      if (!d.address) {
+        body.innerHTML = '<input class="wallet-input" id="ml-addr" type="email" placeholder="deine@mail.de" autocomplete="email">'+
+          '<button class="wallet-submit" id="ml-sub">Adresse bestätigen lassen</button><p class="wallet-hint" id="ml-out"></p>';
+        ov.querySelector('#ml-sub').onclick = async function(){
+          const out = ov.querySelector('#ml-out'); this.disabled = true; out.textContent = '⏳ Code wird versendet …';
+          try { await api('POST', '/api/v1/mail/subscribe', {address: ov.querySelector('#ml-addr').value.trim()}); render(); }
+          catch(e){ out.textContent = '✗ ' + e.message; this.disabled = false; }
+        };
+        return;
+      }
+      if (!d.confirmed) {
+        body.innerHTML = '<p class="wallet-hint">Wir haben einen 6-stelligen Code an <b>' + d.address + '</b> geschickt.</p>'+
+          '<input class="wallet-input" id="ml-code" inputmode="numeric" maxlength="6" placeholder="Code">'+
+          '<button class="wallet-submit" id="ml-conf">Bestätigen</button>'+
+          '<button type="button" class="wallet-linkbtn" id="ml-del" style="margin-top:8px">Andere Adresse</button><p class="wallet-hint" id="ml-out"></p>';
+        ov.querySelector('#ml-conf').onclick = async function(){
+          const out = ov.querySelector('#ml-out'); this.disabled = true;
+          try { await api('POST', '/api/v1/mail/confirm', {code: ov.querySelector('#ml-code').value.trim()}); render(); }
+          catch(e){ out.textContent = '✗ ' + e.message; this.disabled = false; }
+        };
+        ov.querySelector('#ml-del').onclick = async function(){ await api('POST', '/api/v1/mail/remove'); render(); };
+        return;
+      }
+      body.innerHTML = '<p class="wallet-hint">✓ Aktiv für <b>' + d.address + '</b></p>'+
+        '<label class="wallet-check"><input type="checkbox" id="ml-msg"' + (d.messages ? ' checked' : '') + '> Nachrichten und Anrufe</label>'+
+        '<label class="wallet-check"><input type="checkbox" id="ml-trd"' + (d.trades ? ' checked' : '') + '> Käufe, Verkäufe und Swaps</label>'+
+        '<button type="button" class="wallet-linkbtn" id="ml-del" style="margin-top:10px">Adresse entfernen</button><p class="wallet-hint" id="ml-out"></p>';
+      const save = async function(){
+        const out = ov.querySelector('#ml-out');
+        try { await api('POST', '/api/v1/mail/prefs', {messages: ov.querySelector('#ml-msg').checked, trades: ov.querySelector('#ml-trd').checked}); out.textContent = '✓ Gespeichert'; }
+        catch(e){ out.textContent = '✗ ' + e.message; }
+      };
+      ov.querySelector('#ml-msg').onchange = save; ov.querySelector('#ml-trd').onchange = save;
+      ov.querySelector('#ml-del').onclick = async function(){ if (!confirm('Adresse entfernen?')) return; await api('POST', '/api/v1/mail/remove'); render(); };
+    }
+    render();
+  };
 
   // ── Adress-Werkzeuge (R553): QR der eigenen Adresse, Adressbuch, Scanner ──
   function addrToolsHtml(kind){

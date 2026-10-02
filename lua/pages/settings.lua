@@ -254,6 +254,70 @@ ngx.print([[
 })();
 </script>
 
+<!-- ── E-Mail-Versand (R557) ──────────────────────────────────── -->
+<div class="set-card" id="mail-card">
+  <div class="set-head"><h3>E-Mail-Versand (SMTP)</h3></div>
+  <div class="set-body">
+    <p class="meta">Nutzer dieses Nodes können sich zusätzlich zu Push per E-Mail benachrichtigen lassen.
+    Ein Pi am Heimanschluss kann Mails nicht selbst zustellen – der Node versendet daher über ein vorhandenes Postfach, wie ein Mailprogramm.
+    Bei den meisten Anbietern braucht es dafür ein eigenes App-Passwort.</p>
+    <div class="set-grid">
+      <label>Server <input type="text" id="ml-host" placeholder="smtp.beispiel.de" autocomplete="off"></label>
+      <label>Port <input type="number" id="ml-port" placeholder="587"></label>
+      <label>Verschlüsselung <select id="ml-tls"><option value="starttls">STARTTLS (587)</option><option value="tls">TLS (465)</option></select></label>
+      <label>Benutzer <input type="text" id="ml-user" placeholder="postfach@beispiel.de" autocomplete="off"></label>
+      <label>Passwort <input type="password" id="ml-pass" placeholder="(unverändert lassen)" autocomplete="new-password"></label>
+      <label>Absender <input type="email" id="ml-from" placeholder="fundus@beispiel.de" autocomplete="off"></label>
+      <label>Adresse des Nodes <input type="url" id="ml-base" placeholder="https://fnd.resolve.bar" autocomplete="off"></label>
+    </div>
+    <label class="set-check" style="margin-top:8px"><input type="checkbox" id="ml-en"> E-Mail-Versand aktiv</label>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn" id="ml-save" style="width:auto">Speichern</button>
+      <button class="btn btn-outline" id="ml-test" style="width:auto">Testmail senden</button>
+    </div>
+    <p class="meta" id="ml-cfg-out"></p>
+  </div>
+</div>
+<script>
+(function(){
+  var el = function(id){ return document.getElementById(id); };
+  async function api(method, url, b){
+    var r = await fetch(url, {method: method, credentials:'same-origin', headers: b ? {'Content-Type':'application/json'} : {}, body: b ? JSON.stringify(b) : undefined});
+    var d = {}; try { d = await r.json(); } catch(e){}
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d;
+  }
+  async function load(){
+    try {
+      var d = await api('GET', '/api/v1/admin/mail/config');
+      el('ml-host').value = d.host || ''; el('ml-port').value = d.port || ''; el('ml-user').value = d.user || '';
+      el('ml-from').value = d.from || ''; el('ml-base').value = d.base_url || ''; el('ml-tls').value = d.tls_mode || 'starttls';
+      el('ml-en').checked = !!d.enabled;
+      el('ml-pass').placeholder = d.has_password ? '(gespeichert – leer lassen)' : 'App-Passwort';
+      el('ml-cfg-out').textContent = d.subscribers ? d.subscribers + ' Nutzer haben eine Adresse hinterlegt.' : '';
+    } catch(e){ el('ml-cfg-out').textContent = '✗ ' + e.message; }
+  }
+  el('ml-save').onclick = async function(){
+    var out = el('ml-cfg-out'); this.disabled = true;
+    try {
+      await api('POST', '/api/v1/admin/mail/config', {enabled: el('ml-en').checked, host: el('ml-host').value.trim(),
+        port: parseInt(el('ml-port').value, 10) || 0, user: el('ml-user').value.trim(), password: el('ml-pass').value,
+        from: el('ml-from').value.trim(), tls_mode: el('ml-tls').value, base_url: el('ml-base').value.trim()});
+      el('ml-pass').value = ''; out.textContent = '✓ Gespeichert'; load();
+    } catch(e){ out.textContent = '✗ ' + e.message; }
+    this.disabled = false;
+  };
+  el('ml-test').onclick = async function(){
+    var out = el('ml-cfg-out'), to = prompt('Testmail an welche Adresse?', el('ml-from').value || '');
+    if (to === null) return;
+    this.disabled = true; out.textContent = '⏳ Sende …';
+    try { var d = await api('POST', '/api/v1/admin/mail/test', {to: to}); out.textContent = '✓ Testmail an ' + d.to + ' versendet.'; }
+    catch(e){ out.textContent = '✗ ' + e.message; }
+    this.disabled = false;
+  };
+  load();
+})();
+</script>
+
 <!-- ── Sicherung ──────────────────────────────────────────────── -->
 <div class="set-card" id="backup-card">
   <div class="set-head"><h3>Sicherung</h3></div>

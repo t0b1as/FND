@@ -10,6 +10,7 @@ import (
 	_ "image/png" // PNG-Decoder registrieren
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -28,8 +29,11 @@ import (
 //      Decompression-Bombs und Speicher-Explosion).
 
 const (
-	thumbMaxEdge      = 256              // lange Kante des Thumbnails in px
-	thumbJPEGQuality  = 80               // JPEG-Qualität des Thumbnails
+	// Lange Kante des Thumbnails. 512 statt 256 seit R558: Im Bildraster des
+	// Marktplatzes sind die Kacheln bis ~350 px breit, auf Displays mit
+	// doppelter Pixeldichte entsprechend mehr – 256 px wirkten dort unscharf.
+	thumbMaxEdge      = 512
+	thumbJPEGQuality  = 82               // JPEG-Qualität des Thumbnails
 	maxDecodePixels   = 40 * 1000 * 1000 // 40 MP Obergrenze fürs Decodieren
 	maxOriginalBytes  = 64 * 1024 * 1024 // 64 MiB: größere Originale gar nicht erst puffern
 	thumbConcurrency  = 2                // gleichzeitige Decodierungen (RAM-Schutz)
@@ -46,16 +50,36 @@ type thumbnailer struct {
 func newThumbnailer(dataDir string) *thumbnailer {
 	dir := filepath.Join(dataDir, "thumb-cache")
 	_ = os.MkdirAll(dir, 0o750)
-	return &thumbnailer{
+	th := &thumbnailer{
 		cacheDir: dir,
 		sem:      make(chan struct{}, thumbConcurrency),
 		inflight: make(map[string]*sync.Mutex),
 	}
+	go th.cleanOldThumbs() // Thumbnails früherer Kantenlängen aufräumen
+	return th
 }
 
 func (t *thumbnailer) cachePath(hash string) string {
-	// Hash ist 64 Hex-Zeichen → sicher als Dateiname.
-	return filepath.Join(t.cacheDir, hash+".jpg")
+	// Hash ist 64 Hex-Zeichen → sicher als Dateiname. Die Kantenlänge steht mit
+	// im Namen: Ändert sie sich (R558: 256 → 512), werden Thumbnails neu
+	// erzeugt statt alte, unscharfe aus dem Cache zu liefern.
+	return filepath.Join(t.cacheDir, fmt.Sprintf("%s-%d.jpg", hash, thumbMaxEdge))
+}
+
+// cleanOldThumbs entfernt Thumbnails früherer Kantenlängen (einmalig beim Start).
+func (t *thumbnailer) cleanOldThumbs() {
+	entries, err := os.ReadDir(t.cacheDir)
+	if err != nil {
+		return
+	}
+	suffix := fmt.Sprintf("-%d.jpg", thumbMaxEdge)
+	for _, e := range entries {
+		n := e.Name()
+		if !strings.HasSuffix(n, ".jpg") || strings.HasSuffix(n, suffix) {
+			continue
+		}
+		_ = os.Remove(filepath.Join(t.cacheDir, n))
+	}
 }
 
 // perHashLock gibt ein Mutex für genau diesen Hash zurück, sodass nicht zwei

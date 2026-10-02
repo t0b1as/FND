@@ -468,11 +468,11 @@ func (s *Server) notifyIncomingMsg(sess *Session, payload *messenger.Payload) {
 	if payload != nil && payload.Signal != nil {
 		switch payload.Signal.Type {
 		case messenger.SignalCallAudio, messenger.SignalCallVideo, messenger.SignalOffer:
-			s.pushNotify(sess.identity.FundusID, "📞 Anruf", "Anruf von "+name, "/messenger", "call", true)
+			s.notifyUser(sess.identity.FundusID, "messages", "📞 Anruf", "Anruf von "+name, "/messenger", "call", true)
 		}
 		return
 	}
-	s.pushNotify(sess.identity.FundusID, "💬 Neue Nachricht", "Neue Nachricht von "+name, "/messenger", "msg", true)
+	s.notifyUser(sess.identity.FundusID, "messages", "💬 Neue Nachricht", "Neue Nachricht von "+name, "/messenger", "msg", true)
 }
 
 // Push-Dienste der Browserhersteller (Chrome/Edge/Brave, Firefox, Safari, Windows).

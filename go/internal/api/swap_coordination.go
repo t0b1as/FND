@@ -164,11 +164,11 @@ func (sc *swapCoordinator) handleSwapInit(peerID string, data []byte) []byte {
 	// Push an den Ersteller der Order: Kaufanfrage; Swap gehört ihm (für "abgeschlossen").
 	setSwapOwner(swapID, ord.Creator)
 	if ord.Side == OrderSell {
-		sc.server.pushNotify(ord.Creator, "🛒 Deine Order wurde gekauft",
+		sc.server.notifyUser(ord.Creator, "trades", "🛒 Deine Order wurde gekauft",
 			fmt.Sprintf("Jemand hat %.4f FND aus deiner Order gekauft – die Abwicklung läuft automatisch.", amountFND),
 			"/shop", "swap-"+swapID, true)
 	} else {
-		sc.server.pushNotify(ord.Creator, "🛒 Deine Order wurde bedient",
+		sc.server.notifyUser(ord.Creator, "trades", "🛒 Deine Order wurde bedient",
 			fmt.Sprintf("Jemand hat dir %.4f FND verkauft – die Abwicklung läuft automatisch.", amountFND),
 			"/shop", "swap-"+swapID, true)
 	}
