@@ -18,6 +18,8 @@ package api
 //   - Blockchain-Nachweis (Escrow-ID, Tx-Hash)
 
 import (
+	"strconv"
+	"sync"
 	"strings"
 	"html/template"
 	"lukechampine.com/blake3"
@@ -234,18 +236,35 @@ func (s *Server) escrowCreate(c *gin.Context) {
 		}
 	}
 
+	// Bestand VOR dem Senden prüfen und reservieren (R562): Früher wurde das
+	// Listing erst NACH der Transaktion als verkauft markiert und vorher nie
+	// geprüft – derselbe Artikel ließ sich mehrfach kaufen.
+	release := func() {}
+	if req.ListingID != "" {
+		ok, left, rerr := s.reserveListingStock(req.ListingID)
+		if rerr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": rerr.Error()})
+			return
+		}
+		if !ok {
+			c.JSON(http.StatusConflict, gin.H{"error": "Dieser Artikel ist nicht mehr verfügbar."})
+			return
+		}
+		_ = left
+		release = func() { s.releaseListingStock(req.ListingID) } // bei Fehlschlag zurückgeben
+	}
 	txHash, from, nonce, err := s.submitEscrowTx(req.Words, chain.TxEscrowOpen, fee, payload)
 	if err != nil {
+		release()
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	// Listing als verkauft markieren (ausgegraut, nicht mehr kaufbar). Der
-	// Kaufbeweis liegt ohnehin unveränderlich als Escrow-Tx auf der Chain — das
-	// Listing ist nur der Marktplatz-Eintrag und darf weiter gelöscht werden.
+	// Kauf am Listing vermerken (der Kaufbeweis selbst liegt unveränderlich als
+	// Escrow-Tx auf der Chain; das Listing ist nur der Marktplatz-Eintrag).
 	if req.ListingID != "" {
 		if rec, gerr := s.store.Get(storage.RecordListing, req.ListingID); gerr == nil && rec != nil {
-			rec.Data["sold"] = true
 			rec.Data["sold_escrow"] = txHash
+			rec.UpdatedAt = time.Now()
 			_ = s.store.Put(rec)
 		}
 	}
@@ -1040,4 +1059,93 @@ func returnDeadlineText(t time.Time) string {
 		return "– (14 Tage ab Storno)"
 	}
 	return t.Format("02.01.2006 15:04") + " UTC (14 Tage nach Storno)"
+}
+
+// ── Bestand eines Angebots (R562) ───────────────────────────────────────────
+// quantity = angebotene Stückzahl (fehlt sie, gilt 1 – Altbestand), sold_count
+// = bereits verkaufte. sold = true, sobald nichts mehr übrig ist.
+
+var listingStockMu sync.Mutex // serialisiert Lesen+Schreiben des Bestands
+
+func listingQuantity(d map[string]any) int {
+	if d == nil {
+		return 1
+	}
+	switch v := d["quantity"].(type) {
+	case float64:
+		if v >= 1 {
+			return int(v)
+		}
+	case int:
+		if v >= 1 {
+			return v
+		}
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 1 {
+			return n
+		}
+	}
+	return 1
+}
+
+func listingSoldCount(d map[string]any) int {
+	if d == nil {
+		return 0
+	}
+	switch v := d["sold_count"].(type) {
+	case float64:
+		if v > 0 {
+			return int(v)
+		}
+	case int:
+		if v > 0 {
+			return v
+		}
+	}
+	// Altbestand ohne Zähler: ein gesetztes "sold" zählt als 1 verkauft.
+	if sold, _ := d["sold"].(bool); sold {
+		return 1
+	}
+	return 0
+}
+
+// reserveListingStock bucht ein Stück ab. ok=false → nichts mehr verfügbar.
+func (s *Server) reserveListingStock(id string) (ok bool, left int, err error) {
+	listingStockMu.Lock()
+	defer listingStockMu.Unlock()
+	rec, gerr := s.store.Get(storage.RecordListing, id)
+	if gerr != nil || rec == nil || rec.Data == nil {
+		return false, 0, fmt.Errorf("Angebot nicht gefunden")
+	}
+	qty, sold := listingQuantity(rec.Data), listingSoldCount(rec.Data)
+	if sold >= qty {
+		return false, 0, nil
+	}
+	sold++
+	rec.Data["sold_count"] = sold
+	rec.Data["quantity"] = qty
+	rec.Data["sold"] = sold >= qty
+	rec.UpdatedAt = time.Now()
+	if perr := s.store.Put(rec); perr != nil {
+		return false, 0, perr
+	}
+	return true, qty - sold, nil
+}
+
+// releaseListingStock gibt ein reserviertes Stück zurück (Transaktion scheiterte).
+func (s *Server) releaseListingStock(id string) {
+	listingStockMu.Lock()
+	defer listingStockMu.Unlock()
+	rec, gerr := s.store.Get(storage.RecordListing, id)
+	if gerr != nil || rec == nil || rec.Data == nil {
+		return
+	}
+	sold := listingSoldCount(rec.Data) - 1
+	if sold < 0 {
+		sold = 0
+	}
+	rec.Data["sold_count"] = sold
+	rec.Data["sold"] = sold >= listingQuantity(rec.Data)
+	rec.UpdatedAt = time.Now()
+	_ = s.store.Put(rec)
 }

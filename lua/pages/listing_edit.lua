@@ -25,6 +25,8 @@ return function(captures)
         prefill = {
             title       = d.title or "",
             description = d.description or d.listing_text or "",
+            quantity    = tonumber(d.quantity) or 1,
+            sold_count  = tonumber(d.sold_count) or 0,
             price_min   = d.price_min,
             price_max   = d.price_max,
             condition   = d.condition or "",
@@ -79,6 +81,9 @@ return function(captures)
     <textarea id="f-description" rows="5">%s</textarea></div>
   <div class="field"><label>%s</label>
     <input type="number" id="f-price" value="%.2f" min="0" step="0.01"></div>
+  <div class="field"><label>Noch verfügbare Stückzahl</label>
+    <input type="number" id="f-quantity" min="0" step="1" value="1">
+    <div class="meta" id="f-qty-note"></div></div>
   <div class="field">
     <label>]] .. t("listing.seller_wallet") .. [[</label>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -155,6 +160,17 @@ const LT = ]] .. (require("cjson.safe").encode({ upload_failed = t("listing.uplo
 // Vorhandene Medien in die globalen Arrays der neuen Upload-Mechanik (upload.js)
 // vorladen — dann werden sie als Kacheln mit Thumbnails + Lösch-Buttons
 // dargestellt, genau wie im Anlege-Formular.
+(function(){
+  var p = FUNDUS_STRINGS.prefill || {};
+  var total = Math.max(1, parseInt(p.quantity, 10) || 1);
+  var sold  = Math.max(0, parseInt(p.sold_count, 10) || 0);
+  var q = document.getElementById('f-quantity');
+  if (q) q.value = Math.max(0, total - sold);   // Feld zeigt den REST
+  var n = document.getElementById('f-qty-note');
+  if (n) n.textContent = sold > 0
+    ? 'Bereits verkauft: ' + sold + '. Erhöhen reaktiviert das Angebot.'
+    : 'Auf 0 setzen nimmt das Angebot aus dem Verkauf.';
+})();
 window._mktImageHashes = (function(v){ return Array.isArray(v) ? v.slice() : []; })(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.image_hashes);
 window._mktImageThumbs = (function(v){ return Array.isArray(v) ? v.slice() : []; })(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.images);
 // Leere Lua-Tabellen kommen als {} (Objekt) an – nur echte Listen übernehmen.
@@ -252,6 +268,7 @@ async function submitEdit(e) {
         title:        document.getElementById("f-title").value,
         description:  document.getElementById("f-description").value,
         price:        parseFloat(document.getElementById("f-price").value) || 0,
+        quantity:     Math.max(0, parseInt(document.getElementById("f-quantity").value, 10) || 0), // noch verfügbar
         seller_wallet: (document.getElementById("f-seller-wallet")||{}).value || "",
         delivery:     (document.querySelector('input[name="f-delivery"]:checked')||{}).value || "pickup",
         shipping_cost: parseFloat((document.getElementById("f-shipping-cost")||{}).value) || 0,

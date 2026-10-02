@@ -652,6 +652,8 @@ function applyAnalysisResult(r) {
     setField("f-keywords",    (r.keywords || []).join(", "));
     setSelect("f-condition",  r.condition || "");
     setSelect("f-category",   r.category  || "");
+    const qEl = document.getElementById("f-quantity");
+    if (qEl) qEl.value = Math.max(1, parseInt(r.quantity, 10) || 1);
 
     document.getElementById("step-form")?.classList.add("highlighted");
     setTimeout(() => document.getElementById("step-form")?.classList.remove("highlighted"), 1500);
@@ -683,6 +685,7 @@ async function submitListing(event) {
     const payload = {
         title:        getField("f-title"),
         category:     categoryValue(),
+        quantity:     Math.max(1, parseInt(getField("f-quantity"), 10) || 1),
         condition:    getField("f-condition"),
         price:        parseFloat(getField("f-price")) || 0,
         seller_wallet: getField("f-seller-wallet") || "",

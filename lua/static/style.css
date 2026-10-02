@@ -2324,3 +2324,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .set-grid input, .set-grid select { width:100%; }
 .set-check, .wallet-check { display:flex; align-items:center; gap:8px; font-size:var(--fs-sm); margin:8px 0; cursor:pointer; }
 .set-check input, .wallet-check input { width:auto; min-height:0; accent-color:var(--green); }
+
+/* Restbestand eines Angebots (R562) */
+.stock-row { margin:8px 0; font-size:var(--fs-sm); color:var(--muted); }
+.stock-row b { color:var(--green); font-size:var(--fs-base); }

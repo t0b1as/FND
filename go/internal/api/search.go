@@ -219,7 +219,13 @@ func (s *Server) searchLocal(q SearchQuery) []SearchHit {
 		// Verkauft-Status: lokale Markierung ODER aus der Chain abgeleitet
 		// (Escrow für den Content-Hash existiert) — so erscheint VERKAUFT auf
 		// ALLEN Pis, nicht nur beim Käufer.
-		if sold, ok := d["sold"].(bool); ok && sold {
+		// Bestand (R563) hat Vorrang: Wer Stückzahlen führt, bestimmt selbst,
+		// ob noch etwas verfügbar ist. Die Chain-Ableitung (Escrow zum
+		// Content-Hash) greift nur für Angebote ohne eigenen Zähler – sonst
+		// bliebe ein wieder aufgefülltes Angebot für immer "verkauft".
+		if _, tracked := d["sold_count"]; tracked {
+			hit.Sold = listingSoldCount(d) >= listingQuantity(d)
+		} else if sold, ok := d["sold"].(bool); ok && sold {
 			hit.Sold = true
 		} else if s.isListingSoldOnChain(d) {
 			hit.Sold = true

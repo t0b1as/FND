@@ -144,7 +144,18 @@ return function(captures)
 
     -- Owner sieht Bearbeiten/Loeschen; Fremde sehen den Kaufen-Bereich.
     local ownerActions, buySection
-    local isSold = (record.data and record.data.sold == true)
+    -- Bestand (R562): quantity = angeboten, sold_count = verkauft.
+    local qty = tonumber(record.data and record.data.quantity) or 1
+    if qty < 1 then qty = 1 end
+    local soldN = tonumber(record.data and record.data.sold_count)
+    if not soldN then soldN = (record.data and record.data.sold == true) and 1 or 0 end
+    local remaining = qty - soldN
+    if remaining < 0 then remaining = 0 end
+    local stockRow = ""
+    if qty > 1 then
+        stockRow = string.format('<div class="stock-row">Noch <b>%d</b> von %d verfügbar</div>', remaining, qty)
+    end
+    local isSold = remaining <= 0
     if isOwner then
         ownerActions = string.format(
             '<a href="/listings/%s/edit" class="btn">%s</a>' ..
@@ -153,7 +164,7 @@ return function(captures)
         if isSold then
             buySection = '<div class="sold-note">' .. t("listing.sold_note_owner") .. '</div>'
         else
-            buySection = '<div class="owner-note">' .. t("listing.own_offer_note") .. '</div>'
+            buySection = stockRow .. '<div class="owner-note">' .. t("listing.own_offer_note") .. '</div>'
         end
     elseif isSold then
         -- Verkauft: kein Kauf mehr möglich, klarer Hinweis.
@@ -212,7 +223,8 @@ return function(captures)
         -- contact_pub_key für die Messenger-Benachrichtigung ans Frontend geben.
         local cpkJs = (type(cpk) == "string" and cpk ~= "") and cpk or ""
         local cfidJs = (type(cfid) == "string") and cfid or ""
-        buySection = string.format([==[
+        -- Restbestand über dem Kaufbereich (nur bei mehreren Stück)
+        buySection = stockRow .. string.format([==[
   <div class="buy-box" id="buy-box" data-shipping="%s" data-cpk="%s" data-cfid="%s">
     <h3>%s</h3>
     <p class="buy-hint">

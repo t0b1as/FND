@@ -151,6 +151,10 @@ return function()
       <label for="f-price">%s</label>
       <input type="number" id="f-price" name="price" min="0" step="0.01" placeholder="0.00">
     </div>
+    <div class="form-row">
+      <label for="f-quantity">Verfügbare Stückzahl</label>
+      <input type="number" id="f-quantity" name="quantity" min="1" step="1" value="1">
+    </div>
     <div class="field">
       <label for="f-seller-wallet">]] .. t("listing.seller_wallet") .. [[</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap">

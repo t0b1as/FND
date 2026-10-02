@@ -435,7 +435,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R561"
+const NodeRevision = "R563"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -882,6 +882,39 @@ func (s *Server) updateListing(c *gin.Context) {
 	}
 	for k, v := range body {
 		existing.Data[k] = v
+	}
+	// Bestand (R563): Im Formular steht die NOCH VERFÜGBARE Stückzahl. Intern
+	// zählt quantity die insgesamt angebotenen Stück, sold_count die verkauften –
+	// so kann der Verkäufer jederzeit auffüllen und das Angebot reaktivieren.
+	if _, given := body["quantity"]; given {
+		sold := listingSoldCount(existing.Data)
+		if _, had := existing.Data["sold_count"]; !had {
+			existing.Data["sold_count"] = sold
+		}
+		avail := 0 // 0 ist erlaubt: nimmt das Angebot aus dem Verkauf
+		switch v := body["quantity"].(type) {
+		case float64:
+			if v > 0 {
+				avail = int(v)
+			}
+		case int:
+			if v > 0 {
+				avail = v
+			}
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+				avail = n
+			}
+		}
+		if sold+avail < 1 {
+			existing.Data["quantity"] = 1 // mindestens 1, sonst wäre es kein Angebot
+			existing.Data["sold_count"] = 1
+		} else {
+			existing.Data["quantity"] = sold + avail
+		}
+	}
+	if _, tracked := existing.Data["sold_count"]; tracked {
+		existing.Data["sold"] = listingSoldCount(existing.Data) >= listingQuantity(existing.Data)
 	}
 	// Einzelpreis auf price_min/max mappen (Kompatibilität mit der Anzeige).
 	if p, ok := body["price"]; ok {
