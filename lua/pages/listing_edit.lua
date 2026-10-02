@@ -155,9 +155,10 @@ const LT = ]] .. (require("cjson.safe").encode({ upload_failed = t("listing.uplo
 // Vorhandene Medien in die globalen Arrays der neuen Upload-Mechanik (upload.js)
 // vorladen — dann werden sie als Kacheln mit Thumbnails + Lösch-Buttons
 // dargestellt, genau wie im Anlege-Formular.
-window._mktImageHashes = ((FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.image_hashes) || []).slice();
-window._mktImageThumbs = ((FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.images) || []).slice();
-window._mktVideoHashes = ((FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.video_hashes) || []).slice();
+window._mktImageHashes = (function(v){ return Array.isArray(v) ? v.slice() : []; })(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.image_hashes);
+window._mktImageThumbs = (function(v){ return Array.isArray(v) ? v.slice() : []; })(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.images);
+// Leere Lua-Tabellen kommen als {} (Objekt) an – nur echte Listen übernehmen.
+window._mktVideoHashes = (function(v){ return Array.isArray(v) ? v.slice() : []; })(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.video_hashes);
 // Einzelnes altes Video (Rückwärtskompat) in das Array übernehmen.
 (function(){
     const singleVid = (FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.video_hash) || "";

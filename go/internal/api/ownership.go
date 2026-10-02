@@ -36,8 +36,8 @@ func (s *Server) sessionFID(c *gin.Context) string {
 
 // mayModify: darf der Aufrufer einen Eintrag mit diesem Ersteller ändern?
 func (s *Server) mayModify(c *gin.Context, creator string) bool {
-	if s.isAdminRequest(c) {
-		return true // Betreiber (direkt lokal oder Admin-Passwort)
+	if s.isAdminRequest(c) || isLANRequest(c) {
+		return true // Betreiber: im Heimnetz (wie vor R530) oder mit Admin-Passwort
 	}
 	creator = strings.ToLower(strings.TrimSpace(creator))
 	if creator == "" {
