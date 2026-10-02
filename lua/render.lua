@@ -308,7 +308,9 @@ function _M.footer()
     local t = i18n.init()
     ngx.print(string.format([[
 </main>
-<footer><small><a href="/tos" class="footer-link">%s</a> &middot; <a href="/shop#spenden" class="footer-link">💚 Fundus unterstützen</a></small></footer>
+<footer><small><a href="/tos" class="footer-link">%s</a> &middot; <a href="/shop#spenden" class="footer-link">💚 Fundus unterstützen</a>
+ &middot; <a href="https://github.com/t0b1as/FND/blob/main/MANUAL.md" class="footer-link" target="_blank" rel="noopener">📖 Handbuch</a>
+ &middot; <a href="https://github.com/t0b1as/FND" class="footer-link" target="_blank" rel="noopener">GitHub</a></small></footer>
 <script>
 function toggleDrawer(){
   const open=document.getElementById("drawer").classList.toggle("open");

@@ -414,6 +414,17 @@ func (s *Server) pushSubscribe(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültiges Abo"})
 		return
 	}
+	// Nur die Push-Dienste der Browserhersteller: Der Node schickt an diese
+	// Adresse später Anfragen – eine beliebige (z.B. interne) Adresse wäre ein
+	// Hebel, den Node ins Heimnetz sprechen zu lassen.
+	if !pushEndpointAllowed(req.Endpoint) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Push-Dienst nicht unterstützt"})
+		return
+	}
+	if ps.count(fid) >= 10 && !ps.has(fid, req.Endpoint) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Höchstens 10 Geräte je Konto – bitte auf einem anderen Gerät ausschalten."})
+		return
+	}
 	ps.add(fid, pushSub{Endpoint: req.Endpoint, P256dh: req.Keys.P256dh, Auth: req.Keys.Auth, Created: time.Now().Unix()})
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
@@ -462,4 +473,32 @@ func (s *Server) notifyIncomingMsg(sess *Session, payload *messenger.Payload) {
 		return
 	}
 	s.pushNotify(sess.identity.FundusID, "💬 Neue Nachricht", "Neue Nachricht von "+name, "/messenger", "msg", true)
+}
+
+// Push-Dienste der Browserhersteller (Chrome/Edge/Brave, Firefox, Safari, Windows).
+var pushHostSuffixes = []string{
+	".googleapis.com",            // Chrome, Edge, Brave (fcm.googleapis.com)
+	".push.services.mozilla.com", // Firefox
+	".push.apple.com",            // Safari / iOS
+	".notify.windows.com",        // Edge (Windows-Push)
+}
+
+func pushEndpointAllowed(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	for _, suf := range pushHostSuffixes {
+		if h == strings.TrimPrefix(suf, ".") || strings.HasSuffix(h, suf) {
+			return true
+		}
+	}
+	return false
+}
+
+func (ps *pushService) count(fid string) int {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	return len(ps.subs[strings.ToLower(fid)])
 }

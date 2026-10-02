@@ -1478,13 +1478,36 @@ func (s *Server) mailboxPumpLoop() {
 	defer t.Stop()
 	for range t.C {
 		sessionMu.RLock()
-		list := make([]*Session, 0, len(sessionStore))
+		byFID := make(map[string]*Session, len(sessionStore))
 		for _, ss := range sessionStore {
-			list = append(list, ss)
+			if ss != nil && ss.identity != nil && ss.messenger != nil {
+				byFID[strings.ToLower(ss.identity.FundusID)] = ss
+			}
 		}
 		sessionMu.RUnlock()
-		for _, ss := range list {
-			s.drainMailbox(ss)
+		if len(byFID) == 0 {
+			continue
+		}
+		// Einmal lesen, dann nach Empfänger verteilen (statt je Sitzung die
+		// ganze Liste zu lesen – die Einträge kommen aus dem ganzen Netz).
+		all, _ := s.store.List(storage.RecordMailbox)
+		for _, r := range all {
+			if r == nil || !strings.HasPrefix(r.ID, "mailbox:") {
+				continue
+			}
+			rest := strings.TrimPrefix(r.ID, "mailbox:")
+			fid := rest
+			if i := strings.IndexByte(rest, ':'); i > 0 {
+				fid = rest[:i]
+			}
+			ss, ok := byFID[fid]
+			if !ok {
+				continue
+			}
+			if env, ok := r.Data["envelope"].(string); ok {
+				ss.messenger.InjectIncoming([]byte(env))
+			}
+			_ = s.store.Delete(storage.RecordMailbox, r.ID)
 		}
 	}
 }

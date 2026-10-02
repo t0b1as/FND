@@ -154,9 +154,66 @@ var (
 	extStreamPerIP = map[string]int{}
 )
 
+// extRate: einfache Begrenzung je Adresse und Zweck (Fenster 1 min).
+var (
+	extRateMu   sync.Mutex
+	extRateHits = map[string][]time.Time{}
+)
+
+func extRateAllow(key string, limit int) bool {
+	now := time.Now()
+	extRateMu.Lock()
+	defer extRateMu.Unlock()
+	kept := extRateHits[key][:0]
+	for _, t := range extRateHits[key] {
+		if now.Sub(t) < time.Minute {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) >= limit {
+		extRateHits[key] = kept
+		return false
+	}
+	extRateHits[key] = append(kept, now)
+	if len(extRateHits) > 5000 {
+		for k, v := range extRateHits {
+			if len(v) == 0 || now.Sub(v[len(v)-1]) > time.Minute {
+				delete(extRateHits, k)
+			}
+		}
+	}
+	return true
+}
+
 func (s *Server) publicHeavyGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p := c.Request.URL.Path
+		// Von außen: Eine Anfrage, die eine SUCHE über alle Nodes auslöst
+		// (Datei-, Partner-, Jobsuche, Marktplatz), darf das Netz nicht beliebig
+		// belasten; chain/peers fragt alle Peers ab und ist Diagnose (Heimnetz).
+		if !isLANRequest(c) {
+			ip := clientIP(c)
+			switch {
+			case p == "/api/v1/chain/peers":
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "nur aus dem Heimnetz"})
+				return
+			case p == "/api/v1/files/search" || p == "/api/v1/partner/search" || p == "/api/v1/search" || p == "/api/v1/jobsearch":
+				if !extRateAllow("search:"+ip, 20) {
+					c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Suchanfragen – bitte kurz warten."})
+					return
+				}
+			case strings.HasPrefix(p, "/api/v1/files/probe/"):
+				if !extRateAllow("probe:"+ip, 20) {
+					c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Anfragen – bitte kurz warten."})
+					return
+				}
+			case strings.HasPrefix(p, "/api/v1/files/thumb/"):
+				if !extRateAllow("thumb:"+ip, 150) {
+					c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Anfragen – bitte kurz warten."})
+					return
+				}
+			}
+		}
 		// Komplette Dateiliste bzw. Ordner des Pi durchsuchen: Betreiber-Werkzeuge,
 		// von außen ein Datenleck (private Dateien, Systempfade). Lesbar von außen
 		// sind nur ausdrücklich freigegebene Dateien (/api/v1/files/shared).
