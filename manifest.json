@@ -1,8 +1,8 @@
 {
-  "version": "R558",
-  "description": "FUNDUS R558 - Email Notifications and Preview Image Resolution",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R558/FND-R558-update.zip",
-  "node_argon2": "5d0f4889a7a225f296d81747430157f2bc56e84b5c24d36ebe0ea46368133d49",
-  "published_at": "2026-10-02T15:22:09.3364659Z",
-  "signature": "0xf93bc1d7bf70b168ad2dfb595c50b257834de85b3b09b999d636bbbd15f64be55b69bff36cabaf3ab330ef8be33afbb276adbe2c51fe7c400cf59de21c1033fa1b"
+  "version": "R559",
+  "description": "FUNDUS R559 - Preview Image Quality",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R559/FND-R559-update.zip",
+  "node_argon2": "49b2a2a121cb04e4596fb85d4ccd5d9004a763e987fbcb0517eb98361970b839",
+  "published_at": "2026-10-02T15:37:20.6329095Z",
+  "signature": "0xff0665e9e307b2e62a6c539c31a544ee6d438d5411f133d21b1dcc13f0e539d86da77f542dc8560fffce44407615a5a743ffc011bd124c1d859fbd9e17c364c91c"
 }
