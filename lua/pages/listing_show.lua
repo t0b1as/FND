@@ -758,10 +758,16 @@ code           { font-family:monospace; font-size:11px; background:var(--bg); co
         out = out.slice(0, 4); if (!out.length) return;
         document.getElementById('similar-grid').innerHTML = out.map(function(it){
           var price = it.price_min ? (parseFloat(it.price_min).toFixed(2).replace('.', ',') + ' FND') : '–';
-          var img = it.thumbnail ? '<img src="' + it.thumbnail + '" loading="lazy" alt="">' : (it.image_hash ? '<img src="/api/v1/files/thumb/' + encodeURIComponent(it.image_hash) + '" loading="lazy" alt="">' : '<div class="hc-ph"></div>');
+          // Gespeichertes 200-px-Bild als Platzhalter, scharfes vom Node nachladen.
+          var big = it.image_hash ? '/api/v1/files/thumb/' + encodeURIComponent(it.image_hash) : '';
+          var img = (it.thumbnail || big) ? '<img src="' + (it.thumbnail || big) + '"' + (it.thumbnail && big ? ' data-hq="' + big + '"' : '') + ' loading="lazy" alt="">' : '<div class="hc-ph"></div>';
           return '<a class="hit-card" href="/listings/' + it.id + '"><div class="hc-img">' + img + '<span class="hc-price">' + price + '</span></div><div class="hc-title">' + esc(it.title) + '</div><div class="hc-meta">' + (it.distance_km ? it.distance_km + ' km' : '') + '</div></a>';
         }).join('');
         document.getElementById('similar').style.display = '';
+        document.querySelectorAll('#similar-grid img[data-hq]').forEach(function(im){
+          var u = im.getAttribute('data-hq'); im.removeAttribute('data-hq');
+          var hq = new Image(); hq.onload = function(){ im.src = u; }; hq.src = u;
+        });
       }
       render(hits);
       if (sid) setTimeout(function(){ fetch('/api/v1/search/results?id=' + encodeURIComponent(sid)).then(function(r){ return r.json(); }).then(function(d2){ render(d2.hits || []); }).catch(function(){}); }, 1800);

@@ -236,6 +236,7 @@ function renderResultsPage() {
             html += '</div>';
         }
         res.innerHTML = html;
+        upgradeThumbs(res);
         return;
     }
     html += '<table class="record-table"><thead><tr>' +
@@ -311,13 +312,31 @@ function renderChips(){
     }
     return h + '</div>';
 }
+// Scharfe Thumbnails nachladen und erst beim fertigen Laden einsetzen –
+// so flackert nichts, wenn der Node sie gerade erst erzeugt.
+function upgradeThumbs(root){
+    (root || document).querySelectorAll('img[data-hq]').forEach(function(img){
+        const url = img.getAttribute('data-hq'); img.removeAttribute('data-hq');
+        const hq = new Image();
+        hq.onload = function(){ img.src = url; };
+        hq.src = url;
+    });
+}
 function renderHitCard(it){
     const favs = favSet();
     const price = it.price_min ? (parseFloat(it.price_min).toFixed(2).replace('.', ',') + ' FND') : '–';
+    // Das im Angebot gespeicherte Vorschaubild ist nur 200 px groß (vom Browser
+    // beim Hochladen erzeugt) – es dient als sofortiger Platzhalter, während das
+    // scharfe Thumbnail des Nodes nachlädt.
     let img = '';
-    if (it.thumbnail) img = '<img src="' + it.thumbnail + '" loading="lazy" alt="">';
-    else if (it.image_hash) img = '<img src="/api/v1/files/thumb/' + encodeURIComponent(it.image_hash) + '" loading="lazy" alt="">';
-    else img = '<div class="hc-ph">' + ((window.FUNDUS_ICONS || {}).listings || '') + '</div>';
+    if (it.image_hash) {
+        const big = '/api/v1/files/thumb/' + encodeURIComponent(it.image_hash);
+        img = '<img src="' + (it.thumbnail || big) + '"' + (it.thumbnail ? ' data-hq="' + big + '"' : '') + ' loading="lazy" alt="">';
+    } else if (it.thumbnail) {
+        img = '<img src="' + it.thumbnail + '" loading="lazy" alt="">';
+    } else {
+        img = '<div class="hc-ph">' + ((window.FUNDUS_ICONS || {}).listings || '') + '</div>';
+    }
     const meta = [it.category ? esc(it.category) : '', it.distance_km ? it.distance_km + ' km' : '', it.condition ? esc(it.condition) : ''].filter(Boolean).join(' · ');
     return '<a class="hit-card' + (it.sold ? ' sold' : '') + '" href="/listings/' + it.id + '">' +
         '<div class="hc-img">' + img +
