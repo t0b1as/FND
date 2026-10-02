@@ -1,8 +1,8 @@
 {
-  "version": "R561",
-  "description": "FUNDUS R561 - Vertragsfristen",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R561/FND-R561-update.zip",
-  "node_argon2": "c1598845efb155478b8ab1c7b665443e674963e0648cfaad954524474a3b1b5c",
-  "published_at": "2026-10-02T17:23:14.3668437Z",
-  "signature": "0x270ba9054302b51cbafd83e730ba5da9846e4569a5904b095eb8098b4e7c15091de7172580036b0d8eaf08d99f51d04183be9486c047697cbc6b619930e32ae61c"
+  "version": "R563",
+  "description": "FUNDUS R563 - Verkaufsbestand und Reaktivierung",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R563/FND-R563-update.zip",
+  "node_argon2": "e25692344eb321943b91af57b936d074f030e7262ae7ea429d41a41b9340f63e",
+  "published_at": "2026-10-02T17:49:19.5810782Z",
+  "signature": "0x48b864440ad7966ea7e039e56ae691d5b30ffdf88720ebf33a7b0db30134b7e42ac4b2cb0be60a12241b3d4b77523d07455aea4b0c59cb8b5959e3456757f48f1b"
 }
