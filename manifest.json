@@ -1,8 +1,8 @@
 {
-  "version": "R556",
-  "description": "FUNDUS R556 - Error Correction",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R556/FND-R556-update.zip",
-  "node_argon2": "1055ad86cfbe5f1109b5d115d9f5562c2abbfa8bef06a60a155753f86039b7d8",
-  "published_at": "2026-10-02T13:17:42.6605026Z",
-  "signature": "0x57d8f8a79258683b3c7f05995252428a6b6ed4918fdbdc875fbb7f03e920d6025a353ccc973592bf84b118b1181f05b9bc2ce5fd615fffe0c4c161b971594baf1b"
+  "version": "R558",
+  "description": "FUNDUS R558 - Email Notifications and Preview Image Resolution",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R558/FND-R558-update.zip",
+  "node_argon2": "5d0f4889a7a225f296d81747430157f2bc56e84b5c24d36ebe0ea46368133d49",
+  "published_at": "2026-10-02T15:22:09.3364659Z",
+  "signature": "0xf93bc1d7bf70b168ad2dfb595c50b257834de85b3b09b999d636bbbd15f64be55b69bff36cabaf3ab330ef8be33afbb276adbe2c51fe7c400cf59de21c1033fa1b"
 }
