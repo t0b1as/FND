@@ -75,14 +75,14 @@ func TestMakeThumbnailRejectsGarbage(t *testing.T) {
 	}
 }
 
-func TestBoxDownscaleAverages(t *testing.T) {
+func TestDownscaleAverages(t *testing.T) {
 	// 2×2-Bild aus vier Farben → 1×1 muss deren Mittelwert sein.
 	src := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	src.SetRGBA(0, 0, color.RGBA{0, 0, 0, 255})
 	src.SetRGBA(1, 0, color.RGBA{255, 0, 0, 255})
 	src.SetRGBA(0, 1, color.RGBA{0, 255, 0, 255})
 	src.SetRGBA(1, 1, color.RGBA{255, 255, 255, 255})
-	dst := boxDownscale(src, 1, 1)
+	dst := lanczosDownscale(src, 1, 1)
 	r, g, b, _ := dst.At(0, 0).RGBA()
 	// Mittel: R=(0+255+0+255)/4≈127, G=(0+0+255+255)/4≈127, B=(0+0+0+255)/4≈63
 	r8, g8, b8 := r>>8, g>>8, b>>8

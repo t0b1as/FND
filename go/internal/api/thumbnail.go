@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"math"
 	"image/color"
 	"image/jpeg"
 	_ "image/png" // PNG-Decoder registrieren
@@ -33,7 +34,7 @@ const (
 	// Marktplatzes sind die Kacheln bis ~350 px breit, auf Displays mit
 	// doppelter Pixeldichte entsprechend mehr – 256 px wirkten dort unscharf.
 	thumbMaxEdge      = 512
-	thumbJPEGQuality  = 82               // JPEG-Qualität des Thumbnails
+	thumbJPEGQuality  = 90               // JPEG-Qualität (R559: 82 → 90, weniger Artefakte)
 	maxDecodePixels   = 40 * 1000 * 1000 // 40 MP Obergrenze fürs Decodieren
 	maxOriginalBytes  = 64 * 1024 * 1024 // 64 MiB: größere Originale gar nicht erst puffern
 	thumbConcurrency  = 2                // gleichzeitige Decodierungen (RAM-Schutz)
@@ -169,63 +170,176 @@ func makeThumbnail(orig []byte) ([]byte, error) {
 	w, h := b.Dx(), b.Dy()
 	tw, th := thumbDimensions(w, h, thumbMaxEdge)
 
-	// Box-Average-Downscaling, nur Standardbibliothek (kein externer Dependency).
-	// Für Thumbnails völlig ausreichend und deutlich besser als Nearest-Neighbor.
-	dst := boxDownscale(src, tw, th)
+	// Lanczos-3-Downscaling (R559): deutlich schärfer und kantentreuer als die
+	// frühere Box-Mittelung, nur Standardbibliothek.
+	dst := lanczosDownscale(src, tw, th)
 
 	var out bytes.Buffer
-	if err := jpeg.Encode(&out, dst, &jpeg.Options{Quality: thumbJPEGQuality}); err != nil {
+	// Als YCbCr 4:4:4 kodieren: Go halbiert bei RGBA die Farbauflösung (4:2:0),
+	// was farbige Kanten ausfransen lässt. Unterstützt der Encoder 4:4:4 nicht,
+	// ist das Ergebnis wie zuvor – schaden kann es nicht.
+	if err := jpeg.Encode(&out, rgbaToYCbCr444(dst), &jpeg.Options{Quality: thumbJPEGQuality}); err != nil {
 		return nil, fmt.Errorf("thumbnail encode: %w", err)
 	}
 	return out.Bytes(), nil
 }
 
-// boxDownscale verkleinert src auf (tw×th) per Box-Mittelung: jeder Zielpixel
-// ist der Durchschnitt des zugehörigen Quellblocks. Reine Standardbibliothek.
-// Speicher: nur das Zielbild zusätzlich (tw×th×4 ≈ 256 KiB bei 256²) — winzig.
-func boxDownscale(src image.Image, tw, th int) *image.RGBA {
+// ── Lanczos-3-Skalierung (R559) ─────────────────────────────────────────────
+// Separabel (erst waagerecht, dann senkrecht) mit vorab berechneten Gewichten.
+// Der Filterradius wächst mit dem Verkleinerungsfaktor – das verhindert
+// Treppenstufen an feinen Strukturen (Anti-Aliasing).
+
+func lanczosKernel(x float64) float64 {
+	const a = 3.0
+	if x < 0 {
+		x = -x
+	}
+	if x < 1e-8 {
+		return 1
+	}
+	if x >= a {
+		return 0
+	}
+	px := math.Pi * x
+	return a * math.Sin(px) * math.Sin(px/a) / (px * px)
+}
+
+type tap struct {
+	idx []int
+	w   []float64
+}
+
+// buildTaps: für jedes Zielpixel die Quellpixel und ihre Gewichte.
+func buildTaps(srcN, dstN int) []tap {
+	const a = 3.0
+	scale := float64(srcN) / float64(dstN)
+	norm := math.Max(1, scale) // Filter beim Verkleinern aufweiten
+	support := norm * a
+	taps := make([]tap, dstN)
+	for i := 0; i < dstN; i++ {
+		center := (float64(i)+0.5)*scale - 0.5
+		lo := int(math.Floor(center - support + 0.5))
+		hi := int(math.Ceil(center + support - 0.5))
+		n := hi - lo + 1
+		if n < 1 {
+			n = 1
+			hi = lo
+		}
+		idx := make([]int, 0, n)
+		w := make([]float64, 0, n)
+		var sum float64
+		for k := lo; k <= hi; k++ {
+			weight := lanczosKernel((float64(k) - center) / norm)
+			if weight == 0 {
+				continue
+			}
+			c := k
+			if c < 0 {
+				c = 0
+			} else if c >= srcN {
+				c = srcN - 1
+			}
+			idx = append(idx, c)
+			w = append(w, weight)
+			sum += weight
+		}
+		if sum == 0 { // Notfall: nächster Nachbar
+			c := int(center + 0.5)
+			if c < 0 {
+				c = 0
+			} else if c >= srcN {
+				c = srcN - 1
+			}
+			idx, w, sum = []int{c}, []float64{1}, 1
+		}
+		for k := range w {
+			w[k] /= sum
+		}
+		taps[i] = tap{idx: idx, w: w}
+	}
+	return taps
+}
+
+func lanczosDownscale(src image.Image, tw, th int) *image.RGBA {
 	b := src.Bounds()
 	sw, sh := b.Dx(), b.Dy()
 	dst := image.NewRGBA(image.Rect(0, 0, tw, th))
 	if tw <= 0 || th <= 0 || sw <= 0 || sh <= 0 {
 		return dst
 	}
-	for ty := 0; ty < th; ty++ {
-		// Quell-Zeilenbereich für diese Zielzeile.
-		y0 := b.Min.Y + ty*sh/th
-		y1 := b.Min.Y + (ty+1)*sh/th
-		if y1 <= y0 {
-			y1 = y0 + 1
+	// Quelle einmal als 8-Bit-RGBA puffern (At() ist teuer).
+	buf := make([]float64, sw*sh*3)
+	for y := 0; y < sh; y++ {
+		for x := 0; x < sw; x++ {
+			r, g, bl, _ := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
+			o := (y*sw + x) * 3
+			buf[o] = float64(r >> 8)
+			buf[o+1] = float64(g >> 8)
+			buf[o+2] = float64(bl >> 8)
 		}
-		for tx := 0; tx < tw; tx++ {
-			x0 := b.Min.X + tx*sw/tw
-			x1 := b.Min.X + (tx+1)*sw/tw
-			if x1 <= x0 {
-				x1 = x0 + 1
+	}
+	// Waagerecht: sw → tw
+	colTaps := buildTaps(sw, tw)
+	tmp := make([]float64, tw*sh*3)
+	for y := 0; y < sh; y++ {
+		row := y * sw * 3
+		out := y * tw * 3
+		for i, t := range colTaps {
+			var cr, cg, cb float64
+			for k, si := range t.idx {
+				o := row + si*3
+				w := t.w[k]
+				cr += buf[o] * w
+				cg += buf[o+1] * w
+				cb += buf[o+2] * w
 			}
-			var rs, gs, bs, as, n uint64
-			for y := y0; y < y1; y++ {
-				for x := x0; x < x1; x++ {
-					r, g, bl, a := src.At(x, y).RGBA() // 16-bit pro Kanal
-					rs += uint64(r)
-					gs += uint64(g)
-					bs += uint64(bl)
-					as += uint64(a)
-					n++
-				}
+			tmp[out+i*3] = cr
+			tmp[out+i*3+1] = cg
+			tmp[out+i*3+2] = cb
+		}
+	}
+	// Senkrecht: sh → th
+	rowTaps := buildTaps(sh, th)
+	clamp := func(v float64) uint8 {
+		if v <= 0 {
+			return 0
+		}
+		if v >= 255 {
+			return 255
+		}
+		return uint8(v + 0.5)
+	}
+	for j, t := range rowTaps {
+		for x := 0; x < tw; x++ {
+			var cr, cg, cb float64
+			for k, sy := range t.idx {
+				o := (sy*tw + x) * 3
+				w := t.w[k]
+				cr += tmp[o] * w
+				cg += tmp[o+1] * w
+				cb += tmp[o+2] * w
 			}
-			if n == 0 {
-				n = 1
-			}
-			dst.SetRGBA(tx, ty, color.RGBA{
-				R: uint8((rs / n) >> 8),
-				G: uint8((gs / n) >> 8),
-				B: uint8((bs / n) >> 8),
-				A: uint8((as / n) >> 8),
-			})
+			dst.SetRGBA(x, j, color.RGBA{R: clamp(cr), G: clamp(cg), B: clamp(cb), A: 255})
 		}
 	}
 	return dst
+}
+
+// rgbaToYCbCr444 wandelt ohne Farb-Unterabtastung um.
+func rgbaToYCbCr444(src *image.RGBA) *image.YCbCr {
+	b := src.Bounds()
+	out := image.NewYCbCr(b, image.YCbCrSubsampleRatio444)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			i := src.PixOffset(x, y)
+			yy, cb, cr := color.RGBToYCbCr(src.Pix[i], src.Pix[i+1], src.Pix[i+2])
+			out.Y[out.YOffset(x, y)] = yy
+			o := out.COffset(x, y)
+			out.Cb[o] = cb
+			out.Cr[o] = cr
+		}
+	}
+	return out
 }
 
 // thumbDimensions berechnet die Zielmaße, sodass die lange Kante maxEdge ist
