@@ -457,6 +457,10 @@ function insertEmoji(e) {
 // einen aktiven Chat (ohne dass vorher ein Kontakt angeklickt werden muss).
 // updateSendState: aktiviert Textfeld + Senden-Knopf nur, wenn eine Empfänger-
 // Adresse eingegeben ist. Ersetzt den früheren "Kontakt auswählen"-Platzhalter.
+document.addEventListener('DOMContentLoaded', function(){
+    const inp = document.getElementById('msg-input');
+    if (inp) inp.addEventListener('input', function(){ if (inp.value) noteTyping(); });
+});
 function updateSendState() {
     // Frei, sobald eine Identität ODER ein aktiver Chat da ist. Robust gegen
     // Session-Erkennungsprobleme: wer einen Kontakt gewählt hat, kann schreiben.
@@ -784,6 +788,9 @@ async function handleSignal(msg) {
             }
             break;
         }
+        case 'typing':
+            showTyping(from);
+            return;
         case 'hangup': {
             const ic = document.getElementById('incoming-call');
             if (ic) ic.style.display = 'none';
@@ -970,6 +977,7 @@ function openChat(contact) {
     document.getElementById('messages').innerHTML = '';
     historyOldestTs = null;
     historyHasMore  = true;
+    _lastDateKey = null; _lastFrom = null; hideTyping();
     historyLoading  = false;
     renderContacts();
     updateSendState(); // Eingabezeile entsperren (Adressfeld ist jetzt befüllt)
@@ -1167,12 +1175,53 @@ function applyReceipt(messageId, kind, ts) {
     updateTickTitle(div, delivered || null, read || null);
 }
 
+// ── Feinschliff (R555): Datums-Trenner, Avatare, "schreibt …" ─────────────
+let _lastDateKey = null, _lastFrom = null;
+function dateLabel(d) {
+    const now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
+    const same = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    if (same(d, now)) return 'Heute';
+    if (same(d, y)) return 'Gestern';
+    return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+}
 function appendMessage({ id, from, text, file, ts, outgoing, deliveredAt, readAt }) {
+    const box = document.getElementById('messages');
+    const d = (ts instanceof Date) ? ts : new Date(ts);
+    const key = isNaN(d) ? null : d.toDateString();
+    if (key && key !== _lastDateKey) {
+        const sep = document.createElement('div'); sep.className = 'msg-date'; sep.innerHTML = '<span>' + escapeHtml(dateLabel(d)) + '</span>';
+        box.appendChild(sep); _lastDateKey = key; _lastFrom = null;
+    }
     const div = buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt });
-    document.getElementById('messages').appendChild(div);
+    const who = outgoing ? 'me' : String(from || '').toLowerCase();
+    if (!outgoing) {
+        const row = document.createElement('div'); row.className = 'msg-row' + (who === _lastFrom ? ' cont' : '');
+        const nm = (typeof nameCache !== 'undefined' && nameCache[who]) || (activeChat && activeChat.name) || who;
+        row.innerHTML = '<div class="msg-row-av">' + (who === _lastFrom ? '' : avatarHTML(who, nm)) + '</div>';
+        row.appendChild(div); box.appendChild(row);
+    } else {
+        box.appendChild(div);
+    }
+    _lastFrom = who;
     div.scrollIntoView({ behavior: 'smooth', block: 'end' });
     return div;
 }
+// "schreibt …": beim Tippen höchstens alle 4 s ein Signal; Anzeige 6 s.
+let _typingSentAt = 0, _typingTimer = null;
+function noteTyping() {
+    if (!activeChat || !activeChat.fundusID) return;
+    const now = Date.now(); if (now - _typingSentAt < 4000) return;
+    _typingSentAt = now; sendSignal({ type: 'typing' }).catch(() => {});
+}
+function showTyping(from) {
+    if (!activeChat || String(from || '').toLowerCase() !== String(activeChat.fundusID || '').toLowerCase()) return;
+    let el = document.getElementById('typing-ind');
+    if (!el) { el = document.createElement('div'); el.id = 'typing-ind'; el.className = 'typing-ind'; el.textContent = 'schreibt …';
+        const h = document.getElementById('chat-header'); if (h) h.appendChild(el); else return; }
+    el.style.display = '';
+    clearTimeout(_typingTimer); _typingTimer = setTimeout(hideTyping, 6000);
+}
+function hideTyping() { const el = document.getElementById('typing-ind'); if (el) el.style.display = 'none'; }
 
 function appendSystemMessage(text) {
     const div = document.createElement('div');

@@ -604,7 +604,11 @@ func (s *Server) messengerSend(c *gin.Context) {
 	// Ausgehende Nachricht im Verlauf sichern (Klartext liegt in req vor —
 	// die gesendete Version ist für den Empfänger verschlüsselt, daher hier
 	// separat ablegen, damit der eigene Verlauf lesbar bleibt).
-	if sess.history != nil && msg != nil {
+	// Signale (Anruf, ICE, "schreibt …") sind Echtzeit: weder Verlauf noch
+	// Postfach – ohne direkte Verbindung nützen sie nichts und würden das Netz
+	// nur mit Einträgen fluten.
+	isSignal := req.Type == messenger.TypeSignal
+	if sess.history != nil && msg != nil && !isSignal {
 		he := messenger.HistoryEntry{
 			ID:        msg.ID,
 			PeerID:    req.RecipientID,
@@ -624,7 +628,7 @@ func (s *Server) messengerSend(c *gin.Context) {
 	// Zusätzlich in die Offline-Mailbox des Empfängers legen (verschlüsselt),
 	// damit die Nachricht auch ankommt, wenn der Empfänger gerade nicht online
 	// ist — er holt sie beim nächsten Login (hier oder auf einem anderen Node) ab.
-	if msg != nil {
+	if msg != nil && !isSignal {
 		if env, e := json.Marshal(msg); e == nil {
 			rid := strings.ToLower(req.RecipientID)
 			var rnd [8]byte

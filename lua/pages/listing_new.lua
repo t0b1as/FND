@@ -124,6 +124,8 @@ return function()
     for _, c in ipairs(categories) do
         table.insert(cat_opts, string.format('<option value="%s">%s</option>', c[1], c[2]))
     end
+    -- Eigene Kategorie (R555): freier Text, Vorschläge aus dem Netz
+    table.insert(cat_opts, '<option value="__custom__">✎ Eigene Kategorie …</option>')
 
     ngx.print(string.format([[
 <section class="step" id="step-form">
@@ -136,7 +138,9 @@ return function()
     <div class="field-row">
       <div class="field">
         <label for="f-category">%s</label>
-        <select id="f-category" name="category">%s</select>
+        <select id="f-category" name="category" onchange="catCustomToggle()">%s</select>
+        <input type="text" id="f-category-custom" list="cat-suggest" placeholder="Eigene Kategorie, z.B. 3D-Druck" maxlength="40" autocomplete="off" style="display:none;margin-top:6px">
+        <datalist id="cat-suggest"></datalist>
       </div>
       <div class="field">
         <label for="f-condition">%s</label>

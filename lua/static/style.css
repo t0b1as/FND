@@ -2306,3 +2306,14 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .set-tab.on { background:var(--green-bg); border-color:var(--green-ctrl); color:var(--green); }
 .set-search { width:220px; max-width:100%; }
 @media (max-width: 720px) { .set-search { width:100%; } .set-tabs { overflow-x:auto; flex-wrap:nowrap; padding-bottom:4px; } .set-tab { white-space:nowrap; } }
+
+/* ── Messenger-Feinschliff (R555) ────────────────────────────────────── */
+.msg-date { display:flex; justify-content:center; margin:14px 0 8px; }
+.msg-date span { background:var(--surface-2); color:var(--muted); font-size:11.5px; font-weight:600; padding:4px 12px; border-radius:999px; border:1px solid var(--border); }
+.msg-row { display:flex; align-items:flex-end; gap:8px; }
+.msg-row .msg-row-av { width:28px; flex-shrink:0; }
+.msg-row .msg-row-av .msg-av { width:28px; height:28px; font-size:12px; }
+.msg-row.cont { margin-top:-6px; }
+.msg-row .msg-bubble { margin-left:0; }
+.typing-ind { font-size:12px; color:var(--green); margin-left:auto; padding:0 10px; animation:typing-pulse 1.2s ease-in-out infinite; }
+@keyframes typing-pulse { 0%,100% { opacity:.55; } 50% { opacity:1; } }

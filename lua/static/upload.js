@@ -682,7 +682,7 @@ async function submitListing(event) {
 
     const payload = {
         title:        getField("f-title"),
-        category:     getField("f-category"),
+        category:     categoryValue(),
         condition:    getField("f-condition"),
         price:        parseFloat(getField("f-price")) || 0,
         seller_wallet: getField("f-seller-wallet") || "",
@@ -734,12 +734,43 @@ const setField  = (id, v)  => { const el = document.getElementById(id); if (el) 
 const getField  = id       => document.getElementById(id)?.value || "";
 const escHtml   = s        => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 
+// ── Eigene Kategorien (R555) ────────────────────────────────────────────────
+function catCustomToggle() {
+    const sel = document.getElementById("f-category"), inp = document.getElementById("f-category-custom");
+    if (!sel || !inp) return;
+    const on = sel.value === "__custom__";
+    inp.style.display = on ? "" : "none";
+    if (on) { inp.focus(); loadCategorySuggestions(); }
+}
+// Vorschläge: Kategorien, die im Netz schon verwendet werden.
+let _catSuggestLoaded = false;
+async function loadCategorySuggestions() {
+    if (_catSuggestLoaded) return; _catSuggestLoaded = true;
+    try {
+        const r = await fetch("/api/v1/search"); const d = await r.json();
+        const seen = {}; (d.hits || []).forEach(function(h){ const c = (h.category || "").trim(); if (c) seen[c] = 1; });
+        const dl = document.getElementById("cat-suggest"); if (!dl) return;
+        dl.innerHTML = Object.keys(seen).sort().map(function(c){ return '<option value="' + c.replace(/"/g, "&quot;") + '">'; }).join("");
+    } catch(e) {}
+}
+function categoryValue() {
+    const sel = document.getElementById("f-category");
+    if (!sel) return "";
+    if (sel.value === "__custom__") { const inp = document.getElementById("f-category-custom"); return (inp && inp.value || "").trim(); }
+    return sel.value;
+}
 function setSelect(id, value) {
     const sel = document.getElementById(id);
     if (!sel || !value) return;
     const v = value.toLowerCase();
     for (const opt of sel.options) {
-        if (opt.value.toLowerCase() === v || opt.text.toLowerCase() === v) { sel.value = opt.value; return; }
+        if (opt.value.toLowerCase() === v || opt.text.toLowerCase() === v) { sel.value = opt.value; if (id === "f-category") catCustomToggle(); return; }
+    }
+    // Unbekannte Kategorie (eigene) → Freitext-Feld vorbelegen
+    if (id === "f-category") {
+        sel.value = "__custom__"; catCustomToggle();
+        const inp = document.getElementById("f-category-custom"); if (inp) inp.value = value;
+        return;
     }
 }
 
