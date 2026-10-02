@@ -56,12 +56,15 @@ func (s *Server) registerContractRoutes() {
 // escrowDefaultDeadlineBlocks: Standard-Frist einer Escrow-Eröffnung, wenn der
 // Client keine explizite Höhe angibt. ~14 Tage bei ~1 Block/Minute (Richtwert;
 // die echte Blockrate hängt vom Produzenten ab).
-const escrowDefaultDeadlineBlocks uint64 = 14 * 24 * 60
+// 14 Tage bei chain.BlockTime Sekunden je Block (R561: war 14*24*60 und damit
+// auf 60-Sekunden-Blöcke gerechnet – die Chain läuft mit 5 s, die Frist betrug
+// real nur 28 Stunden).
+const escrowDefaultDeadlineBlocks uint64 = 14 * 24 * 60 * 60 / chain.BlockTime
 
 // blockIntervalSeconds ist die angenommene Blockzeit für die Umrechnung von
 // Block-Deadlines in Anzeige-Zeitpunkte (Vertragsvorschau). Richtwert; die echte
 // Rate hängt vom Produzenten ab (Phase 2: Single-Producer, on-demand).
-const blockIntervalSeconds = 60
+const blockIntervalSeconds = chain.BlockTime
 
 // fundusChainID ist die Chain-ID der eigenen Fundus-Chain (NICHT die Gnosis-ID
 // 100 aus der Config, die zum alten ERC-20-Pfad gehört).
@@ -547,7 +550,7 @@ func (s *Server) buildContractData(escrowIDStr string) (*ContractData, error) {
 		if target <= height {
 			return now
 		}
-		return now.Add(time.Duration(target-height) * blockIntervalSeconds * time.Second)
+		return now.Add(time.Duration((target-height)*blockIntervalSeconds) * time.Second)
 	}
 
 	price := uToFNDFloat(esc.Amount)
@@ -906,11 +909,11 @@ func buildContractHTML(d *ContractData) string {
   </div>
   <div class="frist">
     <span class="frist-label">Rücksendefrist (falls Storno)</span>
-    <span class="frist-date">%s UTC (14 Tage nach Storno)</span>
+    <span class="frist-date">%s</span>
   </div>
   <div class="frist">
     <span class="frist-label">Verkäufer-Antwortfrist (nach Rücksendebeleg)</span>
-    <span class="frist-date">7 Tage ab Einreichung</span>
+    <span class="frist-date">14 Tage ab Einreichung</span>
   </div>
 </div>
 
@@ -1019,7 +1022,7 @@ func buildContractHTML(d *ContractData) string {
 		d.ChainName, d.ChainID,
 		// Fristen
 		d.FreezeDeadline.Format("02.01.2006 15:04"),
-		d.ReturnDeadline.Format("02.01.2006 15:04"),
+		returnDeadlineText(d.ReturnDeadline),
 		// Blockchain
 		d.MarketAddr, d.ChainName, d.ChainID, d.EscrowID, d.NodeID,
 		// Unterschriften
@@ -1027,4 +1030,14 @@ func buildContractHTML(d *ContractData) string {
 		// Footer
 		d.EscrowID, d.CreatedAt.Format("02.01.2006 15:04:05"),
 	)
+}
+
+// returnDeadlineText: Die Rücksendefrist entsteht erst MIT einem Storno
+// (14 Tage ab dann). Ohne Storno gab es hier bisher das Null-Datum
+// "01.01.0001" — stattdessen den Hinweis zeigen.
+func returnDeadlineText(t time.Time) string {
+	if t.IsZero() || t.Year() < 2000 {
+		return "– (14 Tage ab Storno)"
+	}
+	return t.Format("02.01.2006 15:04") + " UTC (14 Tage nach Storno)"
 }

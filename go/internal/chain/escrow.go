@@ -344,7 +344,11 @@ func (s *State) applyEscrowConfirm(tx *Transaction, feeCollector Address) error 
 // returnWindowBlocks ist die Frist (in Blöcken), innerhalb derer der Verkäufer
 // nach Hinterlegung des Rücksende-Trackings den Rückerhalt bestätigen muss.
 // Danach darf der Käufer den Refund selbst auslösen (Schutz vor Blockade).
-const returnWindowBlocks = 20160 // ~7 Tage bei 30s-Blöcken
+// Rücksendefrist: 14 Tage bei BlockTime Sekunden je Block. R561: war 20160 und
+// auf 30-Sekunden-Blöcke gerechnet – bei 5 s waren das real nur 28 Stunden,
+// während der Kaufvertrag 14 Tage zusagt. KONSENS-RELEVANT: Alle Nodes müssen
+// denselben Wert verwenden, sonst gehen die Zustände auseinander.
+const returnWindowBlocks = 14 * 24 * 60 * 60 / BlockTime
 
 // applyEscrowCancel: NUR der Käufer, NUR solange offen. Der Betrag bleibt
 // gesperrt; der Escrow geht in cancel_requested über (Ware muss zurück).
