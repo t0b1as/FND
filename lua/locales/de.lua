@@ -20,6 +20,7 @@ return {
     files_label = "Dateien",
     shared_label = "Freigaben",
     home_label = "Start",
+    start_label = "Erste Schritte",
     ratings_label = "Bewertungen",
     partner_label = "Partner",
     topology_label = "Netz-Topologie",

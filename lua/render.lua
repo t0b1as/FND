@@ -273,6 +273,7 @@ function _M.header(title_key, active)
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_account") .. [[</div>
   <a href="/wallet"   class="%s" data-nav-key="wallet" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("wallet") .. [[</span>]] .. t("nav.wallet") .. [[</a>
+  <a href="/start" data-nav-key="start" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("star") .. [[</span>]] .. t("nav.start_label") .. [[</a>
   <a href="/settings" class="%s"><span class="di">⚙</span>]] .. t("nav.settings") .. [[</a>
   <a href="/admin"    class="%s"><span class="di">🔧</span>]] .. t("nav.admin") .. [[</a>
   <div class="drawer-sep"></div>

@@ -175,9 +175,16 @@ return function(captures)
         end
         -- Verkäufer-Empfangsadresse (Wallet) anzeigen, falls im Inserat gesetzt.
         local sellerWallet = record.data and record.data.seller_wallet
-        local walletRow = ""
+        -- Verkäuferkarte (R552): Bild + Name (aus der Ersteller-ID), "Angebot seit", Teilen.
+        local creatorFid = tostring(record.data and record.data.creator_fid or "")
+        local createdAt  = tostring(record.created_at or "")
+        local walletRow = '<div class="seller-card" id="seller-card" data-fid="' .. render.html_escape(creatorFid) ..
+            '" data-created="' .. render.html_escape(createdAt) .. '">' ..
+            '<div class="sc-av" id="sc-av">' .. require("icons").svg("partner") .. '</div>' ..
+            '<div class="sc-body"><div class="sc-name" id="sc-name">Verkäufer</div><div class="sc-sub" id="sc-sub"></div></div>' ..
+            '<button type="button" class="btn-sm" onclick="shareListing()" title="Angebot teilen">Teilen</button></div>'
         if type(sellerWallet) == "string" and sellerWallet ~= "" then
-            walletRow = string.format(
+            walletRow = walletRow .. string.format(
                 '<div class="seller-wallet-row" style="margin:8px 0;font-size:12px;color:var(--muted)">'..
                 '%s: <code style="font-size:11px">%s</code> '..
                 '<button class="btn-sm" style="padding:2px 8px;font-size:11px" onclick="copyWallet(\'%s\')">📋</button></div>',
@@ -691,6 +698,75 @@ code           { font-family:monospace; font-size:11px; background:var(--bg); co
       '<span style="color:#00e676;letter-spacing:1px">' + stars + '</span> ' +
       '<b>' + d.avg.toFixed(1).replace('.', ',') + '</b> <span class="meta">(' + d.count + ' Bewertung' + (d.count === 1 ? '' : 'en') + ')</span></a>';
   }).catch(function(){});
+})();
+</script>]==])
+    -- Ähnliche Angebote (gleiche Kategorie) und Seiten-Skripte (R552)
+    ngx.print('<section id="similar" class="similar" style="display:none"><h2>Ähnliche Angebote</h2><div class="hit-grid" id="similar-grid"></div></section>')
+    ngx.print('<script>window.LISTING_META=' .. (require("cjson.safe").encode({ id = record.id, title = tostring(record.data and record.data.title or ""), category = tostring(record.data and record.data.category or "") }) or "{}") .. ';</script>')
+    ngx.print([==[<script>
+(function(){
+  function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  var M = window.LISTING_META || {};
+  // Verkäuferkarte: Name und Bild zur Ersteller-ID, "Angebot seit"
+  var card = document.getElementById('seller-card');
+  if (card) {
+    var fid = card.getAttribute('data-fid'), created = card.getAttribute('data-created');
+    var sub = [];
+    if (created) { var d = new Date(created); if (!isNaN(d)) sub.push('Angebot seit ' + d.toLocaleDateString('de-DE')); }
+    document.getElementById('sc-sub').textContent = sub.join(' · ');
+    if (fid) {
+      fetch('/api/v1/identity/names?ids=' + encodeURIComponent(fid)).then(function(r){ return r.json(); }).then(function(d){
+        var n = d && d.names && d.names[fid]; if (n) document.getElementById('sc-name').textContent = n;
+        var av = d && d.avatars && d.avatars[fid];
+        if (av) { document.getElementById('sc-av').innerHTML = '<img src="/api/v1/identity/avatar/' + encodeURIComponent(fid) + '" alt="">'; }
+      }).catch(function(){});
+    }
+  }
+  // Teilen
+  window.shareListing = function(){
+    var url = location.href, title = M.title || document.title;
+    if (navigator.share) { navigator.share({ title: title, url: url }).catch(function(){}); return; }
+    if (navigator.clipboard) { navigator.clipboard.writeText(url); if (window.fundusToast) fundusToast('✓ Link kopiert'); }
+  };
+  // Lightbox: Blättern mit Pfeilen, Tasten und Wischen
+  var photos = Array.prototype.slice.call(document.querySelectorAll('.listing-photo'));
+  if (photos.length > 1) {
+    var idx = 0;
+    function show(i){ idx = (i + photos.length) % photos.length; var lb = document.getElementById('lightbox'); if (lb) lb.querySelector('.lightbox-img').src = photos[idx].src; }
+    document.addEventListener('click', function(e){
+      var lb = document.getElementById('lightbox'); if (!lb || !lb.classList.contains('open')) return;
+      if (!lb.querySelector('.lb-nav')) {
+        var p = document.createElement('button'); p.className = 'lb-nav lb-prev'; p.textContent = '‹';
+        var n = document.createElement('button'); n.className = 'lb-nav lb-next'; n.textContent = '›';
+        p.onclick = function(ev){ ev.stopPropagation(); show(idx - 1); }; n.onclick = function(ev){ ev.stopPropagation(); show(idx + 1); };
+        lb.appendChild(p); lb.appendChild(n);
+        var x0 = null;
+        lb.addEventListener('touchstart', function(t){ x0 = t.touches[0].clientX; }, {passive:true});
+        lb.addEventListener('touchend', function(t){ if (x0 === null) return; var dx = t.changedTouches[0].clientX - x0; x0 = null; if (Math.abs(dx) > 40) { t.stopPropagation(); show(dx < 0 ? idx + 1 : idx - 1); } }, {passive:true});
+      }
+      var src = lb.querySelector('.lightbox-img').src; var k = photos.findIndex(function(ph){ return ph.src === src; }); if (k >= 0) idx = k;
+    }, true);
+    document.addEventListener('keydown', function(e){ var lb = document.getElementById('lightbox'); if (!lb || !lb.classList.contains('open')) return; if (e.key === 'ArrowRight') show(idx + 1); if (e.key === 'ArrowLeft') show(idx - 1); if (e.key === 'Escape') lb.classList.remove('open'); });
+  }
+  // Ähnliche Angebote: gleiche Kategorie, bis zu 4
+  if (M.category) {
+    fetch('/api/v1/search?category=' + encodeURIComponent(M.category)).then(function(r){ return r.json(); }).then(function(d){
+      var sid = d.search_id, hits = d.hits || [];
+      function render(list){
+        var seen = {}, out = [];
+        list.forEach(function(it){ if (it.id === M.id || seen[it.id] || it.sold) return; seen[it.id] = 1; out.push(it); });
+        out = out.slice(0, 4); if (!out.length) return;
+        document.getElementById('similar-grid').innerHTML = out.map(function(it){
+          var price = it.price_min ? (parseFloat(it.price_min).toFixed(2).replace('.', ',') + ' FND') : '–';
+          var img = it.thumbnail ? '<img src="' + it.thumbnail + '" loading="lazy" alt="">' : (it.image_hash ? '<img src="/api/v1/files/thumb/' + encodeURIComponent(it.image_hash) + '" loading="lazy" alt="">' : '<div class="hc-ph"></div>');
+          return '<a class="hit-card" href="/listings/' + it.id + '"><div class="hc-img">' + img + '<span class="hc-price">' + price + '</span></div><div class="hc-title">' + esc(it.title) + '</div><div class="hc-meta">' + (it.distance_km ? it.distance_km + ' km' : '') + '</div></a>';
+        }).join('');
+        document.getElementById('similar').style.display = '';
+      }
+      render(hits);
+      if (sid) setTimeout(function(){ fetch('/api/v1/search/results?id=' + encodeURIComponent(sid)).then(function(r){ return r.json(); }).then(function(d2){ render(d2.hits || []); }).catch(function(){}); }, 1800);
+    }).catch(function(){});
+  }
 })();
 </script>]==])
     render.footer()

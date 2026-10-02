@@ -20,6 +20,7 @@ return {
     files_label = "Files",
     shared_label = "Shared files",
     home_label = "Home",
+    start_label = "Getting started",
     ratings_label = "Ratings",
     partner_label = "Partner",
     topology_label = "Network Topology",

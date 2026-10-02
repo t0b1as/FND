@@ -159,7 +159,9 @@ function conditionOptions() {
 function applyFilters() {
     const tf = _textFilter.toLowerCase().trim();
     const maxP = parseFloat(_priceFilter);
+    const favs = _favOnly ? favSet() : null;
     _allResults = _unfiltered.filter(it => {
+        if (favs && !favs.has(it.id)) return false;
         if (_catFilter && it.category !== _catFilter) return false;
         if (_condFilter && it.condition !== _condFilter) return false;
         if (!isNaN(maxP) && (parseFloat(it.price_min)||0) > maxP) return false;
@@ -221,7 +223,22 @@ function renderResultsPage() {
 
     // Filterleiste oben (neben Neues Angebot) rendern.
     renderFilterBar();
-    let html = '<table class="record-table"><thead><tr>' +
+    let html = renderChips() + renderViewToggle();
+    if (_view === 'grid') {
+        html += '<div class="hit-grid">';
+        for (const it of pageItems) html += renderHitCard(it);
+        html += '</div>';
+        if (totalPages > 1) {
+            html += '<div class="pager">';
+            html += '<button class="pager-btn" ' + (_currentPage <= 1 ? 'disabled' : '') + ' onclick="gotoPage(' + (_currentPage-1) + ')">‹ Zurück</button>';
+            html += '<span class="pager-info">Seite ' + _currentPage + ' / ' + totalPages + ' · ' + items.length + ' Anzeigen</span>';
+            html += '<button class="pager-btn" ' + (_currentPage >= totalPages ? 'disabled' : '') + ' onclick="gotoPage(' + (_currentPage+1) + ')">Weiter ›</button>';
+            html += '</div>';
+        }
+        res.innerHTML = html;
+        return;
+    }
+    html += '<table class="record-table"><thead><tr>' +
         '<th></th>' +
         '<th class="sortable" onclick="sortByColumn(\'title\')">'+SRCHT.col_title+sortArrow('title')+'</th>' +
         '<th class="sortable" onclick="sortByColumn(\'price\')">'+SRCHT.col_price+sortArrow('price')+'</th>' +
@@ -263,6 +280,52 @@ function renderResultsPage() {
         html += '</div>';
     }
     res.innerHTML = html;
+}
+
+// ── Bildraster, Chips, Favoriten (R552) ─────────────────────────────────────
+let _view = localStorage.getItem('fundus.listings.view') || 'grid';
+function setView(v){ _view = v; localStorage.setItem('fundus.listings.view', v); renderResultsPage(); }
+function favSet(){ try { return new Set(JSON.parse(localStorage.getItem('fundus.favs') || '[]')); } catch(e){ return new Set(); } }
+function toggleFav(ev, id){
+    ev.preventDefault(); ev.stopPropagation();
+    const f = favSet(); if (f.has(id)) f.delete(id); else f.add(id);
+    localStorage.setItem('fundus.favs', JSON.stringify(Array.from(f)));
+    if (_favOnly) applyFilters(); else renderResultsPage();
+}
+let _favOnly = false;
+function setFavOnly(on){ _favOnly = !!on; applyFilters(); }
+function renderViewToggle(){
+    return '<div class="view-toggle">' +
+        '<button class="vt' + (_view === 'grid' ? ' on' : '') + '" onclick="setView(\'grid\')" title="Raster">▦</button>' +
+        '<button class="vt' + (_view === 'list' ? ' on' : '') + '" onclick="setView(\'list\')" title="Liste">☰</button></div>';
+}
+function renderChips(){
+    const cats = {};
+    for (const it of _unfiltered) { const c = (it.category || '').trim(); if (c) cats[c] = (cats[c] || 0) + 1; }
+    const names = Object.keys(cats).sort(function(a, b){ return cats[b] - cats[a]; }).slice(0, 12);
+    let h = '<div class="chips">';
+    h += '<button class="chip' + (!_catFilter && !_favOnly ? ' on' : '') + '" onclick="setFavOnly(false);filterByCategory(\'\')">Alle</button>';
+    h += '<button class="chip chip-fav' + (_favOnly ? ' on' : '') + '" onclick="setFavOnly(!_favOnly)">♥ Favoriten</button>';
+    for (const c of names) {
+        h += '<button class="chip' + (_catFilter === c ? ' on' : '') + '" onclick="setFavOnly(false);filterByCategory(\'' + esc(c).replace(/'/g, '') + '\')">' + esc(c) + ' <span class="chip-n">' + cats[c] + '</span></button>';
+    }
+    return h + '</div>';
+}
+function renderHitCard(it){
+    const favs = favSet();
+    const price = it.price_min ? (parseFloat(it.price_min).toFixed(2).replace('.', ',') + ' FND') : '–';
+    let img = '';
+    if (it.thumbnail) img = '<img src="' + it.thumbnail + '" loading="lazy" alt="">';
+    else if (it.image_hash) img = '<img src="/api/v1/files/thumb/' + encodeURIComponent(it.image_hash) + '" loading="lazy" alt="">';
+    else img = '<div class="hc-ph">' + ((window.FUNDUS_ICONS || {}).listings || '') + '</div>';
+    const meta = [it.category ? esc(it.category) : '', it.distance_km ? it.distance_km + ' km' : '', it.condition ? esc(it.condition) : ''].filter(Boolean).join(' · ');
+    return '<a class="hit-card' + (it.sold ? ' sold' : '') + '" href="/listings/' + it.id + '">' +
+        '<div class="hc-img">' + img +
+        '<button class="hc-fav' + (favs.has(it.id) ? ' on' : '') + '" onclick="toggleFav(event,\'' + it.id + '\')" title="Merken">♥</button>' +
+        (it.sold ? '<span class="sold-badge hc-sold">VERKAUFT</span>' : '') +
+        '<span class="hc-price">' + price + '</span></div>' +
+        '<div class="hc-title">' + esc(it.title || '–') + '</div>' +
+        '<div class="hc-meta">' + meta + '</div></a>';
 }
 
 function gotoPage(p) {

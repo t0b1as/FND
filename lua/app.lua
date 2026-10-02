@@ -99,6 +99,10 @@ local routes = {
 
     -- Netzwerk
     -- Bewertungen von Handelspartnern (?escrow=… oder ?addr=…)
+    -- Erste-Schritte-Assistent für den Betreiber
+    { method = "GET",  pattern = "^/start$",
+      handler = require "pages.start" },
+
     { method = "GET",  pattern = "^/ratings$",
       handler = require "pages.ratings" },
 

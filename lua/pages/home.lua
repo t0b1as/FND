@@ -27,6 +27,27 @@ return function()
   <p class="home-sub">%s</p>
 </div>
 
+<a href="/start" id="start-card" class="start-card" style="display:none">
+  <div class="sc-ico">]] .. require("icons").svg("star") .. [[</div>
+  <div class="sc-main"><div class="sc-title">Erste Schritte</div><div class="sc-sub" id="sc-sub">Node-Wallet, Staking, Sicherung, Benachrichtigungen</div>
+    <div class="sc-bar"><div class="sc-fill" id="sc-fill"></div></div></div>
+  <div class="sc-arrow">›</div>
+</a>
+<script>
+(function(){
+  if (localStorage.getItem('fundus.start.done')) return;
+  fetch('/api/v1/admin/backup/status', {credentials:'same-origin'}).then(function(r){
+    if (r.status === 403 || r.status === 401) return;   // nur Heimnetz (Betreiber)
+    var card = document.getElementById('start-card'); if (card) card.style.display = 'flex';
+    return r.json().then(function(b){
+      return fetch('/api/v1/chain/status').then(function(x){ return x.json(); }).then(function(c){
+        var n = 1 + (b && b.enabled ? 1 : 0) + (c && c.i_am_validator ? 1 : 0) + (c && c.producer_running ? 1 : 0);
+        var f = document.getElementById('sc-fill'); if (f) f.style.width = Math.min(100, n / 6 * 100) + 'px';
+      });
+    });
+  }).catch(function(){});
+})();
+</script>
 <div class="tile-grid">
   <a href="/listings" class="tile tile-green" data-nav-key="listings" data-nav-zone="landing">
     <div class="tile-glow"></div>
