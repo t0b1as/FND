@@ -1,8 +1,8 @@
 {
-  "version": "R560",
-  "description": "FUNDUS R560 - Preview Image Quality",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R560/FND-R560-update.zip",
-  "node_argon2": "9dc87535befdbc118cf73d0898470e10deb0b4132dfb6b3902f564f7cac93cb3",
-  "published_at": "2026-10-02T17:07:04.7781738Z",
-  "signature": "0x57e91b2db381699899977b94a56eef561e0a2310fca81c663aa82b97487a77200754d835039953d28e85696374f00989ce436e3ce935446b453026214ce2615c1b"
+  "version": "R561",
+  "description": "FUNDUS R561 - Vertragsfristen",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R561/FND-R561-update.zip",
+  "node_argon2": "c1598845efb155478b8ab1c7b665443e674963e0648cfaad954524474a3b1b5c",
+  "published_at": "2026-10-02T17:23:14.3668437Z",
+  "signature": "0x270ba9054302b51cbafd83e730ba5da9846e4569a5904b095eb8098b4e7c15091de7172580036b0d8eaf08d99f51d04183be9486c047697cbc6b619930e32ae61c"
 }
