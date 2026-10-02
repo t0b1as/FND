@@ -309,7 +309,6 @@ var extWriteLANOnly = []string{
 	"/api/v1/meter/",        // Zählerstände
 	"/api/v1/energy",        // Energie-Token anlegen
 	"/api/v1/certificates",  // Zertifikate ausstellen
-	"/api/v1/addressbook",   // Adressbuch des Nodes
 	"/api/v1/files/manifest",
 	"/api/v1/swap/auto/",    // automatischer Handel des Nodes
 }
@@ -351,8 +350,8 @@ func (s *Server) externalWriteGuard() gin.HandlerFunc {
 		}
 		// Lesend: Hinterlegungs-Übersicht und Adressbuch sind Betreiber-Sache.
 		if m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions {
-			// Adressbuch = echte Adressen des Betreibers → von außen nicht lesbar.
-			if p == "/api/v1/swap/deposits" || strings.HasPrefix(p, "/api/v1/addressbook") {
+			// Adressbuch: je Nutzer (Besitzer-Prüfung im Handler, R553).
+			if p == "/api/v1/swap/deposits" {
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "nur aus dem Heimnetz"})
 				return
 			}

@@ -1025,5 +1025,83 @@ async function confirmSeedBackup(){
 </script>
 ]==])
 
+  -- ── Adressbuch (R553): FND- und Solana-Adressen, pro Nutzer, mit Bearbeiten ──
+  ngx.print([==[
+<div class="w-card" id="addrbook-card">
+  <div class="w-head"><h3>Adressbuch</h3></div>
+  <div class="w-body">
+    <p class="meta">Empfangsadressen für Überweisungen und Verkäufe – FND (0x…) und Solana. Von außen sieht jeder nur seine eigenen Einträge.</p>
+    <div id="ab2-list" class="meta">Lade …</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <input type="text" id="ab2-addr" placeholder="Adresse (0x… oder Solana)" autocomplete="off" spellcheck="false" style="flex:2;min-width:220px">
+      <input type="text" id="ab2-desc" placeholder="Beschreibung" autocomplete="off" style="flex:1;min-width:140px">
+      <button class="btn" id="ab2-add" style="width:auto">Hinzufügen</button>
+    </div>
+    <p class="meta" id="ab2-out"></p>
+  </div>
+</div>
+<style>
+.ab-row { display:flex; align-items:center; gap:8px; padding:8px 0; border-bottom:1px solid var(--border); }
+.ab-row .ab-kind { font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; background:var(--green-bg); color:var(--green); flex-shrink:0; }
+.ab-row .ab-kind.sol { background:rgba(79,142,247,.15); color:#4f8ef7; }
+.ab-row .ab-main { flex:1; min-width:0; }
+.ab-row .ab-desc { font-weight:600; }
+.ab-row .ab-addr { font-family:monospace; font-size:12px; color:var(--muted); word-break:break-all; }
+.ab-row input { width:100%; margin:2px 0; }
+.ab-row .ab-btns { display:flex; gap:4px; flex-shrink:0; }
+.ab-row .ab-btns .btn-sm { width:auto; padding:4px 8px; }
+</style>
+<script>
+(function(){
+  var el = function(id){ return document.getElementById(id); };
+  function esc(t){ return String(t==null?'':t).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  async function api(method, url, body){
+    var r = await fetch(url, {method: method, credentials:'same-origin', headers: body ? {'Content-Type':'application/json'} : {}, body: body ? JSON.stringify(body) : undefined});
+    var d = {}; try { d = await r.json(); } catch(e){}
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d;
+  }
+  async function load(){
+    var box = el('ab2-list');
+    try {
+      var d = await api('GET', '/api/v1/addressbook');
+      var list = d.entries || [];
+      if (!list.length) { box.innerHTML = '<div class="empty-hint">Noch keine Adressen. Füge unten die erste hinzu.</div>'; return; }
+      box.innerHTML = list.map(function(e){
+        return '<div class="ab-row" data-id="' + esc(e.id) + '">' +
+          '<span class="ab-kind ' + (e.kind === 'sol' ? 'sol' : '') + '">' + (e.kind === 'sol' ? 'SOL' : 'FND') + '</span>' +
+          '<div class="ab-main"><div class="ab-desc">' + esc(e.description || '(ohne Beschreibung)') + '</div><div class="ab-addr">' + esc(e.address) + '</div></div>' +
+          '<div class="ab-btns"><button class="btn-sm" data-act="edit">✎</button><button class="btn-sm" data-act="copy">📋</button><button class="btn-sm btn-danger" data-act="del">✕</button></div></div>';
+      }).join('');
+    } catch(e){ box.textContent = e.message === 'Bitte zuerst anmelden.' ? 'Bitte zuerst anmelden – dann siehst du dein Adressbuch.' : '✗ ' + e.message; }
+  }
+  el('ab2-list').addEventListener('click', async function(ev){
+    var btn = ev.target.closest('button[data-act]'); if (!btn) return;
+    var row = btn.closest('.ab-row'), id = row.getAttribute('data-id'), out = el('ab2-out');
+    var addr = row.querySelector('.ab-addr') ? row.querySelector('.ab-addr').textContent : '';
+    if (btn.dataset.act === 'copy') { try { await navigator.clipboard.writeText(addr); out.textContent = '✓ Adresse kopiert'; } catch(e){} return; }
+    if (btn.dataset.act === 'del') { if (!confirm('Eintrag löschen?')) return; try { await api('DELETE', '/api/v1/addressbook/' + id); load(); } catch(e){ out.textContent = '✗ ' + e.message; } return; }
+    if (btn.dataset.act === 'edit') {
+      var desc = row.querySelector('.ab-desc').textContent.replace('(ohne Beschreibung)', '');
+      row.querySelector('.ab-main').innerHTML = '<input type="text" class="ab-e-desc" value="' + esc(desc) + '" placeholder="Beschreibung"><input type="text" class="ab-e-addr" value="' + esc(addr) + '" spellcheck="false">';
+      row.querySelector('.ab-btns').innerHTML = '<button class="btn-sm" data-act="save">✓</button><button class="btn-sm" data-act="cancel">✕</button>';
+      return;
+    }
+    if (btn.dataset.act === 'cancel') { load(); return; }
+    if (btn.dataset.act === 'save') {
+      try { await api('PUT', '/api/v1/addressbook/' + id, {description: row.querySelector('.ab-e-desc').value, address: row.querySelector('.ab-e-addr').value.trim()}); out.textContent = '✓ Gespeichert'; load(); }
+      catch(e){ out.textContent = '✗ ' + e.message; }
+    }
+  });
+  el('ab2-add').onclick = async function(){
+    var a = el('ab2-addr').value.trim(), d = el('ab2-desc').value.trim(), out = el('ab2-out');
+    if (!a) { out.textContent = 'Bitte eine Adresse eingeben.'; return; }
+    try { await api('POST', '/api/v1/addressbook', {address: a, description: d}); el('ab2-addr').value = ''; el('ab2-desc').value = ''; out.textContent = '✓ Hinzugefügt'; load(); }
+    catch(e){ out.textContent = '✗ ' + e.message; }
+  };
+  load();
+})();
+</script>
+]==])
+
   render.footer()
 end

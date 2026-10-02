@@ -224,6 +224,7 @@ function _M.header(title_key, active)
   <script>window.FUNDUS_ICONS=]] .. require("icons").json() .. [[;</script>
   <script src="/static/ui.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/navvis.js?v=]] .. rev .. [["></script>
+  <script src="/static/qr.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/walletauth.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/msgnotify.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/navupdate.js?v=]] .. rev .. [[" defer></script>

@@ -438,6 +438,66 @@
     if (chan) chan.onmessage = function(){ schedule(); };
   })();
 
+
+  // ── Adress-Werkzeuge (R553): QR der eigenen Adresse, Adressbuch, Scanner ──
+  function addrToolsHtml(kind){
+    return '<div class="addr-tools">'+
+      '<button type="button" class="wallet-linkbtn" id="at-qr-'+kind+'">QR-Code</button>'+
+      '<select class="wallet-input" id="at-book-'+kind+'" style="flex:1;min-width:0"><option value="">Aus Adressbuch …</option></select>'+
+      '<button type="button" class="wallet-linkbtn" id="at-scan-'+kind+'" title="QR-Code des Empfängers mit der Kamera lesen">📷 Scannen</button>'+
+    '</div><div id="at-qrbox-'+kind+'" class="addr-qr" style="display:none"></div>';
+  }
+  async function wireAddrTools(ov, kind, ownAddr, toInput){
+    const qrBtn = ov.querySelector('#at-qr-'+kind), box = ov.querySelector('#at-qrbox-'+kind);
+    if (qrBtn) qrBtn.onclick = function(){
+      if (box.style.display !== 'none') { box.style.display = 'none'; return; }
+      try { box.innerHTML = (window.fundusQR ? fundusQR.svg(ownAddr, 220) : '') + '<div class="wallet-hint" style="text-align:center">Deine Adresse – zum Abscannen</div>'; box.style.display = ''; }
+      catch(e){ box.textContent = 'QR nicht verfügbar'; box.style.display = ''; }
+    };
+    const sel = ov.querySelector('#at-book-'+kind);
+    if (sel) {
+      try {
+        const r = await fetch('/api/v1/addressbook', {credentials:'same-origin'}); const d = await r.json();
+        (d.entries || []).filter(function(e){ return (e.kind || 'fnd') === kind; }).forEach(function(e){
+          const o = document.createElement('option'); o.value = e.address;
+          o.textContent = (e.description ? e.description + ' — ' : '') + e.address.slice(0, 8) + '…' + e.address.slice(-4); sel.appendChild(o);
+        });
+      } catch(e){}
+      sel.onchange = function(){ if (sel.value) { toInput.value = sel.value; toInput.dispatchEvent(new Event('input')); } };
+    }
+    const scan = ov.querySelector('#at-scan-'+kind);
+    if (scan) scan.onclick = function(){ scanQR(function(text){ toInput.value = String(text).replace(/^(fundus|solana|ethereum):/i, '').split('?')[0]; toInput.dispatchEvent(new Event('input')); }); };
+  }
+  // Kamera-Scanner (BarcodeDetector – Chrome/Edge/Android; sonst Hinweis)
+  function scanQR(onResult){
+    if (!('BarcodeDetector' in window) || !navigator.mediaDevices) { alert('Scanner braucht Chrome oder Android. Auf dem iPhone bitte die Adresse einfügen.'); return; }
+    const wrap = document.createElement('div'); wrap.className = 'scan-overlay';
+    wrap.innerHTML = '<video autoplay playsinline muted></video><div class="scan-frame"></div><button type="button" class="btn-sm scan-close">Abbrechen</button>';
+    document.body.appendChild(wrap);
+    const video = wrap.querySelector('video'); let stream = null, stop = false;
+    function close(){ stop = true; if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); wrap.remove(); }
+    wrap.querySelector('.scan-close').onclick = close;
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function(st){
+      stream = st; video.srcObject = st;
+      const det = new BarcodeDetector({ formats: ['qr_code'] });
+      (function tick(){
+        if (stop) return;
+        det.detect(video).then(function(codes){
+          if (codes && codes.length) { onResult(codes[0].rawValue); close(); return; }
+          setTimeout(tick, 250);
+        }).catch(function(){ setTimeout(tick, 400); });
+      })();
+    }).catch(function(e){ close(); alert('Kamera nicht verfügbar: ' + e.message); });
+  }
+  // Nach dem Senden: Empfänger ins Adressbuch
+  async function offerRemember(outEl, addr){
+    if (!addr || !outEl) return;
+    const a = document.createElement('a'); a.href = '#'; a.textContent = ' Empfänger ins Adressbuch'; a.style.marginLeft = '6px';
+    a.onclick = async function(ev){ ev.preventDefault(); const d = prompt('Beschreibung für ' + addr.slice(0, 10) + '…'); if (d === null) return;
+      try { await walletPost('/api/v1/addressbook', {address: addr, description: d}); a.textContent = ' ✓ gemerkt'; a.onclick = null; } catch(e){ alert('✗ ' + e.message); } };
+    outEl.appendChild(a);
+  }
+
   // ── Push-Benachrichtigungen (pro Gerät) ───────────────────────────────────
   function pushKeyBytes(b64){
     const pad = '='.repeat((4 - b64.length % 4) % 4);
@@ -524,6 +584,7 @@
       '<button class="wallet-submit" id="fnd-copy">Adresse kopieren</button>'+
       '<p class="wallet-hint" style="margin-top:12px"><b>FND senden</b></p>'+
       '<input class="wallet-input" id="fnd-to" placeholder="Empfänger (0x… oder Fundus-ID)" autocomplete="off" spellcheck="false">'+
+      addrToolsHtml('fnd')+
       '<div style="display:flex;gap:6px;align-items:center">'+
         '<input class="wallet-input" id="fnd-amt" type="number" min="0" step="0.000000001" placeholder="Betrag in FND" style="flex:1">'+
         '<button type="button" class="wallet-linkbtn" id="fnd-all" title="Gesamtes Guthaben – die Gebühr (1,8 %) geht davon ab">Alles</button>'+
@@ -533,6 +594,7 @@
       '<p class="wallet-hint" id="fnd-out"></p>'+
       (W.linked ? '' : '<p class="wallet-hint" style="margin-top:12px"><a href="#" id="fnd-more">Wallet als Login-Wallet hinterlegen …</a></p>'));
     const out = ov.querySelector("#fnd-out"), amtEl = ov.querySelector("#fnd-amt"), feeEl = ov.querySelector("#fnd-fee");
+    wireAddrTools(ov, 'fnd', W.address, ov.querySelector("#fnd-to"));
     let sendAll = false;
     function showFee(){
       const a = parseFloat(String(amtEl.value).replace(",", "."));
@@ -556,6 +618,7 @@
       try {
         const r = await walletPost("/api/v1/wallet/transfer", {to: to, amount_fnd: amt, fee_mode: sendAll ? "inclusive" : "added"});
         out.textContent = "✓ Gesendet – wird mit dem nächsten Block wirksam" + (r.tx_hash ? " (Tx " + String(r.tx_hash).slice(0, 12) + "…)" : "") + ".";
+        offerRemember(out, (ov.querySelector("#fnd-to").value || "").trim());
         amtEl.value = ""; sendAll = false; showFee();
         window.fundusBalanceChanged && window.fundusBalanceChanged();
       } catch(e){ out.textContent = "✗ " + e.message; }
@@ -593,6 +656,7 @@
       '<button class="wallet-submit" id="sol-copy">Adresse kopieren</button>'+
       '<p class="wallet-hint" style="margin-top:12px"><b>SOL senden</b></p>'+
       '<input class="wallet-input" id="sol-to" placeholder="Empfänger (Solana-Adresse)" autocomplete="off" spellcheck="false">'+
+      addrToolsHtml('sol')+
       '<div style="display:flex;gap:6px;align-items:center">'+
         '<input class="wallet-input" id="sol-amt" type="number" min="0" step="0.000001" placeholder="Betrag in SOL" style="flex:1">'+
         '<button type="button" class="wallet-linkbtn" id="sol-all" title="Gesamtes Guthaben abzüglich Gebühr – Konto danach leer">Alles</button>'+
@@ -605,6 +669,7 @@
       this.textContent = "✓ Kopiert";
     };
     const out = ov.querySelector("#sol-out");
+    wireAddrTools(ov, 'sol', d.address, ov.querySelector("#sol-to"));
     const amtEl = ov.querySelector("#sol-amt");
     // Guthaben aktuell halten: bei "Guthaben geändert" und alle 20 s, solange offen.
     async function refreshSolBal(){
@@ -641,6 +706,7 @@
         const r = await walletPost("/api/v1/wallet/sol/send", sendAll ? {to: to, all: true} : {to: to, amount_sol: amt});
         const cl = r.cluster ? "?cluster=" + encodeURIComponent(r.cluster) : "";
         out.innerHTML = "✓ Gesendet – <a href=\"https://explorer.solana.com/tx/" + encodeURIComponent(r.signature) + cl + "\" target=\"_blank\" rel=\"noopener\">im Explorer ansehen</a>";
+        offerRemember(out, (ov.querySelector("#sol-to").value || "").trim());
         sendAll = false; amtEl.value = "";
         window.fundusBalanceChanged && window.fundusBalanceChanged();
       } catch(e){ out.textContent = "✗ " + e.message; }

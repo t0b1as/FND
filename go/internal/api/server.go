@@ -346,6 +346,7 @@ func (s *Server) registerRoutes() {
 	{
 		addrbook.GET("",        s.listAddressBook)
 		addrbook.POST("",       s.addAddressBookEntry)
+		addrbook.PUT("/:id",    s.updateAddressBookEntry) // Bearbeiten (R553)
 		addrbook.DELETE("/:id", s.deleteAddressBookEntry)
 	}
 
@@ -433,7 +434,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R552"
+const NodeRevision = "R553"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

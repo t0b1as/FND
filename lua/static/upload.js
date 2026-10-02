@@ -750,7 +750,7 @@ async function loadAddrBookDropdown() {
     try {
         const r = await fetch("/api/v1/addressbook");
         const d = await r.json();
-        const entries = d.entries || [];
+        const entries = (d.entries || []).filter(function(e){ return (e.kind || 'fnd') === 'fnd'; }); // Verkäufer-Adresse: nur FND
         const current = sel.value;
         // Erste Option (leer) behalten, Rest neu aufbauen.
         sel.innerHTML = sel.options[0] ? sel.options[0].outerHTML : '<option value="">—</option>';
