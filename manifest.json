@@ -1,8 +1,8 @@
 {
-  "version": "R563",
-  "description": "FUNDUS R563 - Verkaufsbestand und Reaktivierung",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R563/FND-R563-update.zip",
-  "node_argon2": "e25692344eb321943b91af57b936d074f030e7262ae7ea429d41a41b9340f63e",
-  "published_at": "2026-10-02T17:49:19.5810782Z",
-  "signature": "0x48b864440ad7966ea7e039e56ae691d5b30ffdf88720ebf33a7b0db30134b7e42ac4b2cb0be60a12241b3d4b77523d07455aea4b0c59cb8b5959e3456757f48f1b"
+  "version": "R570",
+  "description": "FUNDUS R570 - Verkaufsbestand und Versand",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R570/FND-R570-update.zip",
+  "node_argon2": "e793401ac7001993941999494b01f97d592b4aad6702e4e62cb94bd467fab347",
+  "published_at": "2026-10-03T06:01:36.909476Z",
+  "signature": "0x45edb4a7a368d4a62efbaa6e5cc8ec4997d7d5f6a5aa7ee92e2e39b475824d851832a82d3b381a552478529f1195a85e1c712eafe5de74e03da8a5d38734b3b91c"
 }
