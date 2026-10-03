@@ -515,6 +515,31 @@ function buyQty() {
     const max = el ? parseInt(el.max, 10) || 1 : 1;
     return Math.min(Math.max(1, isNaN(n) ? 1 : n), max);
 }
+// Nach einem Kauf: Restmenge, Auswahl und Gesamtpreis auf der Seite anpassen.
+function updateStockAfterPurchase(bought) {
+    const row = document.querySelector('.stock-row');
+    const qtyEl = document.getElementById('buy-qty');
+    let left = null;
+    if (qtyEl) {
+        left = Math.max(0, (parseInt(qtyEl.max, 10) || 0) - bought);
+        qtyEl.max = String(left);
+        qtyEl.value = String(Math.min(parseInt(qtyEl.value, 10) || 1, Math.max(1, left)));
+        const maxLbl = document.querySelector('.qty-max');
+        if (maxLbl) maxLbl.textContent = 'von ' + left;
+        if (left <= 1) { const p = document.querySelector('.qty-pick'); if (p) p.style.display = 'none'; }
+    } else if (row) {
+        const m = row.textContent.match(/(\d+)/);
+        if (m) left = Math.max(0, parseInt(m[1], 10) - bought);
+    }
+    if (row && left !== null) {
+        row.innerHTML = left > 0 ? 'Noch <b>' + left + '</b> verfügbar' : '<b>Ausverkauft</b>';
+    }
+    if (left === 0) {
+        const btn = document.getElementById('buy-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Ausverkauft'; }
+    }
+    updateBuyTotal();
+}
 function shipCost() {
     const b = document.getElementById('buy-box');
     return parseFloat((b && b.dataset.ship) || '0') || 0;
@@ -591,6 +616,9 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
         }
 
         const escrowId = d.escrow_id;
+        // Bestand auf der Seite sofort nachführen (R580) – vorher musste man
+        // neu laden, um die verringerte Menge zu sehen.
+        updateStockAfterPurchase(buyQty());
         // Kauf ist mit den Wörtern bereits bezahlt (Escrow eröffnet + eingefroren).
         // Kein separater "Jetzt bezahlen"-Schritt mehr nötig.
         st.innerHTML = `

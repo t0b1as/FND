@@ -1274,6 +1274,14 @@ func (s *Server) applySale(listingID, tx string, n int) bool {
 	txs, _ := rec.Data["sold_txs"].([]any)
 	rec.Data["sold_txs"] = append(txs, tx)
 	rec.UpdatedAt = time.Now()
+	// NEU SIGNIEREN: Die anderen Nodes prüfen die Signatur über die Daten. Ohne
+	// das verwarfen sie die geänderte Fassung stillschweigend – der Bestand kam
+	// dort nie an.
+	if s.node != nil && len(rec.Signature) > 0 {
+		if sig, err := s.node.SignData(rec.SigningBytes()); err == nil {
+			rec.Signature = sig
+		}
+	}
 	if s.store.Put(rec) != nil {
 		return false
 	}
