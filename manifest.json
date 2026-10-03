@@ -1,8 +1,8 @@
 {
-  "version": "R578",
-  "description": "FUNDUS R578 - Verkaufsbestand",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R578/FND-R578-update.zip",
-  "node_argon2": "f1525eefe50e6edb661f7d2d95debfda13df334abdf6b2e442a5da4493b4dcf6",
-  "published_at": "2026-10-03T11:44:51.7849028Z",
-  "signature": "0xc11a66a2f0c07d6a17e3b678ee34a4fc66ed104962b2febb22e065c2b9b008a547faa97453fb721d94e280ac6335cf1ce9104d554ef9b42875b1c1d25d94eb831c"
+  "version": "R579",
+  "description": "FUNDUS R579 - Verkaufsbestand",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R579/FND-R579-update.zip",
+  "node_argon2": "2902b3461a164d57d15c0f2bc752748f66a1f2123a7c4124dca4098d3d837563",
+  "published_at": "2026-10-03T14:41:21.6509015Z",
+  "signature": "0x6892397b0bc00d4c6978ad43849f1b0735bf65df96e5f14401be2ecb9f04466813479732480d77bc93d449103215f090be94573b03cfc3da4308a55dcad937fb1c"
 }
