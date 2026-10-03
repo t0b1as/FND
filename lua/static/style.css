@@ -1654,10 +1654,22 @@ body.home footer { margin-top: 1rem; padding: 0.75rem; }
 .wallet-menu {
   position: fixed; top: 54px; right: 12px; z-index: 10001;
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px; display: flex; flex-direction: column; gap: 6px; min-width: 220px;
+  padding: 10px; display: flex; flex-direction: column; gap: 6px;
+  /* R567: Ohne Breiten- und Höhengrenze zog die lange Wallet-Adresse das Menü
+     auseinander und der letzte Eintrag lag außerhalb des Bildes. */
+  min-width: 250px; width: max-content; max-width: min(360px, calc(100vw - 24px));
+  max-height: calc(100vh - 70px); overflow-y: auto; overscroll-behavior: contain;
   box-shadow: 0 8px 24px rgba(0,0,0,.4);
 }
-.wallet-menu-addr { font-family: monospace; font-size: 11px; color: var(--text-dim); word-break: break-all; padding: 4px 2px; }
+.wallet-menu-addr { font-size: 12px; color: var(--text-dim); padding: 2px 2px 6px; }
+.wm-row { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; }
+.wm-k { flex: 0 0 82px; color: var(--muted); font-size: 11px; }
+.wm-v { flex: 1; min-width: 0; word-break: break-all; }
+.wm-addr {
+  font-family: monospace; font-size: 11px; cursor: pointer;
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.wm-addr.full { white-space: normal; overflow: visible; }
 .wallet-menu button {
   padding: 8px; border-radius: 6px; cursor: pointer; font-size: 13px; text-align: left;
   border: 1px solid var(--border); background: transparent; color: var(--text);
@@ -2328,3 +2340,24 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 /* Restbestand eines Angebots (R562) */
 .stock-row { margin:8px 0; font-size:var(--fs-sm); color:var(--muted); }
 .stock-row b { color:var(--green); font-size:var(--fs-base); }
+
+/* ── QR-Dialog (R564) ────────────────────────────────────────────────── */
+.qr-box { display:flex; justify-content:center; margin:6px 0 10px; }
+.qr-box svg { border-radius:12px; background:#fff; padding:8px; max-width:100%; height:auto; }
+.qr-text { font-family:monospace; font-size:11.5px; word-break:break-all; text-align:center; }
+.qr-actions { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:8px; }
+
+/* Mengenauswahl beim Kauf (R569) */
+.qty-pick { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:10px 0; }
+.qty-pick label { color:var(--muted); font-size:var(--fs-sm); }
+.qty-pick input { width:96px; text-align:center; }
+.qty-pick .qty-max { color:var(--muted); font-size:var(--fs-sm); }
+.qty-pick .qty-total { font-weight:700; color:var(--green); margin-left:auto; }
+
+/* Übergabe-Wahl und Adressprüfung beim Kauf (R570) */
+.deliv-pick { display:flex; gap:16px; flex-wrap:wrap; margin:10px 0; }
+.deliv-opt { display:flex; align-items:center; gap:7px; font-size:var(--fs-sm); cursor:pointer; }
+.deliv-opt input { width:auto; min-height:0; accent-color:var(--green); }
+.ship-check { font-size:12px; color:var(--muted); margin-top:6px; }
+.ship-check.ok { color:var(--green); }
+.ship-check.bad { color:#ff8a80; }

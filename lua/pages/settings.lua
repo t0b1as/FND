@@ -261,6 +261,8 @@ ngx.print([[
     <p class="meta">Nutzer dieses Nodes können sich zusätzlich zu Push per E-Mail benachrichtigen lassen.
     Ein Pi am Heimanschluss kann Mails nicht selbst zustellen – der Node versendet daher über ein vorhandenes Postfach, wie ein Mailprogramm.
     Bei den meisten Anbietern braucht es dafür ein eigenes App-Passwort.</p>
+    <p class="meta">Die <b>öffentliche Adresse</b> unten wird auch für QR-Codes und zum Teilen von Angeboten verwendet – ohne sie enthalten diese die lokale IP und funktionieren nur im Heimnetz.
+    Der Node trägt sie selbst ein, sobald er zum ersten Mal von außen über einen Domainnamen mit HTTPS aufgerufen wird.</p>
     <div class="set-grid">
       <label>Server <input type="text" id="ml-host" placeholder="smtp.beispiel.de" autocomplete="off"></label>
       <label>Port <input type="number" id="ml-port" placeholder="587"></label>
@@ -268,7 +270,7 @@ ngx.print([[
       <label>Benutzer <input type="text" id="ml-user" placeholder="postfach@beispiel.de" autocomplete="off"></label>
       <label>Passwort <input type="password" id="ml-pass" placeholder="(unverändert lassen)" autocomplete="new-password"></label>
       <label>Absender <input type="email" id="ml-from" placeholder="fundus@beispiel.de" autocomplete="off"></label>
-      <label>Adresse des Nodes <input type="url" id="ml-base" placeholder="https://fnd.resolve.bar" autocomplete="off"></label>
+      <label>Öffentliche Adresse des Nodes <input type="url" id="ml-base" placeholder="https://fnd.resolve.bar" autocomplete="off"></label>
     </div>
     <label class="set-check" style="margin-top:8px"><input type="checkbox" id="ml-en"> E-Mail-Versand aktiv</label>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">

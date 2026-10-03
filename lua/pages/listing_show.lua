@@ -193,7 +193,8 @@ return function(captures)
             '" data-created="' .. render.html_escape(createdAt) .. '">' ..
             '<div class="sc-av" id="sc-av">' .. require("icons").svg("partner") .. '</div>' ..
             '<div class="sc-body"><div class="sc-name" id="sc-name">Verkäufer</div><div class="sc-sub" id="sc-sub"></div></div>' ..
-            '<button type="button" class="btn-sm" onclick="shareListing()" title="Angebot teilen">Teilen</button></div>'
+            '<button type="button" class="btn-sm" onclick="shareListing()" title="Angebot teilen">Teilen</button>' ..
+            '<button type="button" class="btn-sm" onclick="listingQR()" title="Als QR-Code zeigen">▦</button></div>'
         if type(sellerWallet) == "string" and sellerWallet ~= "" then
             walletRow = walletRow .. string.format(
                 '<div class="seller-wallet-row" style="margin:8px 0;font-size:12px;color:var(--muted)">'..
@@ -211,26 +212,42 @@ return function(captures)
         local shipRow = ""
         local buyDisabled = ""
         if isShipping then
+            local scost = tonumber(record.data and record.data.shipping_cost) or 0
             shipRow = string.format([=[
-    <div class="ship-address-box" style="margin:10px 0">
-      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">%s</label>
-      <textarea id="ship-address" rows="3" placeholder="%s"
+    <div class="deliv-pick">
+      <label class="deliv-opt"><input type="radio" name="deliv" value="pickup" checked onchange="onDeliveryChange()"> Selbstabholung</label>
+      <label class="deliv-opt"><input type="radio" name="deliv" value="shipping" onchange="onDeliveryChange()"> Versand%s</label>
+    </div>
+    <div class="ship-address-box" id="ship-box" style="display:none;margin:10px 0">
+      <label for="ship-address" style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Versandadresse</label>
+      <textarea id="ship-address" rows="4" placeholder="Name, Straße Hausnummer, PLZ Ort, Land (optional)"
                 style="width:100%%;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:10px;font-size:13px"
                 oninput="onShipAddressChange()"></textarea>
-    </div>]=], t("listing.ship_address"), t("listing.ship_address_ph"))
-            buyDisabled = "disabled"
+      <div class="ship-check" id="ship-check">Format: Name, Straße Hausnummer, PLZ Ort, Land (optional)</div>
+    </div>]=], (scost > 0 and string.format(" (+%.2f FND)", scost) or ""))
         end
         -- contact_pub_key für die Messenger-Benachrichtigung ans Frontend geben.
         local cpkJs = (type(cpk) == "string" and cpk ~= "") and cpk or ""
         local cfidJs = (type(cfid) == "string") and cfid or ""
+        -- Mengenauswahl (R569): nur, wenn mehr als ein Stück verfügbar ist.
+        local qtyPicker = ""
+        if remaining > 1 then
+            qtyPicker = string.format(
+                '<div class="qty-pick"><label for="buy-qty">Anzahl</label>' ..
+                '<input type="number" id="buy-qty" min="1" max="%d" step="1" value="1" data-unit="%s" oninput="updateBuyTotal()">' ..
+                '<span class="qty-max">von %d</span>' ..
+                '<span class="qty-total" id="buy-total"></span></div>',
+                remaining, (price_min > 0 and string.format("%.2f", price_min) or "0"), remaining)
+        end
         -- Restbestand über dem Kaufbereich (nur bei mehreren Stück)
         buySection = stockRow .. string.format([==[
-  <div class="buy-box" id="buy-box" data-shipping="%s" data-cpk="%s" data-cfid="%s">
+  <div class="buy-box" id="buy-box" data-shipping="%s" data-ship="%s" data-cpk="%s" data-cfid="%s">
     <h3>%s</h3>
     <p class="buy-hint">
       FND werden nach Kauf fuer <strong>14 Tage</strong> eingefroren.
       Du kannst in dieser Zeit den Erhalt bestaetigen oder Storno beantragen.
     </p>
+    %s
     %s
     %s
     <div class="buy-actions">
@@ -245,8 +262,8 @@ return function(captures)
     </div>
     <div id="escrow-status" class="escrow-status hidden"></div>
   </div>]==],
-            (isShipping and "1" or "0"), cpkJs, cfidJs,
-            t("listing.buy"), walletRow, shipRow, buyDisabled,
+            (isShipping and "1" or "0"), string.format("%.2f", tonumber(record.data and record.data.shipping_cost) or 0), cpkJs, cfidJs,
+            t("listing.buy"), walletRow, shipRow, qtyPicker, buyDisabled,
             record.id, (sellerWallet or ""), (price_min > 0 and string.format("%.2f", price_min) or ""),
             record.id, contactBtn)
     end
@@ -326,11 +343,42 @@ function openListingVideoLightbox(src) {
 }
 // Verkäufer kontaktieren: zum Messenger mit vorausgefülltem Empfänger (ID + Key).
 // Versandadresse: Kaufbutton aktivieren/deaktivieren je nach Eingabe.
+// ── Übergabe und Adresse (R570) ─────────────────────────────────────────────
+// Erwartet: "Name, Straße Hausnummer, PLZ Ort, Land (optional)"
+function parseShipAddress(text) {
+  const parts = String(text || '').split(',').map(function(p){ return p.trim(); }).filter(function(p){ return p.length; });
+  if (parts.length < 3) return { ok: false, msg: 'Bitte Name, Straße mit Hausnummer und PLZ Ort – jeweils mit Komma getrennt.' };
+  const name = parts[0], street = parts[1], city = parts[2], country = parts[3] || '';
+  if (name.length < 2 || !/[A-Za-zÄÖÜäöüß]/.test(name)) return { ok: false, msg: 'Der Name sieht nicht vollständig aus.' };
+  if (!/\d/.test(street) || street.length < 4) return { ok: false, msg: 'In der Straße fehlt die Hausnummer.' };
+  const m = city.match(/^(\d{4,6})\s+(.{2,})$/);
+  if (!m) return { ok: false, msg: 'Bitte PLZ und Ort angeben, z.B. „63674 Altenstadt“.' };
+  return { ok: true, name: name, street: street, zip: m[1], city: m[2], country: country,
+           msg: '✓ ' + name + ' · ' + street + ' · ' + m[1] + ' ' + m[2] + (country ? ' · ' + country : '') };
+}
+function isShippingChosen() {
+  const r = document.querySelector('input[name="deliv"]:checked');
+  if (r) return r.value === 'shipping';
+  const box = document.getElementById('buy-box');
+  return !!(box && box.dataset.shipping === '1' && document.getElementById('ship-address'));
+}
+function onDeliveryChange() {
+  const box = document.getElementById('ship-box');
+  if (box) box.style.display = isShippingChosen() ? '' : 'none';
+  updateBuyTotal();
+  onShipAddressChange();
+}
 function onShipAddressChange() {
   const ta = document.getElementById('ship-address');
   const btn = document.getElementById('buy-btn');
-  if (ta && btn) {
-    btn.disabled = ta.value.trim().length < 5;
+  const out = document.getElementById('ship-check');
+  if (!btn) return;
+  if (!isShippingChosen()) { btn.disabled = false; return; }
+  const r = ta ? parseShipAddress(ta.value) : { ok: false, msg: '' };
+  btn.disabled = !r.ok;
+  if (out) {
+    out.textContent = (ta && ta.value.trim()) ? r.msg : 'Format: Name, Straße Hausnummer, PLZ Ort, Land (optional)';
+    out.className = 'ship-check' + ((ta && ta.value.trim()) ? (r.ok ? ' ok' : ' bad') : '');
   }
 }
 
@@ -456,6 +504,27 @@ async function deleteListing(id) {
     }
 }
 
+// Gewählte Stückzahl (1, wenn es keine Auswahl gibt)
+function buyQty() {
+    const el = document.getElementById('buy-qty');
+    const n = el ? parseInt(el.value, 10) : 1;
+    const max = el ? parseInt(el.max, 10) || 1 : 1;
+    return Math.min(Math.max(1, isNaN(n) ? 1 : n), max);
+}
+function shipCost() {
+    const b = document.getElementById('buy-box');
+    return parseFloat((b && b.dataset.ship) || '0') || 0;
+}
+function updateBuyTotal() {
+    const el = document.getElementById('buy-qty');
+    const out = document.getElementById('buy-total');
+    if (!el || !out) return;
+    el.value = buyQty();
+    const unit = parseFloat(el.getAttribute('data-unit') || '0');
+    if (unit <= 0) return;
+    const total = unit * buyQty() + (isShippingChosen() ? shipCost() : 0);
+    out.textContent = '= ' + total.toFixed(2).replace('.', ',') + ' FND';
+}
 async function startEscrow(listingId, sellerWallet, amountFnd) {
     // Ohne Verkäufer-Empfangsadresse kein Direktkauf möglich.
     if (!sellerWallet) {
@@ -464,13 +533,14 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
     }
     // Bei Versand: Versandadresse muss ausgefüllt sein.
     const buyBox = document.getElementById('buy-box');
-    const isShipping = buyBox && buyBox.dataset.shipping === '1';
+    const isShipping = isShippingChosen();
     let shipAddress = '';
     if (isShipping) {
         const ta = document.getElementById('ship-address');
         shipAddress = ta ? ta.value.trim() : '';
-        if (!shipAddress) {
-            alert(LS.ship_required || 'Bitte gib deine Versandadresse ein.');
+        const chk = parseShipAddress(shipAddress);
+        if (!chk.ok) {
+            alert(chk.msg || 'Bitte gib deine Versandadresse ein.');
             return;
         }
     }
@@ -497,7 +567,9 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
                 listing_id: listingId,
                 seller: sellerWallet,
                 words: words,
-                amount_fnd: amountFnd || undefined
+                quantity: buyQty(),
+                delivery: isShipping ? 'shipping' : 'pickup',
+                amount_fnd: amountFnd ? (parseFloat(amountFnd) * buyQty() + (isShipping ? shipCost() : 0)) : undefined
             }),
         });
         const d = await r.json();
@@ -734,9 +806,18 @@ code           { font-family:monospace; font-size:11px; background:var(--bg); co
       }).catch(function(){});
     }
   }
+  // QR-Code des Angebots: Link zum Scannen (Aushang, Etikett, Bildschirm)
+  window.listingQR = async function(){
+    if (!window.fundusShowQR) return;
+    var r = window.fundusPublicHref ? await fundusPublicHref(location.href) : { url: location.href, external: true };
+    fundusShowQR(r.url, M.title || 'Angebot', r.external
+      ? 'Scannen öffnet dieses Angebot.'
+      : 'Nur im Heimnetz gültig – eine öffentliche Adresse steht unter Einstellungen → Netzwerk.');
+  };
   // Teilen
-  window.shareListing = function(){
-    var url = location.href, title = M.title || document.title;
+  window.shareListing = async function(){
+    var r = window.fundusPublicHref ? await fundusPublicHref(location.href) : { url: location.href };
+    var url = r.url, title = M.title || document.title;
     if (navigator.share) { navigator.share({ title: title, url: url }).catch(function(){}); return; }
     if (navigator.clipboard) { navigator.clipboard.writeText(url); if (window.fundusToast) fundusToast('✓ Link kopiert'); }
   };
@@ -761,6 +842,7 @@ code           { font-family:monospace; font-size:11px; background:var(--bg); co
     document.addEventListener('keydown', function(e){ var lb = document.getElementById('lightbox'); if (!lb || !lb.classList.contains('open')) return; if (e.key === 'ArrowRight') show(idx + 1); if (e.key === 'ArrowLeft') show(idx - 1); if (e.key === 'Escape') lb.classList.remove('open'); });
   }
   // Ähnliche Angebote: gleiche Kategorie, bis zu 4
+  if (document.getElementById('buy-btn')) { onDeliveryChange(); }
   if (M.category) {
     fetch('/api/v1/search?category=' + encodeURIComponent(M.category)).then(function(r){ return r.json(); }).then(function(d){
       var sid = d.search_id, hits = d.hits || [];

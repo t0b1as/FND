@@ -48,6 +48,10 @@ function deliveryModeChanged() {
 // Lösch-Button), die Hashes werden in globalen Arrays gesammelt. Beim Speichern
 // werden nur die Hashes gesendet. So funktionieren Multi-Upload, Thumbnails und
 // das Entfernen zuverlässig — auch im Bearbeiten-Modus.
+// R568: Medien werden beim Bearbeiten nur gesendet, wenn sie wirklich
+// geändert wurden – sonst löschte ein Speichern (z.B. der Stückzahl) die
+// Bilder von Angeboten, die nur ein Vorschaubild ohne Hash hatten.
+window._mktMediaTouched = false;
 window._mktImageHashes = window._mktImageHashes || [];
 window._mktImageThumbs = window._mktImageThumbs || [];
 window._mktVideoHashes = window._mktVideoHashes || [];
@@ -67,6 +71,7 @@ async function handleMediaFiles(fileList) {
         if (isImg && window._mktImageHashes.length >= 4) { mktMediaMsg("Maximal 4 Bilder pro Anzeige."); continue; }
         const thumb = isImg ? await fileToThumbnail(file) : await videoFileThumb(file);
         const hashes = isImg ? window._mktImageHashes : window._mktVideoHashes;
+        window._mktMediaTouched = true;
         const thumbs = isImg ? window._mktImageThumbs : window._mktVideoThumbs;
         const token = "up:" + Math.random().toString(36).slice(2);  // Platzhalter bis zum Hash
         hashes.push(token); thumbs.push(thumb || "");
@@ -144,6 +149,7 @@ function renderMktImages() {
         const big = idx === 0;
         const t = mktTile(hash, window._mktImageThumbs[idx], big ? 216 : 104, false, function(){
             window._mktImageHashes.splice(idx, 1);
+            window._mktMediaTouched = true;
             window._mktImageThumbs.splice(idx, 1);
             renderMktImages();
             updateAnalyzeButton();
@@ -161,6 +167,7 @@ function renderMktVideos() {
     window._mktVideoHashes.forEach(function(hash, idx){
         box.appendChild(mktTile(hash, window._mktVideoThumbs[idx], 104, true, function(){
             window._mktVideoHashes.splice(idx, 1);
+            window._mktMediaTouched = true;
             window._mktVideoThumbs.splice(idx, 1);
             renderMktVideos();
         }));

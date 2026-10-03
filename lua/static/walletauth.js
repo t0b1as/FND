@@ -184,16 +184,21 @@
     const W = window.WALLET;
     ov.innerHTML =
       '<div class="wallet-menu-addr">' +
-        '<span class="meta">Name</span><br>' + (W.displayName ? '<b>' + walletEsc(W.displayName) + '</b>' : '<span class="meta">– noch keiner festgelegt</span>') + '<br>' +
+        '<div class="wm-row"><span class="wm-k">Name</span><span class="wm-v">' +
+          (W.displayName ? '<b>' + walletEsc(W.displayName) + '</b>' : '<span class="meta">– noch keiner</span>') + '</span></div>' +
         (W.address
-          ? '<span class="meta">Wallet (FND)' + (W.linked ? ' · hinterlegt' : '') + '</span><br>' + W.address
-          : '<span class="meta">Wallet noch nicht geöffnet</span>') +
-        '<br><span class="meta">Fundus-ID (Kontakt): ' + (W.fundusID||'') + '</span></div>'+
+          ? '<div class="wm-row"><span class="wm-k">Wallet' + (W.linked ? ' · hinterlegt' : '') + '</span>' +
+            '<span class="wm-v wm-addr" title="' + walletEsc(W.address) + '" onclick="this.classList.toggle(\'full\')">' + walletEsc(W.address) + '</span></div>'
+          : '<div class="wm-row"><span class="wm-k">Wallet</span><span class="wm-v meta">noch nicht geöffnet</span></div>') +
+        '<div class="wm-row"><span class="wm-k">Fundus-ID</span>' +
+          '<span class="wm-v wm-addr" title="' + walletEsc(W.fundusID || '') + '" onclick="this.classList.toggle(\'full\')">' + walletEsc(W.fundusID || '–') + '</span></div>' +
+      '</div>'+
       (W.address ? '<button onclick="navigator.clipboard&&navigator.clipboard.writeText(window.WALLET.address);this.textContent=\'✓ Kopiert\'">Wallet-Adresse kopieren</button>' : '')+
       '<button onclick="walletEditName()">Profil bearbeiten… (Name, Bild)</button>'+
       (W.address ? '<button onclick="walletFND()">FND-Wallet</button>' : '<button onclick="walletOpenWallet()">Wallet öffnen</button>')+
       '<button onclick="walletPush()">🔔 Benachrichtigungen</button>'+
       '<button onclick="walletMail()">✉️ E-Mail-Benachrichtigungen</button>'+
+      '<button onclick="fundusMyIdQR()">▦ Meine Fundus-ID als QR</button>'+
       '<button onclick="walletSolana()">Solana-Wallet</button>'+
       '<button onclick="walletLinkOther()">Andere Wallet hinterlegen…</button>'+
       (W.linked ? '<button onclick="walletUnlink()">Hinterlegung aufheben</button>' : '')+
@@ -439,6 +444,84 @@
     if (chan) chan.onmessage = function(){ schedule(); };
   })();
 
+
+  // ── Öffentliche Adresse des Nodes (R565) ──────────────────────────────────
+  // QR-Codes müssen von außen funktionieren. Ist in den Einstellungen eine
+  // öffentliche Adresse hinterlegt (z.B. https://fnd.resolve.bar), wird sie
+  // verwendet – sonst die Adresse, über die die Seite gerade läuft.
+  let _baseUrl = null;
+  async function fundusBaseUrl(){
+    if (_baseUrl !== null) return _baseUrl;
+    try {
+      const r = await fetch('/api/v1/public-url', {credentials:'same-origin'});
+      const d = await r.json();
+      _baseUrl = (d && d.base_url || '').replace(/\/+$/, '');
+    } catch(e){ _baseUrl = ''; }
+    return _baseUrl;
+  }
+  function isLocalHost(h){
+    return /^\d+\.\d+\.\d+\.\d+$/.test(h) || h === 'localhost' || /\.local$/.test(h) || h.indexOf(':') >= 0;
+  }
+  // Macht aus der aktuellen Seite eine von außen erreichbare Adresse.
+  window.fundusPublicHref = async function(href){
+    const u = new URL(href || location.href);
+    const base = await fundusBaseUrl();
+    if (base) { try { const b = new URL(base); u.protocol = b.protocol; u.host = b.host; } catch(e){} }
+    return { url: u.toString(), external: !!base || !isLocalHost(u.hostname) };
+  };
+
+  // ── QR-Dialog (R564): Text/Adresse als QR zeigen, kopieren, teilen ────────
+  window.fundusShowQR = function(text, title, hint){
+    text = String(text || "");
+    if (!text) return;
+    const ov = walletCard(title || "QR-Code",
+      '<div class="qr-box" id="qr-box"></div>'+
+      (hint ? '<p class="wallet-hint" style="text-align:center">'+walletEsc(hint)+'</p>' : '')+
+      '<p class="wallet-hint qr-text" id="qr-text"></p>'+
+      '<div class="qr-actions">'+
+        '<button type="button" class="wallet-linkbtn" id="qr-copy">Kopieren</button>'+
+        '<button type="button" class="wallet-linkbtn" id="qr-share" style="display:none">Teilen</button>'+
+        '<button type="button" class="wallet-linkbtn" id="qr-save">Bild speichern</button>'+
+      '</div><p class="wallet-hint" id="qr-out"></p>');
+    const box = ov.querySelector('#qr-box'), out = ov.querySelector('#qr-out');
+    ov.querySelector('#qr-text').textContent = text;
+    try { box.innerHTML = window.fundusQR ? fundusQR.svg(text, 260) : ''; }
+    catch(e){ box.textContent = 'QR nicht möglich: ' + e.message; }
+    ov.querySelector('#qr-copy').onclick = async function(){
+      try { await navigator.clipboard.writeText(text); out.textContent = '✓ Kopiert'; } catch(e){ out.textContent = '✗ ' + e.message; }
+    };
+    const sh = ov.querySelector('#qr-share');
+    if (navigator.share) { sh.style.display = ''; sh.onclick = function(){ navigator.share({ title: title || 'Fundus', text: text }).catch(function(){}); }; }
+    ov.querySelector('#qr-save').onclick = function(){
+      const svg = box.querySelector('svg'); if (!svg) return;
+      // SVG über ein Canvas in ein PNG wandeln (zum Drucken/Teilen).
+      const data = new XMLSerializer().serializeToString(svg);
+      const img = new Image();
+      img.onload = function(){
+        const c = document.createElement('canvas'); c.width = c.height = 720;
+        const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 720, 720);
+        ctx.drawImage(img, 0, 0, 720, 720);
+        c.toBlob(function(b){
+          const a = document.createElement('a'); a.href = URL.createObjectURL(b);
+          a.download = 'fundus-qr.png'; a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+          out.textContent = '✓ Gespeichert';
+        }, 'image/png');
+      };
+      img.onerror = function(){ out.textContent = '✗ Bild konnte nicht erzeugt werden'; };
+      img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(data)));
+    };
+  };
+
+  // Eigene Fundus-ID als QR (Messenger-Kontakt)
+  window.fundusMyIdQR = async function(){
+    const m = document.getElementById("wallet-menu"); if (m) m.remove();
+    try {
+      const r = await fetch('/api/v1/identity/me', {credentials:'same-origin'});
+      const d = await r.json();
+      if (!r.ok || !d.fundus_id) throw new Error('Bitte zuerst anmelden.');
+      fundusShowQR(d.fundus_id, 'Meine Fundus-ID', 'Zum Scannen – damit dich jemand als Kontakt hinzufügen kann.');
+    } catch(e){ alert('✗ ' + e.message); }
+  };
 
   // ── E-Mail-Benachrichtigungen (R557) ──────────────────────────────────────
   window.walletMail = async function(){

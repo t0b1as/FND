@@ -32,6 +32,7 @@ const (
 	RecordAddressBook    RecordType = "address_book"      // lokales Wallet-Adressbuch (NICHT im Netz geteilt)
 	RecordEmailDir       RecordType = "email_dir"         // opt-in Verzeichnis: email → FundusID (signiert)
 	RecordRating         RecordType = "rating"            // Bewertung eines Handelspartners (an Escrow gebunden, signiert)
+	RecordPurchase       RecordType = "purchase"          // Kaufvermerk je Escrow (Menge, Übergabe, Versandkosten)
 	RecordBackupPtr      RecordType = "backup_ptr"        // Verweis auf die neueste verschlüsselte Sicherung (Kennung aus dem Passwort)
 	RecordMailbox        RecordType = "mailbox"           // Offline-Nachrichten für eine FundusID (verschlüsselt, bis Abholung)
 	RecordKeyDir         RecordType = "key_dir"           // FundusID → X25519-PubKey (für Verschlüsselung an beliebige Adressen)

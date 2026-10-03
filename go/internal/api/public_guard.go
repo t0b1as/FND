@@ -188,6 +188,12 @@ func extRateAllow(key string, limit int) bool {
 func (s *Server) publicHeavyGuard() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p := c.Request.URL.Path
+		// Selbsterkennung (R566): Die erste Anfrage von AUSSEN über einen echten
+		// Hostnamen verrät die öffentliche Adresse dieses Nodes – einmalig
+		// merken, damit QR-Codes und Mail-Links von Anfang an stimmen. Eine feste
+		// Vorgabe im Installer verbietet sich: Sie ließe fremde Nodes auf die
+		// Adresse eines einzelnen Betreibers zeigen.
+		s.learnPublicURL(c)
 		// Von außen: Eine Anfrage, die eine SUCHE über alle Nodes auslöst
 		// (Datei-, Partner-, Jobsuche, Marktplatz), darf das Netz nicht beliebig
 		// belasten; chain/peers fragt alle Peers ab und ist Diagnose (Heimnetz).

@@ -159,6 +159,8 @@ func (s *Server) escrowCreate(c *gin.Context) {
 		ListingID   string   `json:"listing_id"`
 		Seller      string   `json:"seller"`
 		AmountFND   string   `json:"amount_fnd"`
+		Quantity    int      `json:"quantity"`
+		Delivery    string   `json:"delivery"`
 		DeadlineH   uint64   `json:"deadline_height"`
 		ContentHash string   `json:"content_hash"`
 	}
@@ -239,19 +241,47 @@ func (s *Server) escrowCreate(c *gin.Context) {
 	// Bestand VOR dem Senden prüfen und reservieren (R562): Früher wurde das
 	// Listing erst NACH der Transaktion als verkauft markiert und vorher nie
 	// geprüft – derselbe Artikel ließ sich mehrfach kaufen.
+	qty := req.Quantity
+	if qty < 1 {
+		qty = 1
+	}
+	shippingFND := 0.0
+	// Betrag gegen Stückpreis × Menge prüfen (R569): Sonst ließen sich mehrere
+	// Stück zum Preis von einem hinterlegen. Toleranz für Rundung im Browser.
+	if req.ListingID != "" && qty > 0 {
+		if rec, gerr := s.store.Get(storage.RecordListing, req.ListingID); gerr == nil && rec != nil {
+			if strings.EqualFold(strings.TrimSpace(req.Delivery), "shipping") {
+				if sc, sok := toFloatOK(rec.Data["shipping_cost"]); sok && sc > 0 {
+					shippingFND = sc
+				}
+			}
+			if unit, uok := toFloatOK(rec.Data["price_min"]); uok && unit > 0 {
+				want := unit*float64(qty) + shippingFND
+				got := uToFNDFloat(amount)
+				if got < want-0.005 {
+					c.JSON(http.StatusBadRequest, gin.H{
+						"error": fmt.Sprintf("Betrag passt nicht: %d × %.2f FND + %.2f FND Versand = %.2f FND", qty, unit, shippingFND, want)})
+					return
+				}
+			}
+		}
+	}
 	release := func() {}
 	if req.ListingID != "" {
-		ok, left, rerr := s.reserveListingStock(req.ListingID)
+		ok, left, rerr := s.reserveListingStock(req.ListingID, qty)
 		if rerr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": rerr.Error()})
 			return
 		}
 		if !ok {
-			c.JSON(http.StatusConflict, gin.H{"error": "Dieser Artikel ist nicht mehr verfügbar."})
+			msg := "Dieser Artikel ist nicht mehr verfügbar."
+			if left > 0 {
+				msg = fmt.Sprintf("Nur noch %d Stück verfügbar.", left)
+			}
+			c.JSON(http.StatusConflict, gin.H{"error": msg})
 			return
 		}
-		_ = left
-		release = func() { s.releaseListingStock(req.ListingID) } // bei Fehlschlag zurückgeben
+		release = func() { s.releaseListingStock(req.ListingID, qty) } // bei Fehlschlag zurückgeben
 	}
 	txHash, from, nonce, err := s.submitEscrowTx(req.Words, chain.TxEscrowOpen, fee, payload)
 	if err != nil {
@@ -268,6 +298,23 @@ func (s *Server) escrowCreate(c *gin.Context) {
 			_ = s.store.Put(rec)
 		}
 	}
+	// Kaufvermerk (R570): Menge, Übergabeart und Versandkosten gehören in den
+	// Kaufvertrag, stehen aber nicht auf der Chain. Keine Adresse – die geht
+	// wie bisher verschlüsselt per Messenger an den Verkäufer.
+	delivery := "pickup"
+	if strings.EqualFold(strings.TrimSpace(req.Delivery), "shipping") {
+		delivery = "shipping"
+	}
+	_ = s.store.Put(&storage.Record{
+		ID:        "purchase-" + strings.ToLower(trimHexPrefix(txHash)),
+		Type:      storage.RecordPurchase,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Data: map[string]any{
+			"listing_id": req.ListingID, "quantity": qty,
+			"delivery": delivery, "shipping_fnd": shippingFND,
+		},
+	})
 	// Escrow-ID = Tx-Hash der Eröffnung (so erzeugt applyEscrowOpen die ID).
 	c.JSON(http.StatusOK, gin.H{
 		"escrow_id": txHash, "tx_hash": txHash, "listing_id": req.ListingID,
@@ -424,6 +471,8 @@ type ContractData struct {
 
 	// Preis
 	PriceFND    float64 `json:"price_fnd"`
+	ShippingFND float64 `json:"shipping_fnd,omitempty"` // im Kaufpreis enthaltene Versandkosten
+	DeliveryTxt string  `json:"delivery_txt,omitempty"` // "Versand" oder "Selbstabholung"
 	FeeFND      float64 `json:"fee_fnd"`
 	NetFND      float64 `json:"net_fnd"`
 	GridFeeFND  float64 `json:"grid_fee_fnd,omitempty"`
@@ -604,6 +653,19 @@ func (s *Server) buildContractData(escrowIDStr string) (*ContractData, error) {
 		}
 	}
 
+	// Kaufvermerk (R570): Menge, Übergabeart und Versandkosten je Kauf.
+	if s.store != nil {
+	if rec, err := s.store.Get(storage.RecordPurchase, "purchase-"+strings.ToLower(trimHexPrefix(escrowIDStr))); err == nil && rec != nil {
+		if d, _ := rec.Data["delivery"].(string); d == "shipping" {
+			data.DeliveryTxt = "Versand"
+		} else {
+			data.DeliveryTxt = "Selbstabholung"
+		}
+		if sc, ok := toFloatOK(rec.Data["shipping_fnd"]); ok {
+			data.ShippingFND = sc
+		}
+	}
+	}
 	// Ware aus dem verknüpften Listing nachladen: Der ContentHash verknüpft den
 	// Escrow mit dem Angebot. Wir suchen das Listing mit passendem content_hash.
 	if s.store != nil && esc.ContentHash != ([32]byte{}) {
@@ -908,6 +970,7 @@ func buildContractHTML(d *ContractData) string {
 <h2>Kaufpreis</h2>
 <table class="price-table">
   <tr><th>Kaufpreis</th><td>%.4f FND</td></tr>
+  <tr><th>Übergabe</th><td>%s</td></tr>
   <tr class="fee"><th>Plattformgebühr (1,8%%)</th><td>- %.4f FND</td></tr>
   <tr class="fee"><th>Netzgebühr</th><td>- %.4f FND</td></tr>
   <tr class="total"><th>Auszahlung an Verkäufer</th><td>%.4f FND</td></tr>
@@ -1036,7 +1099,7 @@ func buildContractHTML(d *ContractData) string {
 		// Kaufgegenstand
 		d.Title, d.Description, d.Condition, d.Category, d.ContentHash,
 		// Preis (kommt im Template VOR der FND-Fußzeile)
-		d.PriceFND, d.FeeFND, d.GridFeeFND, d.NetFND,
+		d.PriceFND, contractDeliveryText(d), d.FeeFND, d.GridFeeFND, d.NetFND,
 		// FND-Fußzeile (Chain-Name + Chain-ID)
 		d.ChainName, d.ChainID,
 		// Fristen
@@ -1110,21 +1173,28 @@ func listingSoldCount(d map[string]any) int {
 }
 
 // reserveListingStock bucht ein Stück ab. ok=false → nichts mehr verfügbar.
-func (s *Server) reserveListingStock(id string) (ok bool, left int, err error) {
+func (s *Server) reserveListingStock(id string, n int) (ok bool, left int, err error) {
 	listingStockMu.Lock()
 	defer listingStockMu.Unlock()
 	rec, gerr := s.store.Get(storage.RecordListing, id)
 	if gerr != nil || rec == nil || rec.Data == nil {
 		return false, 0, fmt.Errorf("Angebot nicht gefunden")
 	}
-	qty, sold := listingQuantity(rec.Data), listingSoldCount(rec.Data)
-	if sold >= qty {
-		return false, 0, nil
+	if n < 1 {
+		n = 1
 	}
-	sold++
+	qty, sold := listingQuantity(rec.Data), listingSoldCount(rec.Data)
+	if sold+n > qty {
+		return false, qty - sold, nil // left = noch verfügbar
+	}
+	sold += n
 	rec.Data["sold_count"] = sold
-	rec.Data["quantity"] = qty
-	rec.Data["sold"] = sold >= qty
+	// quantity NICHT schreiben: Der Kauf läuft auf dem Node des KÄUFERS. Hatte
+	// der eine ältere Fassung des Angebots ohne Stückzahl, trug er hier 1 ein
+	// und überschrieb damit beim Abgleich die richtige Zahl des Verkäufers.
+	if _, known := rec.Data["quantity"]; known {
+		rec.Data["sold"] = sold >= qty
+	}
 	rec.UpdatedAt = time.Now()
 	if perr := s.store.Put(rec); perr != nil {
 		return false, 0, perr
@@ -1133,14 +1203,17 @@ func (s *Server) reserveListingStock(id string) (ok bool, left int, err error) {
 }
 
 // releaseListingStock gibt ein reserviertes Stück zurück (Transaktion scheiterte).
-func (s *Server) releaseListingStock(id string) {
+func (s *Server) releaseListingStock(id string, n int) {
 	listingStockMu.Lock()
 	defer listingStockMu.Unlock()
 	rec, gerr := s.store.Get(storage.RecordListing, id)
 	if gerr != nil || rec == nil || rec.Data == nil {
 		return
 	}
-	sold := listingSoldCount(rec.Data) - 1
+	if n < 1 {
+		n = 1
+	}
+	sold := listingSoldCount(rec.Data) - n
 	if sold < 0 {
 		sold = 0
 	}
@@ -1148,4 +1221,16 @@ func (s *Server) releaseListingStock(id string) {
 	rec.Data["sold"] = sold >= listingQuantity(rec.Data)
 	rec.UpdatedAt = time.Now()
 	_ = s.store.Put(rec)
+}
+
+// contractDeliveryText beschreibt die Übergabe inkl. enthaltener Versandkosten.
+func contractDeliveryText(d *ContractData) string {
+	txt := d.DeliveryTxt
+	if txt == "" {
+		txt = "Selbstabholung"
+	}
+	if d.ShippingFND > 0 {
+		return fmt.Sprintf("%s (darin %.4f FND Versandkosten)", txt, d.ShippingFND)
+	}
+	return txt
 }

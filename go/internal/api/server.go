@@ -435,7 +435,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R563"
+const NodeRevision = "R570"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -879,6 +879,20 @@ func (s *Server) updateListing(c *gin.Context) {
 	// nicht verloren, wenn das Edit-Formular sie nicht mitsendet.
 	if existing.Data == nil {
 		existing.Data = map[string]any{}
+	}
+	// Medien schützen (R568): Eine LEERE Bild-/Videoliste löscht vorhandene
+	// Medien nur, wenn das Angebot auch vorher keine hatte. So kann ein
+	// Formular, das die Listen nicht kennt, sie nicht versehentlich leeren.
+	for _, k := range []string{"images", "image_hashes", "video_hashes"} {
+		new_, sent := body[k]
+		if !sent {
+			continue
+		}
+		if arr, ok := new_.([]any); ok && len(arr) == 0 {
+			if old_, had := existing.Data[k].([]any); had && len(old_) > 0 {
+				delete(body, k) // vorhandene Medien behalten
+			}
+		}
 	}
 	for k, v := range body {
 		existing.Data[k] = v

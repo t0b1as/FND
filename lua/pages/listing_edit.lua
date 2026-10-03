@@ -276,10 +276,16 @@ async function submitEdit(e) {
         category:     (document.getElementById("f-category")||{}).value || "",
         condition:    (document.getElementById("f-condition")||{}).value || "",
         plz:          (document.getElementById("f-plz")||{}).value.trim() || "",
-        images:       mktFinalMedia().images,
-        image_hashes: mktFinalMedia().image_hashes,
-        video_hashes: mktFinalMedia().video_hashes,
     };
+    // Bilder und Videos nur mitschicken, wenn sie tatsächlich bearbeitet wurden.
+    // Sonst bleibt alles, wie es ist – früher löschte ein Speichern (z.B. der
+    // Stückzahl) die Bilder von Angeboten ohne gespeicherte Bild-Hashes.
+    if (window._mktMediaTouched) {
+        const media = mktFinalMedia();
+        payload.images       = media.images;
+        payload.image_hashes = media.image_hashes;
+        payload.video_hashes = media.video_hashes;
+    }
     try {
         const resp = await fetch("/api/v1/listings/%s", {
             method: "PUT", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload)

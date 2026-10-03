@@ -41,7 +41,7 @@ type mailConfig struct {
 	Password string `json:"password"`
 	From     string `json:"from"`
 	TLSMode  string `json:"tls_mode"` // "starttls" (587) | "tls" (465)
-	BaseURL  string `json:"base_url"` // z.B. https://fnd.resolve.bar – für Links in Mails
+	BaseURL  string `json:"base_url"` // öffentliche Adresse des Nodes: Links in Mails UND QR-Codes
 }
 
 type mailSub struct {
@@ -248,6 +248,18 @@ func (s *Server) registerMailRoutes() {
 	if s.cfg == nil || s.cfg.DataDir == "" {
 		return
 	}
+	// Öffentliche Adresse des Nodes: wird für QR-Codes gebraucht, damit diese
+	// nicht die lokale IP enthalten. Kein Geheimnis – die Adresse ist öffentlich.
+	s.router.GET("/api/v1/public-url", func(c *gin.Context) {
+		ms := s.mailer()
+		url := ""
+		if ms != nil {
+			ms.mu.Lock()
+			url = ms.cfg.BaseURL
+			ms.mu.Unlock()
+		}
+		c.JSON(http.StatusOK, gin.H{"base_url": url})
+	})
 	g := s.router.Group("/api/v1/mail")
 	g.GET("/status", s.mailStatus)       // eigener Stand (angemeldet)
 	g.POST("/subscribe", s.mailSubscribe) // Adresse hinterlegen → Code
@@ -483,4 +495,48 @@ func (s *Server) mailConfigTest(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "to": to})
+}
+
+// learnPublicURL merkt sich die öffentliche Adresse beim ersten Zugriff von außen.
+func (s *Server) learnPublicURL(c *gin.Context) {
+	ms := s.mailer()
+	if ms == nil || isLANRequest(c) {
+		return
+	}
+	host := c.Request.Host
+	if fh := c.GetHeader("X-Forwarded-Host"); fh != "" {
+		host = strings.TrimSpace(strings.Split(fh, ",")[0])
+	}
+	if i := strings.IndexByte(host, ','); i > 0 {
+		host = strings.TrimSpace(host[:i])
+	}
+	hostname := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		hostname = h
+	}
+	// Nur echte Namen übernehmen – keine IPs, kein .local, kein localhost.
+	if hostname == "" || hostname == "localhost" || strings.HasSuffix(hostname, ".local") ||
+		net.ParseIP(hostname) != nil || !strings.Contains(hostname, ".") {
+		return
+	}
+	scheme := "https"
+	if p := c.GetHeader("X-Forwarded-Proto"); p != "" {
+		scheme = strings.TrimSpace(strings.Split(p, ",")[0])
+	} else if c.Request.TLS == nil {
+		scheme = "http"
+	}
+	if scheme != "https" {
+		return // nur gesicherte Adressen übernehmen
+	}
+	url := scheme + "://" + host
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	if ms.cfg.BaseURL != "" { // vom Betreiber gesetzt oder bereits gelernt
+		return
+	}
+	ms.cfg.BaseURL = url
+	ms.saveCfgLocked()
+	if ms.log != nil {
+		ms.log.Info("Öffentliche Adresse erkannt", zap.String("url", url))
+	}
 }
