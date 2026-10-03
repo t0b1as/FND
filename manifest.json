@@ -1,8 +1,8 @@
 {
-  "version": "R570",
-  "description": "FUNDUS R570 - Verkaufsbestand und Versand",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R570/FND-R570-update.zip",
-  "node_argon2": "e793401ac7001993941999494b01f97d592b4aad6702e4e62cb94bd467fab347",
-  "published_at": "2026-10-03T06:01:36.909476Z",
-  "signature": "0x45edb4a7a368d4a62efbaa6e5cc8ec4997d7d5f6a5aa7ee92e2e39b475824d851832a82d3b381a552478529f1195a85e1c712eafe5de74e03da8a5d38734b3b91c"
+  "version": "R571",
+  "description": "FUNDUS R571 - Verkaufsbestand und Versand",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R571/FND-R571-update.zip",
+  "node_argon2": "e6a257d77d92f17bb7af3623b58829ca9af82623a3062ba03dab4f4891db5500",
+  "published_at": "2026-10-03T06:10:12.9709803Z",
+  "signature": "0x91986adcd09f7882ba730d1a8bef9ae668186c2a301a3314390f1821f82d75fd7cdeb9df333af6967423adc234cfa7a19e7665cd24990bd9283568452a8695051c"
 }
