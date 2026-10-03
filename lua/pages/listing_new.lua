@@ -152,7 +152,7 @@ return function()
       <input type="number" id="f-price" name="price" min="0" step="0.01" placeholder="0.00">
     </div>
     <div class="form-row">
-      <label for="f-quantity">Verfügbare Stückzahl</label>
+      <label for="f-quantity">Stückzahl (gesamt)</label>
       <input type="number" id="f-quantity" name="quantity" min="1" step="1" value="1">
     </div>
     <div class="field">

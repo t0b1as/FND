@@ -146,6 +146,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerPushRoutes()   // Push-Benachrichtigungen
 	s.registerBackupRoutes() // verschlüsselte automatische Sicherung
 	s.registerMailRoutes()   // E-Mail-Benachrichtigungen
+	listingReconcileOnce.Do(func() { go s.reconcileOwnListings() }) // Bestand eigener Angebote
 	s.router.GET("/api/v1/nodes/overview", s.nodesOverview) // Übersicht aller Nodes (nur Heimnetz)
 	s.registerNodeInfo()                                     // P2P: "Wie geht es dir?"
 	s.registerWalletRoutes()
@@ -435,7 +436,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R574"
+const NodeRevision = "R577"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -905,34 +906,23 @@ func (s *Server) updateListing(c *gin.Context) {
 	for k, v := range body {
 		existing.Data[k] = v
 	}
-	// Bestand (R563): Im Formular steht die NOCH VERFÜGBARE Stückzahl. Intern
-	// zählt quantity die insgesamt angebotenen Stück, sold_count die verkauften –
-	// so kann der Verkäufer jederzeit auffüllen und das Angebot reaktivieren.
+	// Bestand (R575): Die eingetragene Zahl ist die GESAMTE Stückzahl des
+	// Angebots und ersetzt den bisherigen Wert – sie wird nicht zum bereits
+	// Verkauften addiert. Verfügbar bleibt: Stückzahl − verkauft.
 	if _, given := body["quantity"]; given {
-		_, sold := s.listingStock(existing.ID, existing.Data)
-		if _, had := existing.Data["sold_count"]; !had {
-			existing.Data["sold_count"] = sold
-		}
-		avail := 0 // 0 ist erlaubt: nimmt das Angebot aus dem Verkauf
+		total := -1
 		switch v := body["quantity"].(type) {
 		case float64:
-			if v > 0 {
-				avail = int(v)
-			}
+			total = int(v)
 		case int:
-			if v > 0 {
-				avail = v
-			}
+			total = v
 		case string:
-			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
-				avail = n
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				total = n
 			}
 		}
-		if sold+avail < 1 {
-			existing.Data["quantity"] = 1 // mindestens 1, sonst wäre es kein Angebot
-			existing.Data["sold_count"] = 1
-		} else {
-			existing.Data["quantity"] = sold + avail
+		if total >= 0 {
+			existing.Data["quantity"] = total
 		}
 	}
 	if _, tracked := existing.Data["sold_count"]; tracked {
@@ -1414,3 +1404,4 @@ func rateLimitMiddleware() gin.HandlerFunc {
 	}
 }
 
+var listingReconcileOnce sync.Once

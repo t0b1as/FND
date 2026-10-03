@@ -81,8 +81,9 @@ return function(captures)
     local qtyLeft = qtyTotal - qtySold
     if qtyLeft < 0 then qtyLeft = 0 end
     local qtyNote = (qtySold > 0)
-        and ("Bereits verkauft: " .. qtySold .. ". Erhöhen reaktiviert das Angebot.")
-        or  "Auf 0 setzen nimmt das Angebot aus dem Verkauf."
+        and ("Davon verkauft: " .. qtySold .. " · noch verfügbar: " .. qtyLeft ..
+             ". Die eingetragene Zahl ersetzt die Stückzahl.")
+        or  "Die eingetragene Zahl ersetzt die Stückzahl. 0 nimmt das Angebot aus dem Verkauf."
 
     ngx.print(string.format([[
 <form id="edit-form" onsubmit="submitEdit(event)">
@@ -92,7 +93,7 @@ return function(captures)
     <textarea id="f-description" rows="5">%s</textarea></div>
   <div class="field"><label>%s</label>
     <input type="number" id="f-price" value="%.2f" min="0" step="0.01"></div>
-  <div class="field"><label>Noch verfügbare Stückzahl</label>
+  <div class="field"><label>Stückzahl (gesamt)</label>
     <input type="number" id="f-quantity" min="0" step="1" value="%d">
     <div class="meta">%s</div></div>
   <div class="field">
@@ -312,7 +313,7 @@ async function submitEdit(e) {
         t("upload.field_title"),       render.html_escape(d.title or ""),
         t("upload.field_description"), render.html_escape(d.description or d.listing_text or ""),
         t("upload.field_price"),    tonumber(d.price_min) or tonumber(d.price) or 0,
-        qtyLeft, qtyNote,
+        qtyTotal, qtyNote,
         tostring(d.seller_wallet or ""),
         t("upload.field_delivery"),
         t("upload.delivery_pickup"),

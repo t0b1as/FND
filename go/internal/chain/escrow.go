@@ -625,6 +625,23 @@ func (s *State) HasEscrowForContent(contentHash [32]byte) bool {
 }
 
 // GetEscrow liefert eine Kopie eines Escrows (für Abfragen).
+// EscrowAmountForContent summiert die Beträge aller Hinterlegungen zu einem
+// Content-Hash – auch der bereits abgeschlossenen. Daraus lässt sich die
+// verkaufte Stückzahl ableiten, unabhängig von replizierten Datensätzen.
+func (s *State) EscrowAmountForContent(contentHash [32]byte) (total *big.Int, count int) {
+	total = new(big.Int)
+	for _, e := range s.escrows {
+		if e == nil || e.ContentHash != contentHash {
+			continue
+		}
+		count++
+		if e.Amount != nil {
+			total.Add(total, e.Amount)
+		}
+	}
+	return total, count
+}
+
 // EscrowsOf liefert alle Hinterlegungen, an denen addr als Käufer oder
 // Verkäufer beteiligt ist (R572: für die Übersicht in der Wallet).
 func (s *State) EscrowsOf(addr Address) map[[32]byte]Escrow {

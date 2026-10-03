@@ -18,6 +18,7 @@ package api
 //   - Blockchain-Nachweis (Escrow-ID, Tx-Hash)
 
 import (
+	"go.uber.org/zap"
 	"sort"
 	"encoding/json"
 	"strconv"
@@ -1138,21 +1139,22 @@ func listingQuantity(d map[string]any) int {
 	if d == nil {
 		return 1
 	}
+	// 0 ist gültig: Angebot vorübergehend aus dem Verkauf genommen.
 	switch v := d["quantity"].(type) {
 	case float64:
-		if v >= 1 {
+		if v >= 0 {
 			return int(v)
 		}
 	case int:
-		if v >= 1 {
+		if v >= 0 {
 			return v
 		}
 	case string:
-		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 1 {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n >= 0 {
 			return n
 		}
 	}
-	return 1
+	return 1 // fehlt die Angabe: Einzelstück (Altbestand)
 }
 
 // soldFromPurchases zählt die verkaufte Menge aus den Kaufvermerken im Netz.
@@ -1187,13 +1189,47 @@ func (s *Server) soldFromPurchases(listingID string) (int, bool) {
 // listingStock liefert angebotene und verkaufte Menge eines Angebots.
 func (s *Server) listingStock(id string, d map[string]any) (qty, sold int) {
 	qty = listingQuantity(d)
-	// Kaufvermerke sind maßgeblich, sobald es welche gibt. Nur ohne sie zählt
-	// die im Angebot mitgeschriebene Zahl – sie kann aus früheren Fassungen
-	// stammen, in denen der Käufer-Node ins Angebot geschrieben hat.
-	if n, ok := s.soldFromPurchases(id); ok {
-		return qty, n
+	// Maßgeblich ist, was der Verkäufer-Node ins Angebot geschrieben hat: Nur
+	// er kennt die Stückzahl. Die Kaufvermerke zählen zusätzlich mit, damit der
+	// Käufer seinen eigenen Kauf sofort sieht – sie tragen die Stückzahl
+	// ausdrücklich und sind daher von Preisänderungen unabhängig.
+	sold = listingSoldCount(d)
+	if n, ok := s.soldFromPurchases(id); ok && n > sold {
+		sold = n
 	}
-	return qty, listingSoldCount(d)
+	return qty, sold
+}
+
+// reconcileOwnListings schreibt die verkaufte Menge in die EIGENEN Angebote.
+// Nur der Verkäufer-Node darf das: Seine Fassung gewinnt beim Abgleich und
+// verteilt den Bestand an alle anderen. Läuft alle 30 Sekunden.
+func (s *Server) reconcileOwnListings() {
+	for {
+		time.Sleep(30 * time.Second)
+		if s.store == nil {
+			continue
+		}
+		recs, err := s.store.List(storage.RecordListing)
+		if err != nil {
+			continue
+		}
+		me := s.nodeID()
+		for _, rec := range recs {
+			if rec == nil || rec.DeletedAt != nil || rec.Data == nil || rec.OwnerID != me {
+				continue // nur eigene Angebote
+			}
+			n, ok := s.soldFromPurchases(rec.ID)
+			if !ok || n == listingSoldCount(rec.Data) {
+				continue
+			}
+			rec.Data["sold_count"] = n
+			rec.Data["sold"] = n >= listingQuantity(rec.Data)
+			rec.UpdatedAt = time.Now()
+			if err := s.store.Put(rec); err == nil && s.log != nil {
+				s.log.Debug("Bestand aktualisiert", zap.String("listing", rec.ID), zap.Int("verkauft", n))
+			}
+		}
+	}
 }
 
 func listingSoldCount(d map[string]any) int {
