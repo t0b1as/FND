@@ -214,7 +214,11 @@ function renderResults(items) {
 function renderResultsPage() {
     const res = document.getElementById('results');
     const items = _allResults;
-    if (!items.length) { res.innerHTML = '<p class="muted">%s</p>'; return; }
+    if (!items.length) {
+        // Leere Liste mit Symbol und Handlungsvorschlag (R581)
+        res.innerHTML = '<div class="empty-hint" data-empty="listings" data-cta="Neues Angebot einstellen" data-href="/listings/new">%s</div>';
+        return;
+    }
 
     const totalPages = Math.max(1, Math.ceil(items.length / PER_PAGE));
     if (_currentPage > totalPages) _currentPage = totalPages;

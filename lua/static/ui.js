@@ -81,7 +81,66 @@
     }
   }
 
-  function init() { markLoading(); bottomNav(); }
+  // ── 4. Seitenübergänge (R581) ─────────────────────────────────────────────
+  // Beim Klick auf einen internen Link den Inhalt kurz ausblenden, dann laden.
+  function pageTransitions() {
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    document.addEventListener("click", function (e) {
+      var a = e.target.closest && e.target.closest("a[href]");
+      if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (a.target === "_blank" || a.hasAttribute("download")) return;
+      var href = a.getAttribute("href") || "";
+      if (!href || href[0] === "#" || /^(mailto|tel|javascript):/i.test(href)) return;
+      try { if (new URL(a.href).origin !== location.origin) return; } catch (err) { return; }
+      e.preventDefault();
+      document.body.classList.add("leaving");
+      setTimeout(function () { location.href = a.href; }, 150);
+    });
+    // Zurück-Navigation: Seite wieder sichtbar machen (bfcache)
+    window.addEventListener("pageshow", function () { document.body.classList.remove("leaving"); });
+  }
+
+  // ── 5. Vibration auf dem Handy ────────────────────────────────────────────
+  // Kurzer Impuls bei Aktionen – nur wo das Gerät es unterstützt.
+  window.fundusBuzz = function (pattern) {
+    try { if (navigator.vibrate) navigator.vibrate(pattern || 12); } catch (e) {}
+  };
+  function haptics() {
+    if (!navigator.vibrate) return;
+    document.addEventListener("click", function (e) {
+      var el = e.target.closest && e.target.closest("button, .btn, .btn-sm, .chip, .bottom-nav a, .hc-fav");
+      if (!el || el.disabled) return;
+      fundusBuzz(el.classList.contains("btn-danger") ? [10, 40, 10] : 12);
+    }, { passive: true });
+  }
+
+  // ── 6. Leere Listen mit Symbol und Vorschlag ──────────────────────────────
+  var EMPTY_ICONS = { listings: "listings", messenger: "messenger", shared: "shared", files: "files", wallet: "wallet" };
+  function decorateEmpty(root) {
+    var box = (root || document).querySelectorAll(".empty-hint");
+    for (var i = 0; i < box.length; i++) {
+      var el = box[i];
+      if (el.querySelector(".ico") || el.dataset.decorated) continue;
+      el.dataset.decorated = "1";
+      var key = el.getAttribute("data-empty") || "";
+      var svg = (window.FUNDUS_ICONS || {})[EMPTY_ICONS[key] || key] || (window.FUNDUS_ICONS || {}).listings || "";
+      var text = (el.textContent || "").trim();
+      el.innerHTML = svg + '<div class="eh-title"></div>';
+      el.querySelector(".eh-title").textContent = text;
+      var cta = el.getAttribute("data-cta"), href = el.getAttribute("data-href");
+      if (cta && href) {
+        var a = document.createElement("a");
+        a.className = "btn"; a.href = href; a.textContent = cta;
+        el.appendChild(a);
+      }
+    }
+  }
+  // Nachträglich eingefügte leere Listen ebenfalls erfassen.
+  if (window.MutationObserver) {
+    new MutationObserver(function () { decorateEmpty(); }).observe(document.documentElement, { childList: true, subtree: true });
+  }
+
+  function init() { markLoading(); bottomNav(); pageTransitions(); haptics(); decorateEmpty(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();

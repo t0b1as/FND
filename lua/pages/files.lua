@@ -592,7 +592,7 @@ async function loadFilesShared() {
       if (add((await r2.json()).hits)) renderFileList();
     } catch(e) {}
   }
-  if (!window._fmFiles.length) list.innerHTML = '<div class="empty-hint">Im Netz sind derzeit keine Dateien freigegeben.</div>';
+  if (!window._fmFiles.length) list.innerHTML = '<div class="empty-hint" data-empty="shared">Im Netz sind derzeit keine Dateien freigegeben.</div>';
 }
 
 async function loadFiles() {

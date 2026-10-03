@@ -2367,3 +2367,27 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .escrow-role { font-size: 11px; color: var(--muted); }
 .escrow-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
 .escrow-acts .btn-sm { width: auto; text-decoration: none; }
+
+/* =========================================================================
+   R581 – Feinheiten: Seitenübergänge, leere Listen, Tastaturfokus
+   ========================================================================= */
+
+/* Sanfter Seitenwechsel: Inhalt blendet beim Laden auf, beim Verlassen ab.
+   Nur für Geräte ohne Bewegungs-Sparmodus. */
+@media (prefers-reduced-motion: no-preference) {
+  main { animation: page-in .28s ease-out both; }
+  body.leaving main { opacity: 0; transform: translateY(-6px); transition: opacity .16s ease-in, transform .16s ease-in; }
+}
+@keyframes page-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Leere Listen: Symbol, Satz, Handlungsvorschlag */
+.empty-hint { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.empty-hint .ico { width: 44px; height: 44px; color: var(--green); opacity: .5; }
+.empty-hint .eh-title { font-weight: 600; color: var(--text); }
+.empty-hint .eh-sub { font-size: var(--fs-sm); }
+.empty-hint .btn, .empty-hint .btn-sm { width: auto; margin-top: 4px; }
+
+/* Gedrückt-Rückmeldung (zusätzlich zur Vibration) */
+@media (prefers-reduced-motion: no-preference) {
+  .btn:active, .btn-sm:active, .chip:active, .hit-card:active { transform: scale(.98); }
+}
