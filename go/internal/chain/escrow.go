@@ -625,6 +625,21 @@ func (s *State) HasEscrowForContent(contentHash [32]byte) bool {
 }
 
 // GetEscrow liefert eine Kopie eines Escrows (für Abfragen).
+// EscrowsOf liefert alle Hinterlegungen, an denen addr als Käufer oder
+// Verkäufer beteiligt ist (R572: für die Übersicht in der Wallet).
+func (s *State) EscrowsOf(addr Address) map[[32]byte]Escrow {
+	out := make(map[[32]byte]Escrow)
+	for id, e := range s.escrows {
+		if e == nil || e.State == EscrowClosed {
+			continue
+		}
+		if e.Buyer == addr || e.Seller == addr {
+			out[id] = *e
+		}
+	}
+	return out
+}
+
 func (s *State) GetEscrow(id [32]byte) (Escrow, bool) {
 	e, ok := s.escrows[id]
 	if !ok {

@@ -129,6 +129,13 @@ func (bc *Blockchain) GenesisHeaderHash() [32]byte {
 
 // GetEscrow gibt eine Kopie eines Escrows aus dem aktuellen State zurück (für die
 // API/Vertragsvorschau). false, wenn unbekannt oder bereits geschlossen+gepruned.
+// EscrowsOf: siehe State.EscrowsOf.
+func (bc *Blockchain) EscrowsOf(addr Address) map[[32]byte]Escrow {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	return bc.state.EscrowsOf(addr)
+}
+
 func (bc *Blockchain) GetEscrow(id [32]byte) (Escrow, bool) {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()

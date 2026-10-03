@@ -459,6 +459,10 @@ var PublicRecordTypes = []RecordType{
 	RecordCertificate,
 	RecordEnergy,
 	RecordJob,
+	// Kaufvermerke (R572): Der Kauf läuft auf dem Node des Käufers. Nur wenn
+	// dieser Vermerk im Netz landet, kennt auch der Verkäufer den Bestand.
+	// Er enthält keine Adresse – die geht verschlüsselt per Messenger.
+	RecordPurchase,
 	// Partner-Ads NICHT hier: sie liefen mit ihrer Original-ID ("my-search-ad")
 	// ein und überschrieben das eigene Such-Profil. Sie haben ein eigenes
 	// Pull-Protokoll (api/partner.go, PartnerPullProtocol).

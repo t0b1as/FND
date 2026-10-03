@@ -435,7 +435,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R571"
+const NodeRevision = "R572"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -825,6 +825,14 @@ func (s *Server) getListing(c *gin.Context) {
 	// editable: lokaler Owner ODER unsignierter Altbestand (adoptierbar)
 	editable := (record.OwnerID != "" && record.OwnerID == s.nodeID()) ||
 		len(record.Signature) == 0
+	// Bestand maßgeblich aus den Kaufvermerken (R572) – die Seite soll nicht
+	// auf die im Angebot mitgeschriebene Zahl angewiesen sein.
+	if record.Type == storage.RecordListing && record.Data != nil {
+		qty, sold := s.listingStock(record.ID, record.Data)
+		record.Data["quantity"] = qty
+		record.Data["sold_count"] = sold
+		record.Data["sold"] = sold >= qty
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id":         record.ID,
 		"type":       record.Type,
@@ -901,7 +909,7 @@ func (s *Server) updateListing(c *gin.Context) {
 	// zählt quantity die insgesamt angebotenen Stück, sold_count die verkauften –
 	// so kann der Verkäufer jederzeit auffüllen und das Angebot reaktivieren.
 	if _, given := body["quantity"]; given {
-		sold := listingSoldCount(existing.Data)
+		_, sold := s.listingStock(existing.ID, existing.Data)
 		if _, had := existing.Data["sold_count"]; !had {
 			existing.Data["sold_count"] = sold
 		}
@@ -928,7 +936,8 @@ func (s *Server) updateListing(c *gin.Context) {
 		}
 	}
 	if _, tracked := existing.Data["sold_count"]; tracked {
-		existing.Data["sold"] = listingSoldCount(existing.Data) >= listingQuantity(existing.Data)
+		q2, s2 := s.listingStock(existing.ID, existing.Data)
+		existing.Data["sold"] = s2 >= q2
 	}
 	// Einzelpreis auf price_min/max mappen (Kompatibilität mit der Anzeige).
 	if p, ok := body["price"]; ok {

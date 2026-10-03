@@ -190,13 +190,57 @@ async function loadEscrows() {
   const statusMap = {funded:'es-funded',released:'es-released',disputed:'es-disputed',refunded:'es-released'};
   const labelMap  = {funded:WT.es_funded,released:WT.es_released,disputed:WT.es_disputed,
                      cancel_requested:WT.es_cancel_requested,refunded:WT.es_refunded};
-  list.innerHTML = escrows.map(e => `
-    <div class="escrow-row">
-      <span class="escrow-id">#${(e.escrow_id||'').slice(0,10)}…</span>
-      <span class="escrow-amt">${(e.amount_fnd||0).toFixed(2)} FND</span>
-      <span class="escrow-status ${statusMap[e.status]||'es-funded'}">${labelMap[e.status]||e.status}</span>
-      <span style="font-size:11px;color:var(--muted);margin-left:auto">${e.listing_id||''}</span>
-    </div>`).join('');
+  // R572: Aktionen je Rolle – vorher gab es nur die Statusanzeige, Storno war
+  // nur unmittelbar nach dem Kauf erreichbar und nach dem Neuladen weg.
+  list.innerHTML = escrows.map(e => {
+    const id = e.escrow_id || '';
+    let acts = '<a class="btn-sm" href="/api/v1/contracts/' + id + '/html" target="_blank">📄 Vertrag</a>';
+    if (e.role === 'buyer' && e.status === 'funded') {
+      acts = '<button class="btn-sm" onclick="escAction(\'' + id + '\',\'confirm\')">✅ Ware OK</button>' +
+             '<button class="btn-sm btn-danger" onclick="escAction(\'' + id + '\',\'cancel\')">↩ Storno</button>' + acts;
+    } else if (e.role === 'buyer' && e.status === 'cancel_requested') {
+      acts = '<button class="btn-sm" onclick="escReturn(\'' + id + '\')">📦 Rücksendung eintragen</button>' + acts;
+    } else if (e.role === 'seller' && e.status === 'return_submitted') {
+      acts = '<button class="btn-sm" onclick="escAction(\'' + id + '\',\'confirm-return\')">✅ Rückerhalt bestätigen</button>' + acts;
+    }
+    return '<div class="escrow-row">' +
+      '<span class="escrow-id">#' + id.slice(0, 10) + '…</span>' +
+      '<span class="escrow-amt">' + (e.amount_fnd || 0).toFixed(2) + ' FND</span>' +
+      '<span class="escrow-status ' + (statusMap[e.status] || 'es-funded') + '">' + (labelMap[e.status] || e.status) + '</span>' +
+      '<span class="escrow-role">' + (e.role === 'buyer' ? 'Kauf' : 'Verkauf') + '</span>' +
+      '<span class="escrow-acts">' + acts + '</span></div>';
+  }).join('');
+}
+
+// Aktion auf einer Hinterlegung ausführen (Storno, Erhalt, Rückerhalt).
+async function escAction(id, what) {
+  const texte = { confirm: 'Ware als in Ordnung bestätigen? Danach wird der Betrag ausgezahlt.',
+                  cancel: 'Storno beantragen? Du schickst die Ware zurück, der Betrag wird dann erstattet.',
+                  'confirm-return': 'Rückerhalt bestätigen? Der Betrag geht zurück an den Käufer.' };
+  if (!confirm(texte[what] || 'Fortfahren?')) return;
+  try {
+    const r = await fetch('/api/v1/escrow/' + encodeURIComponent(id) + '/' + what, { method: 'POST', credentials: 'same-origin' });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    if (window.fundusToast) fundusToast('✓ Gespeichert – wird mit dem nächsten Block wirksam.');
+    setTimeout(loadEscrows, 6000);
+  } catch (e) { alert('✗ ' + e.message); }
+}
+
+// Rücksendung mit Sendungsnummer eintragen.
+async function escReturn(id) {
+  const t = prompt('Sendungsnummer der Rücksendung (Beleg für den Verkäufer):');
+  if (t === null || !t.trim()) return;
+  try {
+    const r = await fetch('/api/v1/escrow/' + encodeURIComponent(id) + '/return', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tracking: t.trim() })
+    });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    if (window.fundusToast) fundusToast('✓ Eingetragen.');
+    setTimeout(loadEscrows, 6000);
+  } catch (e) { alert('✗ ' + e.message); }
 }
 
 // Beim Laden: offene Escrows der eingeloggten Identität versuchen (still bei 401).

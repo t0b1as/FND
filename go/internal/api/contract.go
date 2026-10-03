@@ -18,6 +18,7 @@ package api
 //   - Blockchain-Nachweis (Escrow-ID, Tx-Hash)
 
 import (
+	"sort"
 	"encoding/json"
 	"strconv"
 	"sync"
@@ -51,6 +52,7 @@ func (s *Server) registerContractRoutes() {
 		e.POST("/:id/cancel",         s.escrowCancel)
 		e.POST("/:id/return",         s.escrowSubmitReturn)
 		e.POST("/:id/confirm-return", s.escrowConfirmReturn)
+		e.GET("",                     s.escrowList) // offene Hinterlegungen (R572)
 		e.GET("/:id",                 s.escrowGet)
 	}
 }
@@ -505,7 +507,11 @@ func (s *Server) contractJSON(c *gin.Context) {
 func (s *Server) contractHTML(c *gin.Context) {
 	data, err := s.buildContractData(c.Param("escrowId"))
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		// Direkt nach dem Kauf steht die Hinterlegung noch in keinem Block
+		// (alle 5 Sekunden einer). Statt einer Fehlermeldung eine Seite, die
+		// sich selbst neu lädt, sobald der Vertrag bereitsteht.
+		c.Header("Content-Type", "text/html; charset=utf-8")
+		c.String(http.StatusAccepted, contractPendingHTML)
 		return
 	}
 
@@ -1152,6 +1158,45 @@ func listingQuantity(d map[string]any) int {
 	return 1
 }
 
+// soldFromPurchases zählt die verkaufte Menge aus den Kaufvermerken im Netz.
+// Maßgeblich, weil diese Vermerke dem jeweiligen Käufer-Node gehören und sich
+// deshalb verteilen – anders als eine Änderung am Angebot des Verkäufers.
+func (s *Server) soldFromPurchases(listingID string) (int, bool) {
+	if s.store == nil || listingID == "" {
+		return 0, false
+	}
+	recs, err := s.store.List(storage.RecordPurchase)
+	if err != nil {
+		return 0, false
+	}
+	total, found := 0, false
+	for _, r := range recs {
+		if r == nil || r.DeletedAt != nil || r.Data == nil {
+			continue
+		}
+		if lid, _ := r.Data["listing_id"].(string); lid != listingID {
+			continue
+		}
+		found = true
+		if q, ok := toFloatOK(r.Data["quantity"]); ok && q >= 1 {
+			total += int(q)
+		} else {
+			total++
+		}
+	}
+	return total, found
+}
+
+// listingStock liefert angebotene und verkaufte Menge eines Angebots.
+func (s *Server) listingStock(id string, d map[string]any) (qty, sold int) {
+	qty = listingQuantity(d)
+	sold = listingSoldCount(d)
+	if n, ok := s.soldFromPurchases(id); ok && n > sold {
+		sold = n // Kaufvermerke aus dem Netz haben Vorrang
+	}
+	return qty, sold
+}
+
 func listingSoldCount(d map[string]any) int {
 	if d == nil {
 		return 0
@@ -1184,7 +1229,7 @@ func (s *Server) reserveListingStock(id string, n int) (ok bool, left int, err e
 	if n < 1 {
 		n = 1
 	}
-	qty, sold := listingQuantity(rec.Data), listingSoldCount(rec.Data)
+	qty, sold := s.listingStock(id, rec.Data)
 	if sold+n > qty {
 		return false, qty - sold, nil // left = noch verfügbar
 	}
@@ -1250,3 +1295,65 @@ func anyToFNDString(v any) string {
 	}
 	return ""
 }
+
+// escrowList liefert die offenen Hinterlegungen des angemeldeten Nutzers –
+// mit Rolle (Käufer/Verkäufer), damit die Wallet die passenden Aktionen zeigt.
+// Bis R571 fragte die Wallet diesen Endpunkt an, ohne dass es ihn gab.
+func (s *Server) escrowList(c *gin.Context) {
+	if s.chain == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Chain nicht verfügbar"})
+		return
+	}
+	sess := s.getSession(c)
+	if sess == nil || sess.identity == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
+		return
+	}
+	key, err := sess.identity.ChainPrivateKey()
+	if err != nil || key == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Wallet dieser Anmeldung nicht verfügbar."})
+		return
+	}
+	me := chain.PubkeyToAddress(&key.PublicKey)
+	statusName := map[chain.EscrowState]string{
+		chain.EscrowOpen: "funded", chain.EscrowDisputed: "disputed", chain.EscrowCancelRequested: "cancel_requested",
+		chain.EscrowReturnSubmitted: "return_submitted", chain.EscrowClosed: "closed",
+	}
+	out := make([]gin.H, 0)
+	for id, e := range s.chain.EscrowsOf(me) {
+		role := "seller"
+		if e.Buyer == me {
+			role = "buyer"
+		}
+		st, ok := statusName[e.State]
+		if !ok {
+			st = "open"
+		}
+		out = append(out, gin.H{
+			"escrow_id":  "0x" + hex.EncodeToString(id[:]),
+			"amount_fnd": uToFNDFloat(e.Amount),
+			"status":     st,
+			"role":       role,
+			"deadline":   e.Deadline,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return fmt.Sprint(out[i]["escrow_id"]) < fmt.Sprint(out[j]["escrow_id"])
+	})
+	c.JSON(http.StatusOK, gin.H{"escrows": out})
+}
+
+// contractPendingHTML: Wartehinweis, bis der Kauf in einem Block steht.
+const contractPendingHTML = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
+<title>Kaufvertrag wird erstellt</title><meta http-equiv="refresh" content="4">
+<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#f2f3f8;display:flex;
+align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}
+.box{max-width:420px;padding:28px}h1{font-size:20px;margin:0 0 10px}
+p{color:#b0b4cc;line-height:1.5;margin:0}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;background:#00e676;
+animation:p 1.2s ease-in-out infinite;margin-bottom:14px}
+@keyframes p{0%,100%{opacity:.3}50%{opacity:1}}</style></head>
+<body><div class="box"><div class="dot"></div>
+<h1>Der Kaufvertrag wird gerade erstellt</h1>
+<p>Dein Kauf wird in den nächsten Sekunden in einem Block der Fundus-Chain festgeschrieben.
+Diese Seite lädt sich automatisch neu.</p></div></body></html>`

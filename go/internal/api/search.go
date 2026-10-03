@@ -223,7 +223,9 @@ func (s *Server) searchLocal(q SearchQuery) []SearchHit {
 		// ob noch etwas verfügbar ist. Die Chain-Ableitung (Escrow zum
 		// Content-Hash) greift nur für Angebote ohne eigenen Zähler – sonst
 		// bliebe ein wieder aufgefülltes Angebot für immer "verkauft".
-		if _, tracked := d["sold_count"]; tracked {
+		if n, ok := s.soldFromPurchases(r.ID); ok {
+			hit.Sold = n >= listingQuantity(d) // Kaufvermerke aus dem Netz
+		} else if _, tracked := d["sold_count"]; tracked {
 			hit.Sold = listingSoldCount(d) >= listingQuantity(d)
 		} else if sold, ok := d["sold"].(bool); ok && sold {
 			hit.Sold = true
