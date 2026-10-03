@@ -18,6 +18,7 @@ package api
 //   - Blockchain-Nachweis (Escrow-ID, Tx-Hash)
 
 import (
+	"encoding/json"
 	"strconv"
 	"sync"
 	"strings"
@@ -158,7 +159,7 @@ func (s *Server) escrowCreate(c *gin.Context) {
 		Words       []string `json:"words"`
 		ListingID   string   `json:"listing_id"`
 		Seller      string   `json:"seller"`
-		AmountFND   string   `json:"amount_fnd"`
+		AmountFND   any      `json:"amount_fnd"` // Text oder Zahl (R571)
 		Quantity    int      `json:"quantity"`
 		Delivery    string   `json:"delivery"`
 		DeadlineH   uint64   `json:"deadline_height"`
@@ -173,7 +174,7 @@ func (s *Server) escrowCreate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Verkäufer-Adresse: " + serr.Error()})
 		return
 	}
-	amount, ok := parseFNDtoU(req.AmountFND)
+	amount, ok := parseFNDtoU(anyToFNDString(req.AmountFND))
 	if !ok || amount.Sign() <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "ungültiger Betrag"})
 		return
@@ -1233,4 +1234,19 @@ func contractDeliveryText(d *ContractData) string {
 		return fmt.Sprintf("%s (darin %.4f FND Versandkosten)", txt, d.ShippingFND)
 	}
 	return txt
+}
+
+// anyToFNDString nimmt amount_fnd als Text oder Zahl entgegen. Die Oberfläche
+// hat den Betrag zeitweise als Zahl geschickt (R569) – das scheiterte vorher
+// an der Typprüfung beim Einlesen.
+func anyToFNDString(v any) string {
+	switch x := v.(type) {
+	case string:
+		return strings.TrimSpace(x)
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	case json.Number:
+		return x.String()
+	}
+	return ""
 }

@@ -569,7 +569,8 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
                 words: words,
                 quantity: buyQty(),
                 delivery: isShipping ? 'shipping' : 'pickup',
-                amount_fnd: amountFnd ? (parseFloat(amountFnd) * buyQty() + (isShipping ? shipCost() : 0)) : undefined
+                // als Zeichenkette: der Node erwartet amount_fnd als Text
+                amount_fnd: amountFnd ? (parseFloat(amountFnd) * buyQty() + (isShipping ? shipCost() : 0)).toFixed(2) : undefined
             }),
         });
         const d = await r.json();
