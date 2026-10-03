@@ -223,14 +223,15 @@ func (s *Server) searchLocal(q SearchQuery) []SearchHit {
 		// ob noch etwas verfügbar ist. Die Chain-Ableitung (Escrow zum
 		// Content-Hash) greift nur für Angebote ohne eigenen Zähler – sonst
 		// bliebe ein wieder aufgefülltes Angebot für immer "verkauft".
-		if n, ok := s.soldFromPurchases(r.ID); ok {
-			hit.Sold = n >= listingQuantity(d) // Kaufvermerke aus dem Netz
-		} else if _, tracked := d["sold_count"]; tracked {
-			hit.Sold = listingSoldCount(d) >= listingQuantity(d)
+		// quantity ist die VERFÜGBARE Menge (R578). "Verkauft" gilt nur, wenn
+		// nichts mehr übrig ist – Restbestand darf nie als verkauft erscheinen.
+		if _, known := d["quantity"]; known {
+			qty, open := s.listingStock(r.ID, d)
+			hit.Sold = qty-open <= 0
 		} else if sold, ok := d["sold"].(bool); ok && sold {
 			hit.Sold = true
 		} else if s.isListingSoldOnChain(d) {
-			hit.Sold = true
+			hit.Sold = true // Altbestand ohne Stückzahl
 		}
 		if p, ok := toFloatOK(d["price_min"]); ok {
 			hit.PriceMin = p

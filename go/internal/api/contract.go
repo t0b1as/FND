@@ -35,6 +35,7 @@ import (
 
 	"github.com/fundus/node/internal/chain"
 	"github.com/fundus/node/internal/identity"
+	"github.com/fundus/node/internal/p2p"
 	"github.com/fundus/node/internal/storage"
 	"github.com/gin-gonic/gin"
 )
@@ -1275,6 +1276,15 @@ func (s *Server) applySale(listingID, tx string, n int) bool {
 	rec.UpdatedAt = time.Now()
 	if s.store.Put(rec) != nil {
 		return false
+	}
+	// Sofort im Netz bekannt machen – sonst wandert der neue Bestand erst mit
+	// dem nächsten Datenabgleich zu den anderen Nodes (Minuten).
+	if s.node != nil {
+		if data, err := marshalRecord(rec); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_ = s.node.Publish(ctx, p2p.TopicListings, data)
+			cancel()
+		}
 	}
 	if s.log != nil {
 		s.log.Info("Bestand verringert", zap.String("listing", listingID), zap.Int("verkauft", n), zap.Int("verfuegbar", left))

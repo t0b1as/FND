@@ -144,18 +144,22 @@ return function(captures)
 
     -- Owner sieht Bearbeiten/Loeschen; Fremde sehen den Kaufen-Bereich.
     local ownerActions, buySection
-    -- Bestand (R562): quantity = angeboten, sold_count = verkauft.
+    -- Bestand (R579): quantity ist die VERFÜGBARE Menge; sold_count sind nur
+    -- Käufe, die der Verkäufer-Node noch nicht abgezogen hat.
+    local hasQty = record.data and record.data.quantity ~= nil
     local qty = tonumber(record.data and record.data.quantity) or 1
-    if qty < 1 then qty = 1 end
-    local soldN = tonumber(record.data and record.data.sold_count)
-    if not soldN then soldN = (record.data and record.data.sold == true) and 1 or 0 end
-    local remaining = qty - soldN
+    if qty < 0 then qty = 0 end
+    local pending = tonumber(record.data and record.data.sold_count) or 0
+    local remaining = qty - pending
     if remaining < 0 then remaining = 0 end
     local stockRow = ""
-    if qty > 1 then
+    if remaining > 1 or (hasQty and remaining > 0 and qty > 1) then
         stockRow = string.format('<div class="stock-row">Noch <b>%d</b> verfügbar</div>', remaining)
     end
-    local isSold = remaining <= 0
+    local isSold = (remaining <= 0)
+    if not hasQty then
+        isSold = (record.data and record.data.sold == true) -- Altbestand
+    end
     if isOwner then
         ownerActions = string.format(
             '<a href="/listings/%s/edit" class="btn">%s</a>' ..
@@ -534,6 +538,11 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
     // Bei Versand: Versandadresse muss ausgefüllt sein.
     const buyBox = document.getElementById('buy-box');
     const isShipping = isShippingChosen();
+    // Gesamtbetrag: Stückpreis × Anzahl + ggf. Versand (R579) – vorher stand in
+    // der Bestätigung nur der Einzelpreis.
+    const totalFnd = amountFnd
+        ? (parseFloat(amountFnd) * buyQty() + (isShipping ? shipCost() : 0)).toFixed(2)
+        : '';
     let shipAddress = '';
     if (isShipping) {
         const ta = document.getElementById('ship-address');
@@ -570,7 +579,7 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
                 quantity: buyQty(),
                 delivery: isShipping ? 'shipping' : 'pickup',
                 // als Zeichenkette: der Node erwartet amount_fnd als Text
-                amount_fnd: amountFnd ? (parseFloat(amountFnd) * buyQty() + (isShipping ? shipCost() : 0)).toFixed(2) : undefined
+                amount_fnd: totalFnd || undefined
             }),
         });
         const d = await r.json();
@@ -586,7 +595,7 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
         // Kein separater "Jetzt bezahlen"-Schritt mehr nötig.
         st.innerHTML = `
           <div class="success-box">
-            <strong>✓ Kauf abgeschlossen — ${amountFnd || ''} FND eingefroren (Escrow ${(escrowId||'').slice(0,12)}…)</strong>
+            <strong>✓ Kauf abgeschlossen — ${totalFnd || amountFnd || ''} FND eingefroren${buyQty() > 1 ? ' (' + buyQty() + ' Stück)' : ''} (Escrow ${(escrowId||'').slice(0,12)}…)</strong>
             <p style="margin-top:6px">Die FND sind für 14 Tage im Escrow gesichert. Bestätige den Erhalt der Ware, sobald sie da ist — dann wird die Zahlung an den Verkäufer freigegeben.</p>
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-buy" onclick="confirmReceipt('${escrowId}')">✓ Erhalt bestätigen</button>
