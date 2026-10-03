@@ -73,6 +73,17 @@ return function(captures)
     local cond_html = table.concat(cond_opts)
     local cat_html  = table.concat(cat_opts)
 
+    -- Bestand (R574): serverseitig einsetzen – unabhängig davon, wie die
+    -- Vorbelegung als JSON ankommt.
+    local qtyTotal = tonumber(d.quantity) or 1
+    if qtyTotal < 1 then qtyTotal = 1 end
+    local qtySold = tonumber(d.sold_count) or 0
+    local qtyLeft = qtyTotal - qtySold
+    if qtyLeft < 0 then qtyLeft = 0 end
+    local qtyNote = (qtySold > 0)
+        and ("Bereits verkauft: " .. qtySold .. ". Erhöhen reaktiviert das Angebot.")
+        or  "Auf 0 setzen nimmt das Angebot aus dem Verkauf."
+
     ngx.print(string.format([[
 <form id="edit-form" onsubmit="submitEdit(event)">
   <div class="field"><label>%s</label>
@@ -82,8 +93,8 @@ return function(captures)
   <div class="field"><label>%s</label>
     <input type="number" id="f-price" value="%.2f" min="0" step="0.01"></div>
   <div class="field"><label>Noch verfügbare Stückzahl</label>
-    <input type="number" id="f-quantity" min="0" step="1" value="1">
-    <div class="meta" id="f-qty-note"></div></div>
+    <input type="number" id="f-quantity" min="0" step="1" value="%d">
+    <div class="meta">%s</div></div>
   <div class="field">
     <label>]] .. t("listing.seller_wallet") .. [[</label>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -160,21 +171,19 @@ const LT = ]] .. (require("cjson.safe").encode({ upload_failed = t("listing.uplo
 // Vorhandene Medien in die globalen Arrays der neuen Upload-Mechanik (upload.js)
 // vorladen — dann werden sie als Kacheln mit Thumbnails + Lösch-Buttons
 // dargestellt, genau wie im Anlege-Formular.
-(function(){
-  var p = FUNDUS_STRINGS.prefill || {};
-  var total = Math.max(1, parseInt(p.quantity, 10) || 1);
-  var sold  = Math.max(0, parseInt(p.sold_count, 10) || 0);
-  var q = document.getElementById('f-quantity');
-  if (q) q.value = Math.max(0, total - sold);   // Feld zeigt den REST
-  var n = document.getElementById('f-qty-note');
-  if (n) n.textContent = sold > 0
-    ? 'Bereits verkauft: ' + sold + '. Erhöhen reaktiviert das Angebot.'
-    : 'Auf 0 setzen nimmt das Angebot aus dem Verkauf.';
-})();
-window._mktImageHashes = (function(v){ return Array.isArray(v) ? v.slice() : []; })(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.image_hashes);
-window._mktImageThumbs = (function(v){ return Array.isArray(v) ? v.slice() : []; })(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.images);
-// Leere Lua-Tabellen kommen als {} (Objekt) an – nur echte Listen übernehmen.
-window._mktVideoHashes = (function(v){ return Array.isArray(v) ? v.slice() : []; })(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.video_hashes);
+// Lua schickt Listen je nach Inhalt als Array ODER als Objekt mit Zahlen-
+// schlüsseln ({"1":"…"}). Beides übernehmen, sonst fehlen die Bildkacheln.
+function _mktList(v){
+  if (Array.isArray(v)) return v.slice();
+  if (v && typeof v === 'object') {
+    return Object.keys(v).sort(function(a,b){ return (+a) - (+b); })
+      .map(function(k){ return v[k]; }).filter(function(x){ return typeof x === 'string' && x; });
+  }
+  return [];
+}
+window._mktImageHashes = _mktList(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.image_hashes);
+window._mktImageThumbs = _mktList(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.images);
+window._mktVideoHashes = _mktList(FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.video_hashes);
 // Einzelnes altes Video (Rückwärtskompat) in das Array übernehmen.
 (function(){
     const singleVid = (FUNDUS_STRINGS.prefill && FUNDUS_STRINGS.prefill.video_hash) || "";
@@ -303,6 +312,7 @@ async function submitEdit(e) {
         t("upload.field_title"),       render.html_escape(d.title or ""),
         t("upload.field_description"), render.html_escape(d.description or d.listing_text or ""),
         t("upload.field_price"),    tonumber(d.price_min) or tonumber(d.price) or 0,
+        qtyLeft, qtyNote,
         tostring(d.seller_wallet or ""),
         t("upload.field_delivery"),
         t("upload.delivery_pickup"),
