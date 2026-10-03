@@ -294,13 +294,7 @@ func (s *Server) escrowCreate(c *gin.Context) {
 	}
 	// Kauf am Listing vermerken (der Kaufbeweis selbst liegt unveränderlich als
 	// Escrow-Tx auf der Chain; das Listing ist nur der Marktplatz-Eintrag).
-	if req.ListingID != "" {
-		if rec, gerr := s.store.Get(storage.RecordListing, req.ListingID); gerr == nil && rec != nil {
-			rec.Data["sold_escrow"] = txHash
-			rec.UpdatedAt = time.Now()
-			_ = s.store.Put(rec)
-		}
-	}
+
 	// Kaufvermerk (R570): Menge, Übergabeart und Versandkosten gehören in den
 	// Kaufvertrag, stehen aber nicht auf der Chain. Keine Adresse – die geht
 	// wie bisher verschlüsselt per Messenger an den Verkäufer.
@@ -318,6 +312,9 @@ func (s *Server) escrowCreate(c *gin.Context) {
 			"delivery": delivery, "shipping_fnd": shippingFND,
 		},
 	})
+	if req.ListingID != "" {
+		s.settleListingStock(req.ListingID, qty) // Kaufvermerk zählt ab jetzt
+	}
 	// Escrow-ID = Tx-Hash der Eröffnung (so erzeugt applyEscrowOpen die ID).
 	c.JSON(http.StatusOK, gin.H{
 		"escrow_id": txHash, "tx_hash": txHash, "listing_id": req.ListingID,
@@ -1190,11 +1187,13 @@ func (s *Server) soldFromPurchases(listingID string) (int, bool) {
 // listingStock liefert angebotene und verkaufte Menge eines Angebots.
 func (s *Server) listingStock(id string, d map[string]any) (qty, sold int) {
 	qty = listingQuantity(d)
-	sold = listingSoldCount(d)
-	if n, ok := s.soldFromPurchases(id); ok && n > sold {
-		sold = n // Kaufvermerke aus dem Netz haben Vorrang
+	// Kaufvermerke sind maßgeblich, sobald es welche gibt. Nur ohne sie zählt
+	// die im Angebot mitgeschriebene Zahl – sie kann aus früheren Fassungen
+	// stammen, in denen der Käufer-Node ins Angebot geschrieben hat.
+	if n, ok := s.soldFromPurchases(id); ok {
+		return qty, n
 	}
-	return qty, sold
+	return qty, listingSoldCount(d)
 }
 
 func listingSoldCount(d map[string]any) int {
@@ -1219,6 +1218,11 @@ func listingSoldCount(d map[string]any) int {
 }
 
 // reserveListingStock bucht ein Stück ab. ok=false → nichts mehr verfügbar.
+// pendingStock: laufende Reservierungen je Angebot, nur im Arbeitsspeicher.
+// Zwischen Abbuchung und fertigem Kaufvermerk liegen ein paar Sekunden – so
+// lange zählt diese Zahl mit, damit nichts doppelt verkauft wird.
+var pendingStock = map[string]int{}
+
 func (s *Server) reserveListingStock(id string, n int) (ok bool, left int, err error) {
 	listingStockMu.Lock()
 	defer listingStockMu.Unlock()
@@ -1230,43 +1234,31 @@ func (s *Server) reserveListingStock(id string, n int) (ok bool, left int, err e
 		n = 1
 	}
 	qty, sold := s.listingStock(id, rec.Data)
+	sold += pendingStock[id]
 	if sold+n > qty {
 		return false, qty - sold, nil // left = noch verfügbar
 	}
-	sold += n
-	rec.Data["sold_count"] = sold
-	// quantity NICHT schreiben: Der Kauf läuft auf dem Node des KÄUFERS. Hatte
-	// der eine ältere Fassung des Angebots ohne Stückzahl, trug er hier 1 ein
-	// und überschrieb damit beim Abgleich die richtige Zahl des Verkäufers.
-	if _, known := rec.Data["quantity"]; known {
-		rec.Data["sold"] = sold >= qty
+	// Das Angebot selbst wird NICHT verändert: Es gehört dem Verkäufer-Node.
+	// Jede Änderung hier erzeugte eine neuere Fassung beim Käufer, die beim
+	// Abgleich die Angaben des Verkäufers (u.a. die Stückzahl) überschrieb.
+	// Gezählt wird stattdessen über die Kaufvermerke (soldFromPurchases).
+	pendingStock[id] += n
+	return true, qty - sold - n, nil
+}
+
+// settleListingStock: Der Kaufvermerk steht, die Reservierung wird frei.
+func (s *Server) settleListingStock(id string, n int) {
+	listingStockMu.Lock()
+	defer listingStockMu.Unlock()
+	if pendingStock[id] -= n; pendingStock[id] <= 0 {
+		delete(pendingStock, id)
 	}
-	rec.UpdatedAt = time.Now()
-	if perr := s.store.Put(rec); perr != nil {
-		return false, 0, perr
-	}
-	return true, qty - sold, nil
 }
 
 // releaseListingStock gibt ein reserviertes Stück zurück (Transaktion scheiterte).
+// releaseListingStock gibt eine Reservierung zurück (Transaktion scheiterte).
 func (s *Server) releaseListingStock(id string, n int) {
-	listingStockMu.Lock()
-	defer listingStockMu.Unlock()
-	rec, gerr := s.store.Get(storage.RecordListing, id)
-	if gerr != nil || rec == nil || rec.Data == nil {
-		return
-	}
-	if n < 1 {
-		n = 1
-	}
-	sold := listingSoldCount(rec.Data) - n
-	if sold < 0 {
-		sold = 0
-	}
-	rec.Data["sold_count"] = sold
-	rec.Data["sold"] = sold >= listingQuantity(rec.Data)
-	rec.UpdatedAt = time.Now()
-	_ = s.store.Put(rec)
+	s.settleListingStock(id, n)
 }
 
 // contractDeliveryText beschreibt die Übergabe inkl. enthaltener Versandkosten.
