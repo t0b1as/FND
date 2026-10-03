@@ -81,9 +81,9 @@ return function(captures)
     local qtyLeft = qtyTotal - qtySold
     if qtyLeft < 0 then qtyLeft = 0 end
     local qtyNote = (qtySold > 0)
-        and ("Davon verkauft: " .. qtySold .. " · noch verfügbar: " .. qtyLeft ..
-             ". Die eingetragene Zahl ersetzt die Stückzahl.")
-        or  "Die eingetragene Zahl ersetzt die Stückzahl. 0 nimmt das Angebot aus dem Verkauf."
+        and ("Davon noch nicht abgezogen: " .. qtySold ..
+             " (Verkauf gerade eingegangen). Die eingetragene Zahl ersetzt den Bestand.")
+        or  "Wie viele Stück jetzt verfügbar sind. Käufe ziehen automatisch ab; 0 nimmt das Angebot aus dem Verkauf."
 
     ngx.print(string.format([[
 <form id="edit-form" onsubmit="submitEdit(event)">
@@ -93,7 +93,7 @@ return function(captures)
     <textarea id="f-description" rows="5">%s</textarea></div>
   <div class="field"><label>%s</label>
     <input type="number" id="f-price" value="%.2f" min="0" step="0.01"></div>
-  <div class="field"><label>Stückzahl (gesamt)</label>
+  <div class="field"><label>Verfügbare Stückzahl</label>
     <input type="number" id="f-quantity" min="0" step="1" value="%d">
     <div class="meta">%s</div></div>
   <div class="field">

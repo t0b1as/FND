@@ -153,7 +153,7 @@ return function(captures)
     if remaining < 0 then remaining = 0 end
     local stockRow = ""
     if qty > 1 then
-        stockRow = string.format('<div class="stock-row">Noch <b>%d</b> von %d verfügbar</div>', remaining, qty)
+        stockRow = string.format('<div class="stock-row">Noch <b>%d</b> verfügbar</div>', remaining)
     end
     local isSold = remaining <= 0
     if isOwner then

@@ -147,6 +147,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerBackupRoutes() // verschlüsselte automatische Sicherung
 	s.registerMailRoutes()   // E-Mail-Benachrichtigungen
 	listingReconcileOnce.Do(func() { go s.reconcileOwnListings() }) // Bestand eigener Angebote
+	s.registerListingSoldProtocol() // Verkaufsmeldungen anderer Nodes
 	s.router.GET("/api/v1/nodes/overview", s.nodesOverview) // Übersicht aller Nodes (nur Heimnetz)
 	s.registerNodeInfo()                                     // P2P: "Wie geht es dir?"
 	s.registerWalletRoutes()
@@ -436,7 +437,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R577"
+const NodeRevision = "R578"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

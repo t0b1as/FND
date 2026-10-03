@@ -18,6 +18,7 @@ package api
 //   - Blockchain-Nachweis (Escrow-ID, Tx-Hash)
 
 import (
+	"context"
 	"go.uber.org/zap"
 	"sort"
 	"encoding/json"
@@ -315,6 +316,9 @@ func (s *Server) escrowCreate(c *gin.Context) {
 	})
 	if req.ListingID != "" {
 		s.settleListingStock(req.ListingID, qty) // Kaufvermerk zählt ab jetzt
+		// Verkauf SOFORT dem Verkäufer-Node melden (R578). Ohne das müsste der
+		// Bestand über den Datenabgleich wandern – das dauerte Minuten.
+		go s.notifySaleToOwner(req.ListingID, txHash, qty)
 	}
 	// Escrow-ID = Tx-Hash der Eröffnung (so erzeugt applyEscrowOpen die ID).
 	c.JSON(http.StatusOK, gin.H{
@@ -1188,21 +1192,98 @@ func (s *Server) soldFromPurchases(listingID string) (int, bool) {
 
 // listingStock liefert angebotene und verkaufte Menge eines Angebots.
 func (s *Server) listingStock(id string, d map[string]any) (qty, sold int) {
+	// quantity ist die TATSÄCHLICH VERFÜGBARE Menge (vom Verkäufer gepflegt).
+	// Käufe, die der Verkäufer-Node noch nicht abgezogen hat, ziehen wir für
+	// die Anzeige lokal ab – sichtbar am Kaufvermerk, dessen Kennung noch
+	// nicht in sold_txs steht.
 	qty = listingQuantity(d)
-	// Maßgeblich ist, was der Verkäufer-Node ins Angebot geschrieben hat: Nur
-	// er kennt die Stückzahl. Die Kaufvermerke zählen zusätzlich mit, damit der
-	// Käufer seinen eigenen Kauf sofort sieht – sie tragen die Stückzahl
-	// ausdrücklich und sind daher von Preisänderungen unabhängig.
-	sold = listingSoldCount(d)
-	if n, ok := s.soldFromPurchases(id); ok && n > sold {
-		sold = n
-	}
+	sold = s.unappliedPurchases(id, d)
 	return qty, sold
 }
 
-// reconcileOwnListings schreibt die verkaufte Menge in die EIGENEN Angebote.
-// Nur der Verkäufer-Node darf das: Seine Fassung gewinnt beim Abgleich und
-// verteilt den Bestand an alle anderen. Läuft alle 30 Sekunden.
+// appliedTxs liefert die vom Verkäufer bereits verrechneten Kauf-Kennungen.
+func appliedTxs(d map[string]any) map[string]bool {
+	out := map[string]bool{}
+	if d == nil {
+		return out
+	}
+	if arr, ok := d["sold_txs"].([]any); ok {
+		for _, v := range arr {
+			if sv, ok := v.(string); ok {
+				out[strings.ToLower(sv)] = true
+			}
+		}
+	}
+	return out
+}
+
+// unappliedPurchases zählt lokale Kaufvermerke, die noch nicht verrechnet sind.
+func (s *Server) unappliedPurchases(listingID string, d map[string]any) int {
+	if s.store == nil || listingID == "" {
+		return 0
+	}
+	recs, err := s.store.List(storage.RecordPurchase)
+	if err != nil {
+		return 0
+	}
+	done := appliedTxs(d)
+	n := 0
+	for _, r := range recs {
+		if r == nil || r.DeletedAt != nil || r.Data == nil {
+			continue
+		}
+		if lid, _ := r.Data["listing_id"].(string); lid != listingID {
+			continue
+		}
+		if done[strings.ToLower(strings.TrimPrefix(r.ID, "purchase-"))] {
+			continue // vom Verkäufer bereits abgezogen
+		}
+		if q, ok := toFloatOK(r.Data["quantity"]); ok && q >= 1 {
+			n += int(q)
+		} else {
+			n++
+		}
+	}
+	return n
+}
+
+// applySale zieht einen Verkauf vom eigenen Angebot ab. Nur der Verkäufer-Node
+// darf das – seine Fassung gewinnt beim Abgleich und verteilt den Bestand.
+// Jede Kauf-Kennung wird nur einmal verrechnet.
+func (s *Server) applySale(listingID, tx string, n int) bool {
+	if s.store == nil || listingID == "" || n < 1 {
+		return false
+	}
+	listingStockMu.Lock()
+	defer listingStockMu.Unlock()
+	rec, err := s.store.Get(storage.RecordListing, listingID)
+	if err != nil || rec == nil || rec.Data == nil || rec.OwnerID != s.nodeID() {
+		return false
+	}
+	tx = strings.ToLower(strings.TrimPrefix(strings.TrimPrefix(tx, "purchase-"), "0x"))
+	if tx == "" || appliedTxs(rec.Data)[tx] {
+		return false
+	}
+	left := listingQuantity(rec.Data) - n
+	if left < 0 {
+		left = 0
+	}
+	rec.Data["quantity"] = left
+	rec.Data["sold"] = left <= 0
+	txs, _ := rec.Data["sold_txs"].([]any)
+	rec.Data["sold_txs"] = append(txs, tx)
+	rec.UpdatedAt = time.Now()
+	if s.store.Put(rec) != nil {
+		return false
+	}
+	if s.log != nil {
+		s.log.Info("Bestand verringert", zap.String("listing", listingID), zap.Int("verkauft", n), zap.Int("verfuegbar", left))
+	}
+	return true
+}
+
+// reconcileOwnListings holt Käufe nach, deren Meldung den Node nicht erreicht
+// hat (z.B. weil er offline war). Nur für eigene Angebote.
 func (s *Server) reconcileOwnListings() {
 	for {
 		time.Sleep(30 * time.Second)
@@ -1216,17 +1297,30 @@ func (s *Server) reconcileOwnListings() {
 		me := s.nodeID()
 		for _, rec := range recs {
 			if rec == nil || rec.DeletedAt != nil || rec.Data == nil || rec.OwnerID != me {
-				continue // nur eigene Angebote
-			}
-			n, ok := s.soldFromPurchases(rec.ID)
-			if !ok || n == listingSoldCount(rec.Data) {
 				continue
 			}
-			rec.Data["sold_count"] = n
-			rec.Data["sold"] = n >= listingQuantity(rec.Data)
-			rec.UpdatedAt = time.Now()
-			if err := s.store.Put(rec); err == nil && s.log != nil {
-				s.log.Debug("Bestand aktualisiert", zap.String("listing", rec.ID), zap.Int("verkauft", n))
+			purchases, perr := s.store.List(storage.RecordPurchase)
+			if perr != nil {
+				break
+			}
+			done := appliedTxs(rec.Data)
+			for _, pr := range purchases {
+				if pr == nil || pr.DeletedAt != nil || pr.Data == nil {
+					continue
+				}
+				if lid, _ := pr.Data["listing_id"].(string); lid != rec.ID {
+					continue
+				}
+				tx := strings.ToLower(strings.TrimPrefix(pr.ID, "purchase-"))
+				if done[tx] {
+					continue
+				}
+				n := 1
+				if q, ok := toFloatOK(pr.Data["quantity"]); ok && q >= 1 {
+					n = int(q)
+				}
+				s.applySale(rec.ID, tx, n)
+				done[tx] = true
 			}
 		}
 	}
@@ -1385,3 +1479,55 @@ animation:p 1.2s ease-in-out infinite;margin-bottom:14px}
 <h1>Der Kaufvertrag wird gerade erstellt</h1>
 <p>Dein Kauf wird in den nächsten Sekunden in einem Block der Fundus-Chain festgeschrieben.
 Diese Seite lädt sich automatisch neu.</p></div></body></html>`
+
+// ── Verkaufsmeldung an den Verkäufer-Node (R578) ────────────────────────────
+
+const listingSoldProtocol = "/fundus/listing-sold/1.0.0"
+
+type listingSoldMsg struct {
+	ListingID string `json:"listing_id"`
+	Tx        string `json:"tx"`
+	Quantity  int    `json:"quantity"`
+}
+
+// notifySaleToOwner meldet den Kauf direkt an den Node, dem das Angebot gehört.
+func (s *Server) notifySaleToOwner(listingID, tx string, qty int) {
+	if s.node == nil || s.store == nil {
+		return
+	}
+	rec, err := s.store.Get(storage.RecordListing, listingID)
+	if err != nil || rec == nil || rec.OwnerID == "" || rec.OwnerID == s.nodeID() {
+		return // eigenes Angebot: wird lokal verrechnet
+	}
+	body, err := json.Marshal(listingSoldMsg{ListingID: listingID, Tx: tx, Quantity: qty})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if _, err := s.node.SendAndReceive(ctx, rec.OwnerID, listingSoldProtocol, body); err != nil && s.log != nil {
+		// Nicht schlimm: Der Kaufvermerk verteilt sich ohnehin, der Verkäufer
+		// holt den Abzug beim nächsten Durchlauf nach.
+		s.log.Debug("Verkaufsmeldung nicht zugestellt", zap.Error(err))
+	}
+}
+
+// registerListingSoldProtocol beantwortet Verkaufsmeldungen anderer Nodes.
+func (s *Server) registerListingSoldProtocol() {
+	if s.node == nil {
+		return
+	}
+	s.node.RegisterProtocol(listingSoldProtocol, func(peerID string, data []byte) []byte {
+		var m listingSoldMsg
+		if json.Unmarshal(data, &m) != nil || m.ListingID == "" || m.Tx == "" {
+			return []byte(`{"ok":false}`)
+		}
+		n := m.Quantity
+		if n < 1 {
+			n = 1
+		}
+		// applySale prüft selbst: nur eigenes Angebot, jede Kennung nur einmal.
+		s.applySale(m.ListingID, m.Tx, n)
+		return []byte(`{"ok":true}`)
+	})
+}
