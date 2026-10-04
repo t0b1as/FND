@@ -1960,6 +1960,10 @@ func (s *Server) shareHistoryEntry(sess *Session, e messenger.HistoryEntry) {
 func (s *Server) publishHistEntry(sess *Session, e messenger.HistoryEntry, blob string) {
 	defer func() { _ = recover() }()
 	fid := strings.ToLower(sess.identity.FundusID)
+	// SOFORT an die eigenen anderen Nodes (R598): Die Nachricht selbst geht an
+	// die Nodes des EMPFÄNGERS – das zweite eigene Gerät erfuhr davon bisher
+	// erst über den Abgleich, also mit bis zu 30 Sekunden Verzögerung.
+	go s.sendHistToOwnNodes(fid, blob)
 	rec := &storage.Record{
 		ID:        "hist:" + fid + ":" + strings.ToLower(e.ID),
 		Type:      storage.RecordHistSync,
@@ -2112,4 +2116,79 @@ func keydirAddPeer(d map[string]any, myPeer string) {
 	}
 	d["peers"] = list
 	d["peer_id"] = myPeer // zuletzt benutzter Node (Rückwärtskompatibilität)
+}
+
+// ── Verlaufseintrag direkt an die eigenen Nodes (R598) ──────────────────────
+
+const histSyncProtocol = "/fundus/histsync/1.0.0"
+
+type histSyncMsg struct {
+	FID  string `json:"fid"`
+	Blob string `json:"blob"`
+}
+
+// sendHistToOwnNodes stellt den Eintrag parallel an alle eigenen Nodes zu.
+func (s *Server) sendHistToOwnNodes(fid, blob string) {
+	defer func() { _ = recover() }()
+	if s.node == nil || s.store == nil {
+		return
+	}
+	rec, err := s.store.Get(storage.RecordKeyDir, "keydir:"+fid)
+	if err != nil || rec == nil {
+		return
+	}
+	body, err := json.Marshal(histSyncMsg{FID: fid, Blob: blob})
+	if err != nil {
+		return
+	}
+	me := s.node.ID().String()
+	var wg sync.WaitGroup
+	for _, pid := range keydirPeers(rec.Data) {
+		if pid == "" || pid == me {
+			continue // der eigene Node hat den Eintrag schon
+		}
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
+			defer func() { _ = recover() }()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _ = s.node.SendAndReceive(ctx, p, histSyncProtocol, body)
+		}(pid)
+	}
+	wg.Wait()
+}
+
+// registerHistSyncProtocol nimmt Verlaufseinträge der eigenen Nodes entgegen.
+func (s *Server) registerHistSyncProtocol() {
+	if s.node == nil {
+		return
+	}
+	s.node.RegisterProtocol(histSyncProtocol, func(peerID string, data []byte) []byte {
+		var m histSyncMsg
+		if json.Unmarshal(data, &m) != nil || m.FID == "" || m.Blob == "" {
+			return []byte(`{"ok":false}`)
+		}
+		sessionMu.RLock()
+		sess := sessionStore[strings.ToLower(m.FID)]
+		sessionMu.RUnlock()
+		// Nur verwertbar, wenn dieses Konto hier angemeldet ist – nur dann
+		// existiert der Schlüssel zum Öffnen. Sonst holt der Abgleich es nach.
+		if sess == nil || sess.history == nil {
+			return []byte(`{"ok":false}`)
+		}
+		e, err := sess.history.OpenEntry(m.Blob)
+		if err != nil || e.ID == "" || sess.history.Known(e.ID) {
+			return []byte(`{"ok":true}`)
+		}
+		if sess.history.Append(e) == nil {
+			sess.broadcastWS(gin.H{
+				"type": "hist", "id": e.ID, "peer_id": e.PeerID, "outgoing": e.Outgoing,
+				"text": e.Text, "file_hash": e.FileHash, "file_name": e.FileName,
+				"file_size": e.FileSize, "mime_type": e.Mime, "ts": e.Timestamp,
+				"decrypted": true,
+			})
+		}
+		return []byte(`{"ok":true}`)
+	})
 }
