@@ -1,6 +1,8 @@
 package messenger
 
 import (
+	"encoding/hex"
+	"crypto/sha256"
 	"bufio"
 	"encoding/base64"
 	"encoding/json"
@@ -59,6 +61,13 @@ type HistoryStore struct {
 	myID    string
 	key     [32]byte
 	mu      sync.Mutex // serialisiert Appends (append-only Konsistenz)
+
+	// seen merkt sich die bereits abgelegten Nachrichten-Kennungen dauerhaft
+	// (R582). Dieselbe Nachricht kommt über mehrere Wege an – direkt, über das
+	// Postfach, nach einem Neustart erneut. Ohne diesen Index landete sie
+	// mehrfach im Verlauf.
+	seen       map[string]bool
+	seenLoaded bool
 }
 
 // NewHistoryStore erstellt einen Verlauf-Store für die gegebene Identität.
@@ -102,6 +111,45 @@ func sanitizeID(id string) string {
 
 func (h *HistoryStore) convPath(peerID string) string {
 	return filepath.Join(h.baseDir, sanitizeID(peerID)+".log")
+}
+
+// Known meldet, ob eine Nachricht mit dieser Kennung bereits abgelegt wurde.
+// Damit lassen sich auch Anzeige und Benachrichtigung unterdrücken, wenn
+// dieselbe Nachricht ein zweites Mal eintrifft.
+func (h *HistoryStore) Known(id string) bool {
+	if id == "" {
+		return false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.loadSeen()
+	return h.seen[seenKey(id)]
+}
+
+// seenPath: Index der bereits abgelegten Kennungen (gehashte Kurzform).
+func (h *HistoryStore) seenPath() string { return filepath.Join(h.baseDir, "seen.idx") }
+
+func seenKey(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(sum[:8])
+}
+
+// loadSeen liest den Index einmalig ein (Aufruf mit gehaltenem Lock).
+func (h *HistoryStore) loadSeen() {
+	if h.seenLoaded {
+		return
+	}
+	h.seenLoaded = true
+	h.seen = make(map[string]bool)
+	raw, err := os.ReadFile(h.seenPath())
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			h.seen[line] = true
+		}
+	}
 }
 
 // UpdateReceipt setzt den Zustell-/Lesestatus einer ausgehenden Nachricht
@@ -178,6 +226,20 @@ func (h *HistoryStore) UpdateReceipt(peerID, messageID, kind string, at time.Tim
 func (h *HistoryStore) Append(e HistoryEntry) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// Doppelte Zustellung abfangen: dieselbe Kennung nur einmal ablegen.
+	if e.ID != "" {
+		h.loadSeen()
+		k := seenKey(e.ID)
+		if h.seen[k] {
+			return nil
+		}
+		h.seen[k] = true
+		if f, ferr := os.OpenFile(h.seenPath(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o640); ferr == nil {
+			_, _ = f.WriteString(k + "\n")
+			_ = f.Close()
+		}
+	}
 
 	plain, err := json.Marshal(e)
 	if err != nil {

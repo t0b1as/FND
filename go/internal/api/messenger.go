@@ -252,6 +252,14 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 				return
 			}
 
+			// Bereits bekannt? Dieselbe Nachricht kommt über mehrere Wege an
+			// (direkt, Postfach, nach Neustart erneut). Dann weder anzeigen
+			// noch benachrichtigen – sonst erscheint sie mehrfach (R582).
+			if sess.history != nil && payload != nil && payload.Signal == nil &&
+				msg.ID != "" && sess.history.Known(msg.ID) {
+				return
+			}
+
 			// Verlauf persistieren (eingehend). payload ist bereits entschlüsselt.
 			// Anruf-Signale (SDP/ICE) sind keine Nachrichten → nicht in den Verlauf.
 			if sess.history != nil && payload != nil && payload.Signal == nil {
@@ -1435,12 +1443,14 @@ func (s *Server) drainMailbox(sess *Session) int {
 		if r == nil || !strings.HasPrefix(r.ID, prefix) {
 			continue // nur Nachrichten für diese FundusID
 		}
+		if drainedMailboxSeen(r.ID) {
+			continue
+		}
 		if env, ok := r.Data["envelope"].(string); ok {
-			// Doppelte (direkt + Postfach) verwirft der Messenger anhand der ID.
+			// Doppelte (direkt + Postfach) verwirft der Verlauf anhand der ID.
 			sess.messenger.InjectIncoming([]byte(env))
 			count++
 		}
-		_ = s.store.Delete(storage.RecordMailbox, r.ID)
 	}
 	return count
 }
@@ -1508,10 +1518,17 @@ func (s *Server) mailboxPumpLoop() {
 			if !ok {
 				continue
 			}
+			if drainedMailboxSeen(r.ID) {
+				continue // auf diesem Node schon verarbeitet
+			}
 			if env, ok := r.Data["envelope"].(string); ok {
 				ss.messenger.InjectIncoming([]byte(env))
 			}
-			_ = s.store.Delete(storage.RecordMailbox, r.ID)
+			// NICHT löschen (R582): Wer sich auf mehreren Nodes anmeldet – etwa
+			// zuhause und über die öffentliche Adresse – bekam die Nachricht
+			// sonst nur auf dem Node, der sie zuerst abholte. Doppelte fängt
+			// der Verlauf jetzt dauerhaft ab; aufgeräumt wird über die
+			// Vorhaltezeit (TTLMailboxDays).
 		}
 	}
 }
@@ -1799,4 +1816,30 @@ func (s *Server) messengerICE(c *gin.Context) {
 		servers = append(servers, t)
 	}
 	c.JSON(http.StatusOK, gin.H{"iceServers": servers, "turn": s.cfg != nil && len(s.cfg.TurnURLs) > 0})
+}
+
+// drainedMailbox merkt sich, welche Postfach-Einträge dieser Node schon
+// verarbeitet hat. Gelöscht werden sie nicht mehr – andere Nodes desselben
+// Nutzers brauchen sie ebenfalls.
+var (
+	drainedMailboxMu sync.Mutex
+	drainedMailbox   = map[string]int64{}
+)
+
+func drainedMailboxSeen(id string) bool {
+	now := time.Now().Unix()
+	drainedMailboxMu.Lock()
+	defer drainedMailboxMu.Unlock()
+	if _, ok := drainedMailbox[id]; ok {
+		return true
+	}
+	drainedMailbox[id] = now
+	if len(drainedMailbox) > 20000 { // alte Einträge ausdünnen
+		for k, t := range drainedMailbox {
+			if now-t > 7*24*3600 {
+				delete(drainedMailbox, k)
+			}
+		}
+	}
+	return false
 }
