@@ -49,6 +49,21 @@ var wsUpgrader = websocket.Upgrader{
 		if ip := net.ParseIP(host); ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
 			return true
 		}
+		// Eigene öffentliche Adresse erlauben (R593): Über die Domain kamen
+		// bisher KEINE Nachrichten an – das Senden lief als normale Anfrage
+		// weiter, die Live-Zustellung hängt aber an dieser Verbindung, und die
+		// wurde hier abgewiesen. Der Vergleich geht gegen den Host, den der
+		// Browser aufgerufen hat; damit bleiben fremde Seiten ausgesperrt.
+		reqHost := r.Host
+		if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+			reqHost = strings.TrimSpace(strings.Split(h, ",")[0])
+		}
+		if hh, _, err := net.SplitHostPort(reqHost); err == nil {
+			reqHost = hh
+		}
+		if reqHost != "" && strings.EqualFold(host, reqHost) {
+			return true
+		}
 		return false
 	},
 }
