@@ -1,8 +1,8 @@
 {
-  "version": "R586",
-  "description": "FUNDUS R586 - Multinode Messanging",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R586/FND-R586-update.zip",
-  "node_argon2": "a0f3df08318f28b6cfffbe769d6f83d28ac229880980afcbdb5ebbcca6c97545",
-  "published_at": "2026-10-04T06:21:02.2912705Z",
-  "signature": "0x047bd953637211fe0f12634ffc111dfcdd1264116dc7554e22b51cc6eb6452501ca86ddb7772ef3a610b89a47df95cbf2fb66500a9886c1ecfe2d69a026a232a1b"
+  "version": "R589",
+  "description": "FUNDUS R589 - RAM Management",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R589/FND-R589-update.zip",
+  "node_argon2": "8b9fb62bc97432d85e1b822a7e630555aa8af6913bf3b88bc0cf3ee774bbab90",
+  "published_at": "2026-10-04T06:52:38.3994047Z",
+  "signature": "0x2f7d0d81521abc1aeac4074b90d448dcbe3dedef488ec79725b558d81ebc4b34122fd8977791877f3e8cb95f944986b9fa1e01d0b76aee0828561d2084b49f171b"
 }
