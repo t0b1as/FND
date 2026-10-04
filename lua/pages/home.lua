@@ -48,6 +48,28 @@ return function()
   }).catch(function(){});
 })();
 </script>
+<script>
+(function(){
+  // Zahl der Messenger-Kachel: ungelesene Nachrichten, sonst Anzahl Kontakte.
+  function setzen(){
+    var el = document.getElementById('tile-msg-count'); if (!el) return;
+    var un = (window.__msgNotify && window.__msgNotify.unread) || 0;
+    if (un > 0) { el.textContent = un; el.style.color = '#ff6b9d'; return; }
+    // Sonst die Zahl der Kontakte vom Node (nur wenn angemeldet).
+    fetch('/api/v1/messenger/contacts', {credentials:'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d) { el.textContent = '–'; return; }
+        var list = d.contacts || d.entries || d;
+        el.textContent = Array.isArray(list) ? list.length : (typeof list === 'object' ? Object.keys(list).length : 0);
+      })
+      .catch(function(){ el.textContent = '–'; });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setzen);
+  else setzen();
+  setTimeout(setzen, 1200);
+})();
+</script>
 <div class="tile-grid">
   <a href="/listings" class="tile tile-green" data-nav-key="listings" data-nav-zone="landing">
     <div class="tile-glow"></div>
@@ -65,6 +87,12 @@ return function()
     <div class="tile-glow"></div>
     <div class="tile-icon">]] .. require("icons").svg("certificates") .. [[</div>
     <div class="tile-value">%d</div>
+    <div class="tile-label">%s</div>
+  </a>
+  <a href="/messenger" class="tile tile-blue" data-nav-key="messenger" data-nav-zone="landing">
+    <div class="tile-glow"></div>
+    <div class="tile-icon">]] .. require("icons").svg("messenger") .. [[</div>
+    <div class="tile-value" id="tile-msg-count">–</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/jobs" class="tile tile-purple wip" data-wip="BETA" data-nav-key="jobs" data-nav-zone="landing">
@@ -113,6 +141,7 @@ return function()
         listings, t("home.listings_count"),
         energy,   t("home.energy_count"),
         certs,    (t("nav.certificates") or "Zertifikate"),
+        (t("nav.messenger") or "Messenger"),
         jobs,     (t("nav.jobs") or "Jobs"),
         peers,    t("home.peers"),
         (t("nav.files") or "Speicher"),

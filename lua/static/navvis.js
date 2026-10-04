@@ -12,7 +12,7 @@
     { key:"energy",       path:"/energy",       label:"Energie",      icon:"⚡", beta:true, color:"gold" },
     { key:"certificates", path:"/certificates", label:"Zertifikate",  icon:"📜", beta:true, color:"blue" },
     { key:"shop",         path:"/shop",         label:"FND/SOL",      icon:"💰", color:"green",  defQuick:true },
-    { key:"jobs",         path:"/jobs",         label:"Jobs",         icon:"💼", beta:true, color:"purple" },
+    { key:"jobs",         path:"/jobs",         label:"Jobs",         icon:"💼", beta:true, color:"purple", defLanding:false },
     { key:"files",        path:"/files",        label:"Dateien",      icon:"📁", color:"pink",   defQuick:true, quickPath:"/shared", quickLabel:"Freigaben" },
     { key:"messenger",    path:"/messenger",    label:"Messenger",    icon:"💬", beta:true, color:"blue", defQuick:true },
     { key:"partner",      path:"/partner",      label:"Fundus Love",  icon:"💗", color:"rose", defQuick:true },
@@ -35,9 +35,13 @@
     // Fehlende Punkte mit Defaults füllen (quick pro Item über defQuick).
     window.NAV_ITEMS.forEach(function(it){
       const defQuick = !!it.defQuick;
-      if (!v[it.key]) v[it.key] = { landing:true, burger:true, quick:defQuick };
+      // defLanding:false → Kachel standardmäßig AUS (R601: Jobs ist Beta,
+      // der Messenger steht dort jetzt an seiner Stelle). Zuschaltbar bleibt
+      // alles über Einstellungen → Navigation anpassen.
+      const defLanding = (it.defLanding !== false);
+      if (!v[it.key]) v[it.key] = { landing:defLanding, burger:true, quick:defQuick };
       else {
-        if (typeof v[it.key].landing !== "boolean") v[it.key].landing = true;
+        if (typeof v[it.key].landing !== "boolean") v[it.key].landing = defLanding;
         if (typeof v[it.key].burger  !== "boolean") v[it.key].burger  = true;
         if (typeof v[it.key].quick   !== "boolean") v[it.key].quick   = defQuick;
       }
