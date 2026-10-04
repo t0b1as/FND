@@ -2011,6 +2011,22 @@ func (s *Server) drainHistSync(sess *Session) int {
 		}
 		if sess.history.Append(e) == nil {
 			n++
+			// Sofort ins offene Fenster schieben (R597): Bisher landete der
+			// Eintrag nur im Verlauf – auf dem zweiten Gerät erschien die
+			// eigene Nachricht erst nach einem Neuladen.
+			sess.broadcastWS(gin.H{
+				"type":      "hist",
+				"id":        e.ID,
+				"peer_id":   e.PeerID,
+				"outgoing":  e.Outgoing,
+				"text":      e.Text,
+				"file_hash": e.FileHash,
+				"file_name": e.FileName,
+				"file_size": e.FileSize,
+				"mime_type": e.Mime,
+				"ts":        e.Timestamp,
+				"decrypted": true,
+			})
 		}
 	}
 	return n

@@ -288,6 +288,22 @@ async function handleIncomingMessage(msg) {
         return;
     }
     // Zustell-/Lesequittung: aktualisiert die Häkchen der ausgehenden Bubble.
+    // Verlaufsabgleich von einem anderen eigenen Node (R597): eigene wie
+    // fremde Nachrichten, die dieses Gerät noch nicht kennt.
+    if (msg.type === 'hist') {
+        const peer = String(msg.peer_id || '').toLowerCase();
+        if (!activeChat || String(activeChat.fundusID || '').toLowerCase() !== peer) return;
+        if (document.querySelector('.msg-bubble[data-msg-id="' + msg.id + '"]')) return; // schon da
+        appendMessage({
+            id:   msg.id,
+            from: msg.outgoing ? (myIdentity && myIdentity.fundusID) : msg.peer_id,
+            text: msg.text,
+            file: msg.file_hash ? { hash: msg.file_hash, name: msg.file_name, size: msg.file_size, mime: msg.mime_type } : null,
+            ts:   new Date(msg.ts),
+            outgoing: !!msg.outgoing,
+        });
+        return;
+    }
     if (msg.type === 'receipt') {
         applyReceipt(msg.receipt_for, msg.receipt_kind, msg.ts);
         return;
