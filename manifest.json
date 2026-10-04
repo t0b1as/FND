@@ -1,8 +1,8 @@
 {
-  "version": "R600",
-  "description": "FUNDUS R600 - Peer Management",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R600/FND-R600-update.zip",
-  "node_argon2": "60d0657c4fd57212d98b912718f6ec29b63295cbc5c9cdc633f5b3f8a3aa5272",
-  "published_at": "2026-10-04T15:21:04.6286486Z",
-  "signature": "0x20e819375d02fd4d6f71ac8c137767d6563db7bf2033a45e86b93f705cb62ddb3ca7aa7d65c409f1b9083d8a0fd06c3c0a6008b10b381444413666e51d3680dc1c"
+  "version": "R601",
+  "description": "FUNDUS R601 - Default Kachelanpassung",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R601/FND-R601-update.zip",
+  "node_argon2": "c685ca9dcc5f2b096baf3a096546ed76037b6ee1fa188163217ee79f8ed66db2",
+  "published_at": "2026-10-04T17:56:04.8611463Z",
+  "signature": "0x3b688c9680697bd8ea9fe41b0045763c3735a49aedbf79070b37d23cf6d37b1c353246109808d565b010043237244b5f0aeeb42f605a9ffb3c7ac07413e0fd3a1b"
 }
