@@ -32,6 +32,7 @@ const (
 	RecordAddressBook    RecordType = "address_book"      // lokales Wallet-Adressbuch (NICHT im Netz geteilt)
 	RecordEmailDir       RecordType = "email_dir"         // opt-in Verzeichnis: email → FundusID (signiert)
 	RecordRating         RecordType = "rating"            // Bewertung eines Handelspartners (an Escrow gebunden, signiert)
+	RecordHistSync       RecordType = "hist_sync"         // Verlaufsabgleich zwischen den eigenen Nodes (verschlüsselt)
 	RecordPurchase       RecordType = "purchase"          // Kaufvermerk je Escrow (Menge, Übergabe, Versandkosten)
 	RecordBackupPtr      RecordType = "backup_ptr"        // Verweis auf die neueste verschlüsselte Sicherung (Kennung aus dem Passwort)
 	RecordMailbox        RecordType = "mailbox"           // Offline-Nachrichten für eine FundusID (verschlüsselt, bis Abholung)
@@ -310,7 +311,11 @@ func (s *Store) HandleIncoming(topic string, fromPeerID string, data []byte) err
 	// werden netzweit gecacht, damit sie an jedem Node abrufbar sind, an dem
 	// sich der Nutzer einloggt. Inhalt ist Ende-zu-Ende- bzw. Self-verschlüsselt
 	// (bzw. signiert beim Verzeichnis), daher unkritisch zu verteilen.
-	isPersonal := topic == "fundus.mailbox" || topic == "fundus.contacts" || topic == "fundus.emaildir" || topic == "fundus.keydir"
+	// R585: fundus.histsync gehört ebenfalls hierher – der Verlaufsabgleich
+	// wurde sonst von jedem anderen Node stillschweigend verworfen und kam
+	// nie auf dem zweiten eigenen Node an.
+	isPersonal := topic == "fundus.mailbox" || topic == "fundus.contacts" ||
+		topic == "fundus.emaildir" || topic == "fundus.keydir" || topic == "fundus.histsync"
 	if isPersonal {
 		var r Record
 		if err := json.Unmarshal(data, &r); err != nil {
@@ -463,6 +468,15 @@ var PublicRecordTypes = []RecordType{
 	// dieser Vermerk im Netz landet, kennt auch der Verkäufer den Bestand.
 	// Er enthält keine Adresse – die geht verschlüsselt per Messenger.
 	RecordPurchase,
+	// Verlaufsabgleich (R584): verschlüsselte Verlaufseinträge, damit derselbe
+	// Nutzer von mehreren eigenen Nodes aus denselben Verlauf sieht. Lesbar
+	// nur mit dem Schlüssel der angemeldeten Identität.
+	RecordHistSync,
+	// Postfach (R583): Bisher wurden diese Einträge nur im Moment des Sendens
+	// gerufen – ein Node, der gerade nicht zuhörte, bekam die Nachricht nie.
+	// Beim Abgleich werden sie jetzt nachgeholt. Der Inhalt ist
+	// Ende-zu-Ende verschlüsselt; lesbar nur für den Empfänger.
+	RecordMailbox,
 	// Partner-Ads NICHT hier: sie liefen mit ihrer Original-ID ("my-search-ad")
 	// ein und überschrieben das eigene Such-Profil. Sie haben ein eigenes
 	// Pull-Protokoll (api/partner.go, PartnerPullProtocol).

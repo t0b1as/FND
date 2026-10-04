@@ -214,6 +214,14 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 			}
 			return ""
 		})
+		// Mehrgeräte-Betrieb (R586): alle Nodes dieses Kontos.
+		sess.messenger.SetPeerIDsResolver(func(fundusID string) []string {
+			rec, e := s.store.Get(storage.RecordKeyDir, "keydir:"+strings.ToLower(fundusID))
+			if e != nil || rec == nil {
+				return nil
+			}
+			return keydirPeers(rec.Data)
+		})
 
 		// Persistenten, verschlüsselten Verlauf-Store anlegen (best effort).
 		if s.cfg != nil && s.cfg.DataDir != "" {
@@ -276,6 +284,7 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 					Timestamp: msg.Timestamp,
 				}
 				_ = sess.history.Append(he)
+				s.shareHistoryEntry(sess, he)    // an die eigenen Nodes verteilen (R584)
 				s.forwardHistoryToHome(sess, he) // Gast-Node: auch beim Heim-Node ablegen
 			}
 			sess.wsMu.Lock()
@@ -630,6 +639,7 @@ func (s *Server) messengerSend(c *gin.Context) {
 			Timestamp: msg.Timestamp,
 		}
 		_ = sess.history.Append(he)
+		s.shareHistoryEntry(sess, he) // eigene gesendete Nachricht an die eigenen Nodes (R584)
 		s.forwardHistoryToHome(sess, he) // Gast-Node: auch beim Heim-Node ablegen
 	}
 
@@ -1502,6 +1512,10 @@ func (s *Server) mailboxPumpLoop() {
 		if len(byFID) == 0 {
 			continue
 		}
+		// Verlaufsabgleich: verteilte Einträge der eigenen Nodes übernehmen.
+		for _, ss := range byFID {
+			s.drainHistSync(ss)
+		}
 		// Einmal lesen, dann nach Empfänger verteilen (statt je Sitzung die
 		// ganze Liste zu lesen – die Einträge kommen aus dem ganzen Netz).
 		all, _ := s.store.List(storage.RecordMailbox)
@@ -1551,10 +1565,21 @@ func (s *Server) keyDirPublish(c *gin.Context) {
 		s.internalError(c, err)
 		return
 	}
+	kdata := map[string]any{"fundus_id": fid, "x25519": x25519, "ed25519": sess.identity.PublicKeyHex, "sig": sig}
+	if old, e := s.store.Get(storage.RecordKeyDir, "keydir:"+fid); e == nil && old != nil && old.Data != nil {
+		for _, k := range []string{"peers", "peer_id", "home_peer", "wallet_address"} {
+			if v, ok := old.Data[k]; ok {
+				kdata[k] = v
+			}
+		}
+	}
+	if s.node != nil {
+		keydirAddPeer(kdata, s.node.ID().String()) // eigenen Node eintragen (R586)
+	}
 	rec := &storage.Record{
 		ID:   "keydir:" + fid,
 		Type: storage.RecordKeyDir,
-		Data: map[string]any{"fundus_id": fid, "x25519": x25519, "ed25519": sess.identity.PublicKeyHex, "sig": sig},
+		Data: kdata,
 	}
 	if err := s.store.Put(rec); err != nil {
 		s.internalError(c, err)
@@ -1658,12 +1683,26 @@ func (s *Server) ensureKeyDir(c *gin.Context, id *identity.Identity) {
 		s.log.Warn("ensureKeyDir: Signatur fehlgeschlagen", zap.Error(serr))
 		return
 	}
+	// Bestehende Geräte-Liste übernehmen und den eigenen Node ergänzen (R586):
+	// Früher überschrieb jede Anmeldung den Eintrag – Nachrichten kamen dann
+	// nur noch beim zuletzt benutzten Node an.
+	kdata := map[string]any{"fundus_id": fid, "x25519": x25519, "ed25519": id.PublicKeyHex, "sig": sig,
+		"home_peer": homePeer, "wallet_address": chain}
+	if old, e := s.store.Get(storage.RecordKeyDir, "keydir:"+fid); e == nil && old != nil && old.Data != nil {
+		if arr, ok := old.Data["peers"]; ok {
+			kdata["peers"] = arr
+		}
+		if pid, ok := old.Data["peer_id"].(string); ok {
+			kdata["peer_id"] = pid
+		}
+	}
+	keydirAddPeer(kdata, myPeerID)
 	krec := &storage.Record{
 		ID:   "keydir:" + fid,
 		Type: storage.RecordKeyDir,
 		// wallet_address: damit Überweisungen an eine Fundus-ID in die Wallet-
 		// Adresse übersetzt werden können (resolvePayee).
-		Data: map[string]any{"fundus_id": fid, "x25519": x25519, "ed25519": id.PublicKeyHex, "sig": sig, "peer_id": myPeerID, "home_peer": homePeer, "wallet_address": chain},
+		Data: kdata,
 	}
 	if perr := s.store.Put(krec); perr != nil {
 		s.log.Warn("ensureKeyDir: Put fehlgeschlagen", zap.Error(perr))
@@ -1842,4 +1881,155 @@ func drainedMailboxSeen(id string) bool {
 		}
 	}
 	return false
+}
+
+// ── Verlaufsabgleich zwischen den eigenen Nodes (R584) ──────────────────────
+// Der Verlauf liegt je Node lokal. Wer sich auf mehreren eigenen Nodes
+// anmeldet – zuhause und über die öffentliche Adresse – sah dort jeweils nur,
+// was dieser Node selbst mitbekommen hat. Jeder Eintrag wird deshalb zusätzlich
+// VERSCHLÜSSELT verteilt; nur wer mit demselben Konto angemeldet ist, kann ihn
+// öffnen. Doppelte fängt der Verlauf über die Kennung ab (R582).
+
+// shareHistoryEntry verteilt einen Verlaufseintrag an die eigenen Nodes.
+func (s *Server) shareHistoryEntry(sess *Session, e messenger.HistoryEntry) {
+	if sess == nil || sess.history == nil || sess.identity == nil || e.ID == "" {
+		return
+	}
+	blob, err := sess.history.SealEntry(e)
+	if err != nil {
+		return
+	}
+	fid := strings.ToLower(sess.identity.FundusID)
+	rec := &storage.Record{
+		ID:        "hist:" + fid + ":" + strings.ToLower(e.ID),
+		Type:      storage.RecordHistSync,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		Data:      map[string]any{"fid": fid, "blob": blob, "ts": time.Now().Unix()},
+	}
+	if s.store.Put(rec) != nil {
+		return
+	}
+	if s.node != nil {
+		if raw, err := json.Marshal(rec); err == nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_ = s.node.Publish(ctx, p2p.TopicHistSync, raw)
+			cancel()
+		}
+	}
+}
+
+// drainHistSync übernimmt verteilte Verlaufseinträge in den lokalen Verlauf.
+func (s *Server) drainHistSync(sess *Session) int {
+	if sess == nil || sess.history == nil || sess.identity == nil || s.store == nil {
+		return 0
+	}
+	recs, err := s.store.List(storage.RecordHistSync)
+	if err != nil {
+		return 0
+	}
+	prefix := "hist:" + strings.ToLower(sess.identity.FundusID) + ":"
+	n := 0
+	for _, r := range recs {
+		if r == nil || r.DeletedAt != nil || r.Data == nil || !strings.HasPrefix(r.ID, prefix) {
+			continue
+		}
+		if drainedMailboxSeen("h" + r.ID) { // auf diesem Node schon geprüft
+			continue
+		}
+		blob, _ := r.Data["blob"].(string)
+		if blob == "" {
+			continue
+		}
+		e, err := sess.history.OpenEntry(blob)
+		if err != nil || e.ID == "" || sess.history.Known(e.ID) {
+			continue
+		}
+		if sess.history.Append(e) == nil {
+			n++
+		}
+	}
+	return n
+}
+
+// ── Mehrere Geräte je Konto (R586) ──────────────────────────────────────────
+// Das Schlüsselverzeichnis führt eine Liste der Nodes, auf denen ein Konto
+// angemeldet ist. Früher überschrieb jede Anmeldung den Eintrag, sodass
+// Nachrichten nur beim zuletzt benutzten Node ankamen.
+
+const keydirPeerMaxAgeDays = 30 // länger nicht benutzte Geräte fallen heraus
+
+// keydirPeers liefert alle bekannten Nodes eines Kontos (neueste zuerst).
+func keydirPeers(d map[string]any) []string {
+	if d == nil {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	seen := map[string]bool{}
+	add := func(pid string) {
+		if pid != "" && !seen[pid] {
+			seen[pid] = true
+			out = append(out, pid)
+		}
+	}
+	if arr, ok := d["peers"].([]any); ok {
+		for _, v := range arr {
+			if m, ok := v.(map[string]any); ok {
+				pid, _ := m["peer_id"].(string)
+				if ts, ok := toFloatOK(m["ts"]); ok && time.Since(time.Unix(int64(ts), 0)) > keydirPeerMaxAgeDays*24*time.Hour {
+					continue // zu lange nicht gesehen
+				}
+				add(pid)
+			}
+		}
+	}
+	if pid, ok := d["peer_id"].(string); ok {
+		add(pid) // Altbestand bzw. zuletzt benutzter Node
+	}
+	return out
+}
+
+// keydirAddPeer trägt den eigenen Node in die Liste ein bzw. frischt ihn auf.
+func keydirAddPeer(d map[string]any, myPeer string) {
+	if d == nil || myPeer == "" {
+		return
+	}
+	now := time.Now().Unix()
+	list := make([]any, 0, 4)
+	if arr, ok := d["peers"].([]any); ok {
+		for _, v := range arr {
+			m, ok := v.(map[string]any)
+			if !ok {
+				continue
+			}
+			pid, _ := m["peer_id"].(string)
+			if pid == "" || pid == myPeer {
+				continue
+			}
+			if ts, ok := toFloatOK(m["ts"]); ok && time.Since(time.Unix(int64(ts), 0)) > keydirPeerMaxAgeDays*24*time.Hour {
+				continue
+			}
+			list = append(list, m)
+		}
+	}
+	// Bisherigen Einzeleintrag übernehmen (Altbestand).
+	if pid, ok := d["peer_id"].(string); ok && pid != "" && pid != myPeer {
+		found := false
+		for _, v := range list {
+			if m, ok := v.(map[string]any); ok {
+				if p, _ := m["peer_id"].(string); p == pid {
+					found = true
+				}
+			}
+		}
+		if !found {
+			list = append(list, map[string]any{"peer_id": pid, "ts": now})
+		}
+	}
+	list = append(list, map[string]any{"peer_id": myPeer, "ts": now})
+	if len(list) > 8 { // höchstens 8 Geräte
+		list = list[len(list)-8:]
+	}
+	d["peers"] = list
+	d["peer_id"] = myPeer // zuletzt benutzter Node (Rückwärtskompatibilität)
 }

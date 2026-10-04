@@ -56,6 +56,7 @@ func (s *Server) retentionOnce() {
 	}
 	rules := []rule{
 		{storage.RecordMailbox, days(s.cfg.TTLMailboxDays), false},
+		{storage.RecordHistSync, days(s.cfg.TTLMailboxDays), false},
 		{storage.RecordOutbox, days(s.cfg.TTLMailboxDays), false},
 		{storage.RecordKeyDir, days(s.cfg.TTLDirectoryDays), true},
 		{storage.RecordContacts, days(s.cfg.TTLDirectoryDays), true},

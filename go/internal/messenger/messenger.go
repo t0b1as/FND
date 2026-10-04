@@ -131,6 +131,7 @@ type MessageHandler func(msg *Message, payload *Payload)
 
 // Messenger verwaltet E2E-Verschlüsselung, Senden und Empfang.
 type Messenger struct {
+	recipientPeerIDs func(fundusID string) []string // alle Nodes des Empfängers (R586)
 	sentHookMu sync.RWMutex
 	sentHook   func(recipientID string, msg *Message)
 	identity *identity.Identity
@@ -157,6 +158,14 @@ type Messenger struct {
 	// zustellung). Wir verarbeiten jede msg.ID nur einmal.
 	seenMu   sync.Mutex
 	seenMsgs map[string]time.Time
+}
+
+// SetPeerIDsResolver setzt die Funktion, die eine FundusID auf ALLE bekannten
+// Nodes dieses Kontos auflöst (Mehrgeräte-Betrieb, R586).
+func (m *Messenger) SetPeerIDsResolver(fn func(fundusID string) []string) {
+	m.mu.Lock()
+	m.recipientPeerIDs = fn
+	m.mu.Unlock()
 }
 
 // SetPeerIDResolver setzt die Funktion, die FundusID → Peer-ID auflöst
@@ -297,13 +306,27 @@ func (m *Messenger) sendPayload(ctx context.Context, recipientID, recipientX2551
 	// GERICHTETE Zustellung zuerst: wenn wir die Peer-ID des Empfängers kennen
 	// (aus dem keydir), die Nachricht direkt an diesen Peer schicken — zuverlässiger
 	// als GossipSub-Broadcast bei wenigen Nodes. GossipSub bleibt als Fallback.
+	// Mehrere Geräte (R586): Ein Konto kann auf mehreren Nodes angemeldet sein.
+	// Die Nachricht geht an JEDEN bekannten Node des Empfängers – doppelte
+	// fängt der Verlauf anhand der Kennung ab.
 	delivered := false
-	if m.recipientPeerID != nil {
-		if pid := m.recipientPeerID(recipientID); pid != "" {
-			if m.p2p.DeliverMessage(ctx, pid, topic, msgBytes) {
-				delivered = true
-			}
+	seen := map[string]bool{}
+	deliver := func(pid string) {
+		if pid == "" || seen[pid] {
+			return
 		}
+		seen[pid] = true
+		if m.p2p.DeliverMessage(ctx, pid, topic, msgBytes) {
+			delivered = true
+		}
+	}
+	if m.recipientPeerIDs != nil {
+		for _, pid := range m.recipientPeerIDs(recipientID) {
+			deliver(pid)
+		}
+	}
+	if m.recipientPeerID != nil {
+		deliver(m.recipientPeerID(recipientID))
 	}
 	if delivered {
 		return msg, nil

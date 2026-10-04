@@ -113,6 +113,35 @@ func (h *HistoryStore) convPath(peerID string) string {
 	return filepath.Join(h.baseDir, sanitizeID(peerID)+".log")
 }
 
+// SealEntry verschlüsselt einen Verlaufseintrag mit dem Identitätsschlüssel –
+// für den Abgleich zwischen den eigenen Nodes (R584). Nur wer mit demselben
+// Konto angemeldet ist, kann das wieder öffnen.
+func (h *HistoryStore) SealEntry(e HistoryEntry) (string, error) {
+	plain, err := json.Marshal(e)
+	if err != nil {
+		return "", err
+	}
+	enc, err := identity.Encrypt(plain, h.key[:])
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(enc), nil
+}
+
+// OpenEntry öffnet einen verteilten Verlaufseintrag wieder.
+func (h *HistoryStore) OpenEntry(blob string) (HistoryEntry, error) {
+	var e HistoryEntry
+	raw, err := base64.StdEncoding.DecodeString(blob)
+	if err != nil {
+		return e, err
+	}
+	plain, err := identity.Decrypt(raw, h.key[:])
+	if err != nil {
+		return e, err
+	}
+	return e, json.Unmarshal(plain, &e)
+}
+
 // Known meldet, ob eine Nachricht mit dieser Kennung bereits abgelegt wurde.
 // Damit lassen sich auch Anzeige und Benachrichtigung unterdrücken, wenn
 // dieselbe Nachricht ein zweites Mal eintrifft.
