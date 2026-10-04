@@ -647,6 +647,8 @@ func (s *Server) messengerSend(c *gin.Context) {
 	// Zusätzlich in die Offline-Mailbox des Empfängers legen (verschlüsselt),
 	// damit die Nachricht auch ankommt, wenn der Empfänger gerade nicht online
 	// ist — er holt sie beim nächsten Login (hier oder auf einem anderen Node) ab.
+	// Im Hintergrund (R590): Ablegen und Verteilen hielten die Antwort an den
+	// Browser auf – die eigene Nachricht erschien dadurch verzögert im Fenster.
 	if msg != nil && !isSignal {
 		if env, e := json.Marshal(msg); e == nil {
 			rid := strings.ToLower(req.RecipientID)
@@ -658,12 +660,17 @@ func (s *Server) messengerSend(c *gin.Context) {
 				Type: storage.RecordMailbox,
 				Data: map[string]any{"recipient": rid, "envelope": string(env), "ts": time.Now().Unix()},
 			}
-			_ = s.store.Put(mbRec)
-			if s.node != nil {
-				if raw, me := json.Marshal(mbRec); me == nil {
-					_ = s.node.Publish(c.Request.Context(), "fundus.mailbox", raw)
+			go func() {
+				defer func() { _ = recover() }()
+				_ = s.store.Put(mbRec)
+				if s.node != nil {
+					if raw, me := json.Marshal(mbRec); me == nil {
+						ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+						_ = s.node.Publish(ctx, "fundus.mailbox", raw)
+						cancel()
+					}
 				}
-			}
+			}()
 		}
 	}
 

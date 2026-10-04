@@ -272,14 +272,33 @@ func (id *Identity) ECDHSharedSecret(theirPublicKeyHex string) ([]byte, error) {
 	if pk[0] > pk[1] { pk[0], pk[1] = pk[1], pk[0] }
 	salt := []byte(saltECDH + pk[0] + ":" + pk[1])
 
-	// Pro Nachricht 64 MiB. Nicht über argonKey (sonst Wartezeit hinter den
-	// Wallet-Ableitungen), aber begrenzt (R589): Beim Abholen vieler
-	// Postfach-Nachrichten liefen sonst beliebig viele dieser Ableitungen
-	// gleichzeitig – zusammen mit einer Anmeldung sprengte das die
-	// Speichergrenze des Dienstes und der Node wurde beendet.
+	// Der abgeleitete Schlüssel hängt NUR von beiden öffentlichen Schlüsseln ab
+	// und ist für ein Gesprächspaar immer derselbe. Deshalb zwischenspeichern
+	// (R590): Vorher kostete JEDE Nachricht 64 MiB Argon2 – beim Senden und
+	// beim Empfangen. Auf einem Pi war das die eigentliche Verzögerung im
+	// Messenger. Der Zwischenspeicher liegt nur im Arbeitsspeicher und ist mit
+	// der Anmeldung weg.
+	ck := string(salt)
+	ecdhCacheMu.RLock()
+	cached, ok := ecdhCache[ck]
+	ecdhCacheMu.RUnlock()
+	if ok {
+		return append([]byte(nil), cached...), nil
+	}
+
+	// Begrenzt (R589): Beim Abholen vieler Postfach-Nachrichten liefen sonst
+	// beliebig viele dieser Ableitungen gleichzeitig – zusammen mit einer
+	// Anmeldung sprengte das die Speichergrenze des Dienstes.
 	ecdhSem <- struct{}{}
 	hardened := argon2.IDKey(sharedPoint, salt, a2ECDHTime, a2ECDHMemory, a2Threads, a2KeyLen)
 	<-ecdhSem
+
+	ecdhCacheMu.Lock()
+	if len(ecdhCache) > 500 { // Obergrenze: alte Einträge verwerfen
+		ecdhCache = make(map[string][]byte, 64)
+	}
+	ecdhCache[ck] = append([]byte(nil), hardened...)
+	ecdhCacheMu.Unlock()
 	return hardened, nil
 }
 
@@ -1123,6 +1142,12 @@ func FromSessionSecret(sec SessionSecret) (*Identity, error) {
 // ihn sonst nur verzögert frei).
 // ecdhSem begrenzt gleichzeitige ECDH-Ableitungen auf 2 × 64 MiB.
 var ecdhSem = make(chan struct{}, 2)
+
+// ecdhCache: abgeleitete Gesprächsschlüssel, nur im Arbeitsspeicher.
+var (
+	ecdhCacheMu sync.RWMutex
+	ecdhCache   = make(map[string][]byte, 64)
+)
 
 var argonMu sync.Mutex
 

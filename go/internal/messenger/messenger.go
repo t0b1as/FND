@@ -328,7 +328,7 @@ func (m *Messenger) sendPayload(ctx context.Context, recipientID, recipientX2551
 	}
 	// PARALLEL zustellen (R588): Nacheinander summierten sich die Wartezeiten
 	// der einzelnen Nodes – das Senden dauerte dadurch spürbar lange.
-	delivered := false
+	okCount := 0
 	if len(targets) > 0 {
 		var wg sync.WaitGroup
 		var mu sync.Mutex
@@ -338,14 +338,18 @@ func (m *Messenger) sendPayload(ctx context.Context, recipientID, recipientX2551
 				defer wg.Done()
 				if m.p2p.DeliverMessage(ctx, p, topic, msgBytes) {
 					mu.Lock()
-					delivered = true
+					okCount++
 					mu.Unlock()
 				}
 			}(pid)
 		}
 		wg.Wait()
 	}
-	if delivered {
+	// Nur abbrechen, wenn ALLE Geräte erreicht wurden (R591). Vorher genügte
+	// ein erreichtes Gerät – ein zweites, gerade nicht direkt verbundenes
+	// wartete dann bis zu 30 Sekunden auf das Postfach. Der Rundruf kostet
+	// kaum etwas und erreicht auch Nodes ohne direkte Verbindung sofort.
+	if len(targets) > 0 && okCount == len(targets) {
 		return msg, nil
 	}
 
@@ -355,7 +359,9 @@ func (m *Messenger) sendPayload(ctx context.Context, recipientID, recipientX2551
 		m.mu.Unlock()
 		m.log.Warn("Offline-Puffer", zap.String("to", recipientID[:10]+"…"), zap.Error(err))
 	} else {
-		m.log.Info("Msg publiziert", zap.String("topic", topic), zap.String("to", recipientID[:10]+"…"))
+		m.log.Info("Msg publiziert", zap.String("topic", topic),
+			zap.String("to", recipientID[:10]+"…"),
+			zap.Int("direkt", okCount), zap.Int("geraete", len(targets)))
 	}
 	return msg, nil
 }
