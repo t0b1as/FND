@@ -73,14 +73,31 @@ self.addEventListener('push', (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch (e) { d = { body: event.data ? event.data.text() : '' }; }
   const title = d.title || 'Fundus';
-  event.waitUntil(self.registration.showNotification(title, {
-    body: d.body || '',
-    icon: '/static/icon.svg',
-    badge: '/static/favicon.svg',
-    tag: d.tag || undefined,         // gleiche Art ersetzt die vorige statt zu stapeln
-    renotify: !!d.tag,
-    data: { url: d.url || '/' },
-  }));
+  // Nicht stören, wenn der Messenger auf DIESEM Gerät gerade offen und im
+  // Blick ist (R596). Auf allen anderen Geräten erscheint die Meldung.
+  event.waitUntil((async () => {
+    try {
+      const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      const aktiv = wins.some((c) => c.focused && (c.visibilityState === 'visible') &&
+        new URL(c.url).pathname.indexOf('/messenger') === 0);
+      if (aktiv && (d.tag === 'msg')) return;   // Chat offen: nur Nachrichten unterdrücken
+    } catch (e) {}
+    return self.registration.showNotification(title, {
+      body: d.body || '',
+      // PNG statt SVG (R595): Android stellt SVG in Benachrichtigungen NICHT dar –
+      // dort erschien bisher ein leeres Symbol. Das Abzeichen ist einfarbig,
+      // so wie Android es für die kleine Statusleiste erwartet.
+      icon: '/static/icon-192.png',
+      badge: '/static/badge-96.png',
+      tag: d.tag || undefined,         // gleiche Art ersetzt die vorige statt zu stapeln
+      renotify: !!d.tag,
+      // Kurze Vibration und sichtbarer Zeitstempel – auf dem Sperrbildschirm
+      // erscheint die Meldung dadurch wie die einer App.
+      vibrate: [60, 40, 60],
+      timestamp: Date.now(),
+      data: { url: d.url || '/' },
+    });
+  })());
 });
 
 // Antippen: vorhandenes Fundus-Fenster nach vorn holen, sonst neu öffnen.

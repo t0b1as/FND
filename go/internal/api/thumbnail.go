@@ -35,7 +35,10 @@ const (
 	// doppelter Pixeldichte entsprechend mehr – 256 px wirkten dort unscharf.
 	thumbMaxEdge      = 512
 	thumbJPEGQuality  = 90               // JPEG-Qualität (R559: 82 → 90, weniger Artefakte)
-	maxDecodePixels   = 40 * 1000 * 1000 // 40 MP Obergrenze fürs Decodieren
+	// 24 MP (R594): Das dekodierte Bild belegt Breite×Höhe×4 Byte – bei 40 MP
+	// allein 160 MB, bei zwei gleichzeitigen Bildern mehr als die
+	// Speichergrenze des Dienstes. 24 MP deckt jede Handykamera ab.
+	maxDecodePixels   = 24 * 1000 * 1000
 	maxOriginalBytes  = 64 * 1024 * 1024 // 64 MiB: größere Originale gar nicht erst puffern
 	thumbConcurrency  = 2                // gleichzeitige Decodierungen (RAM-Schutz)
 )
@@ -260,6 +263,36 @@ func buildTaps(srcN, dstN int) []tap {
 	return taps
 }
 
+// boxPreReduce verkleinert ganzzahlig um den Faktor k (Mittelwert je Block).
+// Billig und speicherschonend – die Feinarbeit macht danach Lanczos.
+func boxPreReduce(src image.Image, k int) *image.RGBA {
+	b := src.Bounds()
+	nw, nh := b.Dx()/k, b.Dy()/k
+	if nw < 1 {
+		nw = 1
+	}
+	if nh < 1 {
+		nh = 1
+	}
+	out := image.NewRGBA(image.Rect(0, 0, nw, nh))
+	n := uint32(k * k)
+	for y := 0; y < nh; y++ {
+		for x := 0; x < nw; x++ {
+			var sr, sg, sb uint32
+			for dy := 0; dy < k; dy++ {
+				for dx := 0; dx < k; dx++ {
+					r, g, bl, _ := src.At(b.Min.X+x*k+dx, b.Min.Y+y*k+dy).RGBA()
+					sr += r >> 8
+					sg += g >> 8
+					sb += bl >> 8
+				}
+			}
+			out.SetRGBA(x, y, color.RGBA{R: uint8(sr / n), G: uint8(sg / n), B: uint8(sb / n), A: 255})
+		}
+	}
+	return out
+}
+
 func lanczosDownscale(src image.Image, tw, th int) *image.RGBA {
 	b := src.Bounds()
 	sw, sh := b.Dx(), b.Dy()
@@ -267,28 +300,38 @@ func lanczosDownscale(src image.Image, tw, th int) *image.RGBA {
 	if tw <= 0 || th <= 0 || sw <= 0 || sh <= 0 {
 		return dst
 	}
-	// Quelle einmal als 8-Bit-RGBA puffern (At() ist teuer).
-	buf := make([]float64, sw*sh*3)
+	// SPEICHER (R594): Vorher wurde das GANZE Quellbild als float64 gepuffert –
+	// bei einem 12-Megapixel-Foto 288 MB. Zusammen mit einer zweiten Anfrage
+	// sprengte das die Speichergrenze des Dienstes und der Node wurde beendet.
+	// Jetzt erst ganzzahlig auf etwa das Doppelte der Zielgröße verkleinern
+	// (billig), dann Lanczos darauf. Gleiche Bildqualität, ein Bruchteil des
+	// Speichers; float32 statt float64 halbiert ihn zusätzlich.
+	if k := min(sw/(2*tw), sh/(2*th)); k >= 2 {
+		src = boxPreReduce(src, k)
+		b = src.Bounds()
+		sw, sh = b.Dx(), b.Dy()
+	}
+	buf := make([]float32, sw*sh*3)
 	for y := 0; y < sh; y++ {
 		for x := 0; x < sw; x++ {
 			r, g, bl, _ := src.At(b.Min.X+x, b.Min.Y+y).RGBA()
 			o := (y*sw + x) * 3
-			buf[o] = float64(r >> 8)
-			buf[o+1] = float64(g >> 8)
-			buf[o+2] = float64(bl >> 8)
+			buf[o] = float32(r >> 8)
+			buf[o+1] = float32(g >> 8)
+			buf[o+2] = float32(bl >> 8)
 		}
 	}
 	// Waagerecht: sw → tw
 	colTaps := buildTaps(sw, tw)
-	tmp := make([]float64, tw*sh*3)
+	tmp := make([]float32, tw*sh*3)
 	for y := 0; y < sh; y++ {
 		row := y * sw * 3
 		out := y * tw * 3
 		for i, t := range colTaps {
-			var cr, cg, cb float64
+			var cr, cg, cb float32
 			for k, si := range t.idx {
 				o := row + si*3
-				w := t.w[k]
+				w := float32(t.w[k])
 				cr += buf[o] * w
 				cg += buf[o+1] * w
 				cb += buf[o+2] * w
@@ -300,7 +343,7 @@ func lanczosDownscale(src image.Image, tw, th int) *image.RGBA {
 	}
 	// Senkrecht: sh → th
 	rowTaps := buildTaps(sh, th)
-	clamp := func(v float64) uint8 {
+	clamp := func(v float32) uint8 {
 		if v <= 0 {
 			return 0
 		}
@@ -311,10 +354,10 @@ func lanczosDownscale(src image.Image, tw, th int) *image.RGBA {
 	}
 	for j, t := range rowTaps {
 		for x := 0; x < tw; x++ {
-			var cr, cg, cb float64
+			var cr, cg, cb float32
 			for k, sy := range t.idx {
 				o := (sy*tw + x) * 3
-				w := t.w[k]
+				w := float32(t.w[k])
 				cr += tmp[o] * w
 				cg += tmp[o+1] * w
 				cb += tmp[o+2] * w

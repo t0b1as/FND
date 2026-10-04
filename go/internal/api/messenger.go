@@ -326,15 +326,19 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 					}
 					out["decrypted"] = true
 				}
-				if sess.broadcastWS(out) {
-				} else {
+				if !sess.broadcastWS(out) {
 					s.log.Warn("WS-Zustellung fehlgeschlagen")
-					s.notifyIncomingMsg(sess, payload) // App nicht offen → Push
 				}
 			} else {
 				s.log.Warn("Nachricht empfangen, aber kein aktiver WebSocket (Frontend nicht verbunden)")
-				s.notifyIncomingMsg(sess, payload) // App nicht offen → Push
 			}
+			// Push IMMER verschicken (R596): Bisher nur, wenn gar keine
+			// Verbindung offen war. Ein zuhause geöffneter Browser galt als
+			// Zustellung – das Handy bekam dann nie eine Benachrichtigung.
+			// Ob die Meldung angezeigt wird, entscheidet jetzt das Gerät
+			// selbst: Wer den Messenger gerade offen und im Blick hat,
+			// unterdrückt sie (siehe sw.js).
+			s.notifyIncomingMsg(sess, payload)
 		})
 	}
 	s.loadOwnName(sess) // gespeicherten Anzeigenamen übernehmen
