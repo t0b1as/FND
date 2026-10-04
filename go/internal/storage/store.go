@@ -510,6 +510,22 @@ func (s *Store) PutSynced(r *Record) error {
 	}
 	existing, err := s.Get(r.Type, r.ID)
 	if err == nil && existing != nil {
+		// Geraeteliste im Schluesselverzeichnis ZUSAMMENFUEHREN (R592):
+		// Mehrere Nodes desselben Nutzers schreiben diesen Eintrag. Mit
+		// "neueste Fassung gewinnt" loeschte jeder Node die Geraete der
+		// anderen wieder heraus – Nachrichten gingen dann nur an eines.
+		if r.Type == RecordKeyDir {
+			mergeKeyDirPeers(r.Data, existing.Data)
+			if !r.UpdatedAt.After(existing.UpdatedAt) {
+				// Eingehender ist aelter: lokalen Eintrag behalten, aber um
+				// die dort fehlenden Geraete ergaenzen.
+				if mergeKeyDirPeers(existing.Data, r.Data) {
+					existing.UpdatedAt = time.Now()
+					return s.Put(existing)
+				}
+				return nil
+			}
+		}
 		// SICHERHEIT: abweichende OwnerID -> nicht ueberschreiben.
 		// Ausnahme: existing ist ein UNSIGNIERTER Altbestand (Adoption erlaubt).
 		ownerMismatch := existing.OwnerID != "" && existing.OwnerID != r.OwnerID
@@ -599,4 +615,61 @@ func PartnerAdKey(raw []byte, fallback string) (key, owner string) {
 		key = fallback
 	}
 	return key, owner
+}
+
+// mergeKeyDirPeers ergaenzt die Geraeteliste in dst um die Eintraege aus src.
+// Rueckgabe: true, wenn dst dadurch veraendert wurde. Bei gleichem Geraet
+// gewinnt der neuere Zeitstempel.
+func mergeKeyDirPeers(dst, src map[string]any) bool {
+	if dst == nil || src == nil {
+		return false
+	}
+	type entry struct {
+		m  map[string]any
+		ts float64
+	}
+	byID := map[string]entry{}
+	collect := func(d map[string]any) {
+		arr, _ := d["peers"].([]any)
+		for _, v := range arr {
+			m, ok := v.(map[string]any)
+			if !ok {
+				continue
+			}
+			pid, _ := m["peer_id"].(string)
+			if pid == "" {
+				continue
+			}
+			ts := float64(0)
+			switch t := m["ts"].(type) {
+			case float64:
+				ts = t
+			case int64:
+				ts = float64(t)
+			case int:
+				ts = float64(t)
+			}
+			if cur, ok := byID[pid]; !ok || ts > cur.ts {
+				byID[pid] = entry{m: m, ts: ts}
+			}
+		}
+		// Einzeleintrag aelterer Fassungen mit uebernehmen.
+		if pid, ok := d["peer_id"].(string); ok && pid != "" {
+			if _, exists := byID[pid]; !exists {
+				byID[pid] = entry{m: map[string]any{"peer_id": pid, "ts": float64(time.Now().Unix())}}
+			}
+		}
+	}
+	before := 0
+	if arr, ok := dst["peers"].([]any); ok {
+		before = len(arr)
+	}
+	collect(dst)
+	collect(src)
+	out := make([]any, 0, len(byID))
+	for _, e := range byID {
+		out = append(out, e.m)
+	}
+	dst["peers"] = out
+	return len(out) != before
 }
