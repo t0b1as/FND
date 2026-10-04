@@ -272,8 +272,14 @@ func (id *Identity) ECDHSharedSecret(theirPublicKeyHex string) ([]byte, error) {
 	if pk[0] > pk[1] { pk[0], pk[1] = pk[1], pk[0] }
 	salt := []byte(saltECDH + pk[0] + ":" + pk[1])
 
-	// Pro Nachricht, klein: NICHT über argonKey (keine Wartezeit hinter Wallet-Ableitungen).
+	// Pro Nachricht 64 MiB. Nicht über argonKey (sonst Wartezeit hinter den
+	// Wallet-Ableitungen), aber begrenzt (R589): Beim Abholen vieler
+	// Postfach-Nachrichten liefen sonst beliebig viele dieser Ableitungen
+	// gleichzeitig – zusammen mit einer Anmeldung sprengte das die
+	// Speichergrenze des Dienstes und der Node wurde beendet.
+	ecdhSem <- struct{}{}
 	hardened := argon2.IDKey(sharedPoint, salt, a2ECDHTime, a2ECDHMemory, a2Threads, a2KeyLen)
+	<-ecdhSem
 	return hardened, nil
 }
 
@@ -1115,6 +1121,9 @@ func FromSessionSecret(sec SessionSecret) (*Identity, error) {
 // Auslagerung – der Pi wirkte aufgehängt. Deshalb: immer nur EINE Ableitung
 // gleichzeitig, und den Speicher danach sofort ans System zurückgeben (Go gibt
 // ihn sonst nur verzögert frei).
+// ecdhSem begrenzt gleichzeitige ECDH-Ableitungen auf 2 × 64 MiB.
+var ecdhSem = make(chan struct{}, 2)
+
 var argonMu sync.Mutex
 
 func argonKey(password, salt []byte, time, memory uint32, threads uint8, keyLen uint32) []byte {

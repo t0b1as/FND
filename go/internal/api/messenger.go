@@ -1,6 +1,7 @@
 package api
 
 import (
+	"runtime/debug"
 	"sync/atomic"
 	"context"
 	crand "crypto/rand"
@@ -1498,7 +1499,22 @@ var mailboxPumpOnce sync.Once
 // beim Öffnen des Messengers: Nachrichten/Quittungen aus anderen Netzen (die
 // nur übers Postfach kommen) samt Push blieben bis dahin liegen.
 func (s *Server) mailboxPumpLoop() {
-	t := time.NewTicker(10 * time.Second)
+	// Ein Fehler in dieser Dauerschleife darf den Node nicht beenden: Sie läuft
+	// in einer eigenen Goroutine, dort beendet ein Absturz sonst den ganzen
+	// Prozess – der Node wäre dann von außen gar nicht mehr erreichbar (R587).
+	defer func() {
+		if r := recover(); r != nil {
+			if s.log != nil {
+				s.log.Error("Postfach-Schleife abgebrochen", zap.Any("grund", r))
+			}
+			time.Sleep(30 * time.Second)
+			go s.mailboxPumpLoop() // neu starten
+		}
+	}()
+	// 30 s statt 10 s (R588): Seit das Postfach netzweit gespeichert wird,
+	// kostet ein Durchlauf spürbar Zeit. Echtzeit läuft über die direkte
+	// Zustellung – das hier ist nur der Ersatzweg.
+	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	for range t.C {
 		sessionMu.RLock()
@@ -1519,9 +1535,17 @@ func (s *Server) mailboxPumpLoop() {
 		// Einmal lesen, dann nach Empfänger verteilen (statt je Sitzung die
 		// ganze Liste zu lesen – die Einträge kommen aus dem ganzen Netz).
 		all, _ := s.store.List(storage.RecordMailbox)
+		cutoff := time.Now().Add(-7 * 24 * time.Hour)
+		injected := 0
 		for _, r := range all {
+			if injected >= 50 {
+				break // je Durchlauf höchstens 50 – der Rest folgt in 30 s
+			}
 			if r == nil || !strings.HasPrefix(r.ID, "mailbox:") {
 				continue
+			}
+			if r.CreatedAt.Before(cutoff) {
+				continue // zu alt: längst zugestellt oder verfallen
 			}
 			rest := strings.TrimPrefix(r.ID, "mailbox:")
 			fid := rest
@@ -1537,12 +1561,16 @@ func (s *Server) mailboxPumpLoop() {
 			}
 			if env, ok := r.Data["envelope"].(string); ok {
 				ss.messenger.InjectIncoming([]byte(env))
+				injected++
 			}
 			// NICHT löschen (R582): Wer sich auf mehreren Nodes anmeldet – etwa
 			// zuhause und über die öffentliche Adresse – bekam die Nachricht
 			// sonst nur auf dem Node, der sie zuerst abholte. Doppelte fängt
 			// der Verlauf jetzt dauerhaft ab; aufgeräumt wird über die
 			// Vorhaltezeit (TTLMailboxDays).
+		}
+		if injected > 0 {
+			debug.FreeOSMemory() // Speicher der Entschlüsselungen zurückgeben
 		}
 	}
 }
@@ -1899,6 +1927,12 @@ func (s *Server) shareHistoryEntry(sess *Session, e messenger.HistoryEntry) {
 	if err != nil {
 		return
 	}
+	// Im Hintergrund: Das Verteilen im Netz darf das Senden nicht aufhalten.
+	go s.publishHistEntry(sess, e, blob)
+}
+
+func (s *Server) publishHistEntry(sess *Session, e messenger.HistoryEntry, blob string) {
+	defer func() { _ = recover() }()
 	fid := strings.ToLower(sess.identity.FundusID)
 	rec := &storage.Record{
 		ID:        "hist:" + fid + ":" + strings.ToLower(e.ID),
@@ -1929,10 +1963,14 @@ func (s *Server) drainHistSync(sess *Session) int {
 		return 0
 	}
 	prefix := "hist:" + strings.ToLower(sess.identity.FundusID) + ":"
+	cutoff := time.Now().Add(-7 * 24 * time.Hour)
 	n := 0
 	for _, r := range recs {
 		if r == nil || r.DeletedAt != nil || r.Data == nil || !strings.HasPrefix(r.ID, prefix) {
 			continue
+		}
+		if r.CreatedAt.Before(cutoff) {
+			continue // alte Einträge sind längst übernommen
 		}
 		if drainedMailboxSeen("h" + r.ID) { // auf diesem Node schon geprüft
 			continue

@@ -309,24 +309,41 @@ func (m *Messenger) sendPayload(ctx context.Context, recipientID, recipientX2551
 	// Mehrere Geräte (R586): Ein Konto kann auf mehreren Nodes angemeldet sein.
 	// Die Nachricht geht an JEDEN bekannten Node des Empfängers – doppelte
 	// fängt der Verlauf anhand der Kennung ab.
-	delivered := false
+	// Zielliste zusammenstellen (ohne Doppelte).
+	targets := make([]string, 0, 4)
 	seen := map[string]bool{}
-	deliver := func(pid string) {
-		if pid == "" || seen[pid] {
-			return
-		}
-		seen[pid] = true
-		if m.p2p.DeliverMessage(ctx, pid, topic, msgBytes) {
-			delivered = true
+	addTarget := func(pid string) {
+		if pid != "" && !seen[pid] {
+			seen[pid] = true
+			targets = append(targets, pid)
 		}
 	}
 	if m.recipientPeerIDs != nil {
 		for _, pid := range m.recipientPeerIDs(recipientID) {
-			deliver(pid)
+			addTarget(pid)
 		}
 	}
 	if m.recipientPeerID != nil {
-		deliver(m.recipientPeerID(recipientID))
+		addTarget(m.recipientPeerID(recipientID))
+	}
+	// PARALLEL zustellen (R588): Nacheinander summierten sich die Wartezeiten
+	// der einzelnen Nodes – das Senden dauerte dadurch spürbar lange.
+	delivered := false
+	if len(targets) > 0 {
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		for _, pid := range targets {
+			wg.Add(1)
+			go func(p string) {
+				defer wg.Done()
+				if m.p2p.DeliverMessage(ctx, p, topic, msgBytes) {
+					mu.Lock()
+					delivered = true
+					mu.Unlock()
+				}
+			}(pid)
+		}
+		wg.Wait()
 	}
 	if delivered {
 		return msg, nil

@@ -180,7 +180,7 @@ func Load(log *zap.Logger) *Config {
 		SwapHTLCProgramID: envStr("FUNDUS_SWAP_HTLC_PROGRAM", ""),
 		SwapAuto:          envBool("FUNDUS_SWAP_AUTO", true),
 		TurnURLs:          envStrList("FUNDUS_TURN_URLS", ""),
-		TTLMailboxDays:    envInt("FUNDUS_TTL_MAILBOX_DAYS", 60),
+		TTLMailboxDays:    envInt("FUNDUS_TTL_MAILBOX_DAYS", 14),
 		TTLDirectoryDays:  envInt("FUNDUS_TTL_DIRECTORY_DAYS", 365),
 		TTLHistoryDays:    envInt("FUNDUS_TTL_HISTORY_DAYS", 365),
 		TurnUser:          envStr("FUNDUS_TURN_USER", ""),

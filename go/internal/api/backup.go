@@ -285,6 +285,15 @@ func (s *Server) publishBackupPointer(ctx context.Context, st backupState, name 
 
 // backupLoop: täglich sichern (erster Versuch 10 min nach dem Start).
 func (s *Server) backupLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			if s.log != nil {
+				s.log.Error("Sicherungs-Schleife abgebrochen", zap.Any("grund", r))
+			}
+			time.Sleep(time.Minute)
+			go s.backupLoop()
+		}
+	}()
 	time.Sleep(10 * time.Minute)
 	for {
 		st := s.loadBackupState()

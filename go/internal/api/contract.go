@@ -315,6 +315,7 @@ func (s *Server) escrowCreate(c *gin.Context) {
 			"delivery": delivery, "shipping_fnd": shippingFND,
 		},
 	})
+	invalidatePurchaseIndex() // neuer Kaufvermerk: Zwischenspeicher verwerfen
 	if req.ListingID != "" {
 		s.settleListingStock(req.ListingID, qty) // Kaufvermerk zählt ab jetzt
 		// Verkauf SOFORT dem Verkäufer-Node melden (R578). Ohne das müsste der
@@ -1165,30 +1166,75 @@ func listingQuantity(d map[string]any) int {
 // soldFromPurchases zählt die verkaufte Menge aus den Kaufvermerken im Netz.
 // Maßgeblich, weil diese Vermerke dem jeweiligen Käufer-Node gehören und sich
 // deshalb verteilen – anders als eine Änderung am Angebot des Verkäufers.
+// ── Zwischenspeicher für Kaufvermerke (R589) ────────────────────────────────
+// Vorher wurde für JEDES Angebot und JEDEN Suchtreffer die vollständige Liste
+// der Kaufvermerke aus der Datenbank gelesen. Auf einem Pi hat das den Node
+// ausgebremst und bei vielen Einträgen den Speicher gesprengt.
+
+type purchaseInfo struct {
+	qty int             // insgesamt verkaufte Stückzahl
+	txs map[string]int  // Kauf-Kennung → Stückzahl
+}
+
+var (
+	purchaseIdxMu   sync.Mutex
+	purchaseIdx     map[string]*purchaseInfo
+	purchaseIdxTime time.Time
+)
+
+// purchaseIndex liefert die Kaufvermerke nach Angebot gruppiert (höchstens
+// alle 15 Sekunden neu eingelesen).
+func (s *Server) purchaseIndex() map[string]*purchaseInfo {
+	purchaseIdxMu.Lock()
+	defer purchaseIdxMu.Unlock()
+	if purchaseIdx != nil && time.Since(purchaseIdxTime) < 15*time.Second {
+		return purchaseIdx
+	}
+	idx := map[string]*purchaseInfo{}
+	if s.store != nil {
+		if recs, err := s.store.List(storage.RecordPurchase); err == nil {
+			for _, r := range recs {
+				if r == nil || r.DeletedAt != nil || r.Data == nil {
+					continue
+				}
+				lid, _ := r.Data["listing_id"].(string)
+				if lid == "" {
+					continue
+				}
+				n := 1
+				if q, ok := toFloatOK(r.Data["quantity"]); ok && q >= 1 {
+					n = int(q)
+				}
+				pi := idx[lid]
+				if pi == nil {
+					pi = &purchaseInfo{txs: map[string]int{}}
+					idx[lid] = pi
+				}
+				pi.qty += n
+				pi.txs[strings.ToLower(strings.TrimPrefix(r.ID, "purchase-"))] = n
+			}
+		}
+	}
+	purchaseIdx, purchaseIdxTime = idx, time.Now()
+	return idx
+}
+
+// invalidatePurchaseIndex erzwingt ein Neueinlesen (nach einem Kauf).
+func invalidatePurchaseIndex() {
+	purchaseIdxMu.Lock()
+	purchaseIdxTime = time.Time{}
+	purchaseIdxMu.Unlock()
+}
+
 func (s *Server) soldFromPurchases(listingID string) (int, bool) {
-	if s.store == nil || listingID == "" {
+	if listingID == "" {
 		return 0, false
 	}
-	recs, err := s.store.List(storage.RecordPurchase)
-	if err != nil {
+	pi := s.purchaseIndex()[listingID]
+	if pi == nil {
 		return 0, false
 	}
-	total, found := 0, false
-	for _, r := range recs {
-		if r == nil || r.DeletedAt != nil || r.Data == nil {
-			continue
-		}
-		if lid, _ := r.Data["listing_id"].(string); lid != listingID {
-			continue
-		}
-		found = true
-		if q, ok := toFloatOK(r.Data["quantity"]); ok && q >= 1 {
-			total += int(q)
-		} else {
-			total++
-		}
-	}
-	return total, found
+	return pi.qty, true
 }
 
 // listingStock liefert angebotene und verkaufte Menge eines Angebots.
@@ -1220,29 +1266,15 @@ func appliedTxs(d map[string]any) map[string]bool {
 
 // unappliedPurchases zählt lokale Kaufvermerke, die noch nicht verrechnet sind.
 func (s *Server) unappliedPurchases(listingID string, d map[string]any) int {
-	if s.store == nil || listingID == "" {
-		return 0
-	}
-	recs, err := s.store.List(storage.RecordPurchase)
-	if err != nil {
+	pi := s.purchaseIndex()[listingID]
+	if pi == nil {
 		return 0
 	}
 	done := appliedTxs(d)
 	n := 0
-	for _, r := range recs {
-		if r == nil || r.DeletedAt != nil || r.Data == nil {
-			continue
-		}
-		if lid, _ := r.Data["listing_id"].(string); lid != listingID {
-			continue
-		}
-		if done[strings.ToLower(strings.TrimPrefix(r.ID, "purchase-"))] {
-			continue // vom Verkäufer bereits abgezogen
-		}
-		if q, ok := toFloatOK(r.Data["quantity"]); ok && q >= 1 {
-			n += int(q)
-		} else {
-			n++
+	for tx, q := range pi.txs {
+		if !done[tx] {
+			n += q
 		}
 	}
 	return n
@@ -1303,6 +1335,15 @@ func (s *Server) applySale(listingID, tx string, n int) bool {
 // reconcileOwnListings holt Käufe nach, deren Meldung den Node nicht erreicht
 // hat (z.B. weil er offline war). Nur für eigene Angebote.
 func (s *Server) reconcileOwnListings() {
+	defer func() {
+		if r := recover(); r != nil {
+			if s.log != nil {
+				s.log.Error("Bestandsabgleich abgebrochen", zap.Any("grund", r))
+			}
+			time.Sleep(30 * time.Second)
+			go s.reconcileOwnListings()
+		}
+	}()
 	for {
 		time.Sleep(30 * time.Second)
 		if s.store == nil {
@@ -1313,29 +1354,19 @@ func (s *Server) reconcileOwnListings() {
 			continue
 		}
 		me := s.nodeID()
+		idx := s.purchaseIndex() // einmal je Durchlauf, nicht je Angebot
 		for _, rec := range recs {
 			if rec == nil || rec.DeletedAt != nil || rec.Data == nil || rec.OwnerID != me {
 				continue
 			}
-			purchases, perr := s.store.List(storage.RecordPurchase)
-			if perr != nil {
-				break
+			pi := idx[rec.ID]
+			if pi == nil {
+				continue
 			}
 			done := appliedTxs(rec.Data)
-			for _, pr := range purchases {
-				if pr == nil || pr.DeletedAt != nil || pr.Data == nil {
-					continue
-				}
-				if lid, _ := pr.Data["listing_id"].(string); lid != rec.ID {
-					continue
-				}
-				tx := strings.ToLower(strings.TrimPrefix(pr.ID, "purchase-"))
+			for tx, n := range pi.txs {
 				if done[tx] {
 					continue
-				}
-				n := 1
-				if q, ok := toFloatOK(pr.Data["quantity"]); ok && q >= 1 {
-					n = int(q)
 				}
 				s.applySale(rec.ID, tx, n)
 				done[tx] = true
