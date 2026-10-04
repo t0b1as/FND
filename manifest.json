@@ -1,8 +1,8 @@
 {
-  "version": "R593",
-  "description": "FUNDUS R593 - Peer Management",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R593/FND-R593-update.zip",
-  "node_argon2": "74f33e7de76f9ae382f517cfb475ccce7714cde6dfd7853ea579f4aae035a3cd",
-  "published_at": "2026-10-04T09:58:24.7582666Z",
-  "signature": "0xa7de608316314b4abaf23ef82e9609e43aab5fb67ff6f06b641da294b9ab08105fc8cbe41b08091090d569feb31ae79967487cd4d4af917bb78837655521e5541b"
+  "version": "R596",
+  "description": "FUNDUS R596 - Peer Management",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R596/FND-R596-update.zip",
+  "node_argon2": "b030d402b472d98d3950816e8dc72a85bd94a75cda21de648da702a13559798e",
+  "published_at": "2026-10-04T13:14:32.8741062Z",
+  "signature": "0xb4fbe906f4e8ce9f1c4f06995abbdcdea4e76cac9b46a47f10becf759883a26013fd2262b00e274216bb2856bbd13f3c0116822783c69e1e95ecc3eeaa8ae7581c"
 }
