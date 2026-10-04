@@ -293,7 +293,6 @@ async function handleIncomingMessage(msg) {
     if (msg.type === 'hist') {
         const peer = String(msg.peer_id || '').toLowerCase();
         if (!activeChat || String(activeChat.fundusID || '').toLowerCase() !== peer) return;
-        if (document.querySelector('.msg-bubble[data-msg-id="' + msg.id + '"]')) return; // schon da
         appendMessage({
             id:   msg.id,
             from: msg.outgoing ? (myIdentity && myIdentity.fundusID) : msg.peer_id,
@@ -1201,6 +1200,9 @@ function dateLabel(d) {
     return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 function appendMessage({ id, from, text, file, ts, outgoing, deliveredAt, readAt }) {
+    // Dieselbe Nachricht kann über mehrere Wege eintreffen (direkt, Postfach,
+    // Verlaufsabgleich der eigenen Nodes). Einmal anzeigen genügt (R599).
+    if (id && document.querySelector('.msg-bubble[data-msg-id="' + CSS.escape(String(id)) + '"]')) return null;
     const box = document.getElementById('messages');
     const d = (ts instanceof Date) ? ts : new Date(ts);
     const key = isNaN(d) ? null : d.toDateString();

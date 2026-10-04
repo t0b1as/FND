@@ -951,6 +951,16 @@ func (s *Server) messengerWebSocket(c *gin.Context) {
 
 	sess.addWS(conn) // zur Liste hinzufügen (mehrere WS pro Session erlaubt)
 
+	// Geräteliste auffrischen (R599): Der Node trug sich bisher nur bei der
+	// ANMELDUNG ein. Nach einem Abgleich, bei dem eine andere Fassung gewann,
+	// oder nach einem Neustart fiel er wieder heraus – Nachrichten kamen dann
+	// dort nicht mehr an. Eine offene Verbindung ist der beste Beleg dafür,
+	// dass dieses Gerät gerade benutzt wird.
+	go func() {
+		defer func() { _ = recover() }()
+		s.refreshKeyDirPeer(sess)
+	}()
+
 	s.log.Info("WebSocket verbunden", zap.String("fundusID", fundusID[:10]+"…"))
 
 	// Verbindung offen halten bis Client trennt. Ping/Pong-Deadline, damit tote
@@ -2191,4 +2201,36 @@ func (s *Server) registerHistSyncProtocol() {
 		}
 		return []byte(`{"ok":true}`)
 	})
+}
+
+// refreshKeyDirPeer trägt diesen Node (erneut) in die Geräteliste des Kontos
+// ein und verteilt den Eintrag. Ohne Änderung wird nichts geschrieben.
+func (s *Server) refreshKeyDirPeer(sess *Session) {
+	if sess == nil || sess.identity == nil || s.node == nil || s.store == nil {
+		return
+	}
+	fid := strings.ToLower(sess.identity.FundusID)
+	rec, err := s.store.Get(storage.RecordKeyDir, "keydir:"+fid)
+	if err != nil || rec == nil || rec.Data == nil {
+		return // noch kein Eintrag – den legt die Anmeldung an
+	}
+	me := s.node.ID().String()
+	for _, pid := range keydirPeers(rec.Data) {
+		if pid == me {
+			return // schon eingetragen
+		}
+	}
+	keydirAddPeer(rec.Data, me)
+	rec.UpdatedAt = time.Now()
+	if s.store.Put(rec) != nil {
+		return
+	}
+	if raw, e := json.Marshal(rec); e == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		_ = s.node.Publish(ctx, "fundus.keydir", raw)
+		cancel()
+	}
+	if s.log != nil {
+		s.log.Info("Gerät in die Liste eingetragen", zap.String("node", me))
+	}
 }
