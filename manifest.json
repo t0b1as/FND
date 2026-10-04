@@ -1,8 +1,8 @@
 {
-  "version": "R581",
-  "description": "FUNDUS R581 - UI Feinschliff",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R581/FND-R581-update.zip",
-  "node_argon2": "f25d8bfa21fd99768417ce12ed46c158007b8b7a40b75f735971d0bb04c18766",
-  "published_at": "2026-10-03T15:58:51.7889747Z",
-  "signature": "0xea364cf46f661495cab34c39bce2b8a9976ca94cdb08d19347d49332d6bda5a54023613394104d8562ecf2320be5114f6955f9320922dfb2f8318113f700817b1b"
+  "version": "R582",
+  "description": "FUNDUS R582 - Message retention Management",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R582/FND-R582-update.zip",
+  "node_argon2": "f243fb339237422175b9715e30dc670fdcecc1363fc2bbf10aa8033d8164ceb0",
+  "published_at": "2026-10-04T05:24:35.4805924Z",
+  "signature": "0xd6018503518e915f44fb9ff98e299af23158719345ad3f74a0d633e1f2503e05581e67991594a7913b0eb66c4412497b6a8c26489dc77521b600d992dd9994151c"
 }
