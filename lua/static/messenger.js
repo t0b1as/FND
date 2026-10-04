@@ -295,7 +295,7 @@ async function handleIncomingMessage(msg) {
         if (!activeChat || String(activeChat.fundusID || '').toLowerCase() !== peer) return;
         appendMessage({
             id:   msg.id,
-            from: msg.outgoing ? (myIdentity && myIdentity.fundusID) : msg.peer_id,
+            from: msg.outgoing ? (myIdentity && myIdentity.fundus_id) : msg.peer_id,
             text: msg.text,
             file: msg.file_hash ? { hash: msg.file_hash, name: msg.file_name, size: msg.file_size, mime: msg.mime_type } : null,
             ts:   new Date(msg.ts),
@@ -1203,6 +1203,12 @@ function appendMessage({ id, from, text, file, ts, outgoing, deliveredAt, readAt
     // Dieselbe Nachricht kann über mehrere Wege eintreffen (direkt, Postfach,
     // Verlaufsabgleich der eigenen Nodes). Einmal anzeigen genügt (R599).
     if (id && document.querySelector('.msg-bubble[data-msg-id="' + CSS.escape(String(id)) + '"]')) return null;
+    // Absicherung (R600): Stammt die Nachricht von der eigenen Fundus-ID, ist
+    // sie eigen – unabhängig davon, welcher Zustellweg sie geliefert hat.
+    if (!outgoing && myIdentity && from &&
+        String(from).toLowerCase() === String(myIdentity.fundus_id || '').toLowerCase()) {
+        outgoing = true;
+    }
     const box = document.getElementById('messages');
     const d = (ts instanceof Date) ? ts : new Date(ts);
     const key = isNaN(d) ? null : d.toDateString();
