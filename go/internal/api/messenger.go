@@ -2023,7 +2023,7 @@ func (s *Server) drainHistSync(sess *Session) int {
 		if err != nil || e.ID == "" || sess.history.Known(e.ID) {
 			continue
 		}
-		if sess.history.Append(e) == nil {
+		if neu, _ := sess.history.AppendIfNew(e); neu {
 			n++
 			// Sofort ins offene Fenster schieben (R597): Bisher landete der
 			// Eintrag nur im Verlauf – auf dem zweiten Gerät erschien die
@@ -2191,7 +2191,7 @@ func (s *Server) registerHistSyncProtocol() {
 		if err != nil || e.ID == "" || sess.history.Known(e.ID) {
 			return []byte(`{"ok":true}`)
 		}
-		if sess.history.Append(e) == nil {
+		if neu, _ := sess.history.AppendIfNew(e); neu {
 			sess.broadcastWS(gin.H{
 				"type": "hist", "id": e.ID, "peer_id": e.PeerID, "outgoing": e.Outgoing,
 				"text": e.Text, "file_hash": e.FileHash, "file_name": e.FileName,

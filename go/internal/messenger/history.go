@@ -252,6 +252,28 @@ func (h *HistoryStore) UpdateReceipt(peerID, messageID, kind string, at time.Tim
 }
 
 // Append hängt eine Nachricht an den Verlauf der Konversation mit peerID an.
+// AppendIfNew legt den Eintrag ab und meldet, ob er WIRKLICH neu war.
+// Append allein genügt dafür nicht: Es meldet auch dann keinen Fehler, wenn es
+// eine Dopplung verwirft – Aufrufer hielten das für einen neuen Eintrag und
+// zeigten die Nachricht ein zweites Mal an (R602). Prüfung und Schreiben
+// laufen hier unter derselben Sperre, damit zwei gleichzeitige Zustellwege
+// nicht beide „neu" melden.
+func (h *HistoryStore) AppendIfNew(e HistoryEntry) (bool, error) {
+	if e.ID != "" {
+		h.mu.Lock()
+		h.loadSeen()
+		if h.seen[seenKey(e.ID)] {
+			h.mu.Unlock()
+			return false, nil
+		}
+		h.mu.Unlock()
+	}
+	if err := h.Append(e); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (h *HistoryStore) Append(e HistoryEntry) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
