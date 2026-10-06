@@ -1061,6 +1061,11 @@ async function loadHistory(peerID, initial) {
         const frag = document.createDocumentFragment();
         const unreadIncoming = [];
         for (const m of msgs) {
+            // Schon im Fenster? Beim ersten Senden wird der Verlauf direkt
+            // danach nachgeladen – die eben gesendete Nachricht erschien sonst
+            // ein zweites Mal (R603). Der Verlauf nutzt buildBubble statt
+            // appendMessage, die dortige Prüfung griff hier also nicht.
+            if (m.id && document.querySelector('.msg-bubble[data-msg-id="' + CSS.escape(String(m.id)) + '"]')) continue;
             frag.appendChild(buildBubble({
                 id: m.id,
                 from: m.peer, text: m.text,

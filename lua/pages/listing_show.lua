@@ -432,12 +432,70 @@ function openLightbox(src) {
         lb = document.createElement('div');
         lb.id = 'lightbox';
         lb.className = 'lightbox';
-        lb.innerHTML = '<span class="lightbox-close">✕</span><img class="lightbox-img" src="">';
-        lb.addEventListener('click', () => lb.classList.remove('open'));
+        lb.innerHTML = '<span class="lightbox-close">✕</span>' +
+            '<span class="lightbox-zoom" title="Zoom umschalten">⤢</span>' +
+            '<img class="lightbox-img" src="">';
+        lb.addEventListener('click', (e) => {
+            // Klick auf das Bild schaltet die Zoomstufe, daneben schließt.
+            if (e.target.classList.contains('lightbox-img')) { toggleLightboxZoom(); return; }
+            if (e.target.classList.contains('lightbox-zoom')) { toggleLightboxZoom(); return; }
+            lb.classList.remove('open', 'zoomed');
+        });
+        setupLightboxPan(lb);
         document.body.appendChild(lb);
     }
+    lb.classList.remove('zoomed');
     lb.querySelector('.lightbox-img').src = src;
     lb.classList.add('open');
+}
+
+// ── Zweite Zoomstufe (R604) ────────────────────────────────────────────────
+// Stufe 1: ganzes Bild sichtbar. Stufe 2: auf volle Breite – ein hochkant
+// aufgenommenes Bild ragt dann oben und unten hinaus und lässt sich durch
+// Bewegen der Maus (bzw. Wischen) senkrecht verschieben.
+function toggleLightboxZoom() {
+    const lb = document.getElementById('lightbox');
+    if (!lb) return;
+    lb.classList.toggle('zoomed');
+    const img = lb.querySelector('.lightbox-img');
+    if (img) img.style.transform = '';
+    lb.dataset.pan = '0';
+}
+
+function setupLightboxPan(lb) {
+    const img = lb.querySelector('.lightbox-img');
+    // Verschiebbarer Weg: wie viel das Bild über das Fenster hinausragt.
+    function ueberstand() { return Math.max(0, img.offsetHeight - window.innerHeight); }
+    function setze(y) {
+        const max = ueberstand();
+        const v = Math.min(0, Math.max(-max, y));
+        lb.dataset.pan = String(v);
+        img.style.transform = max > 0 ? 'translateY(' + v + 'px)' : '';
+    }
+    // Maus: Position im Fenster bestimmt den Bildausschnitt.
+    lb.addEventListener('mousemove', (e) => {
+        if (!lb.classList.contains('zoomed')) return;
+        const max = ueberstand();
+        if (max <= 0) return;
+        const anteil = Math.min(1, Math.max(0, e.clientY / window.innerHeight));
+        setze(-anteil * max);
+    });
+    // Mausrad und Wischen verschieben ebenfalls.
+    lb.addEventListener('wheel', (e) => {
+        if (!lb.classList.contains('zoomed')) return;
+        e.preventDefault();
+        setze((parseFloat(lb.dataset.pan) || 0) - e.deltaY);
+    }, { passive: false });
+    let y0 = null, p0 = 0;
+    lb.addEventListener('touchstart', (e) => {
+        if (!lb.classList.contains('zoomed')) return;
+        y0 = e.touches[0].clientY; p0 = parseFloat(lb.dataset.pan) || 0;
+    }, { passive: true });
+    lb.addEventListener('touchmove', (e) => {
+        if (!lb.classList.contains('zoomed') || y0 === null) return;
+        setze(p0 + (e.touches[0].clientY - y0));
+    }, { passive: true });
+    lb.addEventListener('touchend', () => { y0 = null; }, { passive: true });
 }
 
 // Vollbild aus dem FileStore holen (mit Cache). Gibt die Object-URL zurück
