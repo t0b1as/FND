@@ -329,7 +329,10 @@ document.querySelectorAll(".pref-custom-input").forEach(input => {
         // Für die Suche muss die Checkbox die Klasse 'srch-sex' tragen (getChecked
         // sammelt dort nach Klasse, nicht nach name). Sonst genügt der name.
         const extraCls = group === "srch_sex_custom" ? ' class="srch-sex"' : '';
-        label.innerHTML = `<input type="checkbox"${extraCls} name="${group}" value="${val.toLowerCase()}" checked> ${val} <small class="meta">(eigener Wert)</small>`;
+        // Text und Zusatz in EINEM Element (R605): Als getrennte Teile ordnete
+        // der Chip sie einzeln an, der Zusatz rutschte dabei aus dem Rahmen.
+        label.innerHTML = `<input type="checkbox"${extraCls} name="${group}" value="${val.toLowerCase()}" checked>` +
+            `<span class="pc-text">${val} <small class="meta">(eigener Wert)</small></span>`;
         grid.appendChild(label);
         this.value = "";
     });

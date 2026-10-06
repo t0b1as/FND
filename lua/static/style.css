@@ -535,7 +535,13 @@ ul { list-style: none; }
     font-size: 13px; cursor: pointer; padding: 3px 10px;
     border: 1px solid var(--border); border-radius: 9999px;
     background: var(--surface); color: var(--text-dim);
-    transition: all var(--transition); white-space: nowrap;
+    transition: all var(--transition);
+    /* R605: Vorher durfte der Chip schrumpfen, sein Text aber nicht umbrechen –
+       bei eigenen Werten wurde der Rahmen schmaler als der Inhalt und die
+       Beschriftung lief heraus. Jetzt behält der Chip seine Breite und rutscht
+       in die nächste Zeile; nur sehr lange Werte brechen innerhalb um. */
+    flex-shrink: 0; max-width: 100%;
+    white-space: normal; word-break: break-word;
 }
 .pref-check:hover { border-color: var(--green); color: var(--text); }
 /* Persistente grüne Umrandung, wenn die Checkbox ausgewählt ist. */
@@ -2419,3 +2425,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .lightbox.zoomed .lightbox-zoom { cursor: zoom-out; }
 .lightbox-img { cursor: zoom-in; }
 .lightbox.zoomed .lightbox-img { cursor: ns-resize; }
+/* Beschriftung eigener Werte als ein Block – sonst ordnet der Chip Text und
+   Zusatz getrennt an und der Zusatz rutscht aus dem Rahmen (R605). */
+.pref-check .pc-text { display: inline; min-width: 0; }
+.pref-check .pc-text .meta { font-size: 11px; }
