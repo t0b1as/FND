@@ -1,8 +1,8 @@
 {
-  "version": "R604",
-  "description": "FUNDUS R604 - second zoomstage for images",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R604/FND-R604-update.zip",
-  "node_argon2": "7ed8b4c4993d0657d8334e9d3e6d20956d4cce0bd781aec4f16bce1c232384c7",
-  "published_at": "2026-10-06T03:35:28.2708307Z",
-  "signature": "0xd52e04404c65d6f82399c4b6ff174d0f263e186a5738a29f7a64de5f69c021692fed85387b3f81e1545072bd383def7191c6b63e1889a18bf623b403d65448bc1c"
+  "version": "R605",
+  "description": "FUNDUS R605 - individual chip addition fix",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R605/FND-R605-update.zip",
+  "node_argon2": "f26c48525bd2b80759f94d61ac64940ef2e0738e7bd500357971a70e44947f58",
+  "published_at": "2026-10-06T04:37:26.4203022Z",
+  "signature": "0x3df9f7fdb6defa1649b835c4e89ed3be12a3940481fd5198e22823d9744a952f5e2661bfd8ca2a32b6982844780a54b1b16d896948bf7ab42f496f9fc68cb7f11c"
 }
