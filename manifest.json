@@ -1,8 +1,8 @@
 {
-  "version": "R609",
-  "description": "FUNDUS R609 - contact button and seller evaluation fix",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R609/FND-R609-update.zip",
-  "node_argon2": "2fbfee24fac841648052df29c20736d5db0a2d5638b4807d2836591673ad173d",
-  "published_at": "2026-10-09T05:39:20.0789213Z",
-  "signature": "0xb77dc7b2d19501335f908b8673d8b03c374fbb3e1937e78f7fc5dec33e6ecbb41cf722a729bcc4a8027338e94122e8818cbe9ebe21c731e03f90112210c692671c"
+  "version": "R610",
+  "description": "FUNDUS R610 - contact button and seller evaluation fix",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R610/FND-R610-update.zip",
+  "node_argon2": "9f8198a373ff4c1f4b265354b1597fe65011f92e5da27ea0fe05d9249f2631b0",
+  "published_at": "2026-10-09T05:48:58.8477347Z",
+  "signature": "0xb97b1b6321ea511efedd798a9bffe1fdeb3f83278228841992534521a7f60bc410930e432575edc8fb5a7b52933ac944d42fe078e7dbbaca04b059f8c94ed5241c"
 }
