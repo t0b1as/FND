@@ -496,7 +496,10 @@ function updateSendState() {
         inp.placeholder = ready ? (MSGT.placeholder_msg||'Nachricht…')
                                 : (MSGT.recipient_first||'Bitte anmelden…');
     }
-    if (btn) btn.disabled = !ready;
+    // R614: Knopf NICHT mehr sperren. Ein gesperrter Knopf reagiert gar nicht,
+    // und auf dem Handy gibt es auch keinen Hinweistext – jeder Sendeversuch
+    // verpuffte dann lautlos. Den Grund nennt jetzt sendText() als Meldung.
+    if (btn) btn.disabled = false;
     if (emo) emo.disabled = !ready;
 }
 
@@ -539,7 +542,7 @@ async function setRecipientFromAddr() {
 }
 
 async function sendText() {
-    if (!myIdentity) { alert('Bitte zuerst oben rechts anmelden.'); return; }
+    if (!myIdentity) { showToast('✗ Nicht angemeldet – bitte oben rechts anmelden', ''); return; }
     // Falls kein aktiver Chat, aber eine Adresse im Feld → daraus Empfänger machen.
     // setRecipientFromAddr ist async (E-Mail-Auflösung), daher AWAIT — sonst ist
     // activeChat beim folgenden Check noch nicht gesetzt und das Senden bricht ab.
@@ -547,7 +550,7 @@ async function sendText() {
         const addr = (document.getElementById('chat-with-addr').value || '').trim().toLowerCase();
         if (addr) await setRecipientFromAddr();
     }
-    if (!activeChat) { alert('Bitte eine Empfänger-Adresse eingeben.'); return; }
+    if (!activeChat) { showToast('✗ Kein Empfänger gewählt', 'Adresse oben eingeben oder Kontakt anklicken'); return; }
     const input = document.getElementById('msg-input');
     const text  = input.value.trim();
     if (!text) return;

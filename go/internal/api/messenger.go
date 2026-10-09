@@ -666,6 +666,18 @@ func (s *Server) messengerSend(c *gin.Context) {
 	// Zusätzlich in die Offline-Mailbox des Empfängers legen (verschlüsselt),
 	// damit die Nachricht auch ankommt, wenn der Empfänger gerade nicht online
 	// ist — er holt sie beim nächsten Login (hier oder auf einem anderen Node) ab.
+	// Nachvollziehbar protokollieren (R614): Bei Zustellproblemen war bisher
+	// nicht erkennbar, ob der Versuch den Node überhaupt erreicht hat.
+	if s.log != nil {
+		rid := strings.ToLower(req.RecipientID)
+		kurz := rid
+		if len(kurz) > 12 {
+			kurz = kurz[:12] + "…"
+		}
+		s.log.Info("Sendeversuch", zap.String("an", kurz),
+			zap.String("typ", string(req.Type)), zap.Bool("extern", !isLANRequest(c)))
+	}
+
 	// Im Hintergrund (R590): Ablegen und Verteilen hielten die Antwort an den
 	// Browser auf – die eigene Nachricht erschien dadurch verzögert im Fenster.
 	if msg != nil && !isSignal {
@@ -1484,7 +1496,7 @@ func (s *Server) drainMailbox(sess *Session) int {
 	}
 	fid := strings.ToLower(sess.identity.FundusID)
 	prefix := "mailbox:" + fid + ":"
-	all, _ := s.store.List(storage.RecordMailbox)
+	all, _ := s.store.ListPrefix(storage.RecordMailbox, prefix) // nur eigene (R613)
 	count := 0
 	for _, r := range all {
 		if r == nil || !strings.HasPrefix(r.ID, prefix) {
@@ -1568,42 +1580,35 @@ func (s *Server) mailboxPumpLoop() {
 		for _, ss := range byFID {
 			s.drainHistSync(ss)
 		}
-		// Einmal lesen, dann nach Empfänger verteilen (statt je Sitzung die
-		// ganze Liste zu lesen – die Einträge kommen aus dem ganzen Netz).
-		all, _ := s.store.List(storage.RecordMailbox)
+		// Je angemeldetem Nutzer NUR dessen Postfach lesen (R614): Seit die
+		// Einträge netzweit gespeichert werden, war ein Volldurchlauf über
+		// alle Postfächer des Netzes der größte Speicherposten auf dem Pi.
 		cutoff := time.Now().Add(-7 * 24 * time.Hour)
 		injected := 0
-		for _, r := range all {
+		for fid, ss := range byFID {
 			if injected >= 50 {
 				break // je Durchlauf höchstens 50 – der Rest folgt in 30 s
 			}
-			if r == nil || !strings.HasPrefix(r.ID, "mailbox:") {
-				continue
+			all, _ := s.store.ListPrefix(storage.RecordMailbox, "mailbox:"+fid+":")
+			for _, r := range all {
+				if injected >= 50 {
+					break
+				}
+				if r == nil || r.Data == nil || r.CreatedAt.Before(cutoff) {
+					continue // zu alt: längst zugestellt oder verfallen
+				}
+				if drainedMailboxSeen(r.ID) {
+					continue // auf diesem Node schon verarbeitet
+				}
+				if env, ok := r.Data["envelope"].(string); ok {
+					ss.messenger.InjectIncoming([]byte(env))
+					injected++
+				}
+				// NICHT löschen (R582): Wer sich auf mehreren Nodes anmeldet,
+				// bekäme die Nachricht sonst nur auf dem Node, der sie zuerst
+				// abholt. Doppelte fängt der Verlauf dauerhaft ab; aufgeräumt
+				// wird über die Vorhaltezeit (TTLMailboxDays).
 			}
-			if r.CreatedAt.Before(cutoff) {
-				continue // zu alt: längst zugestellt oder verfallen
-			}
-			rest := strings.TrimPrefix(r.ID, "mailbox:")
-			fid := rest
-			if i := strings.IndexByte(rest, ':'); i > 0 {
-				fid = rest[:i]
-			}
-			ss, ok := byFID[fid]
-			if !ok {
-				continue
-			}
-			if drainedMailboxSeen(r.ID) {
-				continue // auf diesem Node schon verarbeitet
-			}
-			if env, ok := r.Data["envelope"].(string); ok {
-				ss.messenger.InjectIncoming([]byte(env))
-				injected++
-			}
-			// NICHT löschen (R582): Wer sich auf mehreren Nodes anmeldet – etwa
-			// zuhause und über die öffentliche Adresse – bekam die Nachricht
-			// sonst nur auf dem Node, der sie zuerst abholte. Doppelte fängt
-			// der Verlauf jetzt dauerhaft ab; aufgeräumt wird über die
-			// Vorhaltezeit (TTLMailboxDays).
 		}
 		if injected > 0 {
 			debug.FreeOSMemory() // Speicher der Entschlüsselungen zurückgeben
@@ -1998,11 +2003,11 @@ func (s *Server) drainHistSync(sess *Session) int {
 	if sess == nil || sess.history == nil || sess.identity == nil || s.store == nil {
 		return 0
 	}
-	recs, err := s.store.List(storage.RecordHistSync)
+	prefix := "hist:" + strings.ToLower(sess.identity.FundusID) + ":"
+	recs, err := s.store.ListPrefix(storage.RecordHistSync, prefix)
 	if err != nil {
 		return 0
 	}
-	prefix := "hist:" + strings.ToLower(sess.identity.FundusID) + ":"
 	cutoff := time.Now().Add(-7 * 24 * time.Hour)
 	n := 0
 	for _, r := range recs {

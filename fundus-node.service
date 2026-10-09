@@ -71,7 +71,14 @@ RestartSec=10s
 #  LLM (Ollama):                 läuft als eigener Service
 #  → 768 MB für fundus-node, Rest für OS
 # -----------------------------------------------------------------------------
-MemoryMax=768M
+# R613: Eine Anmeldung leitet den Schlüssel mit 256 MB Argon2 ab. Zusammen mit
+# dem laufenden Betrieb sprengte das die bisherige harte Grenze von 768M – der
+# Dienst wurde dann mitten in der Anmeldung beendet (im Browser: "Unexpected
+# token '<'", weil der Webserver eine Fehlerseite liefert).
+# MemoryHigh bremst sanft und gibt Speicher zurück, MemoryMax lässt der
+# Ableitung Luft. Auf einem Pi mit 1 GB RAM bitte beide Werte halbieren.
+MemoryHigh=700M
+MemoryMax=1400M
 MemorySwapMax=256M
 
 # CPU: bis zu 2 Cores nutzbar (nicht mehr als 200%)

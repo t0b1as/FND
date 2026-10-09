@@ -210,6 +210,32 @@ func (s *Store) Get(recordType RecordType, id string) (*Record, error) {
 	return &r, nil
 }
 
+// ListPrefix gibt nur die Records eines Typs zurück, deren ID mit idPrefix
+// beginnt (R613). Postfach- und Verlaufseinträge liegen seit R583 netzweit auf
+// JEDEM Node; sie alle einzulesen kostete auf einem Pi viel Arbeitsspeicher –
+// zusammen mit einer Anmeldung (256 MB Schlüsselableitung) reichte das, um den
+// Dienst über seine Speichergrenze zu treiben.
+func (s *Store) ListPrefix(recordType RecordType, idPrefix string) ([]*Record, error) {
+	prefix := fmt.Sprintf("/%s/%s", string(recordType), idPrefix)
+	results, err := s.db.Query(context.Background(), query.Query{Prefix: prefix})
+	if err != nil {
+		return nil, err
+	}
+	defer results.Close()
+	var out []*Record
+	for result := range results.Next() {
+		if result.Error != nil {
+			continue
+		}
+		var r Record
+		if err := json.Unmarshal(result.Value, &r); err != nil {
+			continue
+		}
+		out = append(out, &r)
+	}
+	return out, nil
+}
+
 // List gibt alle Records eines Typs zurück.
 func (s *Store) List(recordType RecordType) ([]*Record, error) {
 	prefix := fmt.Sprintf("/%s/", string(recordType))
