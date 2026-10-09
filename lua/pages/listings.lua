@@ -326,7 +326,7 @@ function renderChips(){
 // unscharf stehen blieb. Deshalb eine Warteschlange: wenige gleichzeitig, der
 // Rest rückt nach, sobald eines fertig ist.
 let _thumbQueue = [], _thumbActive = 0;
-const THUMB_PARALLEL = 3;
+const THUMB_PARALLEL = 4;
 
 function upgradeThumbs(root){
     (root || document).querySelectorAll('img[data-hq]').forEach(function(img){
@@ -344,9 +344,27 @@ function pumpThumbQueue(){
         if (!job.img.isConnected) continue;
         _thumbActive++;
         const hq = new Image();
-        const fertig = function(){ _thumbActive--; pumpThumbQueue(); };
-        hq.onload  = function(){ if (job.img.isConnected) job.img.src = job.url; fertig(); };
-        hq.onerror = fertig;   // z.B. Bild (noch) nicht im Netz auffindbar
+        let erledigt = false;
+        // R623: ZEITGRENZE. Muss der Node ein Bild erst berechnen, kann die
+        // Anfrage lange offen bleiben – ohne Erfolg und ohne Fehler. Dann rückte
+        // nichts nach und es blieb bei den ersten paar scharfen Bildern.
+        // Nach 12 s geht es weiter; das Bild kommt am Ende noch einmal dran,
+        // dann liegt es im Zwischenspeicher des Nodes und ist sofort da.
+        const fertig = function(nochmal){
+            if (erledigt) return;
+            erledigt = true;
+            clearTimeout(timer);
+            hq.onload = hq.onerror = null;
+            if (nochmal && (job.versuche || 0) < 2 && job.img.isConnected) {
+                job.versuche = (job.versuche || 0) + 1;
+                _thumbQueue.push(job);           // ans Ende, nicht verlieren
+            }
+            _thumbActive--;
+            pumpThumbQueue();
+        };
+        const timer = setTimeout(function(){ hq.src = ''; fertig(true); }, 12000);
+        hq.onload  = function(){ if (job.img.isConnected) job.img.src = job.url; fertig(false); };
+        hq.onerror = function(){ fertig(false); }; // Bild nicht auffindbar: nicht erneut
         hq.src = job.url;
     }
 }
