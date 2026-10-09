@@ -182,10 +182,14 @@ return function(captures)
         local cpk = record.data and record.data.contact_pub_key
         local cfid = record.data and record.data.contact_fundus_id
         if type(cpk) == "string" and cpk ~= "" then
+            -- R609: %q liefert DOPPELTE Anführungszeichen – die beenden das
+            -- onclick-Attribut vorzeitig, der Knopf tat deshalb nichts. Werte
+            -- jetzt als HTML-Attribute, der Klick liest sie von dort.
             contactBtn = string.format(
                 '<button class="btn btn-outline btn-contact-seller" ' ..
-                'onclick="contactSeller(%s,%s)">💬 %s</button>',
-                string.format("%q", cfid or ""), string.format("%q", cpk),
+                'data-cfid="%s" data-cpk="%s" ' ..
+                'onclick="contactSeller(this.dataset.cfid, this.dataset.cpk)">💬 %s</button>',
+                render.html_escape(cfid or ""), render.html_escape(cpk),
                 t("listing.contact_seller"))
         end
         -- Verkäufer-Empfangsadresse (Wallet) anzeigen, falls im Inserat gesetzt.
@@ -686,6 +690,7 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-buy" onclick="confirmReceipt('${escrowId}')">✓ Erhalt bestätigen</button>
               <a href="/api/v1/contracts/${escrowId}/html" target="_blank" class="btn btn-outline">📄 Kaufvertrag</a>
+              <a href="/ratings?escrow=${escrowId}" class="btn btn-outline">⭐ Verkäufer bewerten</a>
             </div>
           </div>`;
     } catch (err) {

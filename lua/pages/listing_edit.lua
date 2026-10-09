@@ -69,7 +69,9 @@ return function(captures)
     for _, c in ipairs(categories) do
         local sel = (c[1] == curCat) and " selected" or ""
         table.insert(cat_opts, string.format('<option value="%s"%s>%s</option>', c[1], sel, c[2]))
-    end
+    e    -- Eigene Kategorie auch beim Bearbeiten (R608)
+    table.insert(cat_opts, '<option value="__custom__">✎ Eigene Kategorie …</option>')
+nd
     local cond_html = table.concat(cond_opts)
     local cat_html  = table.concat(cat_opts)
 
@@ -123,7 +125,9 @@ return function(captures)
     <input type="text" id="f-keywords" value="%s"></div>
   <div class="field-row">
     <div class="field"><label>%s</label>
-      <select id="f-category">%s</select></div>
+      <select id="f-category" onchange="catCustomToggle()">%s</select>
+      <input type="text" id="f-category-custom" list="cat-suggest" placeholder="Eigene Kategorie, z.B. 3D-Druck" maxlength="40" autocomplete="off" style="display:none;margin-top:6px">
+      <datalist id="cat-suggest"></datalist></div>
     <div class="field"><label>%s</label>
       <select id="f-condition">%s</select></div>
   </div>
@@ -283,7 +287,9 @@ async function submitEdit(e) {
         delivery:     (document.querySelector('input[name="f-delivery"]:checked')||{}).value || "pickup",
         shipping_cost: parseFloat((document.getElementById("f-shipping-cost")||{}).value) || 0,
         keywords:     document.getElementById("f-keywords").value.split(",").map(s=>s.trim()).filter(Boolean),
-        category:     (document.getElementById("f-category")||{}).value || "",
+        // categoryValue() aus upload.js: liefert bei "Eigene Kategorie …" den
+        // eingetippten Text statt des Platzhalters (R608).
+        category:     (typeof categoryValue === "function" ? categoryValue() : ((document.getElementById("f-category")||{}).value || "")),
         condition:    (document.getElementById("f-condition")||{}).value || "",
         plz:          (document.getElementById("f-plz")||{}).value.trim() || "",
     };

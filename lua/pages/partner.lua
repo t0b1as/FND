@@ -24,8 +24,11 @@ return function()
     end
 
     -- Hilfsfunktion: rendert eine Checkbox-Gruppe
-    local function checkbox_group(name, items, selected_fn, label_key)
+    -- chosen: die gespeicherten Werte dieser Gruppe (für eigene Werte, R607).
+    local function checkbox_group(name, items, selected_fn, label_key, chosen)
         local parts = {"<div class='pref-grid'>"}
+        local known = {}
+        for _, item in ipairs(items) do known[tostring(item.Value):lower()] = true end
         for _, item in ipairs(items) do
             local val    = item.Value
             local label  = (ngx.ctx.lang == "en" and item.LabelEN) or item.LabelDE
@@ -34,6 +37,22 @@ return function()
                 '<label class="pref-check"><input type="checkbox" name="%s" value="%s"%s> %s</label>',
                 name, val, chk, label
             ))
+        end
+        -- Gespeicherte EIGENE Werte als Chips ergänzen (R607): Sie stehen nicht
+        -- in der Vorgabeliste und fehlten deshalb nach dem Neuladen komplett –
+        -- beim nächsten Speichern wären sie verloren gegangen.
+        if chosen then
+            for _, v in ipairs(chosen) do
+                local vs = tostring(v)
+                if vs ~= "" and not known[vs:lower()] then
+                    table.insert(parts, string.format(
+                        '<label class="pref-check"><input type="checkbox" name="%s" value="%s" checked>' ..
+                        '<span class="pc-text">%s <small class="meta">(eigener Wert)</small></span></label>',
+                        name, render.html_escape(vs:lower()), render.html_escape(vs)
+                    ))
+                    known[vs:lower()] = true
+                end
+            end
         end
         -- "Eigener Wert" Eingabefeld
         table.insert(parts, string.format(
@@ -165,7 +184,7 @@ return function()
   <p class="meta">]] .. t("partner.hobbies_hint") .. [[</p>
   %s
 </section>
-]], checkbox_group("hobbies", lists.hobbies or {}, function(v) return selected(hobbies, v) end, "hobbies")))
+]], checkbox_group("hobbies", lists.hobbies or {}, function(v) return selected(hobbies, v) end, "hobbies", hobbies)))
 
         -- Vorlieben
         ngx.print(string.format([[
@@ -174,7 +193,7 @@ return function()
   <p class="meta">]] .. t("partner.prefs_hint") .. [[</p>
   %s
 </section>
-]], checkbox_group("preferences", lists.preferences or {}, function(v) return selected(prefs, v) end, "prefs")))
+]], checkbox_group("preferences", lists.preferences or {}, function(v) return selected(prefs, v) end, "prefs", prefs)))
 
         -- Abneigungen
         ngx.print(string.format([[
@@ -183,7 +202,7 @@ return function()
   <p class="meta">]] .. t("partner.dislikes_hint") .. [[</p>
   %s
 </section>
-]], checkbox_group("dislikes", lists.dislikes or {}, function(v) return selected(dislikes, v) end, "dislikes")))
+]], checkbox_group("dislikes", lists.dislikes or {}, function(v) return selected(dislikes, v) end, "dislikes", dislikes)))
     end
 
     ngx.print("</div>") -- tab-hobbies
@@ -260,31 +279,28 @@ return function()
                 explain:gsub('"','&quot;'), abbr, hasRoles and "true" or "false", isChk, abbr, label))
         end
         ngx.print('</div>')
-
-        -- Rollen-Auswahl (Aktiv/Passiv/Switch) für die Vorlieben mit Rollen,
-        -- gesammelt unter dem Grid. Erscheint nur, wenn die zugehörige Vorliebe
-        -- angehakt ist (per JS ein-/ausgeblendet).
-        for _, sp in ipairs(lists.sexual_preferences) do
-            if sp.HasRoles then
-                local abbr = sp.Abbr
-                local curRole = selSexAbbrs[abbr] or ""
-                local shown = curRole ~= "" and "" or " hidden"
-                local roles = {{"aktiv","Aktiv (Top/Geber)"},{"passiv","Passiv (Bottom/Empfänger)"},{"switch","Switch (beides)"}}
-                if ngx.ctx.lang == "en" then
-                    roles = {{"aktiv","Active (Top/Giver)"},{"passiv","Passive (Bottom/Receiver)"},{"switch","Switch (both)"}}
-                end
-                ngx.print(string.format('<div class="role-btns%s" id="roles-%s" style="margin-top:6px"><span class="abbr-badge">%s</span> ', shown, abbr, abbr))
-                for _, role in ipairs(roles) do
-                    local active = curRole == role[1] and " role-active" or ""
+        -- Gespeicherte EIGENE Abkürzungen ergänzen (R607): Sie stehen nicht in
+        -- der Vorgabeliste und fehlten nach dem Neuladen.
+        do
+            local bekannt = {}
+            for _, sp in ipairs(lists.sexual_preferences) do bekannt[sp.Abbr] = true end
+            local eigene = {}
+            for abbr, _ in pairs(selSexAbbrs) do
+                if not bekannt[abbr] then eigene[#eigene+1] = abbr end
+            end
+            table.sort(eigene)
+            if #eigene > 0 then
+                ngx.print('<div class="pref-grid">')
+                for _, abbr in ipairs(eigene) do
                     ngx.print(string.format(
-                        '<button type="button" class="role-btn%s" data-abbr="%s" data-role="%s" onclick="setRole(this)">%s</button>',
-                        active, abbr, role[1], role[2]))
+                        '<label class="pref-check"><input type="checkbox" class="sex-abbr-cb" data-abbr="%s" data-has-roles="false" checked>' ..
+                        '<span class="pc-text">%s <small class="meta">(eigener Wert)</small></span></label>',
+                        render.html_escape(abbr), render.html_escape(abbr)))
                 end
-                ngx.print("</div>")
+                ngx.print('</div>')
             end
         end
-
-        -- Custom-Feld
+                -- Custom-Feld
         ngx.print(string.format([[
 <div class="pref-custom" style="margin-top:1rem">
   <input type="text" class="pref-custom-input" placeholder="+ Eigene Abkürzung / Vorliebe …" data-group="sex_custom">

@@ -338,6 +338,7 @@ func (s *Server) registerRoutes() {
 	// Listings (Waren & Dienste)
 	listings := r.Group("/api/v1/listings")
 	{
+		listings.GET("/categories", s.listCategories) // alle im Netz benutzten Kategorien (R608)
 		listings.GET("",       s.listListings)
 		listings.POST("",      s.createListing)
 		listings.GET("/:id",   s.getListing)
@@ -438,7 +439,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R605"
+const NodeRevision = "R609"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -1407,3 +1408,46 @@ func rateLimitMiddleware() gin.HandlerFunc {
 }
 
 var listingReconcileOnce sync.Once
+
+// listCategories liefert alle Kategorien, die im Netz tatsächlich benutzt
+// werden – die festen ebenso wie eigene (R608). Damit findet ein Anbieter die
+// Kategorie eines anderen, statt sie neu und womöglich anders zu schreiben.
+// Angebote werden netzweit abgeglichen, der lokale Bestand genügt also.
+func (s *Server) listCategories(c *gin.Context) {
+	type eintrag struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+	zaehler := map[string]int{}   // Kleinschreibung → Anzahl
+	anzeige := map[string]string{} // Kleinschreibung → zuerst gesehene Schreibweise
+	if s.store != nil {
+		if recs, err := s.store.List(storage.RecordListing); err == nil {
+			for _, r := range recs {
+				if r == nil || r.DeletedAt != nil || r.Data == nil {
+					continue
+				}
+				name, _ := r.Data["category"].(string)
+				name = strings.TrimSpace(name)
+				if name == "" || len(name) > 40 {
+					continue
+				}
+				k := strings.ToLower(name)
+				zaehler[k]++
+				if _, ok := anzeige[k]; !ok {
+					anzeige[k] = name
+				}
+			}
+		}
+	}
+	out := make([]eintrag, 0, len(zaehler))
+	for k, n := range zaehler {
+		out = append(out, eintrag{Name: anzeige[k], Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count // häufigste zuerst
+		}
+		return out[i].Name < out[j].Name
+	})
+	c.JSON(http.StatusOK, gin.H{"categories": out})
+}

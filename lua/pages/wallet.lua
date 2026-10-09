@@ -194,7 +194,9 @@ async function loadEscrows() {
   // nur unmittelbar nach dem Kauf erreichbar und nach dem Neuladen weg.
   list.innerHTML = escrows.map(e => {
     const id = e.escrow_id || '';
-    let acts = '<a class="btn-sm" href="/api/v1/contracts/' + id + '/html" target="_blank">📄 Vertrag</a>';
+    // Bewerten (R609): Der Link steckte bisher nur im Kaufvertrag.
+    let acts = '<a class="btn-sm" href="/api/v1/contracts/' + id + '/html" target="_blank">📄 Vertrag</a>' +
+               '<a class="btn-sm" href="/ratings?escrow=' + id + '">⭐ Bewerten</a>';
     if (e.role === 'buyer' && e.status === 'funded') {
       acts = '<button class="btn-sm" onclick="escAction(\'' + id + '\',\'confirm\')">✅ Ware OK</button>' +
              '<button class="btn-sm btn-danger" onclick="escAction(\'' + id + '\',\'cancel\')">↩ Storno</button>' + acts;

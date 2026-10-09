@@ -752,17 +752,54 @@ function catCustomToggle() {
     inp.style.display = on ? "" : "none";
     if (on) { inp.focus(); loadCategorySuggestions(); }
 }
-// Vorschläge: Kategorien, die im Netz schon verwendet werden.
+// Kategorien, die im Netz bereits benutzt werden (R608). Sie erscheinen als
+// eigene Gruppe in der Auswahlliste – wie ein Hashtag, dem man sich anschließt,
+// statt dieselbe Kategorie neu und anders geschrieben anzulegen.
 let _catSuggestLoaded = false;
 async function loadCategorySuggestions() {
     if (_catSuggestLoaded) return; _catSuggestLoaded = true;
     try {
-        const r = await fetch("/api/v1/search"); const d = await r.json();
-        const seen = {}; (d.hits || []).forEach(function(h){ const c = (h.category || "").trim(); if (c) seen[c] = 1; });
-        const dl = document.getElementById("cat-suggest"); if (!dl) return;
-        dl.innerHTML = Object.keys(seen).sort().map(function(c){ return '<option value="' + c.replace(/"/g, "&quot;") + '">'; }).join("");
+        const r = await fetch("/api/v1/listings/categories");
+        const d = await r.json();
+        const liste = (d.categories || []).filter(function(c){ return c && c.name; });
+        const dl = document.getElementById("cat-suggest");
+        if (dl) {
+            dl.innerHTML = liste.map(function(c){
+                return '<option value="' + String(c.name).replace(/"/g, "&quot;") + '">';
+            }).join("");
+        }
     } catch(e) {}
 }
+
+// Beim Laden: benutzte Kategorien, die NICHT in der festen Liste stehen, als
+// Gruppe „Im Netz verwendet" in die Auswahlliste aufnehmen.
+async function fillNetworkCategories() {
+    const sel = document.getElementById("f-category");
+    if (!sel || sel.querySelector('optgroup[data-net]')) return;
+    let liste = [];
+    try {
+        const r = await fetch("/api/v1/listings/categories");
+        const d = await r.json();
+        liste = (d.categories || []).filter(function(c){ return c && c.name; });
+    } catch(e) { return; }
+    const bekannt = {};
+    Array.prototype.forEach.call(sel.options, function(o){ bekannt[o.value.toLowerCase()] = 1; bekannt[o.text.toLowerCase()] = 1; });
+    const neu = liste.filter(function(c){ return !bekannt[String(c.name).toLowerCase()]; }).slice(0, 25);
+    if (!neu.length) return;
+    const grp = document.createElement("optgroup");
+    grp.label = "Im Netz verwendet";
+    grp.setAttribute("data-net", "1");
+    neu.forEach(function(c){
+        const o = document.createElement("option");
+        o.value = c.name;
+        o.textContent = c.name + (c.count > 1 ? "  (" + c.count + ")" : "");
+        grp.appendChild(o);
+    });
+    // Vor dem Eintrag „Eigene Kategorie …" einfügen.
+    const eigener = sel.querySelector('option[value="__custom__"]');
+    if (eigener) sel.insertBefore(grp, eigener); else sel.appendChild(grp);
+}
+document.addEventListener("DOMContentLoaded", fillNetworkCategories);
 function categoryValue() {
     const sel = document.getElementById("f-category");
     if (!sel) return "";

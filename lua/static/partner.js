@@ -322,8 +322,13 @@ document.querySelectorAll(".pref-custom-input").forEach(input => {
         const val   = this.value.trim();
         const group = this.dataset.group;
         if (!val) return;
-        const grid  = this.closest(".pref-custom").previousElementSibling;
-        if (!grid) return;
+        // R606: Das Eingabefeld liegt INNERHALB des Chip-Rasters. Das vorherige
+        // Element ist deshalb der letzte Chip – der neue Wert landete bisher in
+        // dessen Rahmen statt als eigener Chip. Richtig ist das Raster selbst.
+        const custom = this.closest(".pref-custom");
+        const grid = (custom && custom.closest(".pref-grid")) ||
+                     (custom && custom.previousElementSibling);
+        if (!grid || !custom) return;
         const label = document.createElement("label");
         label.className = "pref-check";
         // Für die Suche muss die Checkbox die Klasse 'srch-sex' tragen (getChecked
@@ -333,7 +338,9 @@ document.querySelectorAll(".pref-custom-input").forEach(input => {
         // der Chip sie einzeln an, der Zusatz rutschte dabei aus dem Rahmen.
         label.innerHTML = `<input type="checkbox"${extraCls} name="${group}" value="${val.toLowerCase()}" checked>` +
             `<span class="pc-text">${val} <small class="meta">(eigener Wert)</small></span>`;
-        grid.appendChild(label);
+        // Vor das Eingabefeld setzen, damit es unten bleibt.
+        if (custom.parentElement === grid) grid.insertBefore(label, custom);
+        else grid.appendChild(label);
         this.value = "";
     });
 });
