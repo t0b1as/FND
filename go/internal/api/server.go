@@ -146,6 +146,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerPushRoutes()   // Push-Benachrichtigungen
 	s.registerBackupRoutes() // verschlüsselte automatische Sicherung
 	s.registerMailRoutes()   // E-Mail-Benachrichtigungen
+	s.registerPriceRoute()   // Referenzkurs – auch ohne eingerichteten Shop (R617)
 	listingReconcileOnce.Do(func() { go s.reconcileOwnListings() }) // Bestand eigener Angebote
 	s.registerListingSoldProtocol() // Verkaufsmeldungen anderer Nodes
 	s.registerHistSyncProtocol()    // Verlaufseinträge der eigenen Nodes
@@ -440,7 +441,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R616"
+const NodeRevision = "R617"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -1489,3 +1490,16 @@ func (s *Server) applyListingUpdate(existing *storage.Record, body map[string]an
 	}
 }
 
+// registerPriceRoute stellt den Referenzkurs IMMER bereit (R617).
+// Vorher hing /api/v1/shop/price am Shop: Ohne gesetzte Empfangsadresse
+// (FUNDUS_SHOP_ENABLED / FUNDUS_SHOP_RECEIVE_ADDR) existierte der Endpunkt gar
+// nicht, die Börse bekam eine 404 und zeigte keinen Kurs – ohne Protokolleintrag,
+// weil der Node nie gefragt wurde. Der Kurs ist reine Information und für die
+// Börse (FND⇄SOL) auch ohne Shop nötig.
+func (s *Server) registerPriceRoute() {
+	if s.shopFeed != nil {
+		return // schon über die Shop-Routen vorhanden
+	}
+	s.shopFeed = shop.NewPriceFeed(shop.PriceFeedConfig{}, s.log)
+	s.router.GET("/api/v1/shop/price", s.shopGetPrice)
+}

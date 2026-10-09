@@ -77,6 +77,15 @@ type PriceFeed struct {
 
 // NewPriceFeed erstellt einen PriceFeed.
 func NewPriceFeed(cfg PriceFeedConfig, log *zap.Logger) *PriceFeed {
+	// Vorgabewerte (R617): Ohne Zeitgrenze könnte eine hängende Kursquelle die
+	// Anfrage endlos offen halten; ohne Zwischenspeicher-Dauer würde bei jedem
+	// Aufruf neu abgefragt – CoinGecko begrenzt kostenlose Abfragen hart.
+	if cfg.HTTPTimeout <= 0 {
+		cfg.HTTPTimeout = 8 * time.Second
+	}
+	if cfg.CacheTTL <= 0 {
+		cfg.CacheTTL = 5 * time.Minute
+	}
 	return &PriceFeed{
 		cfg:    cfg,
 		client: &http.Client{Timeout: cfg.HTTPTimeout},
