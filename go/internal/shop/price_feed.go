@@ -145,7 +145,17 @@ func (f *PriceFeed) SOLEUR(ctx context.Context) (float64, string, error) {
 		return point.SOLEUR, src.name, nil
 	}
 
-	return 0, "", fmt.Errorf("all price sources failed")
+	// R616: Letzten bekannten Kurs verwenden, statt gar keinen zu liefern.
+	// Fällt das Internet kurz aus oder bremst eine Quelle (CoinGecko begrenzt
+	// kostenlose Abfragen hart), blieb die Anzeige in der Börse bisher einfach
+	// leer. Ein veralteter Kurs mit Hinweis ist dort deutlich nützlicher.
+	if cached.SOLEUR > 0 {
+		alter := time.Since(cached.FetchedAt).Round(time.Minute)
+		f.log.Warn("Kursquellen nicht erreichbar – letzter bekannter Kurs",
+			zap.Float64("sol_eur", cached.SOLEUR), zap.Duration("alter", alter))
+		return cached.SOLEUR, cached.Source + " (veraltet, " + alter.String() + ")", nil
+	}
+	return 0, "", fmt.Errorf("keine Kursquelle erreichbar (CoinGecko, Binance, Kraken)")
 }
 
 // SOLForEUR berechnet wie viel SOL für einen EUR-Betrag nötig ist,

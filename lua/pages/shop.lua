@@ -110,12 +110,25 @@ function setType(tp){
 
 // Referenzkurs (SOL/EUR) anzeigen.
 async function loadRate(){
+  // R616: Fehler nicht mehr verschlucken – vorher blieb die Anzeige bei einer
+  // nicht erreichbaren Kursquelle einfach leer, ohne jeden Hinweis.
+  const el = document.getElementById("rate-display");
+  if (!el) return;
   try {
     const r = await fetch("/api/v1/shop/price");
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d.sol_eur) document.getElementById("rate-display").textContent = "1 SOL = " + d.sol_eur.toFixed(2) + " EUR";
-  } catch(e){}
+    const d = await r.json().catch(function(){ return {}; });
+    if (!r.ok || !d.sol_eur) {
+      el.textContent = "Referenzkurs nicht verfügbar" + (d.error ? " – " + d.error : "");
+      el.title = "Quellen: CoinGecko, Binance, Kraken";
+      return;
+    }
+    el.textContent = "1 SOL = " + d.sol_eur.toFixed(2) + " EUR";
+    el.title = d.source ? ("Quelle: " + d.source) : "";
+    // Veralteter Kurs: sichtbar kennzeichnen.
+    el.style.opacity = (d.source && d.source.indexOf("veraltet") >= 0) ? "0.6" : "";
+  } catch(e){
+    el.textContent = "Referenzkurs nicht verfügbar";
+  }
 }
 
 // Das gesamte Netz-Orderbuch laden und darstellen.
