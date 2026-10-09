@@ -1153,6 +1153,14 @@ var argonMu sync.Mutex
 
 func argonKey(password, salt []byte, time, memory uint32, threads uint8, keyLen uint32) []byte {
 	argonMu.Lock()
+	// VOR der Ableitung aufräumen (R619): Die Ableitung belegt je nach
+	// Parametern bis zu 256 MB am Stück. Auf einem Pi mit 1 GB RAM entscheidet
+	// das darüber, ob die Anmeldung durchläuft oder der Dienst an seine
+	// Speichergrenze stößt. Zwischengespeichertes geben wir deshalb vorher
+	// zurück, nicht erst danach.
+	if memory >= 64*1024 {
+		debug.FreeOSMemory()
+	}
 	defer func() {
 		argonMu.Unlock()
 		debug.FreeOSMemory() // Arbeitsspeicher der Ableitung sofort freigeben

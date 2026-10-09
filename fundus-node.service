@@ -71,15 +71,17 @@ RestartSec=10s
 #  LLM (Ollama):                 läuft als eigener Service
 #  → 768 MB für fundus-node, Rest für OS
 # -----------------------------------------------------------------------------
-# R613: Eine Anmeldung leitet den Schlüssel mit 256 MB Argon2 ab. Zusammen mit
-# dem laufenden Betrieb sprengte das die bisherige harte Grenze von 768M – der
-# Dienst wurde dann mitten in der Anmeldung beendet (im Browser: "Unexpected
-# token '<'", weil der Webserver eine Fehlerseite liefert).
-# MemoryHigh bremst sanft und gibt Speicher zurück, MemoryMax lässt der
-# Ableitung Luft. Auf einem Pi mit 1 GB RAM bitte beide Werte halbieren.
-MemoryHigh=700M
-MemoryMax=1400M
-MemorySwapMax=256M
+# R619: Grenzen RELATIV zum vorhandenen Speicher statt fest.
+# R613 setzte fest 1400M. Auf einem Pi mit 1 GB RAM durfte der Node damit über
+# den vorhandenen Speicher hinauswachsen – das System lagerte aus und kam ins
+# Schleudern, bis gar nichts mehr antwortete ("connection refused"). Mit
+# Prozentwerten passt sich die Grenze an jeden Pi an.
+#   MemoryHigh: sanfte Bremse, gibt Speicher zurück, beendet nichts.
+#   MemoryMax:  harte Grenze. Lieber der Dienst neu starten als der ganze Pi.
+#   Swap klein: lieber schnell scheitern als minutenlang auslagern.
+MemoryHigh=45%
+MemoryMax=75%
+MemorySwapMax=64M
 
 # CPU: bis zu 2 Cores nutzbar (nicht mehr als 200%)
 CPUQuota=200%

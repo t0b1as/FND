@@ -17,8 +17,10 @@ func (s *Server) registerShopRoutes() {
 
 	g := s.router.Group("/api/v1/shop")
 	{
-		// Kurs abrufen
-		g.GET("/price",    s.shopGetPrice)
+		// Kurs abrufen: NICHT hier – der Pfad wird immer in registerPriceRoute
+		// eingerichtet (R620). Zweimal registrieren lässt den Node beim Start
+		// abstürzen (Gin lässt denselben Pfad kein zweites Mal zu), und genau
+		// das passierte seit R617 auf jedem Node mit eingerichtetem Shop.
 
 		// Kauf-Auftrag erstellen
 		g.POST("/order",   s.shopCreateOrder)

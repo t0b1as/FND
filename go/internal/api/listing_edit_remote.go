@@ -137,6 +137,37 @@ func (s *Server) registerListingEditProtocol() {
 		if !identity.Verify(editSigningBytes(&m), m.Sig, m.FID, pub) {
 			return fehler("Unterschrift ungültig")
 		}
+		// Löschwunsch (R618): Der Besitzer-Node erzeugt den Löschvermerk selbst,
+		// signiert ihn und verteilt ihn – nur so nehmen ihn die anderen an.
+		if del, _ := m.Data["__delete__"].(bool); del {
+			if e := s.store.Delete(storage.RecordListing, m.ListingID); e != nil {
+				return fehler("löschen fehlgeschlagen")
+			}
+			// Signierten Löschvermerk verteilen – ohne ihn bliebe das Angebot
+			// auf allen anderen Nodes bestehen (gleicher Weg wie beim lokalen
+			// Löschen).
+			now := time.Now()
+			tomb := &storage.Record{
+				ID: rec.ID, Type: storage.RecordListing, OwnerID: rec.OwnerID,
+				CreatedAt: rec.CreatedAt, UpdatedAt: now, DeletedAt: &now, Data: rec.Data,
+			}
+			if sig, e := s.node.SignData(tomb.SigningBytes()); e == nil {
+				tomb.Signature = sig
+			}
+			_ = s.store.PutSynced(tomb)
+			if raw, e := json.Marshal(tomb); e == nil {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				_ = s.node.Publish(ctx, p2p.TopicListings, raw)
+				cancel()
+			}
+			if s.log != nil {
+				s.log.Info("Angebot von anderem Node gelöscht",
+					zap.String("listing", m.ListingID), zap.String("peer", peerID))
+			}
+			raw, _ := json.Marshal(map[string]any{"ok": true})
+			return raw
+		}
+
 		// Änderungen übernehmen (dieselben Regeln wie beim lokalen Bearbeiten).
 		body := m.Data
 		if body == nil {

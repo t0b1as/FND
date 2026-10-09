@@ -441,7 +441,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R617"
+const NodeRevision = "R620"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -958,6 +958,19 @@ func (s *Server) deleteListing(c *gin.Context) {
 	// Unsignierte Altbestände duerfen lokal geloescht werden (Adoption).
 	isLegacy := len(existing.Signature) == 0
 	if !isLegacy && existing.OwnerID != "" && existing.OwnerID != s.nodeID() {
+		// Löschen von einem ANDEREN eigenen Node (R618): wie beim Bearbeiten
+		// (R611) an den Besitzer-Node weiterreichen. Nur dort kann ein gültig
+		// signierter Löschvermerk entstehen, den die anderen Nodes annehmen.
+		cr, _ := existing.Data["creator_fid"].(string)
+		if cr != "" && s.sessionFID(c) == strings.ToLower(strings.TrimSpace(cr)) {
+			if err := s.forwardListingEdit(c, existing, map[string]any{"__delete__": true}); err != nil {
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error": "Der Node, auf dem dieses Angebot liegt, ist gerade nicht erreichbar: " + err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"ok": true, "forwarded": true})
+			return
+		}
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "Nur der Ersteller darf dieses Angebot loeschen"})
 		return
@@ -1497,9 +1510,12 @@ func (s *Server) applyListingUpdate(existing *storage.Record, body map[string]an
 // weil der Node nie gefragt wurde. Der Kurs ist reine Information und für die
 // Börse (FND⇄SOL) auch ohne Shop nötig.
 func (s *Server) registerPriceRoute() {
-	if s.shopFeed != nil {
-		return // schon über die Shop-Routen vorhanden
-	}
-	s.shopFeed = shop.NewPriceFeed(shop.PriceFeedConfig{}, s.log)
-	s.router.GET("/api/v1/shop/price", s.shopGetPrice)
+	s.router.GET("/api/v1/shop/price", func(c *gin.Context) {
+		// Feed erst bei Bedarf anlegen: Wird der Shop später über WithShop()
+		// eingerichtet, gilt dessen Feed samt Einstellungen.
+		if s.shopFeed == nil {
+			s.shopFeed = shop.NewPriceFeed(shop.PriceFeedConfig{}, s.log)
+		}
+		s.shopGetPrice(c)
+	})
 }
