@@ -151,6 +151,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerListingSoldProtocol() // Verkaufsmeldungen anderer Nodes
 	s.registerHistSyncProtocol()    // Verlaufseinträge der eigenen Nodes
 	s.registerListingEditProtocol() // Angebote von einem anderen Node bearbeiten
+	s.registerThumbProtocol()       // fertige Vorschaubilder zwischen Nodes
 	s.router.GET("/api/v1/nodes/overview", s.nodesOverview) // Übersicht aller Nodes (nur Heimnetz)
 	s.registerNodeInfo()                                     // P2P: "Wie geht es dir?"
 	s.registerWalletRoutes()
@@ -442,7 +443,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R626"
+const NodeRevision = "R627"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -1545,6 +1546,25 @@ func (s *Server) listingThumbnail(c *gin.Context) {
 	if hash == "" {
 		c.JSON(http.StatusNotFound, gin.H{"error": "kein Bild hinterlegt"})
 		return
+	}
+	// Liegt das fertige Bild schon hier? Dann sofort ausliefern.
+	if s.thumbs != nil {
+		if cached := s.thumbs.cached(hash); cached != nil {
+			c.Data(http.StatusOK, "image/jpeg", cached)
+			return
+		}
+		// Sonst beim Besitzer-Node das FERTIGE Bild anfragen (R627): rund 40 KB
+		// statt des mehrere Megabyte großen Originals. Erst wenn das nicht
+		// klappt, wird unten wie bisher das Original geholt – das dauert auf
+		// einem Pi so lange, dass im Marktplatz nur die ersten Bilder scharf
+		// wurden.
+		if rec.OwnerID != "" && rec.OwnerID != s.nodeID() {
+			if jpeg := s.fetchThumbFromPeer(c.Request.Context(), rec.OwnerID, hash); jpeg != nil {
+				s.thumbs.putCached(hash, jpeg)
+				c.Data(http.StatusOK, "image/jpeg", jpeg)
+				return
+			}
+		}
 	}
 	// An den vorhandenen Bild-Endpunkt weiterreichen.
 	c.Params = append(c.Params, gin.Param{Key: "hash", Value: hash})

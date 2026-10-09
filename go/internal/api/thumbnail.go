@@ -73,6 +73,28 @@ func (t *thumbnailer) cachePath(hash string) string {
 	return filepath.Join(t.cacheDir, fmt.Sprintf("%s-%d.jpg", hash, thumbMaxEdge))
 }
 
+// putCached legt ein fertiges Thumbnail im Zwischenspeicher ab (R627).
+// Wird benutzt, wenn ein anderer Node es uns direkt geschickt hat – dann muss
+// das große Originalbild nicht durchs Netz.
+func (t *thumbnailer) putCached(hash string, data []byte) {
+	if len(data) == 0 || len(hash) != 64 {
+		return
+	}
+	tmp := t.cachePath(hash) + ".tmp"
+	if os.WriteFile(tmp, data, 0o640) == nil {
+		_ = os.Rename(tmp, t.cachePath(hash))
+	}
+}
+
+// cached liefert ein bereits erzeugtes Thumbnail, ohne es zu berechnen.
+func (t *thumbnailer) cached(hash string) []byte {
+	data, err := os.ReadFile(t.cachePath(hash))
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	return data
+}
+
 // cleanOldThumbs entfernt Thumbnails früherer Kantenlängen (einmalig beim Start).
 func (t *thumbnailer) cleanOldThumbs() {
 	entries, err := os.ReadDir(t.cacheDir)
