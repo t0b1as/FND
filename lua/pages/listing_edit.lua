@@ -69,9 +69,9 @@ return function(captures)
     for _, c in ipairs(categories) do
         local sel = (c[1] == curCat) and " selected" or ""
         table.insert(cat_opts, string.format('<option value="%s"%s>%s</option>', c[1], sel, c[2]))
-    e    -- Eigene Kategorie auch beim Bearbeiten (R608)
+    end
+    -- Eigene Kategorie auch beim Bearbeiten (R608)
     table.insert(cat_opts, '<option value="__custom__">✎ Eigene Kategorie …</option>')
-nd
     local cond_html = table.concat(cond_opts)
     local cat_html  = table.concat(cat_opts)
 
