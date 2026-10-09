@@ -104,6 +104,11 @@ return function(captures)
     -- die per Mouseover vergrößert und bei Klick abgespielt wird.
     local thumbs = type(data.images) == "table" and data.images or {}
     local hashes = type(data.image_hashes) == "table" and data.image_hashes or {}
+    -- Hinweis an den Ersteller (R624): Ohne Bild-Hash liegt nur das kleine
+    -- Vorschaubild vor – dann bleibt die Darstellung überall unscharf und
+    -- lässt sich auch nicht nachschärfen. Betroffen sind Angebote, deren
+    -- Bilder durch den Fehler aus R568 verloren gingen.
+    local nurVorschau = (#hashes == 0) and (#thumbs > 0)
     local videos = {}
     if type(data.video_hash) == "string" and data.video_hash ~= "" then
         videos[#videos+1] = data.video_hash
@@ -156,6 +161,12 @@ return function(captures)
     if remaining > 1 or (hasQty and remaining > 0 and qty > 1) then
         stockRow = string.format('<div class="stock-row">Noch <b>%d</b> verfügbar</div>', remaining)
     end
+    local vorschauHinweis = ""
+    if nurVorschau and isOwner then
+        vorschauHinweis = '<div class="stock-row" style="color:#ffb3b3">' ..
+            'Von diesem Angebot liegt nur ein kleines Vorschaubild vor – bitte das Bild neu hochladen, ' ..
+            'dann wird es überall scharf dargestellt.</div>'
+    end
     local isSold = (remaining <= 0)
     if not hasQty then
         isSold = (record.data and record.data.sold == true) -- Altbestand
@@ -168,7 +179,7 @@ return function(captures)
         if isSold then
             buySection = '<div class="sold-note">' .. t("listing.sold_note_owner") .. '</div>'
         else
-            buySection = stockRow .. '<div class="owner-note">' .. t("listing.own_offer_note") .. '</div>'
+            buySection = vorschauHinweis .. stockRow .. '<div class="owner-note">' .. t("listing.own_offer_note") .. '</div>'
         end
     elseif isSold then
         -- Verkauft: kein Kauf mehr möglich, klarer Hinweis.

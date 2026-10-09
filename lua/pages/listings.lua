@@ -132,7 +132,7 @@ function setRadius(km) {
     runSearch(); // neue Netzwerksuche mit geändertem Radius
 }
 let _currentPage = 1;   // aktuelle Seite
-const PER_PAGE = 10;    // Anzeigen pro Seite
+const PER_PAGE = 16;    // Anzeigen pro Seite (R624: passt zum 4x4-Raster)
 
 // Kategorie-Optionen aus den vorhandenen Ergebnissen (nur was wirklich da ist).
 function categoryOptions() {
@@ -375,6 +375,8 @@ function renderHitCard(it){
     // beim Hochladen erzeugt) – es dient als sofortiger Platzhalter, während das
     // scharfe Thumbnail des Nodes nachlädt.
     let img = '';
+    // Ohne Bild-Hash gibt es auf dem Node KEINE große Fassung – dann bleibt es
+    // zwangsläufig beim 200-px-Vorschaubild (R624).
     if (it.image_hash) {
         const big = '/api/v1/files/thumb/' + encodeURIComponent(it.image_hash);
         img = '<img src="' + (it.thumbnail || big) + '"' + (it.thumbnail ? ' data-hq="' + big + '"' : '') + ' loading="lazy" alt="">';
