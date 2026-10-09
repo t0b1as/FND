@@ -149,6 +149,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	listingReconcileOnce.Do(func() { go s.reconcileOwnListings() }) // Bestand eigener Angebote
 	s.registerListingSoldProtocol() // Verkaufsmeldungen anderer Nodes
 	s.registerHistSyncProtocol()    // Verlaufseinträge der eigenen Nodes
+	s.registerListingEditProtocol() // Angebote von einem anderen Node bearbeiten
 	s.router.GET("/api/v1/nodes/overview", s.nodesOverview) // Übersicht aller Nodes (nur Heimnetz)
 	s.registerNodeInfo()                                     // P2P: "Wie geht es dir?"
 	s.registerWalletRoutes()
@@ -439,7 +440,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R610"
+const NodeRevision = "R611"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -829,6 +830,14 @@ func (s *Server) getListing(c *gin.Context) {
 	// editable: lokaler Owner ODER unsignierter Altbestand (adoptierbar)
 	editable := (record.OwnerID != "" && record.OwnerID == s.nodeID()) ||
 		len(record.Signature) == 0
+	// R611: Der Ersteller darf auch von einem anderen Node aus bearbeiten –
+	// die Änderung wird dann an den Besitzer-Node weitergereicht.
+	if !editable && record.Data != nil {
+		if cr, _ := record.Data["creator_fid"].(string); cr != "" &&
+			s.sessionFID(c) == strings.ToLower(strings.TrimSpace(cr)) {
+			editable = true
+		}
+	}
 	// Bestand maßgeblich aus den Kaufvermerken (R572) – die Seite soll nicht
 	// auf die im Angebot mitgeschriebene Zahl angewiesen sein.
 	if record.Type == storage.RecordListing && record.Data != nil {
@@ -867,6 +876,26 @@ func (s *Server) updateListing(c *gin.Context) {
 	// sie werden beim Speichern mit der aktuellen Identitaet neu signiert.
 	isLegacy := len(existing.Signature) == 0
 	if !isLegacy && existing.OwnerID != "" && existing.OwnerID != s.nodeID() {
+		// Bearbeiten von einem ANDEREN eigenen Node (R611): Das Angebot gehört
+		// dem Node, auf dem es angelegt wurde, und ist von ihm signiert – ein
+		// fremder Node kann es nicht gültig ändern. Stattdessen leiten wir die
+		// Änderung dorthin weiter; der Besitzer-Node prüft die Unterschrift des
+		// Erstellers und speichert selbst.
+		cr, _ := existing.Data["creator_fid"].(string)
+		if cr != "" && s.sessionFID(c) == strings.ToLower(strings.TrimSpace(cr)) {
+			var fwd map[string]any
+			if err := c.ShouldBindJSON(&fwd); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			if err := s.forwardListingEdit(c, existing, fwd); err != nil {
+				c.JSON(http.StatusBadGateway, gin.H{
+					"error": "Der Node, auf dem dieses Angebot liegt, ist gerade nicht erreichbar: " + err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"ok": true, "forwarded": true})
+			return
+		}
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "Nur der Ersteller darf dieses Angebot bearbeiten"})
 		return
@@ -886,69 +915,7 @@ func (s *Server) updateListing(c *gin.Context) {
 	if desc, ok := body["description"].(string); ok {
 		body["description"] = sanitizeRichText(desc)
 	}
-	// Felder MERGEN statt komplett ersetzen: nur die im Body gesendeten
-	// Felder werden aktualisiert. So gehen z.B. Bilder (images/image_hashes)
-	// nicht verloren, wenn das Edit-Formular sie nicht mitsendet.
-	if existing.Data == nil {
-		existing.Data = map[string]any{}
-	}
-	// Medien schützen (R568): Eine LEERE Bild-/Videoliste löscht vorhandene
-	// Medien nur, wenn das Angebot auch vorher keine hatte. So kann ein
-	// Formular, das die Listen nicht kennt, sie nicht versehentlich leeren.
-	for _, k := range []string{"images", "image_hashes", "video_hashes"} {
-		new_, sent := body[k]
-		if !sent {
-			continue
-		}
-		if arr, ok := new_.([]any); ok && len(arr) == 0 {
-			if old_, had := existing.Data[k].([]any); had && len(old_) > 0 {
-				delete(body, k) // vorhandene Medien behalten
-			}
-		}
-	}
-	for k, v := range body {
-		existing.Data[k] = v
-	}
-	// Bestand (R575): Die eingetragene Zahl ist die GESAMTE Stückzahl des
-	// Angebots und ersetzt den bisherigen Wert – sie wird nicht zum bereits
-	// Verkauften addiert. Verfügbar bleibt: Stückzahl − verkauft.
-	if _, given := body["quantity"]; given {
-		total := -1
-		switch v := body["quantity"].(type) {
-		case float64:
-			total = int(v)
-		case int:
-			total = v
-		case string:
-			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-				total = n
-			}
-		}
-		if total >= 0 {
-			existing.Data["quantity"] = total
-		}
-	}
-	if _, tracked := existing.Data["sold_count"]; tracked {
-		q2, s2 := s.listingStock(existing.ID, existing.Data)
-		existing.Data["sold"] = s2 >= q2
-	}
-	// Einzelpreis auf price_min/max mappen (Kompatibilität mit der Anzeige).
-	if p, ok := body["price"]; ok {
-		existing.Data["price_min"] = p
-		existing.Data["price_max"] = p
-	}
-	// Geo-Anreicherung nachziehen: Wenn eine PLZ vorhanden ist, Koordinaten +
-	// Geohash (neu) ableiten. Sonst hätten bearbeitete oder alte Angebote keine
-	// lat/lon und würden in der Umkreis-/Distanzsuche nie auftauchen. Wird bei
-	// jedem Update gemacht, damit auch eine geänderte PLZ die Koordinaten nachführt.
-	if plz, ok := existing.Data["plz"].(string); ok && plz != "" {
-		lat, lon := grid.PLZCentroid(plz)
-		if lat != 0 || lon != 0 {
-			existing.Data["lat"] = lat
-			existing.Data["lon"] = lon
-			existing.Data["geohash"] = geo.GeohashEncode(lat, lon, 6)
-		}
-	}
+	s.applyListingUpdate(existing, body)
 	existing.UpdatedAt = time.Now()
 	// Nach Aenderung neu signieren
 	if s.node != nil {
@@ -1451,3 +1418,74 @@ func (s *Server) listCategories(c *gin.Context) {
 	})
 	c.JSON(http.StatusOK, gin.H{"categories": out})
 }
+
+// applyListingUpdate übernimmt die gesendeten Felder in den Datensatz.
+// Gemeinsam genutzt vom lokalen Bearbeiten und von der Änderung, die ein
+// anderer Node des Erstellers schickt (R611) – damit beide Wege exakt
+// dieselben Regeln anwenden.
+func (s *Server) applyListingUpdate(existing *storage.Record, body map[string]any) {
+	// Felder MERGEN statt komplett ersetzen: nur die im Body gesendeten
+	// Felder werden aktualisiert. So gehen z.B. Bilder (images/image_hashes)
+	// nicht verloren, wenn das Edit-Formular sie nicht mitsendet.
+	if existing.Data == nil {
+		existing.Data = map[string]any{}
+	}
+	// Medien schützen (R568): Eine LEERE Bild-/Videoliste löscht vorhandene
+	// Medien nur, wenn das Angebot auch vorher keine hatte. So kann ein
+	// Formular, das die Listen nicht kennt, sie nicht versehentlich leeren.
+	for _, k := range []string{"images", "image_hashes", "video_hashes"} {
+		new_, sent := body[k]
+		if !sent {
+			continue
+		}
+		if arr, ok := new_.([]any); ok && len(arr) == 0 {
+			if old_, had := existing.Data[k].([]any); had && len(old_) > 0 {
+				delete(body, k) // vorhandene Medien behalten
+			}
+		}
+	}
+	for k, v := range body {
+		existing.Data[k] = v
+	}
+	// Bestand (R575): Die eingetragene Zahl ist die GESAMTE Stückzahl des
+	// Angebots und ersetzt den bisherigen Wert – sie wird nicht zum bereits
+	// Verkauften addiert. Verfügbar bleibt: Stückzahl − verkauft.
+	if _, given := body["quantity"]; given {
+		total := -1
+		switch v := body["quantity"].(type) {
+		case float64:
+			total = int(v)
+		case int:
+			total = v
+		case string:
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				total = n
+			}
+		}
+		if total >= 0 {
+			existing.Data["quantity"] = total
+		}
+	}
+	if _, tracked := existing.Data["sold_count"]; tracked {
+		q2, s2 := s.listingStock(existing.ID, existing.Data)
+		existing.Data["sold"] = s2 >= q2
+	}
+	// Einzelpreis auf price_min/max mappen (Kompatibilität mit der Anzeige).
+	if p, ok := body["price"]; ok {
+		existing.Data["price_min"] = p
+		existing.Data["price_max"] = p
+	}
+	// Geo-Anreicherung nachziehen: Wenn eine PLZ vorhanden ist, Koordinaten +
+	// Geohash (neu) ableiten. Sonst hätten bearbeitete oder alte Angebote keine
+	// lat/lon und würden in der Umkreis-/Distanzsuche nie auftauchen. Wird bei
+	// jedem Update gemacht, damit auch eine geänderte PLZ die Koordinaten nachführt.
+	if plz, ok := existing.Data["plz"].(string); ok && plz != "" {
+		lat, lon := grid.PLZCentroid(plz)
+		if lat != 0 || lon != 0 {
+			existing.Data["lat"] = lat
+			existing.Data["lon"] = lon
+			existing.Data["geohash"] = geo.GeohashEncode(lat, lon, 6)
+		}
+	}
+}
+
