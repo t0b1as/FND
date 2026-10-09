@@ -443,7 +443,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R627"
+const NodeRevision = "R629"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -1544,7 +1544,21 @@ func (s *Server) listingThumbnail(c *gin.Context) {
 		}
 	}
 	if hash == "" {
-		c.JSON(http.StatusNotFound, gin.H{"error": "kein Bild hinterlegt"})
+		// Die hiesige Fassung des Angebots kennt keinen Bildverweis (R629).
+		// Das kommt vor, wenn sie unvollständig repliziert wurde. Der
+		// Besitzer-Node kennt ihn aber – also dort nach dem fertigen
+		// Vorschaubild fragen, statt aufzugeben.
+		if s.thumbs != nil && rec.OwnerID != "" && rec.OwnerID != s.nodeID() {
+			if jpeg := s.fetchThumbByListing(c.Request.Context(), rec.OwnerID, rec.ID); jpeg != nil {
+				c.Data(http.StatusOK, "image/jpeg", jpeg)
+				return
+			}
+		}
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":  "kein Bild hinterlegt",
+			"detail": "weder lokal noch beim Besitzer-Node ein Bildverweis gefunden",
+			"owner":  rec.OwnerID,
+		})
 		return
 	}
 	// Liegt das fertige Bild schon hier? Dann sofort ausliefern.
