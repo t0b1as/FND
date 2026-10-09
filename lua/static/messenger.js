@@ -477,6 +477,14 @@ document.addEventListener('DOMContentLoaded', function(){
     if (inp) inp.addEventListener('input', function(){ if (inp.value) noteTyping(); });
 });
 function updateSendState() {
+    // Ein gesperrter Senden-Knopf reagiert gar nicht – ohne Hinweis sieht das
+    // aus, als ginge die Nachricht verloren (R612).
+    try {
+        const b = document.getElementById('send-btn');
+        if (b) b.title = (!myIdentity && !activeChat)
+            ? 'Bitte zuerst anmelden oder einen Empfänger wählen'
+            : 'Senden';
+    } catch (e) {}
     // Frei, sobald eine Identität ODER ein aktiver Chat da ist. Robust gegen
     // Session-Erkennungsprobleme: wer einen Kontakt gewählt hat, kann schreiben.
     const ready = !!myIdentity || !!activeChat;
@@ -546,18 +554,31 @@ async function sendText() {
 
     input.value = '';
 
-    const resp = await fetch('/api/v1/messenger/send', { method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-            recipient_id:      activeChat.fundusID,
-            recipient_pub_key: activeChat.publicKey,
-            text:              text,
-            type:              'text',
-        }),
-    });
-
+    // R612: Die Antwort wurde bisher NICHT geprüft – scheiterte das Senden
+    // (abgelehnt, nicht angemeldet, Netzfehler), erschien die Nachricht
+    // trotzdem im Fenster, als sei sie raus. Genau so sieht "kommt nicht an"
+    // aus. Jetzt wird nur bei Erfolg angezeigt, sonst der Text zurückgegeben
+    // und der Grund genannt.
     let mid = null;
-    try { if (resp.ok) mid = (await resp.json()).message_id; } catch (e) {}
+    try {
+        const resp = await fetch('/api/v1/messenger/send', { method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+                recipient_id:      activeChat.fundusID,
+                recipient_pub_key: activeChat.publicKey,
+                text:              text,
+                type:              'text',
+            }),
+        });
+        let d = {};
+        try { d = await resp.json(); } catch (e) {}
+        if (!resp.ok) throw new Error(d.error || ('Node antwortete mit ' + resp.status));
+        mid = d.message_id || null;
+    } catch (e) {
+        input.value = text;                       // Text nicht verlieren
+        showToast('✗ Nicht gesendet: ' + e.message, '');
+        return;
+    }
     appendMessage({ id: mid, from: myIdentity.fundus_id, text, ts: new Date(), outgoing: true });
     if (window.playWhoop) window.playWhoop(); // Ton bei ausgehender Nachricht
 }
