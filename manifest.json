@@ -1,8 +1,8 @@
 {
-  "version": "R612",
-  "description": "FUNDUS R612 - messanging",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R612/FND-R612-update.zip",
-  "node_argon2": "dd294e34a471f7849e7a2b85ac7a073114bbd03c611ac4dfde906d0cdde0115c",
-  "published_at": "2026-10-09T08:24:42.5732916Z",
-  "signature": "0x0141d69408a2a25783bfea7b70afd31984dab8cc7adf7cec4d2f2a8042b3092163bf3f517f6e5d54752c6fce0e8b98a4ab77a711cdbf54d397a834f45265090f1b"
+  "version": "R615",
+  "description": "FUNDUS R615 - messanging",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R615/FND-R615-update.zip",
+  "node_argon2": "3715a85540ef33dd44bb8ffbcac968836224a2dbfca234e67b1f36a805f53b50",
+  "published_at": "2026-10-09T08:51:17.2604966Z",
+  "signature": "0x802349f6e61b73687326f65aa28b83ca22a0543cda0611fd7deadfe602467e6767ab7012576e3db0974c85a2b94358a94e78b4325c8f528ccfdeeb54b207bee81c"
 }
