@@ -289,9 +289,15 @@ func (id *Identity) ECDHSharedSecret(theirPublicKeyHex string) ([]byte, error) {
 	// Begrenzt (R589): Beim Abholen vieler Postfach-Nachrichten liefen sonst
 	// beliebig viele dieser Ableitungen gleichzeitig – zusammen mit einer
 	// Anmeldung sprengte das die Speichergrenze des Dienstes.
-	ecdhSem <- struct{}{}
-	hardened := argon2.IDKey(sharedPoint, salt, a2ECDHTime, a2ECDHMemory, a2Threads, a2KeyLen)
-	<-ecdhSem
+	// Freigabe über defer (R621): Bricht die Ableitung ab, blieb der Platz
+	// sonst für immer belegt. Nach zwei solchen Fällen wartete JEDE weitere
+	// Ver- und Entschlüsselung endlos – der Node nahm keine Nachrichten mehr an
+	// und wirkte aufgehängt.
+	hardened := func() []byte {
+		ecdhSem <- struct{}{}
+		defer func() { <-ecdhSem }()
+		return argon2.IDKey(sharedPoint, salt, a2ECDHTime, a2ECDHMemory, a2Threads, a2KeyLen)
+	}()
 
 	ecdhCacheMu.Lock()
 	if len(ecdhCache) > 500 { // Obergrenze: alte Einträge verwerfen

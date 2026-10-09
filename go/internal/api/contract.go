@@ -1319,11 +1319,17 @@ func (s *Server) applySale(listingID, tx string, n int) bool {
 	}
 	// Sofort im Netz bekannt machen – sonst wandert der neue Bestand erst mit
 	// dem nächsten Datenabgleich zu den anderen Nodes (Minuten).
+	// AUSSERHALB der Sperre (R621): Der Versand kann bis zu 10 Sekunden dauern.
+	// Solange blockierte er jeden weiteren Kauf und jeden Bestandsabgleich –
+	// bei mehreren Vorgängen stand der Node still.
 	if s.node != nil {
 		if data, err := marshalRecord(rec); err == nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			_ = s.node.Publish(ctx, p2p.TopicListings, data)
-			cancel()
+			go func() {
+				defer func() { _ = recover() }()
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = s.node.Publish(ctx, p2p.TopicListings, data)
+			}()
 		}
 	}
 	if s.log != nil {

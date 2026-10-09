@@ -40,7 +40,10 @@ const (
 	// Speichergrenze des Dienstes. 24 MP deckt jede Handykamera ab.
 	maxDecodePixels   = 24 * 1000 * 1000
 	maxOriginalBytes  = 64 * 1024 * 1024 // 64 MiB: größere Originale gar nicht erst puffern
-	thumbConcurrency  = 2                // gleichzeitige Decodierungen (RAM-Schutz)
+	// 3 statt 2 (R622): Seit die Verkleinerung zweistufig läuft (R594) braucht
+	// ein Bild nur noch rund 16 statt 288 MB. Mit zwei gleichzeitig blieben im
+	// Marktplatz sichtbar nur zwei Bilder scharf, der Rest wartete zu lange.
+	thumbConcurrency  = 3
 )
 
 // thumbnailer erzeugt und cacht Thumbnails.

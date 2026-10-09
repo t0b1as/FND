@@ -959,10 +959,24 @@ code           { font-family:monospace; font-size:11px; background:var(--bg); co
           return '<a class="hit-card" href="/listings/' + it.id + '"><div class="hc-img">' + img + '<span class="hc-price">' + price + '</span></div><div class="hc-title">' + esc(it.title) + '</div><div class="hc-meta">' + (it.distance_km ? it.distance_km + ' km' : '') + '</div></a>';
         }).join('');
         document.getElementById('similar').style.display = '';
-        document.querySelectorAll('#similar-grid img[data-hq]').forEach(function(im){
-          var u = im.getAttribute('data-hq'); im.removeAttribute('data-hq');
-          var hq = new Image(); hq.onload = function(){ im.src = u; }; hq.src = u;
-        });
+        // Nacheinander nachladen (R622) – alle auf einmal kamen nicht durch.
+        (function(){
+          var jobs = [];
+          document.querySelectorAll('#similar-grid img[data-hq]').forEach(function(im){
+            jobs.push({ im: im, url: im.getAttribute('data-hq') });
+            im.removeAttribute('data-hq'); // nicht doppelt einreihen
+          });
+          var i = 0;
+          (function next(){
+            if (i >= jobs.length) return;
+            var job = jobs[i++], im = job.im, u = job.url;
+            if (!u) { next(); return; }
+            var hq = new Image();
+            hq.onload = function(){ im.src = u; next(); };
+            hq.onerror = next;
+            hq.src = u;
+          })();
+        })();
       }
       render(hits);
       if (sid) setTimeout(function(){ fetch('/api/v1/search/results?id=' + encodeURIComponent(sid)).then(function(r){ return r.json(); }).then(function(d2){ render(d2.hits || []); }).catch(function(){}); }, 1800);

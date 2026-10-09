@@ -285,6 +285,8 @@ function renderResultsPage() {
         html += '</div>';
     }
     res.innerHTML = html;
+    upgradeThumbs(res); // R622: fehlte hier – in der Listenansicht und beim
+                        // Blättern blieben die unscharfen Platzhalter stehen.
 }
 
 // ── Bildraster, Chips, Favoriten (R552) ─────────────────────────────────────
@@ -318,13 +320,35 @@ function renderChips(){
 }
 // Scharfe Thumbnails nachladen und erst beim fertigen Laden einsetzen –
 // so flackert nichts, wenn der Node sie gerade erst erzeugt.
+// R622: Der Node erzeugt höchstens ein paar Vorschaubilder gleichzeitig, und
+// der Browser hält je Server nur wenige Verbindungen offen. Alle Bilder auf
+// einmal anzufordern führte dazu, dass nur die ersten durchkamen und der Rest
+// unscharf stehen blieb. Deshalb eine Warteschlange: wenige gleichzeitig, der
+// Rest rückt nach, sobald eines fertig ist.
+let _thumbQueue = [], _thumbActive = 0;
+const THUMB_PARALLEL = 3;
+
 function upgradeThumbs(root){
     (root || document).querySelectorAll('img[data-hq]').forEach(function(img){
-        const url = img.getAttribute('data-hq'); img.removeAttribute('data-hq');
-        const hq = new Image();
-        hq.onload = function(){ img.src = url; };
-        hq.src = url;
+        const url = img.getAttribute('data-hq');
+        img.removeAttribute('data-hq'); // nicht doppelt einreihen
+        _thumbQueue.push({ img: img, url: url });
     });
+    pumpThumbQueue();
+}
+
+function pumpThumbQueue(){
+    while (_thumbActive < THUMB_PARALLEL && _thumbQueue.length) {
+        const job = _thumbQueue.shift();
+        // Nicht mehr im Dokument (neu gezeichnet)? Überspringen.
+        if (!job.img.isConnected) continue;
+        _thumbActive++;
+        const hq = new Image();
+        const fertig = function(){ _thumbActive--; pumpThumbQueue(); };
+        hq.onload  = function(){ if (job.img.isConnected) job.img.src = job.url; fertig(); };
+        hq.onerror = fertig;   // z.B. Bild (noch) nicht im Netz auffindbar
+        hq.src = job.url;
+    }
 }
 function renderHitCard(it){
     const favs = favSet();
