@@ -1,8 +1,8 @@
 {
-  "version": "R610",
-  "description": "FUNDUS R610 - contact button and seller evaluation fix",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R610/FND-R610-update.zip",
-  "node_argon2": "9f8198a373ff4c1f4b265354b1597fe65011f92e5da27ea0fe05d9249f2631b0",
-  "published_at": "2026-10-09T05:48:58.8477347Z",
-  "signature": "0xb97b1b6321ea511efedd798a9bffe1fdeb3f83278228841992534521a7f60bc410930e432575edc8fb5a7b52933ac944d42fe078e7dbbaca04b059f8c94ed5241c"
+  "version": "R611",
+  "description": "FUNDUS R611 - remot offer editing",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R611/FND-R611-update.zip",
+  "node_argon2": "c9b4093b731b155883c58092b2b3c7d7dbc112bdc44f76d0343602ae91116fd0",
+  "published_at": "2026-10-09T06:58:34.247624Z",
+  "signature": "0x6f7ea17dcf8b064e8e45df7a16aa3078b3cf9529e6991e4cee6569b3360cbd5d0d85fad43611752220f5d39b76c0f6cf345c97ec677cb0a763518d1219cb0f7e1b"
 }
