@@ -179,6 +179,7 @@ func (s *Server) registerListingEditProtocol() {
 		if sig, e := s.node.SignData(rec.SigningBytes()); e == nil {
 			rec.Signature = sig
 		}
+		s.queueThumbs(listingImageHashes(rec.Data)) // R631
 		if e := s.store.Put(rec); e != nil {
 			return fehler("speichern fehlgeschlagen")
 		}

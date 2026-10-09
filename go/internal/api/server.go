@@ -152,6 +152,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerHistSyncProtocol()    // Verlaufseinträge der eigenen Nodes
 	s.registerListingEditProtocol() // Angebote von einem anderen Node bearbeiten
 	s.registerThumbProtocol()       // fertige Vorschaubilder zwischen Nodes
+	thumbPregenOnce.Do(func() { go s.thumbPregenLoop() }) // Vorschaubilder im Voraus (R631)
 	s.router.GET("/api/v1/nodes/overview", s.nodesOverview) // Übersicht aller Nodes (nur Heimnetz)
 	s.registerNodeInfo()                                     // P2P: "Wie geht es dir?"
 	s.registerWalletRoutes()
@@ -443,7 +444,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R630"
+const NodeRevision = "R631"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -807,6 +808,9 @@ func (s *Server) createListing(c *gin.Context) {
 			record.Signature = sig
 		}
 	}
+	// Vorschaubilder gleich im Voraus erzeugen (R631): Der Node hat die Dateien
+	// ohnehin – so muss später niemand darauf warten, auch andere Nodes nicht.
+	defer s.queueThumbs(listingImageHashes(record.Data))
 	if err := s.store.Put(record); err != nil {
 		s.internalError(c, err)
 		return
@@ -926,6 +930,7 @@ func (s *Server) updateListing(c *gin.Context) {
 			existing.Signature = sig
 		}
 	}
+	s.queueThumbs(listingImageHashes(existing.Data)) // R631
 	if err := s.store.Put(existing); err != nil {
 		s.internalError(c, err)
 		return
@@ -1584,3 +1589,5 @@ func (s *Server) listingThumbnail(c *gin.Context) {
 	c.Params = append(c.Params, gin.Param{Key: "hash", Value: hash})
 	s.fileThumbnail(c)
 }
+
+var thumbPregenOnce sync.Once
