@@ -226,6 +226,11 @@ func makeThumbnail(orig []byte) ([]byte, error) {
 	// frühere Box-Mittelung, nur Standardbibliothek.
 	dst := lanczosDownscale(src, tw, th)
 
+	// Ausrichtung aus den EXIF-Daten anwenden (R632): Hochkant aufgenommene
+	// Fotos liegen in der Datei meist quer, die Drehung steht nur als Angabe
+	// daneben. Erst nach dem Verkleinern drehen – dort kostet es fast nichts.
+	dst = applyOrientation(dst, exifOrientation(orig))
+
 	var out bytes.Buffer
 	// Als YCbCr 4:4:4 kodieren: Go halbiert bei RGBA die Farbauflösung (4:2:0),
 	// was farbige Kanten ausfransen lässt. Unterstützt der Encoder 4:4:4 nicht,
