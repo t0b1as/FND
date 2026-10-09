@@ -320,54 +320,59 @@ function renderChips(){
 }
 // Scharfe Thumbnails nachladen und erst beim fertigen Laden einsetzen –
 // so flackert nichts, wenn der Node sie gerade erst erzeugt.
-// R622: Der Node erzeugt höchstens ein paar Vorschaubilder gleichzeitig, und
-// der Browser hält je Server nur wenige Verbindungen offen. Alle Bilder auf
-// einmal anzufordern führte dazu, dass nur die ersten durchkamen und der Rest
-// unscharf stehen blieb. Deshalb eine Warteschlange: wenige gleichzeitig, der
-// Rest rückt nach, sobald eines fertig ist.
+// R625: Das Nachladen hängt NICHT mehr an einzelnen Kacheln. Die Übersicht
+// wird mehrfach neu gezeichnet, während Ergebnisse weiterer Nodes eintreffen –
+// dabei verschwanden die Kacheln, auf die die Warteschlange zeigte, und es
+// blieb bei den wenigen Bildern, die zufällig dazwischen fertig wurden.
+// Jetzt wird je ADRESSE geladen und das Ergebnis gemerkt; beim Zeichnen wird
+// ein bereits geladenes Bild sofort verwendet, auch nach jedem Neuaufbau.
+const _sharpReady = {};      // Adresse → fertig geladen
+const _sharpSeen  = {};      // Adresse → schon in der Warteschlange
 let _thumbQueue = [], _thumbActive = 0;
 const THUMB_PARALLEL = 4;
 
 function upgradeThumbs(root){
-    (root || document).querySelectorAll('img[data-hq]').forEach(function(img){
+    const box = root || document;
+    box.querySelectorAll('img[data-hq]').forEach(function(img){
         const url = img.getAttribute('data-hq');
-        img.removeAttribute('data-hq'); // nicht doppelt einreihen
-        _thumbQueue.push({ img: img, url: url });
+        if (!url) return;
+        if (_sharpReady[url]) { img.src = url; img.removeAttribute('data-hq'); return; }
+        if (!_sharpSeen[url]) { _sharpSeen[url] = true; _thumbQueue.push({ url: url, versuche: 0 }); }
     });
     pumpThumbQueue();
+}
+
+// Ein fertiges Bild auf ALLE Kacheln anwenden, die darauf warten.
+function applySharp(url){
+    _sharpReady[url] = true;
+    document.querySelectorAll('img[data-hq="' + CSS.escape(url) + '"]').forEach(function(img){
+        img.src = url; img.removeAttribute('data-hq');
+    });
 }
 
 function pumpThumbQueue(){
     while (_thumbActive < THUMB_PARALLEL && _thumbQueue.length) {
         const job = _thumbQueue.shift();
-        // Nicht mehr im Dokument (neu gezeichnet)? Überspringen.
-        if (!job.img.isConnected) continue;
         _thumbActive++;
         const hq = new Image();
         let erledigt = false;
-        // R623: ZEITGRENZE. Muss der Node ein Bild erst berechnen, kann die
-        // Anfrage lange offen bleiben – ohne Erfolg und ohne Fehler. Dann rückte
-        // nichts nach und es blieb bei den ersten paar scharfen Bildern.
-        // Nach 12 s geht es weiter; das Bild kommt am Ende noch einmal dran,
-        // dann liegt es im Zwischenspeicher des Nodes und ist sofort da.
         const fertig = function(nochmal){
             if (erledigt) return;
             erledigt = true;
             clearTimeout(timer);
             hq.onload = hq.onerror = null;
-            if (nochmal && (job.versuche || 0) < 2 && job.img.isConnected) {
-                job.versuche = (job.versuche || 0) + 1;
-                _thumbQueue.push(job);           // ans Ende, nicht verlieren
-            }
+            if (nochmal && job.versuche < 3) { job.versuche++; _thumbQueue.push(job); }
             _thumbActive--;
             pumpThumbQueue();
         };
-        const timer = setTimeout(function(){ hq.src = ''; fertig(true); }, 12000);
-        hq.onload  = function(){ if (job.img.isConnected) job.img.src = job.url; fertig(false); };
-        hq.onerror = function(){ fertig(false); }; // Bild nicht auffindbar: nicht erneut
+        // Grosszügige Frist: Der Node muss das Bild ggf. erst aus dem Netz holen.
+        const timer = setTimeout(function(){ hq.src = ''; fertig(true); }, 30000);
+        hq.onload  = function(){ applySharp(job.url); fertig(false); };
+        hq.onerror = function(){ fertig(false); }; // nicht auffindbar: nicht erneut
         hq.src = job.url;
     }
 }
+
 function renderHitCard(it){
     const favs = favSet();
     const price = it.price_min ? (parseFloat(it.price_min).toFixed(2).replace('.', ',') + ' FND') : '–';
@@ -379,7 +384,10 @@ function renderHitCard(it){
     // zwangsläufig beim 200-px-Vorschaubild (R624).
     if (it.image_hash) {
         const big = '/api/v1/files/thumb/' + encodeURIComponent(it.image_hash);
-        img = '<img src="' + (it.thumbnail || big) + '"' + (it.thumbnail ? ' data-hq="' + big + '"' : '') + ' loading="lazy" alt="">';
+        // Schon geladen? Dann direkt scharf zeichnen (überlebt jeden Neuaufbau).
+        const quelle = _sharpReady[big] ? big : (it.thumbnail || big);
+        const warte = (!_sharpReady[big] && it.thumbnail) ? (' data-hq="' + big + '"') : '';
+        img = '<img src="' + quelle + '"' + warte + ' loading="lazy" alt="">';
     } else if (it.thumbnail) {
         img = '<img src="' + it.thumbnail + '" loading="lazy" alt="">';
     } else {
