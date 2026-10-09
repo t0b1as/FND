@@ -35,10 +35,17 @@ const (
 	// doppelter Pixeldichte entsprechend mehr – 256 px wirkten dort unscharf.
 	thumbMaxEdge      = 512
 	thumbJPEGQuality  = 90               // JPEG-Qualität (R559: 82 → 90, weniger Artefakte)
-	// 24 MP (R594): Das dekodierte Bild belegt Breite×Höhe×4 Byte – bei 40 MP
-	// allein 160 MB, bei zwei gleichzeitigen Bildern mehr als die
-	// Speichergrenze des Dienstes. 24 MP deckt jede Handykamera ab.
-	maxDecodePixels   = 24 * 1000 * 1000
+	// 64 MP (R630): 24 MP aus R594 war zu knapp – schon ein gewöhnliches
+	// Handyfoto mit etwas über 24 MP wurde abgelehnt, und die Kachel blieb
+	// dauerhaft unscharf ("bild zu groß zum Verkleinern"). Aktuelle Kameras
+	// liefern 48 bis 50 MP. Der Speicher wird nicht über die Grenze, sondern
+	// über die Gleichzeitigkeit geschützt: Große Bilder laufen allein
+	// (siehe bigImageThreshold).
+	maxDecodePixels   = 64 * 1000 * 1000
+
+	// Ab dieser Größe belegt das dekodierte Bild über 50 MB. Solche Bilder
+	// werden einzeln verarbeitet, nie parallel.
+	bigImageThreshold = 12 * 1000 * 1000
 	maxOriginalBytes  = 64 * 1024 * 1024 // 64 MiB: größere Originale gar nicht erst puffern
 	// 3 statt 2 (R622): Seit die Verkleinerung zweistufig läuft (R594) braucht
 	// ein Bild nur noch rund 16 statt 288 MB. Mit zwei gleichzeitig blieben im
@@ -156,12 +163,29 @@ func (t *thumbnailer) get(ctx context.Context, hash string,
 	}
 
 	// 4. Semaphor: gleichzeitige Decodierungen begrenzen (RAM-Schutz).
-	select {
-	case t.sem <- struct{}{}:
-		defer func() { <-t.sem }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	// Große Bilder belegen ALLE Plätze (R630), laufen also allein. So bleibt
+	// der Spitzenbedarf auch bei einem 50-MP-Foto auf einen Decodiervorgang
+	// begrenzt, statt mehrere gleichzeitig zuzulassen.
+	plaetze := 1
+	if c, _, cerr := image.DecodeConfig(bytes.NewReader(orig)); cerr == nil &&
+		c.Width*c.Height > bigImageThreshold {
+		plaetze = thumbConcurrency
 	}
+	for i := 0; i < plaetze; i++ {
+		select {
+		case t.sem <- struct{}{}:
+		case <-ctx.Done():
+			for j := 0; j < i; j++ {
+				<-t.sem
+			}
+			return nil, ctx.Err()
+		}
+	}
+	defer func() {
+		for i := 0; i < plaetze; i++ {
+			<-t.sem
+		}
+	}()
 
 	thumb, err := makeThumbnail(orig)
 	if err != nil {
@@ -184,8 +208,8 @@ func makeThumbnail(orig []byte) ([]byte, error) {
 		return nil, fmt.Errorf("bild-konfig nicht lesbar: %w", err)
 	}
 	if cfg.Width*cfg.Height > maxDecodePixels {
-		return nil, fmt.Errorf("bild zu groß zum Verkleinern (%d MP > %d MP)",
-			(cfg.Width*cfg.Height)/1_000_000, maxDecodePixels/1_000_000)
+		return nil, fmt.Errorf("Bild zu groß zum Verkleinern: %d×%d Pixel (%.1f MP), erlaubt sind %d MP",
+			cfg.Width, cfg.Height, float64(cfg.Width*cfg.Height)/1e6, maxDecodePixels/1_000_000)
 	}
 
 	src, _, err := image.Decode(bytes.NewReader(orig))
