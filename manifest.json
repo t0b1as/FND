@@ -1,8 +1,8 @@
 {
-  "version": "R624",
-  "description": "FUNDUS R624 - thumbnails",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R624/FND-R624-update.zip",
-  "node_argon2": "02ee90642f31240bef7681a0fee2edd96fd02fc3a416243b9a1a9fbcaf0a0d12",
-  "published_at": "2026-10-09T17:21:30.2830914Z",
-  "signature": "0x2026d6d46d7105ea528fa24ad7a4465d79a4402f698f64c70c0ede2b05212cd71ffd567e16ec5bb93d5899b40982598712d0705b9813b2d17ebf5b860faf000e1c"
+  "version": "R625",
+  "description": "FUNDUS R625 - thumbnails",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R625/FND-R625-update.zip",
+  "node_argon2": "3d1d23df1bf5383e332b6b4cf6a29d7815b206189edebd600ffd8973c8976519",
+  "published_at": "2026-10-09T17:24:02.9607155Z",
+  "signature": "0xa47a3a669722ec0c2ee8586577e9f27b7b149878940f19e255dd217174f603da216e4f656a53dace48285e1baa318b7a1373ca4dcb240235f66ac4d87d7502f41c"
 }
