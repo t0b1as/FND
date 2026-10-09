@@ -253,12 +253,15 @@ function renderResultsPage() {
     for (const it of pageItems) {
         const dist = (it.distance_km) ? (it.distance_km + ' km') : '–';
         const price = it.price_min ? (parseFloat(it.price_min).toFixed(2) + ' FND') : '–';
+        // Auch in der Liste über die Angebots-ID nachschärfen (R626).
         let thumb = '';
-        if (it.thumbnail) {
+        const gross = it.id ? ('/api/v1/listings/' + encodeURIComponent(it.id) + '/thumb') : '';
+        if (gross) {
+            const q = _sharpReady[gross] ? gross : (it.thumbnail || gross);
+            const w = (!_sharpReady[gross] && it.thumbnail) ? (' data-hq="' + gross + '"') : '';
+            thumb = '<img src="' + q + '"' + w + ' class="hit-thumb" loading="lazy" alt="">';
+        } else if (it.thumbnail) {
             thumb = '<img src="' + it.thumbnail + '" class="hit-thumb" loading="lazy" alt="">';
-        } else if (it.image_hash) {
-            thumb = '<img src="/api/v1/files/thumb/' + encodeURIComponent(it.image_hash) +
-                    '" class="hit-thumb" loading="lazy" alt="">';
         } else {
             thumb = '<div class="hit-thumb hit-thumb-ph">🎬</div>';
         }
@@ -379,12 +382,12 @@ function renderHitCard(it){
     // Das im Angebot gespeicherte Vorschaubild ist nur 200 px groß (vom Browser
     // beim Hochladen erzeugt) – es dient als sofortiger Platzhalter, während das
     // scharfe Thumbnail des Nodes nachlädt.
+    // R626: Das scharfe Bild wird über die ANGEBOTS-ID angefordert. Der Node
+    // schlägt den Bild-Hash selbst nach – vorher hing es daran, dass der Hash
+    // im Suchergebnis steht, was bei Treffern anderer Nodes nicht sicher ist.
     let img = '';
-    // Ohne Bild-Hash gibt es auf dem Node KEINE große Fassung – dann bleibt es
-    // zwangsläufig beim 200-px-Vorschaubild (R624).
-    if (it.image_hash) {
-        const big = '/api/v1/files/thumb/' + encodeURIComponent(it.image_hash);
-        // Schon geladen? Dann direkt scharf zeichnen (überlebt jeden Neuaufbau).
+    const big = it.id ? ('/api/v1/listings/' + encodeURIComponent(it.id) + '/thumb') : '';
+    if (big) {
         const quelle = _sharpReady[big] ? big : (it.thumbnail || big);
         const warte = (!_sharpReady[big] && it.thumbnail) ? (' data-hq="' + big + '"') : '';
         img = '<img src="' + quelle + '"' + warte + ' loading="lazy" alt="">';

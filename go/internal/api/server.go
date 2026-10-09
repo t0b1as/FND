@@ -344,6 +344,7 @@ func (s *Server) registerRoutes() {
 		listings.GET("",       s.listListings)
 		listings.POST("",      s.createListing)
 		listings.GET("/:id",   s.getListing)
+		listings.GET("/:id/thumb", s.listingThumbnail) // Vorschaubild über die Angebots-ID (R626)
 		listings.PUT("/:id",   s.updateListing)
 		listings.DELETE("/:id", s.deleteListing)
 	}
@@ -441,7 +442,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R625"
+const NodeRevision = "R626"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -1518,4 +1519,34 @@ func (s *Server) registerPriceRoute() {
 		}
 		s.shopGetPrice(c)
 	})
+}
+
+// listingThumbnail liefert das scharfe Vorschaubild eines Angebots – der Node
+// schlägt den Bild-Hash SELBST im Datensatz nach (R626).
+// Vorher musste die Übersicht den Hash aus dem Suchergebnis kennen. Fehlt er
+// dort (z.B. bei Treffern anderer Nodes), blieb die Kachel dauerhaft beim
+// kleinen 200-px-Platzhalter – während dasselbe Bild auf der Angebotsseite
+// scharf erschien, weil die den vollständigen Datensatz liest.
+func (s *Server) listingThumbnail(c *gin.Context) {
+	rec, err := s.store.Get(storage.RecordListing, c.Param("id"))
+	if err != nil || rec == nil || rec.Data == nil || rec.DeletedAt != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Angebot nicht gefunden"})
+		return
+	}
+	hash := ""
+	if arr, ok := rec.Data["image_hashes"].([]any); ok {
+		for _, v := range arr {
+			if sv, ok := v.(string); ok && len(sv) == 64 {
+				hash = sv
+				break
+			}
+		}
+	}
+	if hash == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "kein Bild hinterlegt"})
+		return
+	}
+	// An den vorhandenen Bild-Endpunkt weiterreichen.
+	c.Params = append(c.Params, gin.Param{Key: "hash", Value: hash})
+	s.fileThumbnail(c)
 }
