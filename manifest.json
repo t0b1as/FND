@@ -1,8 +1,8 @@
 {
-  "version": "R632",
-  "description": "FUNDUS R632 - thumbnails",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R632/FND-R632-update.zip",
-  "node_argon2": "78830fb113635dd4cf177bdebcd694b3bd665d53f10f5e53715cdfa9f6559c86",
-  "published_at": "2026-10-09T20:59:01.5107118Z",
-  "signature": "0xec9ee30e5c86b34c2cf02c157c95a42c2c6022892379eaf1223c47471281844b01d88e29ef87536290a8d1539ca279ec660b892e4d0bace84c89ddefb6e5fe7d1c"
+  "version": "R633",
+  "description": "FUNDUS R633 - thumbnails",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R633/FND-R633-update.zip",
+  "node_argon2": "a1e17d752993b2e9e5f6b8c6894308f73f04260faac0a23d003baef1f112ae86",
+  "published_at": "2026-10-10T06:00:35.8966279Z",
+  "signature": "0xac3460fe1e752abb72a6d0edf627a0a5d38c247581d53ac68faf78e88e8b47a82c13086317ccbeb4ba66f774094b36c932628e823560a3678d5aac30200798b31c"
 }
