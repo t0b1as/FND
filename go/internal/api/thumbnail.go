@@ -46,6 +46,12 @@ const (
 	// Ab dieser Größe belegt das dekodierte Bild über 50 MB. Solche Bilder
 	// werden einzeln verarbeitet, nie parallel.
 	bigImageThreshold = 12 * 1000 * 1000
+
+	// Verfahrensstand des Vorschaubilds. Erhöhen, sobald sich am ERGEBNIS etwas
+	// ändert – dann verwerfen alle Nodes ihre alten Bilder von selbst.
+	//   v1: Lanczos, 512 px, 4:4:4 (R559)
+	//   v2: Ausrichtung aus den EXIF-Daten beachtet (R632)
+	thumbFormatVersion = 2
 	maxOriginalBytes  = 64 * 1024 * 1024 // 64 MiB: größere Originale gar nicht erst puffern
 	// 3 statt 2 (R622): Seit die Verkleinerung zweistufig läuft (R594) braucht
 	// ein Bild nur noch rund 16 statt 288 MB. Mit zwei gleichzeitig blieben im
@@ -74,10 +80,14 @@ func newThumbnailer(dataDir string) *thumbnailer {
 }
 
 func (t *thumbnailer) cachePath(hash string) string {
-	// Hash ist 64 Hex-Zeichen → sicher als Dateiname. Die Kantenlänge steht mit
-	// im Namen: Ändert sie sich (R558: 256 → 512), werden Thumbnails neu
-	// erzeugt statt alte, unscharfe aus dem Cache zu liefern.
-	return filepath.Join(t.cacheDir, fmt.Sprintf("%s-%d.jpg", hash, thumbMaxEdge))
+	// Hash ist 64 Hex-Zeichen → sicher als Dateiname. Kantenlänge UND
+	// Verfahrensstand stehen mit im Namen: Ändert sich eines von beiden, gelten
+	// alle alten Bilder automatisch als ungültig und werden neu erzeugt.
+	// Das ist wichtig, weil Nodes sich fertige Bilder gegenseitig schicken
+	// (R627): Ohne diese Kennung hätte ein Node mit altem Zwischenspeicher die
+	// falsch gedrehten Bilder weiter im Netz verteilt, egal wie oft man sie
+	// anderswo löscht (R633).
+	return filepath.Join(t.cacheDir, fmt.Sprintf("%s-%d-v%d.jpg", hash, thumbMaxEdge, thumbFormatVersion))
 }
 
 // putCached legt ein fertiges Thumbnail im Zwischenspeicher ab (R627).
@@ -108,7 +118,7 @@ func (t *thumbnailer) cleanOldThumbs() {
 	if err != nil {
 		return
 	}
-	suffix := fmt.Sprintf("-%d.jpg", thumbMaxEdge)
+	suffix := fmt.Sprintf("-%d-v%d.jpg", thumbMaxEdge, thumbFormatVersion)
 	for _, e := range entries {
 		n := e.Name()
 		if !strings.HasSuffix(n, ".jpg") || strings.HasSuffix(n, suffix) {
