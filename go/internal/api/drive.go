@@ -154,18 +154,22 @@ func luftlinienRoute(stops []DriveStop) driveRoute {
 // guten Teil über Landstraße und Autobahn. Dazu eine Grundzeit fürs Losfahren
 // und Parken sowie ein Zuschlag je Zwischenhalt.
 func fahrzeitMin(km float64, halte int) float64 {
+	// R640: Nochmals nach unten korrigiert. Die ursprüngliche Annahme von
+	// 50 km/h war in der Praxis rund doppelt so schnell wie die Wirklichkeit.
+	// Diese Werte treffen eine Fahrt über Land mit Ortsdurchfahrten: 42 km
+	// dauern damit etwa 100 Minuten statt der früheren 50.
 	var v float64 // mittlere Geschwindigkeit in km/h
 	switch {
 	case km < 10:
-		v = 28
+		v = 22
 	case km < 50:
-		v = 40
+		v = 26
 	default:
-		v = 62
+		v = 45 // auf langen Strecken fällt Autobahnanteil ins Gewicht
 	}
-	min := km/v*60 + 5 // 5 Minuten Grundzeit
+	min := km/v*60 + 5 // 5 Minuten fürs Losfahren und Parken
 	if halte > 2 {
-		min += float64(halte-2) * 3 // je Zwischenhalt drei Minuten
+		min += float64(halte-2) * 5 // je Zwischenhalt fünf Minuten
 	}
 	return math.Round(min)
 }
@@ -216,10 +220,16 @@ func (s *Server) osrmRoute(ctx context.Context, stops []DriveStop) (driveRoute, 
 	}
 	r := out.Routes[0]
 	// Der Routendienst rechnet mit freier Fahrt: keine Ampeln, kein Verkehr,
-	// kein Halten. In der Praxis dauert es länger (R639).
-	dauer := r.Duration/60*1.2 + 3
+	// kein Halten. In der Praxis dauert es deutlich länger (R640). Zusätzlich
+	// nehmen wir den größeren der beiden Werte – die eigene Schätzung und die
+	// aufgeschlagene Dienstzeit –, damit nie zu optimistisch gerechnet wird.
+	kmGefahren := r.Distance / 1000
+	dauer := r.Duration/60*1.5 + 5
 	if len(stops) > 2 {
-		dauer += float64(len(stops)-2) * 3 // je Zwischenhalt
+		dauer += float64(len(stops)-2) * 5 // je Zwischenhalt
+	}
+	if eigene := fahrzeitMin(kmGefahren, len(stops)); eigene > dauer {
+		dauer = eigene
 	}
 	return driveRoute{
 		DistanceKm:  rund2(r.Distance / 1000),
@@ -490,6 +500,12 @@ func (s *Server) driveListRides(c *gin.Context) {
 		// Gezielte Anfragen sieht nur der angefragte Fahrer (und der Kunde).
 		if r.TargetDriver != "" && !beteiligt {
 			continue
+		}
+		// Schätzung für offene Gesuche NEU rechnen (R640): Sie wurde beim
+		// Einstellen festgeschrieben – ein Fahrer, der sein Profil erst danach
+		// anlegt, tauchte dort nie auf. Jetzt gilt immer der aktuelle Stand.
+		if r.Status == "open" && len(r.Stops) > 0 {
+			r.EstimateFND, r.EstimateName, r.EstimateCount = s.schaetzePreis(r.Stops[0], r.DistanceKm)
 		}
 		eintrag := toMap(r)
 		eintrag["mine"] = me != "" && strings.EqualFold(r.CustomerFID, me)

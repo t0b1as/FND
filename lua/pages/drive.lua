@@ -674,6 +674,11 @@ async function ladeProfil(){
       document.getElementById('c-kg').value  = p.cargo.weight_kg || '';
     }
     cargoToggle();
+    if (!p.active) {
+      const st = document.getElementById('profil-status');
+      st.innerHTML = 'Hinweis: Du nimmst derzeit <b>keine</b> Aufträge an und bist für Kunden unsichtbar.';
+      st.style.color = '#ffc107';
+    }
   } catch(e) {}
 }
 
@@ -769,7 +774,19 @@ async function profilSpeichern(){
       headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-    st.textContent = '✓ Gespeichert';
+    // R640: Ohne diesen Haken taucht der Fahrer nirgends auf – weder auf der
+    // Karte noch in den Kostenschätzungen. Das muss man sehen.
+    if (!body.active) {
+      st.innerHTML = '✓ Gespeichert – <b>aber du nimmst derzeit keine Aufträge an</b>. ' +
+                     'Ohne diesen Haken erscheinst du weder auf der Karte noch in Preisschätzungen.';
+      st.style.color = '#ffc107';
+    } else if (!body.per_km_fnd) {
+      st.innerHTML = '✓ Gespeichert – <b>ohne Preis je km</b> wirst du in Schätzungen nicht berücksichtigt.';
+      st.style.color = '#ffc107';
+    } else {
+      st.textContent = '✓ Gespeichert – du bist jetzt als Fahrer sichtbar.';
+      st.style.color = '';
+    }
   } catch(e) { st.textContent = '✗ ' + e.message; }
 }
 

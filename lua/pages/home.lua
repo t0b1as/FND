@@ -75,10 +75,12 @@ return function()
         el.textContent = (d.rides || []).filter(function(x){ return x.status === 'open'; }).length;
       }).catch(function(){ el.textContent = '–'; });
   }
-  driveZahl();
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setzen);
-  else setzen();
-  setTimeout(setzen, 1200);
+  // R640: driveZahl() lief sofort – das Skript steht aber VOR den Kacheln,
+  // das Feld gab es da noch nicht und die Funktion brach still ab.
+  function allesSetzen(){ setzen(); driveZahl(); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', allesSetzen);
+  else allesSetzen();
+  setTimeout(allesSetzen, 1200);
 })();
 </script>
 <div class="tile-grid">
