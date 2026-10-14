@@ -489,6 +489,7 @@ function gesuchKarte(g){
   } else if (g.status === 'locked' && g.driving) {
     // Fahrer: abschließen, zurückgeben – und Barzahlung quittieren (R636).
     aktionen = '<button class="btn-sm" onclick="navFuer(\'' + g.id + '\')">🧭 Navigation</button>' +
+               '<button class="btn-sm" onclick="standortTeilenStarten(\'' + g.id + '\')">📍 Standort teilen</button>' +
                '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'done\')">Fahrt abgeschlossen</button>' +
                '<button class="btn-sm" onclick="barQuittieren(\'' + g.id + '\',' + (g.price_fnd||0) + ')">💶 Bar erhalten</button>' +
                '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'release\')">Zurückgeben</button>';
@@ -532,10 +533,26 @@ function gesuchKarte(g){
       (g.when_text ? ' · ' + escHtml(g.when_text) : '') + '</div>' +
     ware +
     (g.note ? '<div class="meta">„' + escHtml(g.note) + '“</div>' : '') +
+    ankunftZeile(g) +
     preisZeile(g) +
     zahlungsZeile(g) +
     '<div class="ride-actions">' + aktionen + '</div></div>';
 }
+// Voraussichtliche Ankunft (R643). Je frischer die Standortmeldung, desto
+// verlässlicher – das Alter steht deshalb dabei.
+function ankunftZeile(g){
+  if (g.status !== 'locked' || !g.eta_min) return '';
+  let alter = '';
+  if (g.driver_seen_at) {
+    const sek = (Date.now() - new Date(g.driver_seen_at).getTime()) / 1000;
+    alter = sek < 90 ? ' · Standort gerade eben'
+          : ' · Standort vor ' + Math.round(sek/60) + ' min';
+  }
+  const uhr = g.eta_at ? new Date(g.eta_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
+  return '<div class="ankunft">🚗 Ankunft in etwa <b>' + Math.round(g.eta_min) + ' Minuten</b>' +
+         (uhr ? ' (gegen ' + uhr + ' Uhr)' : '') + '<span class="meta">' + alter + '</span></div>';
+}
+
 // Preis am Gesuch (R639): Steht ein Fahrer fest, gilt der vereinbarte Betrag.
 // Vorher die Schätzung nach dem nächstgelegenen Fahrer – vorher stand an
 // offenen Gesuchen gar kein Preis.
@@ -914,7 +931,93 @@ async function profilSpeichern(){
   } catch(e) { st.textContent = '✗ ' + e.message; }
 }
 
+// ── Sofortige Benachrichtigung (R643) ────────────────────────────────────
+// Dieselbe Verbindung wie im Messenger. Meldet der Node eine Änderung an einer
+// Fahrt, aktualisiert sich die Liste von selbst – kein Neuladen nötig.
+let _driveWS = null, _wsVersuche = 0;
+
+async function driveWSVerbinden(){
+  try {
+    const r = await fetch('/api/v1/identity/me', {credentials:'same-origin'});
+    if (!r.ok) return;                       // nicht angemeldet: nichts zu tun
+    const ich = await r.json();
+    if (!ich || !ich.fundus_id) return;
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    _driveWS = new WebSocket(proto + '//' + location.host +
+      '/api/v1/messenger/ws?id=' + encodeURIComponent(ich.fundus_id));
+    _driveWS.onmessage = function(ev){
+      let m = null;
+      try { m = JSON.parse(ev.data); } catch(e) { return; }
+      if (!m || m.type !== 'drive') return;
+      driveEreignis(m);
+    };
+    _driveWS.onopen  = function(){ _wsVersuche = 0; };
+    _driveWS.onclose = function(){
+      // Mit wachsendem Abstand erneut versuchen, höchstens alle 30 s.
+      const warten = Math.min(30000, 1000 * Math.pow(2, _wsVersuche++));
+      setTimeout(driveWSVerbinden, warten);
+    };
+  } catch(e) {}
+}
+
+function driveEreignis(m){
+  const g = m.ride || {};
+  const texte = {
+    angenommen:    '🚗 ' + (g.driver_name || 'Ein Fahrer') + ' übernimmt deine Fahrt',
+    freigegeben:   '↩ Der Fahrer hat die Fahrt zurückgegeben',
+    abgeschlossen: '✓ Fahrt abgeschlossen',
+    bezahlt:       '✓ Zahlung vermerkt',
+  };
+  if (m.event === 'position') {
+    // Nur stillschweigend auffrischen – sonst klingelt es im Minutentakt.
+    if (document.getElementById('tab-gesuche').style.display !== 'none') ladeGesuche();
+    return;
+  }
+  const text = texte[m.event];
+  if (text) {
+    const zusatz = (m.event === 'angenommen' && g.eta_min)
+      ? ('da in etwa ' + Math.round(g.eta_min) + ' Minuten') : '';
+    driveToast(text, zusatz);
+    if (window.playPling) window.playPling();
+  }
+  ladeGesuche();
+}
+
+function driveToast(text, zusatz){
+  const t = document.createElement('div');
+  t.className = 'drive-toast';
+  t.innerHTML = '<b>' + escHtml(text) + '</b>' + (zusatz ? '<br><span class="meta">' + escHtml(zusatz) + '</span>' : '');
+  document.body.appendChild(t);
+  setTimeout(function(){ t.style.opacity = '0'; setTimeout(function(){ t.remove(); }, 400); }, 6000);
+}
+
+// ── Standort des Fahrers melden (R643) ───────────────────────────────────
+// Läuft nur, solange eine Fahrt zugeteilt ist, und nur mit Erlaubnis des
+// Geräts. Gespeichert wird beim Node immer nur der letzte Punkt.
+let _standortTakt = null;
+
+function standortTeilenStarten(id){
+  if (_standortTakt) clearInterval(_standortTakt);
+  const melden = async function(){
+    try {
+      const p = await holeStandort();
+      const r = await fetch('/api/v1/drive/rides/' + encodeURIComponent(id) + '/position',
+        {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({lat: p.lat, lon: p.lon})});
+      if (!r.ok) { standortTeilenBeenden(); }
+    } catch(e) { standortTeilenBeenden(); }
+  };
+  melden();
+  _standortTakt = setInterval(melden, 30000); // alle 30 s genügt
+  driveToast('📍 Standort wird geteilt', 'Der Kunde sieht deine voraussichtliche Ankunft');
+}
+
+function standortTeilenBeenden(){
+  if (_standortTakt) { clearInterval(_standortTakt); _standortTakt = null; }
+}
+
 zeichneStops();
+driveWSVerbinden();
 </script>
 ]==])
 

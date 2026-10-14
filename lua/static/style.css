@@ -2523,3 +2523,13 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 /* Drive: Knopf für die Direktzahlung hervorheben (R642) */
 .btn-fnd { border-color: var(--green); color: var(--green); font-weight: 600; }
 .btn-fnd:hover { background: var(--green-bg); }
+/* Drive: Einblendung und Ankunftszeile (R643) */
+.drive-toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px)); z-index: 9000;
+  background: var(--surface); border: 1px solid var(--green);
+  box-shadow: 0 6px 24px rgba(0,0,0,.5); border-radius: 12px;
+  padding: 12px 18px; max-width: min(92vw, 420px);
+  transition: opacity .4s; text-align: center;
+}
+.ankunft { margin-top: 6px; font-size: var(--fs-sm); color: var(--green); }

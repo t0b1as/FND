@@ -92,6 +92,12 @@ type driveRide struct {
 	Status       string      `json:"status"`        // "open" | "locked" | "done" | "cancelled"
 	DriverFID    string      `json:"driver_fid"`
 	DriverName   string      `json:"driver_name,omitempty"` // Anzeigename des Fahrers (R637)
+	// Ankunft und Livestandort (R643)
+	EtaMin       float64     `json:"eta_min,omitempty"`      // Minuten bis zum ersten Halt
+	EtaAt        *time.Time  `json:"eta_at,omitempty"`       // voraussichtliche Ankunft
+	DriverLat    float64     `json:"driver_lat,omitempty"`   // zuletzt gemeldeter Standort
+	DriverLon    float64     `json:"driver_lon,omitempty"`
+	DriverSeenAt *time.Time  `json:"driver_seen_at,omitempty"`
 	PriceFND     float64     `json:"price_fnd"`     // vereinbarter Preis beim Annehmen
 	// Schätzung beim Einstellen (R639): Damit am Gesuch ein Preis steht, auch
 	// bevor ein Fahrer zugesagt hat. Grundlage ist der nächstgelegene Fahrer.
@@ -325,6 +331,7 @@ func (s *Server) registerDriveRoutes() {
 		g.POST("/rides/:id/escrow", s.driveLinkEscrow)
 		g.POST("/rides/:id/cash",   s.driveCashPaid)
 		g.POST("/rides/:id/paid",   s.driveDirectPaid)
+		g.POST("/rides/:id/position", s.drivePosition)
 		g.GET("/rides/:id/payee",   s.driveDriverWallet)
 	}
 	// Postleitzahl → Koordinaten (offline, aus der Tabelle des Energie-Netzes).
@@ -624,7 +631,17 @@ func (s *Server) driveAcceptRide(c *gin.Context) {
 	r.DriverFID = fid
 	r.DriverName = s.displayNameFor(fid) // damit der Kunde sieht, wer fährt
 	r.LockedAt = &jetzt
+	// Voraussichtliche Ankunft am ersten Halt (R643).
+	if drec, derr := s.store.Get(storage.RecordDriver, "driver:"+fid); derr == nil && drec != nil {
+		if d := driverFromRecord(drec); d != nil && (d.Lat != 0 || d.Lon != 0) && len(r.Stops) > 0 {
+			km := geo.HaversineKm(d.Lat, d.Lon, r.Stops[0].Lat, r.Stops[0].Lon) * 1.25
+			r.EtaMin = fahrzeitMin(km, 2)
+			an := jetzt.Add(time.Duration(r.EtaMin) * time.Minute)
+			r.EtaAt = &an
+		}
+	}
 	s.driveSaveRide(rec, r)
+	s.driveNotify(r, "angenommen")
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
 }
 
@@ -677,6 +694,13 @@ func (s *Server) driveChangeStatus(c *gin.Context, fn func(*driveRide, string) e
 		return
 	}
 	s.driveSaveRide(rec, r)
+	// Beide Seiten über den neuen Stand informieren (R643).
+	switch r.Status {
+	case "open":
+		s.driveNotify(r, "freigegeben")
+	case "done":
+		s.driveNotify(r, "abgeschlossen")
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
 }
 
@@ -909,6 +933,7 @@ func (s *Server) driveDirectPaid(c *gin.Context) {
 	if s.log != nil {
 		s.log.Info("Fahrt direkt bezahlt", zap.String("ride", r.ID), zap.Float64("fnd", r.PaidFND))
 	}
+	s.driveNotify(r, "bezahlt")
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
 }
 
@@ -1085,4 +1110,104 @@ func (s *Server) driveCleanupOnce() {
 		s.log.Info("Erledigte Fahrten entfernt", zap.Int("anzahl", entfernt),
 			zap.String("älter_als", driveKeepDone.String()))
 	}
+}
+
+// ── Benachrichtigung und Livestandort (R643) ────────────────────────────────
+// Bisher erfuhr der Kunde erst beim Neuladen, dass ein Fahrer zugesagt hat.
+// Jetzt geht die Nachricht sofort raus: über die offene Verbindung, wenn die
+// Seite gerade offen ist, und zusätzlich als Push, wenn nicht.
+
+// driveNotify schickt eine Statusänderung an BEIDE Beteiligten.
+func (s *Server) driveNotify(r *driveRide, was string) {
+	if r == nil {
+		return
+	}
+	go func() {
+		defer func() { _ = recover() }()
+		nutzlast := gin.H{"type": "drive", "event": was, "ride": toMap(r)}
+
+		// Über die offene Verbindung – wirkt sofort, ohne Neuladen.
+		for _, fid := range []string{r.CustomerFID, r.DriverFID} {
+			if fid == "" {
+				continue
+			}
+			sessionMu.RLock()
+			sess := sessionStore[strings.ToLower(fid)]
+			sessionMu.RUnlock()
+			if sess != nil {
+				sess.broadcastWS(nutzlast)
+			}
+		}
+
+		// Zusätzlich als Push – erreicht auch ein geschlossenes Fenster.
+		switch was {
+		case "angenommen":
+			titel := "Fahrer gefunden"
+			text := (r.DriverName + " übernimmt deine Fahrt")
+			if r.EtaMin > 0 {
+				text += fmt.Sprintf(" – da in etwa %.0f Minuten", r.EtaMin)
+			}
+			if r.PriceFND > 0 {
+				text += fmt.Sprintf(" (%.2f FND)", r.PriceFND)
+			}
+			s.pushNotify(r.CustomerFID, titel, text, "/drive", "drive-"+r.ID, true)
+		case "freigegeben":
+			s.pushNotify(r.CustomerFID, "Fahrt wieder offen",
+				"Der Fahrer hat die Fahrt zurückgegeben.", "/drive", "drive-"+r.ID, false)
+		case "abgeschlossen":
+			for _, fid := range []string{r.CustomerFID, r.DriverFID} {
+				s.pushNotify(fid, "Fahrt abgeschlossen",
+					"Die Fahrt wurde als erledigt markiert.", "/drive", "drive-"+r.ID, false)
+			}
+		case "bezahlt":
+			s.pushNotify(r.DriverFID, "Zahlung eingegangen",
+				fmt.Sprintf("%.2f FND für die Fahrt gutgeschrieben.", r.PaidFND),
+				"/drive", "drive-"+r.ID, true)
+		}
+	}()
+}
+
+// POST /rides/:id/position – der Fahrer meldet seinen Standort.
+// Freiwillig und nur während einer laufenden Fahrt. Gespeichert wird immer nur
+// der ZULETZT gemeldete Punkt, keine Spur – ein Bewegungsprofil entsteht nicht.
+func (s *Server) drivePosition(c *gin.Context) {
+	me := s.sessionFID(c)
+	if me == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
+		return
+	}
+	var req struct {
+		Lat float64 `json:"lat"`
+		Lon float64 `json:"lon"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || (req.Lat == 0 && req.Lon == 0) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Standort fehlt."})
+		return
+	}
+	driveLockMu.Lock()
+	defer driveLockMu.Unlock()
+	rec, r, err := s.driveLoadRide(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if !strings.EqualFold(r.DriverFID, me) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Nur der zugeteilte Fahrer kann seinen Standort melden."})
+		return
+	}
+	if r.Status != "locked" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nur während einer laufenden Fahrt."})
+		return
+	}
+	jetzt := time.Now()
+	r.DriverLat, r.DriverLon, r.DriverSeenAt = req.Lat, req.Lon, &jetzt
+	if len(r.Stops) > 0 {
+		km := geo.HaversineKm(req.Lat, req.Lon, r.Stops[0].Lat, r.Stops[0].Lon) * 1.25
+		r.EtaMin = fahrzeitMin(km, 2)
+		an := jetzt.Add(time.Duration(r.EtaMin) * time.Minute)
+		r.EtaAt = &an
+	}
+	s.driveSaveRide(rec, r)
+	s.driveNotify(r, "position")
+	c.JSON(http.StatusOK, gin.H{"ok": true, "eta_min": r.EtaMin})
 }
