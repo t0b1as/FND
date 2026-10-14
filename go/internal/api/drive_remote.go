@@ -135,6 +135,33 @@ func (s *Server) registerDriveActionProtocol() {
 
 		driveLockMu.Lock()
 		defer driveLockMu.Unlock()
+
+		// Fahrerprofil (R645): Auch dieser Datensatz gehört dem Node, auf dem
+		// er angelegt wurde. Meldet sich ein Fahrer auf einem ZWEITEN Node an
+		// und ändert dort seine Preise, wäre die Fassung sonst nirgends gültig.
+		if m.Action == "profile" {
+			prec, perr := s.store.Get(storage.RecordDriver, "driver:"+strings.ToLower(m.FID))
+			if perr != nil || prec == nil {
+				return fehler("Profil nicht gefunden")
+			}
+			if !s.driveIsOwner(prec) {
+				return fehler("dieses Profil gehört einem anderen Node")
+			}
+			prec.Data = m.Data
+			prec.Data["fid"] = strings.ToLower(m.FID) // nicht überschreibbar
+			prec.Data["name"] = s.displayNameFor(m.FID)
+			prec.UpdatedAt = time.Now()
+			if sig, e := s.node.SignData(prec.SigningBytes()); e == nil {
+				prec.Signature = sig
+			}
+			if s.store.Put(prec) != nil {
+				return fehler("speichern fehlgeschlagen")
+			}
+			s.drivePublish(prec)
+			raw, _ := json.Marshal(map[string]any{"ok": true})
+			return raw
+		}
+
 		rec, r, err := s.driveLoadRide(m.RideID)
 		if err != nil {
 			return fehler(err.Error())
@@ -277,4 +304,98 @@ func (s *Server) driveApplyAction(r *driveRide, fid, action string, daten map[st
 		return fmt.Errorf("unbekannte Aktion")
 	}
 	return nil
+}
+
+// ── Benachrichtigung über Node-Grenzen (R646) ───────────────────────────────
+//
+// Push-Anmeldungen und offene Verbindungen liegen NUR auf dem Node, auf dem
+// sich der Nutzer angemeldet hat. Der Node des Kunden kann den Fahrer also gar
+// nicht erreichen, wenn der woanders angemeldet ist – die Zahlung kam deshalb
+// erst beim Neuladen an. Jetzt wird die Meldung an die Nodes des Empfängers
+// geschickt, die sie dort zustellen.
+
+const driveNotifyProtocol = "/fundus/drive-notify/1.0.0"
+
+type driveNotifyMsg struct {
+	FID   string         `json:"fid"`
+	Event string         `json:"event"`
+	Ride  map[string]any `json:"ride"`
+	TS    int64          `json:"ts"`
+}
+
+// driveNotifyRemote stellt eine Meldung bei den Nodes des Empfängers zu.
+func (s *Server) driveNotifyRemote(fid, event string, ride map[string]any) {
+	if s.node == nil || fid == "" {
+		return
+	}
+	fid = strings.ToLower(fid)
+	kd, err := s.store.Get(storage.RecordKeyDir, "keydir:"+fid)
+	if err != nil || kd == nil || kd.Data == nil {
+		return // kein Verzeichniseintrag: wir wissen nicht, wo er angemeldet ist
+	}
+	payload, err := json.Marshal(driveNotifyMsg{
+		FID: fid, Event: event, Ride: ride, TS: time.Now().Unix(),
+	})
+	if err != nil {
+		return
+	}
+	me := s.nodeID()
+	for _, peer := range keydirPeers(kd.Data) {
+		if peer == me || peer == "" {
+			continue
+		}
+		go func(p string) {
+			defer func() { _ = recover() }()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			_, _ = s.node.SendAndReceive(ctx, p, driveNotifyProtocol, payload)
+		}(peer)
+	}
+}
+
+// registerDriveNotifyProtocol nimmt solche Meldungen entgegen und stellt sie
+// lokal zu. Es wird NICHTS gespeichert – die Fahrt selbst kommt über den
+// normalen Abgleich. Zugestellt wird nur an einen hier angemeldeten Nutzer,
+// sonst wäre das ein Weg, fremde Geräte mit Meldungen zu überziehen.
+func (s *Server) registerDriveNotifyProtocol() {
+	if s.node == nil {
+		return
+	}
+	s.node.RegisterProtocol(driveNotifyProtocol, func(peerID string, data []byte) []byte {
+		ok := func(v bool) []byte {
+			raw, _ := json.Marshal(map[string]any{"ok": v})
+			return raw
+		}
+		var m driveNotifyMsg
+		if json.Unmarshal(data, &m) != nil || m.FID == "" || m.Event == "" {
+			return ok(false)
+		}
+		if d := time.Since(time.Unix(m.TS, 0)); d > maxEditAge || d < -maxEditAge {
+			return ok(false)
+		}
+		fid := strings.ToLower(m.FID)
+
+		// Nur für jemanden, der HIER angemeldet ist.
+		sessionMu.RLock()
+		sess := sessionStore[fid]
+		sessionMu.RUnlock()
+		if sess == nil {
+			return ok(false)
+		}
+		// Die Meldung muss zu einer Fahrt gehören, an der dieser Nutzer
+		// beteiligt ist – sonst wird sie verworfen.
+		rid, _ := m.Ride["id"].(string)
+		if rid == "" {
+			return ok(false)
+		}
+		if rec, err := s.store.Get(storage.RecordRide, rid); err == nil && rec != nil {
+			if r := rideFromRecord(rec); r != nil &&
+				!strings.EqualFold(r.CustomerFID, fid) && !strings.EqualFold(r.DriverFID, fid) {
+				return ok(false)
+			}
+		}
+		sess.broadcastWS(gin.H{"type": "drive", "event": m.Event, "ride": m.Ride})
+		s.drivePushFor(fid, m.Event, m.Ride)
+		return ok(true)
+	})
 }

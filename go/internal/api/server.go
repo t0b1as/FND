@@ -155,6 +155,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerListingEditProtocol() // Angebote von einem anderen Node bearbeiten
 	s.registerThumbProtocol()       // fertige Vorschaubilder zwischen Nodes
 	s.registerDriveActionProtocol() // Fahrten vom Node des Fahrers aus ändern (R644)
+	s.registerDriveNotifyProtocol() // Meldungen über Node-Grenzen zustellen (R646)
 	thumbPregenOnce.Do(func() { go s.thumbPregenLoop() }) // Vorschaubilder im Voraus (R631)
 	s.router.GET("/api/v1/nodes/overview", s.nodesOverview) // Übersicht aller Nodes (nur Heimnetz)
 	s.registerNodeInfo()                                     // P2P: "Wie geht es dir?"
@@ -447,7 +448,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R645"
+const NodeRevision = "R646"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

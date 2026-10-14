@@ -448,6 +448,14 @@ func (s *Server) driveSaveOwnProfile(c *gin.Context) {
 	if d.Lat == 0 && d.Lon == 0 && d.PLZ != "" {
 		d.Lat, d.Lon = plzCentroid(d.PLZ)
 	}
+	// Gehört das Profil einem anderen Node? Dann dorthin weiterreichen (R645) –
+	// sonst trüge die Fassung die falsche Unterschrift und bliebe unsichtbar.
+	if vorhanden, verr := s.store.Get(storage.RecordDriver, "driver:"+fid); verr == nil &&
+		vorhanden != nil && !s.driveIsOwner(vorhanden) {
+		if s.driveForward(c, vorhanden, "profile", toMap(d)) {
+			return
+		}
+	}
 	rec := &storage.Record{
 		ID:        "driver:" + fid,
 		Type:      storage.RecordDriver,
@@ -724,6 +732,17 @@ func (s *Server) driveLoadRide(id string) (*storage.Record, *driveRide, error) {
 }
 
 func (s *Server) driveSaveRide(rec *storage.Record, r *driveRide) {
+	// Sicherheitsnetz (R645): Nur der Besitzer-Node darf neu signieren. Jeder
+	// Aufrufer prüft das bereits, aber ein künftiger könnte es vergessen – und
+	// der Fehler wäre wieder unsichtbar, weil die Fassung erst beim Abgleich
+	// verworfen wird.
+	if !s.driveIsOwner(rec) {
+		if s.log != nil {
+			s.log.Error("Fahrt gehört einem anderen Node – nicht gespeichert",
+				zap.String("ride", rec.ID), zap.String("besitzer", rec.OwnerID))
+		}
+		return
+	}
 	rec.Data = toMap(r)
 	rec.UpdatedAt = time.Now()
 	if s.node != nil {
@@ -1142,60 +1161,94 @@ func (s *Server) driveCleanupOnce() {
 // Seite gerade offen ist, und zusätzlich als Push, wenn nicht.
 
 // driveNotify schickt eine Statusänderung an BEIDE Beteiligten.
+// Lokal angemeldete Nutzer erreicht sie direkt; alle anderen über ihre eigenen
+// Nodes (R646) – Push-Anmeldungen und offene Verbindungen liegen nämlich nur
+// dort, wo sich jemand angemeldet hat.
 func (s *Server) driveNotify(r *driveRide, was string) {
-	if r == nil {
+	if r == nil || was == "" {
 		return
 	}
+	daten := toMap(r)
 	go func() {
 		defer func() { _ = recover() }()
-		nutzlast := gin.H{"type": "drive", "event": was, "ride": toMap(r)}
-
-		// Über die offene Verbindung – wirkt sofort, ohne Neuladen.
 		for _, fid := range []string{r.CustomerFID, r.DriverFID} {
 			if fid == "" {
 				continue
 			}
+			fid = strings.ToLower(fid)
 			sessionMu.RLock()
-			sess := sessionStore[strings.ToLower(fid)]
+			sess := sessionStore[fid]
 			sessionMu.RUnlock()
 			if sess != nil {
-				sess.broadcastWS(nutzlast)
+				sess.broadcastWS(gin.H{"type": "drive", "event": was, "ride": daten})
+				s.drivePushFor(fid, was, daten)
 			}
-		}
-
-		// Zusätzlich als Push – erreicht auch ein geschlossenes Fenster.
-		switch was {
-		case "angenommen":
-			titel := "Fahrer gefunden"
-			text := (r.DriverName + " übernimmt deine Fahrt")
-			if r.EtaMin > 0 {
-				text += fmt.Sprintf(" – da in etwa %.0f Minuten", r.EtaMin)
-			}
-			if r.PriceFND > 0 {
-				text += fmt.Sprintf(" (%.2f FND)", r.PriceFND)
-			}
-			s.pushNotify(r.CustomerFID, titel, text, "/drive", "drive-"+r.ID, true)
-		case "freigegeben":
-			s.pushNotify(r.CustomerFID, "Fahrt wieder offen",
-				"Der Fahrer hat die Fahrt zurückgegeben.", "/drive", "drive-"+r.ID, false)
-		case "abgeschlossen":
-			for _, fid := range []string{r.CustomerFID, r.DriverFID} {
-				s.pushNotify(fid, "Fahrt abgeschlossen",
-					"Die Fahrt wurde als erledigt markiert.", "/drive", "drive-"+r.ID, false)
-			}
-		case "hinterlegt":
-			s.pushNotify(r.DriverFID, "Betrag hinterlegt",
-				fmt.Sprintf("%.2f FND liegen bereit und werden nach der Fahrt ausgezahlt.", r.PaidFND),
-				"/drive", "drive-"+r.ID, false)
-		case "zurückgezogen":
-			s.pushNotify(r.DriverFID, "Fahrt zurückgezogen",
-				"Der Kunde hat das Gesuch zurückgezogen.", "/drive", "drive-"+r.ID, false)
-		case "bezahlt":
-			s.pushNotify(r.DriverFID, "Zahlung eingegangen",
-				fmt.Sprintf("%.2f FND für die Fahrt gutgeschrieben.", r.PaidFND),
-				"/drive", "drive-"+r.ID, true)
+			// Immer auch an die ÜBRIGEN Nodes des Nutzers: Er kann auf mehreren
+			// Geräten angemeldet sein, und auf diesem hier vielleicht gar nicht.
+			s.driveNotifyRemote(fid, was, daten)
 		}
 	}()
+}
+
+// drivePushFor verschickt die Push-Meldung, die zu diesem Ereignis und dieser
+// Rolle passt. In EINER Funktion, damit lokaler und entfernter Weg denselben
+// Text senden.
+func (s *Server) drivePushFor(fid, was string, ride map[string]any) {
+	fid = strings.ToLower(fid)
+	txt := func(k string) string { v, _ := ride[k].(string); return v }
+	zahl := func(k string) float64 { v, _ := toFloatOK(ride[k]); return v }
+	istKunde := strings.EqualFold(txt("customer_fid"), fid)
+	rid := txt("id")
+
+	switch was {
+	case "angenommen":
+		if !istKunde {
+			return // der Fahrer weiß es selbst
+		}
+		text := txt("driver_name") + " übernimmt deine Fahrt"
+		if m := zahl("eta_min"); m > 0 {
+			text += fmt.Sprintf(" – da in etwa %.0f Minuten", m)
+		}
+		if p := zahl("price_fnd"); p > 0 {
+			text += fmt.Sprintf(" (%.2f FND)", p)
+		}
+		s.pushNotify(fid, "Fahrer gefunden", text, "/drive", "drive-"+rid, true)
+	case "freigegeben":
+		if istKunde {
+			s.pushNotify(fid, "Fahrt wieder offen",
+				"Der Fahrer hat die Fahrt zurückgegeben.", "/drive", "drive-"+rid, false)
+		}
+	case "zurückgezogen":
+		if !istKunde {
+			s.pushNotify(fid, "Fahrt zurückgezogen",
+				"Der Kunde hat das Gesuch zurückgezogen.", "/drive", "drive-"+rid, false)
+		}
+	case "abgeschlossen":
+		s.pushNotify(fid, "Fahrt abgeschlossen",
+			"Die Fahrt wurde als erledigt markiert.", "/drive", "drive-"+rid, false)
+	case "hinterlegt":
+		if !istKunde {
+			s.pushNotify(fid, "Betrag hinterlegt",
+				fmt.Sprintf("%.2f FND liegen bereit und werden nach der Fahrt ausgezahlt.", zahl("paid_fnd")),
+				"/drive", "drive-"+rid, false)
+		}
+	case "bezahlt":
+		// Den Erhalt meldet man dem jeweils anderen.
+		if txt("payment_mode") == "cash" {
+			if istKunde {
+				s.pushNotify(fid, "Barzahlung quittiert",
+					fmt.Sprintf("Der Fahrer hat %.2f FND bar erhalten.", zahl("paid_fnd")),
+					"/drive", "drive-"+rid, false)
+			}
+			return
+		}
+		if !istKunde {
+			s.pushNotify(fid, "Zahlung eingegangen",
+				fmt.Sprintf("%.2f FND für die Fahrt gutgeschrieben.", zahl("paid_fnd")),
+				"/drive", "drive-"+rid, true)
+		}
+	}
+	// "position" bewusst ohne Push – sonst klingelt es im Minutentakt.
 }
 
 // POST /rides/:id/position – der Fahrer meldet seinen Standort.
