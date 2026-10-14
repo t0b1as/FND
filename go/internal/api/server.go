@@ -148,6 +148,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerMailRoutes()   // E-Mail-Benachrichtigungen
 	s.registerPriceRoute()   // Referenzkurs – auch ohne eingerichteten Shop (R617)
 	s.registerDriveRoutes()  // Transportdienst Drive (R635)
+	driveCleanupOnce.Do(func() { go s.driveCleanupLoop() }) // erledigte Fahrten aufräumen (R642)
 	listingReconcileOnce.Do(func() { go s.reconcileOwnListings() }) // Bestand eigener Angebote
 	s.registerListingSoldProtocol() // Verkaufsmeldungen anderer Nodes
 	s.registerHistSyncProtocol()    // Verlaufseinträge der eigenen Nodes
@@ -445,7 +446,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R640"
+const NodeRevision = "R642"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -1592,3 +1593,5 @@ func (s *Server) listingThumbnail(c *gin.Context) {
 }
 
 var thumbPregenOnce sync.Once
+
+var driveCleanupOnce sync.Once

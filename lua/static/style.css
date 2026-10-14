@@ -1609,6 +1609,9 @@ body.home footer { margin-top: 1rem; padding: 0.75rem; }
 .nqb-purple:hover { border-color:#a763f7; box-shadow:0 4px 18px rgba(167,99,247,0.30); background:rgba(167,99,247,0.10); }
 .nqb-pink:hover   { border-color:#ec4899; box-shadow:0 4px 18px rgba(236,72,153,0.30); background:rgba(236,72,153,0.10); }
 .nqb-rose:hover   { border-color:#f43f5e; box-shadow:0 4px 18px rgba(244,63,94,0.30); background:rgba(244,63,94,0.10); }
+/* R642: Drive nutzt cyan – dafür fehlte die Leuchtfarbe, der Knopf blieb beim
+   Überfahren als einziger stumpf. */
+.nqb-cyan:hover   { border-color:#22d3ee; box-shadow:0 4px 18px rgba(34,211,238,0.30); background:rgba(34,211,238,0.10); }
 @media (max-width:640px){ .nav-quick { display:none; } }
 
 /* Medien-Platzhalter in Suchergebnissen (kein Bild, z.B. nur Video) */
@@ -2511,3 +2514,12 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   /* Karte: etwas flacher, damit die Liste darunter noch sichtbar ist. */
   .drive-map { height: 240px; }
 }
+/* Drive: nummerierte Halte auf der Vorschaukarte (R641) */
+.halt-pin {
+  background: var(--green); color: #04120a; font-weight: 700; font-size: 13px;
+  border-radius: 50%; text-align: center; line-height: 26px;
+  box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 2px 6px rgba(0,0,0,.5);
+}
+/* Drive: Knopf für die Direktzahlung hervorheben (R642) */
+.btn-fnd { border-color: var(--green); color: var(--green); font-weight: 600; }
+.btn-fnd:hover { background: var(--green-bg); }

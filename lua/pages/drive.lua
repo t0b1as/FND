@@ -33,6 +33,9 @@ return function()
         <button class="btn" style="width:auto" onclick="berechneRoute()">Strecke berechnen</button>
       </div>
       <div id="route-info" class="route-info"></div>
+      <!-- Vorschaukarte (R641): zeigt die Halte in ihrer Reihenfolge und die
+           berechnete Strecke – so fällt eine falsch erkannte Adresse sofort auf. -->
+      <div id="route-karte" class="drive-map" style="display:none;margin-top:10px"></div>
     </div>
   </div>
 
@@ -277,8 +280,15 @@ async function berechneRoute(){
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
     _route = d;
     const quelle = d.source === 'osrm' ? 'über den Routendienst' : 'geschätzt (Luftlinie × 1,25)';
-    info.innerHTML = '<b>' + d.distance_km.toFixed(1) + ' km</b> · etwa ' + d.duration_min + ' Minuten ' +
-                     '<span class="meta">(' + quelle + ')</span>';
+    let dauer = '<b>' + d.distance_km.toFixed(1) + ' km</b> · etwa <b>' + d.duration_min + ' Minuten</b>';
+    if (d.duration_raw_min) {
+      dauer += ' <span class="meta">(' + d.duration_raw_min + ' min reine Fahrzeit, ' +
+               'zuzüglich Verkehr, Halte und Parken)</span>';
+    } else {
+      dauer += ' <span class="meta">(' + quelle + ')</span>';
+    }
+    info.innerHTML = dauer;
+    zeichneVorschau(d);
     zeigeKostenSchaetzung(d.distance_km);
   } catch(e) { info.textContent = '✗ ' + e.message; }
 }
@@ -321,6 +331,71 @@ async function zeigeKostenSchaetzung(km){
     }
     info.innerHTML += txt + '</div>';
   } catch(e) {}
+}
+
+// ── Vorschaukarte der Strecke (R641) ─────────────────────────────────────
+// Gezeichnet wird mit derselben Karte wie bei der Fahrersuche, also über
+// OpenStreetMap – ohne Schlüssel und ohne fremde Einbettung. Die Strecke kommt
+// als Linienzug vom Routendienst; ohne ihn werden die Halte direkt verbunden.
+let _vorschauKarte = null, _vorschauEbenen = [];
+
+// Linienzug des Routendienstes auspacken (Google-Polyline, Genauigkeit 5).
+function polylineDecode(str){
+  const punkte = []; let i = 0, lat = 0, lon = 0;
+  while (i < str.length) {
+    let ergebnis = 0, verschiebung = 0, b;
+    do { b = str.charCodeAt(i++) - 63; ergebnis |= (b & 0x1f) << verschiebung; verschiebung += 5; } while (b >= 0x20);
+    lat += ((ergebnis & 1) ? ~(ergebnis >> 1) : (ergebnis >> 1));
+    ergebnis = 0; verschiebung = 0;
+    do { b = str.charCodeAt(i++) - 63; ergebnis |= (b & 0x1f) << verschiebung; verschiebung += 5; } while (b >= 0x20);
+    lon += ((ergebnis & 1) ? ~(ergebnis >> 1) : (ergebnis >> 1));
+    punkte.push([lat / 1e5, lon / 1e5]);
+  }
+  return punkte;
+}
+
+function zeichneVorschau(route){
+  const box = document.getElementById('route-karte');
+  if (!box) return;
+  if (typeof L === 'undefined') { box.style.display = 'none'; return; }
+  box.style.display = '';
+  if (!_vorschauKarte) {
+    _vorschauKarte = L.map('route-karte');
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(_vorschauKarte);
+  }
+  _vorschauEbenen.forEach(function(e){ _vorschauKarte.removeLayer(e); });
+  _vorschauEbenen = [];
+
+  // Halte nummerieren: 1 ist der Start, die letzte Zahl das Ziel.
+  const punkte = [];
+  _stops.forEach(function(st, i){
+    if (!st.lat && !st.lon) return;
+    const letzte = (i === _stops.length-1);
+    const m = L.marker([st.lat, st.lon], {
+      icon: L.divIcon({className:'halt-pin', html: String(i+1),
+                       iconSize:[26,26], iconAnchor:[13,13]})
+    }).addTo(_vorschauKarte);
+    m.bindPopup('<b>' + (i === 0 ? 'Start' : (letzte ? 'Ziel' : 'Halt ' + i)) + '</b><br>' +
+                escHtml(st.label || ''));
+    _vorschauEbenen.push(m);
+    punkte.push([st.lat, st.lon]);
+  });
+
+  // Strecke: echter Verlauf, sonst gerade Verbindungen.
+  let linie = null;
+  if (route && route.geometry) {
+    const verlauf = polylineDecode(route.geometry);
+    if (verlauf.length > 1) linie = L.polyline(verlauf, {color:'#00e07a', weight:5, opacity:0.85});
+  }
+  if (!linie && punkte.length > 1) {
+    linie = L.polyline(punkte, {color:'#00e07a', weight:4, opacity:0.6, dashArray:'6 8'});
+  }
+  if (linie) { linie.addTo(_vorschauKarte); _vorschauEbenen.push(linie); }
+
+  const alles = linie ? linie.getBounds() : L.latLngBounds(punkte);
+  if (punkte.length) _vorschauKarte.fitBounds(alles, {padding:[25,25], maxZoom: 14});
+  setTimeout(function(){ _vorschauKarte.invalidateSize(); }, 50);
 }
 
 function kindChanged(){
@@ -419,10 +494,17 @@ function gesuchKarte(g){
                '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'release\')">Zurückgeben</button>';
   } else if (g.status === 'locked' && g.mine) {
     // Kunde: hinterlegen, freigeben, erledigt.
-    aktionen = (g.escrow_id
-        ? '<button class="btn-sm" onclick="freigeben(\'' + g.escrow_id + '\')">✓ Fahrt bestätigen und auszahlen</button>'
-        : '<button class="btn-sm" onclick="bezahlen(\'' + g.id + '\')">💳 Betrag hinterlegen</button>') +
-      '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'done\')">Erledigt</button>';
+    // Bezahlt? Dann nur noch abschließen. Sonst beide Wege anbieten (R642).
+    if (g.payment_mode === 'direct' || g.payment_mode === 'cash') {
+      aktionen = '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'done\')">Erledigt</button>';
+    } else if (g.escrow_id) {
+      aktionen = '<button class="btn-sm" onclick="freigeben(\'' + g.escrow_id + '\')">✓ Fahrt bestätigen und auszahlen</button>';
+    } else {
+      aktionen = '<button class="btn-sm btn-fnd" onclick="direktZahlen(\'' + g.id + '\')">Ƒ ' +
+                 (g.price_fnd ? g.price_fnd.toFixed(2) + ' FND zahlen' : 'FND zahlen') + '</button>' +
+                 '<button class="btn-sm" onclick="bezahlen(\'' + g.id + '\')">💳 Hinterlegen</button>' +
+                 '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'done\')">Erledigt</button>';
+    }
   } else if (g.status === 'open' && g.mine) {
     aktionen = '<button class="btn-sm btn-danger" onclick="rideAktion(\'' + g.id + '\',\'cancel\')">Zurückziehen</button>';
   }
@@ -432,17 +514,19 @@ function gesuchKarte(g){
     aktionen = '<button class="btn-sm" onclick="bewerten(\'' + g.id + '\')">⭐ ' + wen + ' bewerten</button>';
   }
   // Wer ist beteiligt? (R637) Kunde und Fahrer mit Namen zeigen.
-  // Fehlende Felder dürfen die Liste nicht zerreißen: ältere Gesuche kennen
-  // den Namen noch nicht (R637).
-  let leute = '<span class="meta">Kunde: ' + escHtml(wer(g.customer_name, g.customer_fid)) + '</span>';
-  if (g.driver_name || g.driver_fid) {
-    leute += '<span class="meta"> · Fahrer: ' + escHtml(wer(g.driver_name, g.driver_fid)) + '</span>';
-  }
+  // R642: In der Kopfzeile steht, mit WEM man es zu tun hat – als Fahrer der
+  // Kunde, als Kunde der Fahrer. Die Art der Fahrt bleibt als Symbol davor.
+  const symbol = g.kind === 'goods' ? '📦' : '🧍';
+  const gegenueber = g.mine
+    ? (g.driver_fid ? wer(g.driver_name, g.driver_fid) : 'noch kein Fahrer')
+    : wer(g.customer_name, g.customer_fid);
+  const rolle = g.mine ? 'Fahrer' : 'Kunde';
   return '<div class="ride-card">' +
-    '<div class="ride-top"><b>' + (g.kind === 'goods' ? '📦 Ware' : '🧍 Personen') + '</b>' +
+    '<div class="ride-top"><b>' + symbol + ' ' + escHtml(gegenueber) + '</b>' +
     '<span class="ride-status" style="color:' + farbe + '">' + stat + '</span></div>' +
     '<div class="ride-route">' + escHtml(weg) + '</div>' +
-    '<div>' + leute + '</div>' +
+    '<div><span class="meta">' + rolle + ' · ' +
+      (g.kind === 'goods' ? 'Warentransport' : 'Personenbeförderung') + '</span></div>' +
     '<div class="meta">' + (g.distance_km||0).toFixed(1) + ' km · etwa ' + (g.duration_min||0) + ' min' +
       (g.route_source === 'luftlinie' ? ' (geschätzt)' : '') +
       (g.when_text ? ' · ' + escHtml(g.when_text) : '') + '</div>' +
@@ -474,6 +558,10 @@ function zahlungsZeile(g){
   if (g.payment_mode === 'cash') {
     return '<div class="bezahlt">💶 Bar erhalten: <b>' + betrag.toFixed(2) +
            ' FND</b> <span class="meta">– vom Fahrer quittiert</span></div>';
+  }
+  if (g.payment_mode === 'direct') {
+    return '<div class="bezahlt">Ƒ Gezahlt: <b>' + betrag.toFixed(2) +
+           ' FND</b> <span class="meta">– direkt an den Fahrer überwiesen</span></div>';
   }
   if (g.escrow_id) {
     return g.status === 'done'
@@ -718,6 +806,42 @@ async function bezahlen(id){
     alert('✓ Betrag hinterlegt. Er wird freigegeben, sobald du die Fahrt bestätigst.');
     ladeGesuche();
   } catch(err) { alert('✗ ' + err.message); }
+}
+
+// Direktzahlung (R642): Betrag sofort an den Fahrer überweisen.
+// Bewusst getrennt von der Hinterlegung: Hier ist das Geld sofort beim Fahrer,
+// es gibt keine Rückhaltung. Das sagen wir auch, bevor es losgeht.
+async function direktZahlen(id){
+  try {
+    const r = await fetch('/api/v1/drive/rides/' + encodeURIComponent(id) + '/payee',
+      {credentials:'same-origin'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+
+    const betrag = prompt('Betrag in FND, der dem Fahrer gutgeschrieben wird:',
+                          (d.price_fnd || 0).toFixed(2));
+    if (betrag === null) return;
+    const summe = parseFloat(betrag);
+    if (!(summe > 0)) { alert('Bitte einen Betrag größer als 0 angeben.'); return; }
+    if (!confirm('Dem Fahrer werden sofort ' + summe.toFixed(2) + ' FND gutgeschrieben.\n' +
+                 'Anders als bei der Hinterlegung gibt es danach keine Rückhaltung.\n\nFortfahren?')) return;
+
+    const woerter = prompt('Deine 12 Seed-Wörter (zum Signieren der Überweisung):');
+    if (!woerter) return;
+
+    const t = await fetch('/api/v1/chain/send', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({words: woerter.trim().split(/\s+/), to: d.wallet,
+                            amount_fnd: summe.toFixed(8)})});
+    const td = await t.json();
+    if (!t.ok) throw new Error(td.error || ('HTTP ' + t.status));
+
+    await fetch('/api/v1/drive/rides/' + encodeURIComponent(id) + '/paid',
+      {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+       body: JSON.stringify({amount_fnd: summe, tx: td.tx_hash || td.hash || ''})});
+    alert('✓ ' + summe.toFixed(2) + ' FND an ' + (d.driver_name || 'den Fahrer') + ' überwiesen.');
+    ladeGesuche();
+  } catch(e) { alert('✗ ' + e.message); }
 }
 
 // Bar: Der Fahrer quittiert den Erhalt.

@@ -13,7 +13,9 @@ local P = {
   certificates = '<circle cx="12" cy="9" r="5.5"/><path d="m8.8 13.6-1.3 7.9L12 19l4.5 2.5-1.3-7.9"/><path d="m10 9 1.5 1.5L14.5 7.5"/>',
   shop         = '<path d="M4 8h14"/><path d="m14.5 4.5 3.5 3.5-3.5 3.5"/><path d="M20 16H6"/><path d="m9.5 12.5-3.5 3.5 3.5 3.5"/>',
   -- Drive: Transportdienst (R635)
-  drive        = '<path d="M5 17h14"/><path d="M6 17V9l2-4h8l2 4v8"/><circle cx="8" cy="17" r="2"/><circle cx="16" cy="17" r="2"/><path d="M6 11h12"/>',
+  -- Lenkrad (R642): Außenring, Nabe und drei Speichen.
+  drive        = '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>' ..
+                 '<path d="M12 3v6"/><path d="M4.2 16.5 9.4 13.5"/><path d="M19.8 16.5 14.6 13.5"/>',
   jobs         = '<rect x="3" y="7" width="18" height="13" rx="2.2"/><path d="M9 7V5.2c0-.7.5-1.2 1.2-1.2h3.6c.7 0 1.2.5 1.2 1.2V7"/><path d="M3 12.5h18"/>',
   files        = '<path d="M3 7.2C3 6 4 5 5.2 5H9l2 2.2h7.8C20 7.2 21 8.2 21 9.4v7.4c0 1.2-1 2.2-2.2 2.2H5.2C4 19 3 18 3 16.8z"/>',
   shared       = '<circle cx="17.5" cy="5.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17.5" cy="18.5" r="2.5"/><path d="m8.7 10.8 6.6-4M8.7 13.2l6.6 4"/>',

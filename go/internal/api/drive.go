@@ -83,6 +83,7 @@ type driveRide struct {
 	DistanceKm   float64     `json:"distance_km"`
 	DurationMin  float64     `json:"duration_min"`
 	RouteSource  string      `json:"route_source"`  // "osrm" | "luftlinie"
+	Geometry     string      `json:"geometry,omitempty"` // Streckenverlauf für die Karte (R641)
 	Goods        DriveGoods  `json:"goods,omitempty"`
 	Seats        int         `json:"seats,omitempty"`
 	WhenText     string      `json:"when_text"`     // Wunschzeit als Freitext
@@ -126,8 +127,11 @@ func rund2(v float64) float64 { return math.Round(v*100) / 100 }
 type driveRoute struct {
 	DistanceKm  float64 `json:"distance_km"`
 	DurationMin float64 `json:"duration_min"`
-	Source      string  `json:"source"`
-	Geometry    string  `json:"geometry,omitempty"` // Polyline für die Karte
+	// Reine Fahrzeit des Routendienstes, ohne unsere Aufschläge (R641).
+	// Hilfreich auf der Vorschau: Der Kunde sieht, worauf die Schätzung fußt.
+	DurationRawMin float64 `json:"duration_raw_min,omitempty"`
+	Source         string  `json:"source"`
+	Geometry       string  `json:"geometry,omitempty"` // Polyline für die Karte
 }
 
 // luftlinienRoute: Rückfall ohne Routendienst. Der Faktor 1,25 bildet ab, dass
@@ -232,10 +236,11 @@ func (s *Server) osrmRoute(ctx context.Context, stops []DriveStop) (driveRoute, 
 		dauer = eigene
 	}
 	return driveRoute{
-		DistanceKm:  rund2(r.Distance / 1000),
-		DurationMin: math.Round(dauer),
-		Source:      "osrm",
-		Geometry:    r.Geometry,
+		DistanceKm:     rund2(r.Distance / 1000),
+		DurationMin:    math.Round(dauer),
+		DurationRawMin: math.Round(r.Duration / 60),
+		Source:         "osrm",
+		Geometry:       r.Geometry,
 	}, nil
 }
 
@@ -319,6 +324,7 @@ func (s *Server) registerDriveRoutes() {
 		g.POST("/rides/:id/rate",   s.driveRateDriver)
 		g.POST("/rides/:id/escrow", s.driveLinkEscrow)
 		g.POST("/rides/:id/cash",   s.driveCashPaid)
+		g.POST("/rides/:id/paid",   s.driveDirectPaid)
 		g.GET("/rides/:id/payee",   s.driveDriverWallet)
 	}
 	// Postleitzahl → Koordinaten (offline, aus der Tabelle des Energie-Netzes).
@@ -543,6 +549,7 @@ func (s *Server) driveCreateRide(c *gin.Context) {
 	// Strecke immer SELBST berechnen – nicht aus dem Körper übernehmen.
 	route := s.routeFor(c.Request.Context(), r.Stops)
 	r.DistanceKm, r.DurationMin, r.RouteSource = route.DistanceKm, route.DurationMin, route.Source
+	r.Geometry = route.Geometry
 
 	r.CustomerFID = fid
 	r.CustomerName = s.displayNameFor(fid)
@@ -862,6 +869,49 @@ func (s *Server) driveLinkEscrow(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
 }
 
+// POST /rides/:id/paid – Direktzahlung vermerken (R642).
+// Der Kunde hat dem Fahrer den Betrag unmittelbar überwiesen (Chain-Transfer
+// mit seinen Seed-Wörtern). Hier wird nur FESTGEHALTEN, dass das geschehen ist;
+// das Geld ist zu diesem Zeitpunkt bereits unterwegs. Im Unterschied zur
+// Hinterlegung gibt es keine Rückhaltung – darauf weist die Oberfläche hin.
+func (s *Server) driveDirectPaid(c *gin.Context) {
+	me := s.sessionFID(c)
+	if me == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
+		return
+	}
+	var req struct {
+		AmountFND float64 `json:"amount_fnd"`
+		TxHash    string  `json:"tx"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
+	driveLockMu.Lock()
+	defer driveLockMu.Unlock()
+	rec, r, err := s.driveLoadRide(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	if !strings.EqualFold(r.CustomerFID, me) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Nur der Kunde kann die Zahlung vermerken."})
+		return
+	}
+	jetzt := time.Now()
+	r.PaymentMode = "direct"
+	r.PaidAt = &jetzt
+	r.PaidFND = rund2(req.AmountFND)
+	if r.PaidFND <= 0 {
+		r.PaidFND = r.PriceFND
+	}
+	r.EscrowID = strings.TrimSpace(req.TxHash) // Transaktion als Beleg
+	s.driveSaveRide(rec, r)
+	if s.log != nil {
+		s.log.Info("Fahrt direkt bezahlt", zap.String("ride", r.ID), zap.Float64("fnd", r.PaidFND))
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
+}
+
 // POST /rides/:id/cash – der Fahrer quittiert Barzahlung.
 func (s *Server) driveCashPaid(c *gin.Context) {
 	me := s.sessionFID(c)
@@ -968,4 +1018,71 @@ func (s *Server) schaetzePreis(start DriveStop, km float64) (float64, string, in
 	n := liste[0]
 	gesamt, _, _ := drivePrice(n.d, km, n.dist)
 	return gesamt, n.d.Name, len(liste)
+}
+
+// ── Aufräumen (R642) ────────────────────────────────────────────────────────
+// Abgeschlossene und zurückgezogene Fahrten verschwinden nach 24 Stunden.
+// Sie sind dann erledigt; was bleiben muss – die Bewertung und, bei Zahlung
+// über die Chain, der Zahlungsvorgang selbst – liegt ohnehin woanders.
+
+const driveKeepDone = 24 * time.Hour
+
+func (s *Server) driveCleanupLoop() {
+	defer func() {
+		if r := recover(); r != nil {
+			if s.log != nil {
+				s.log.Error("Drive-Aufräumen abgebrochen", zap.Any("grund", r))
+			}
+			time.Sleep(time.Hour)
+			go s.driveCleanupLoop()
+		}
+	}()
+	time.Sleep(2 * time.Minute) // nach dem Start erst zur Ruhe kommen
+	for {
+		s.driveCleanupOnce()
+		time.Sleep(time.Hour)
+	}
+}
+
+func (s *Server) driveCleanupOnce() {
+	if s.store == nil {
+		return
+	}
+	recs, err := s.store.List(storage.RecordRide)
+	if err != nil {
+		return
+	}
+	grenze := time.Now().Add(-driveKeepDone)
+	me := s.nodeID()
+	entfernt := 0
+	for _, rec := range recs {
+		if rec == nil || rec.DeletedAt != nil || rec.Data == nil {
+			continue
+		}
+		// Nur eigene Einträge löschen: Ein Löschvermerk eines fremden Nodes
+		// würde beim Abgleich ohnehin verworfen (gleiche Regel wie bei
+		// Angeboten, siehe R618).
+		if rec.OwnerID != "" && rec.OwnerID != me {
+			continue
+		}
+		r := rideFromRecord(rec)
+		if r == nil || (r.Status != "done" && r.Status != "cancelled") {
+			continue
+		}
+		// Maßgeblich ist der Abschluss, ersatzweise die letzte Änderung.
+		wann := rec.UpdatedAt
+		if r.DoneAt != nil {
+			wann = *r.DoneAt
+		}
+		if wann.After(grenze) {
+			continue
+		}
+		if s.store.Delete(storage.RecordRide, rec.ID) == nil {
+			entfernt++
+		}
+	}
+	if entfernt > 0 && s.log != nil {
+		s.log.Info("Erledigte Fahrten entfernt", zap.Int("anzahl", entfernt),
+			zap.String("älter_als", driveKeepDone.String()))
+	}
 }
