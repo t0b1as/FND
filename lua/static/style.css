@@ -2429,3 +2429,23 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
    Zusatz getrennt an und der Zusatz rutscht aus dem Rahmen (R605). */
 .pref-check .pc-text { display: inline; min-width: 0; }
 .pref-check .pc-text .meta { font-size: 11px; }
+
+/* ── Drive: Transportdienst (R635) ───────────────────────────────────── */
+.drive-tab { margin-top: 12px; }
+.stop-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.stop-label { flex:0 0 72px; font-size:var(--fs-sm); color:var(--muted); }
+.stop-input { flex:1; min-width:0; }
+.stop-row .btn-sm { width:auto; flex:0 0 auto; }
+.route-info { margin-top:10px; font-size:var(--fs-base); }
+.drive-map { height:340px; border-radius:var(--radius); margin-bottom:12px;
+  border:1px solid var(--border); background:var(--surface-2); }
+.ride-card { border:1px solid var(--border); border-radius:var(--radius);
+  padding:12px 14px; margin-bottom:10px; background:var(--surface); }
+.ride-top { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+.ride-status { font-size:var(--fs-sm); font-weight:600; }
+.ride-route { margin:6px 0; word-break:break-word; }
+.ride-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.ride-actions .btn-sm { width:auto; }
+/* Leaflet-Popups an das dunkle Thema anpassen */
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { background:var(--surface); color:var(--text); }
+.leaflet-popup-content a { color:var(--green); }

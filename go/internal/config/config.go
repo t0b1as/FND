@@ -63,6 +63,7 @@ type Config struct {
 	SwapAuto          bool   // automatisches Order-Matching (seriell, abschaltbar)
 	TurnURLs          []string // TURN-Server für Anrufe hinter NAT (turn:host:3478,…)
 	TTLMailboxDays    int      // nicht abgeholte Offline-Nachrichten (0 = nie löschen)
+	DriveOSRMURL      string   // Routendienst für Drive (leer = öffentlicher OSRM)
 	TTLDirectoryDays  int      // Keydir/Kontakte/E-Mail-Verzeichnis fremder Nutzer
 	TTLHistoryDays    int      // Messenger-Verlauf
 	TurnUser          string
@@ -181,6 +182,7 @@ func Load(log *zap.Logger) *Config {
 		SwapAuto:          envBool("FUNDUS_SWAP_AUTO", true),
 		TurnURLs:          envStrList("FUNDUS_TURN_URLS", ""),
 		TTLMailboxDays:    envInt("FUNDUS_TTL_MAILBOX_DAYS", 14),
+		DriveOSRMURL:      envStr("FUNDUS_DRIVE_OSRM", "https://router.project-osrm.org"),
 		TTLDirectoryDays:  envInt("FUNDUS_TTL_DIRECTORY_DAYS", 365),
 		TTLHistoryDays:    envInt("FUNDUS_TTL_HISTORY_DAYS", 365),
 		TurnUser:          envStr("FUNDUS_TURN_USER", ""),

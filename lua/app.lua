@@ -86,6 +86,8 @@ local routes = {
     -- FND Shop
     { method = "GET", pattern = "^/shop$",
       handler = require "pages.shop" },
+    { method = "GET", pattern = "^/drive$",
+      handler = require "pages.drive" },
     { method = "GET", pattern = "^/swaptest$",
       handler = require "pages.swaptest" },
 

@@ -32,6 +32,8 @@ const (
 	RecordAddressBook    RecordType = "address_book"      // lokales Wallet-Adressbuch (NICHT im Netz geteilt)
 	RecordEmailDir       RecordType = "email_dir"         // opt-in Verzeichnis: email → FundusID (signiert)
 	RecordRating         RecordType = "rating"            // Bewertung eines Handelspartners (an Escrow gebunden, signiert)
+	RecordDriver         RecordType = "driver"            // Fahrerprofil im Transportdienst Drive (R635)
+	RecordRide           RecordType = "ride"              // Fahrtgesuch im Transportdienst Drive (R635)
 	RecordHistSync       RecordType = "hist_sync"         // Verlaufsabgleich zwischen den eigenen Nodes (verschlüsselt)
 	RecordPurchase       RecordType = "purchase"          // Kaufvermerk je Escrow (Menge, Übergabe, Versandkosten)
 	RecordBackupPtr      RecordType = "backup_ptr"        // Verweis auf die neueste verschlüsselte Sicherung (Kennung aus dem Passwort)
@@ -331,6 +333,7 @@ func (s *Store) HandleIncoming(topic string, fromPeerID string, data []byte) err
 	// Marktes. Zusammen mit dem Peer-Sync (Bestandsabgleich beim Connect)
 	// ergibt das einen konsistenten, vollstaendigen Marktplatz.
 	isPublicMarket := topic == "fundus.listings" || topic == "fundus.certificate" ||
+		topic == "fundus.drive" || // Drive: Fahrerprofile und Gesuche (R635)
 		topic == "fundus.jobs" || topic == "fundus.energy"
 
 	// Persönliche, verschlüsselte Records (Mailbox, Kontakte, Email-Verzeichnis)
@@ -494,6 +497,10 @@ var PublicRecordTypes = []RecordType{
 	// dieser Vermerk im Netz landet, kennt auch der Verkäufer den Bestand.
 	// Er enthält keine Adresse – die geht verschlüsselt per Messenger.
 	RecordPurchase,
+	// Drive (R635): Fahrerprofile und Fahrtgesuche sind öffentlich – jeder soll
+	// Gesuche sehen und Fahrer auf der Karte finden können.
+	RecordDriver,
+	RecordRide,
 	// Verlaufsabgleich (R584): verschlüsselte Verlaufseinträge, damit derselbe
 	// Nutzer von mehreren eigenen Nodes aus denselben Verlauf sieht. Lesbar
 	// nur mit dem Schlüssel der angemeldeten Identität.
