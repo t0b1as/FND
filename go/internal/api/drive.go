@@ -1168,14 +1168,23 @@ func (s *Server) driveNotify(r *driveRide, was string) {
 	if r == nil || was == "" {
 		return
 	}
+	// Nur Ereignisse, für die es überhaupt etwas zu sagen gibt (R647).
+	if !driveBekanntesEreignis(was) {
+		return
+	}
 	daten := toMap(r)
 	go func() {
 		defer func() { _ = recover() }()
+		gesehen := map[string]bool{}
 		for _, fid := range []string{r.CustomerFID, r.DriverFID} {
 			if fid == "" {
 				continue
 			}
 			fid = strings.ToLower(fid)
+			if gesehen[fid] {
+				continue // Kunde und Fahrer sind dieselbe Person
+			}
+			gesehen[fid] = true
 			sessionMu.RLock()
 			sess := sessionStore[fid]
 			sessionMu.RUnlock()
@@ -1319,4 +1328,16 @@ func (s *Server) driveAngebotFuer(fid string, r *driveRide) (preis, etaMin float
 	}
 	preis, _, _ = drivePrice(d, r.DistanceKm, anfahrt)
 	return preis, etaMin
+}
+
+// driveBekanntesEreignis: Alles andere wird nicht gemeldet. Ohne diese Prüfung
+// ging für jede Statusänderung etwas raus, auch für solche ohne Text – auf dem
+// Gerät kam dann eine leere Meldung an (R647).
+func driveBekanntesEreignis(was string) bool {
+	switch was {
+	case "angenommen", "freigegeben", "zurückgezogen", "abgeschlossen",
+		"hinterlegt", "bezahlt", "position":
+		return true
+	}
+	return false
 }

@@ -315,6 +315,11 @@ func (ps *pushService) send(sub pushSub, payload []byte, urgent bool) (gone bool
 
 // pushNotify sendet an alle Geräte eines Nutzers (asynchron).
 func (s *Server) pushNotify(fid, title, body, link, tag string, urgent bool) {
+	// R647: Ohne Titel oder Text erscheint auf dem Gerät eine leere Meldung –
+	// die lässt sich nicht einordnen und stört nur.
+	if strings.TrimSpace(title) == "" || strings.TrimSpace(body) == "" {
+		return
+	}
 	ps := s.push()
 	fid = strings.ToLower(strings.TrimSpace(fid))
 	if ps == nil || fid == "" {

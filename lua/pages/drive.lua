@@ -15,7 +15,7 @@ return function()
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
 <div class="tab-nav" id="drive-tabs">
   <button class="tab-btn active" onclick="driveTab('neu')">Fahrt anfragen</button>
-  <button class="tab-btn"        onclick="driveTab('gesuche')">Fahrtgesuche</button>
+  <button class="tab-btn"        onclick="driveTab('gesuche')">Kunde finden</button>
   <button class="tab-btn"        onclick="driveTab('fahrer')">Fahrer finden</button>
   <button class="tab-btn"        onclick="driveTab('profil')">Mein Fahrerprofil</button>
 </div>
@@ -86,9 +86,14 @@ return function()
 <!-- ── Fahrtgesuche ───────────────────────────────────────────────────── -->
 <section id="tab-gesuche" class="drive-tab" style="display:none">
   <div class="set-card">
-    <div class="set-head"><h3>Offene Fahrtgesuche</h3>
+    <div class="set-head"><h3>Kunde finden</h3>
       <button class="btn-sm" onclick="ladeGesuche()">↻</button></div>
-    <div class="set-body"><div id="gesuch-liste"><div class="empty-hint" data-empty="listings">Lade …</div></div></div>
+    <div class="set-body">
+      <!-- Karte der offenen Gesuche (R647): Abholort als Punkt, Einzelheiten
+           beim Überfahren bzw. Antippen. -->
+      <div id="gesuch-karte" class="drive-map" style="display:none"></div>
+      <div id="gesuch-liste"><div class="empty-hint" data-empty="listings">Lade …</div></div>
+    </div>
   </div>
 </section>
 
@@ -470,7 +475,55 @@ async function ladeGesuche(){
     if (!liste.length) { box.innerHTML = '<div class="empty-hint" data-empty="listings">Keine Fahrtgesuche</div>'; return; }
     _letzteGesuche = liste;
     box.innerHTML = liste.map(gesuchKarte).join('');
+    zeichneGesuchKarte(liste);
   } catch(e) { box.innerHTML = '<div class="empty-hint">Nicht abrufbar: ' + e.message + '</div>'; }
+}
+
+// Offene Gesuche auf der Karte (R647). Gezeigt wird der ABHOLORT; die
+// Einzelheiten erscheinen beim Überfahren, auf dem Handy beim Antippen.
+let _gesuchKarte = null, _gesuchEbenen = [];
+
+function zeichneGesuchKarte(liste){
+  const box = document.getElementById('gesuch-karte');
+  if (!box) return;
+  const offen = (liste || []).filter(function(g){
+    return g.status === 'open' && g.stops && g.stops.length && (g.stops[0].lat || g.stops[0].lon);
+  });
+  if (typeof L === 'undefined' || !offen.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  if (!_gesuchKarte) {
+    _gesuchKarte = L.map('gesuch-karte');
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(_gesuchKarte);
+  }
+  _gesuchEbenen.forEach(function(e){ _gesuchKarte.removeLayer(e); });
+  _gesuchEbenen = [];
+  const punkte = [];
+  offen.forEach(function(g){
+    const start = g.stops[0], ziel = g.stops[g.stops.length-1];
+    const m = L.marker([start.lat, start.lon], {
+      icon: L.divIcon({className:'gesuch-pin', html: (g.kind === 'goods' ? '📦' : '🧍'),
+                       iconSize:[30,30], iconAnchor:[15,15]})
+    }).addTo(_gesuchKarte);
+    const preis = g.price_fnd || g.estimate_fnd;
+    const inhalt =
+      '<b>' + escHtml(wer(g.customer_name, g.customer_fid)) + '</b><br>' +
+      escHtml(start.label || '?') + ' → ' + escHtml(ziel.label || '?') + '<br>' +
+      (g.distance_km || 0).toFixed(1) + ' km · etwa ' + (g.duration_min || 0) + ' min' +
+      (preis ? '<br><b>' + preis.toFixed(2) + ' FND</b>' + (g.price_fnd ? '' : ' geschätzt') : '') +
+      (g.when_text ? '<br>' + escHtml(g.when_text) : '') +
+      '<br><a href="#" onclick="annehmen(\'' + g.id + '\');return false;">Annehmen</a>';
+    m.bindPopup(inhalt);
+    // Beim Überfahren aufklappen, beim Verlassen wieder zu – auf dem Handy
+    // greift stattdessen das Antippen.
+    m.on('mouseover', function(){ m.openPopup(); });
+    m.on('mouseout',  function(){ m.closePopup(); });
+    m.on('click',     function(){ m.openPopup(); });
+    _gesuchEbenen.push(m);
+    punkte.push([start.lat, start.lon]);
+  });
+  if (punkte.length) _gesuchKarte.fitBounds(punkte, {padding:[30,30], maxZoom: 12});
+  setTimeout(function(){ _gesuchKarte.invalidateSize(); }, 50);
 }
 
 function gesuchKarte(g){

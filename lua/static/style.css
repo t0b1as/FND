@@ -2533,3 +2533,9 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   transition: opacity .4s; text-align: center;
 }
 .ankunft { margin-top: 6px; font-size: var(--fs-sm); color: var(--green); }
+/* Drive: Gesuch-Punkte auf der Karte (R647) */
+.gesuch-pin {
+  background: var(--surface); border: 2px solid var(--green);
+  border-radius: 50%; text-align: center; line-height: 26px; font-size: 15px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.5); cursor: pointer;
+}
