@@ -967,6 +967,8 @@ function driveEreignis(m){
     freigegeben:   '↩ Der Fahrer hat die Fahrt zurückgegeben',
     abgeschlossen: '✓ Fahrt abgeschlossen',
     bezahlt:       '✓ Zahlung vermerkt',
+    hinterlegt:    '💳 Betrag hinterlegt',
+    'zurückgezogen': '✕ Gesuch zurückgezogen',
   };
   if (m.event === 'position') {
     // Nur stillschweigend auffrischen – sonst klingelt es im Minutentakt.

@@ -603,6 +603,14 @@ func (s *Server) driveAcceptRide(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	// Gehört die Fahrt einem anderen Node? Dann dorthin weiterreichen (R644) –
+	// nur der Besitzer kann eine gültig signierte Fassung erzeugen.
+	if !s.driveIsOwner(rec) {
+		preis, eta := s.driveAngebotFuer(fid, r)
+		if s.driveForward(c, rec, "accept", map[string]any{"price_fnd": preis, "eta_min": eta}) {
+			return
+		}
+	}
 	if r.Status != "open" {
 		c.JSON(http.StatusConflict, gin.H{
 			"error": "Dieses Gesuch ist bereits vergeben."})
@@ -617,15 +625,7 @@ func (s *Server) driveAcceptRide(c *gin.Context) {
 		return
 	}
 	// Preis aus dem Fahrerprofil festhalten – damit er später feststeht.
-	if drec, derr := s.store.Get(storage.RecordDriver, "driver:"+fid); derr == nil && drec != nil {
-		if d := driverFromRecord(drec); d != nil {
-			anfahrt := 0.0
-			if len(r.Stops) > 0 && (d.Lat != 0 || d.Lon != 0) {
-				anfahrt = geo.HaversineKm(d.Lat, d.Lon, r.Stops[0].Lat, r.Stops[0].Lon)
-			}
-			r.PriceFND, _, _ = drivePrice(d, r.DistanceKm, anfahrt)
-		}
-	}
+	r.PriceFND, _ = s.driveAngebotFuer(fid, r)
 	jetzt := time.Now()
 	r.Status = "locked"
 	r.DriverFID = fid
@@ -646,7 +646,7 @@ func (s *Server) driveAcceptRide(c *gin.Context) {
 }
 
 func (s *Server) driveReleaseRide(c *gin.Context) {
-	s.driveChangeStatus(c, func(r *driveRide, me string) error {
+	s.driveChangeStatus(c, "release", func(r *driveRide, me string) error {
 		if !strings.EqualFold(r.DriverFID, me) {
 			return fmt.Errorf("nur der zugeteilte Fahrer kann freigeben")
 		}
@@ -656,7 +656,7 @@ func (s *Server) driveReleaseRide(c *gin.Context) {
 }
 
 func (s *Server) driveDoneRide(c *gin.Context) {
-	s.driveChangeStatus(c, func(r *driveRide, me string) error {
+	s.driveChangeStatus(c, "done", func(r *driveRide, me string) error {
 		if !strings.EqualFold(r.CustomerFID, me) && !strings.EqualFold(r.DriverFID, me) {
 			return fmt.Errorf("nur Kunde oder Fahrer können abschließen")
 		}
@@ -667,7 +667,7 @@ func (s *Server) driveDoneRide(c *gin.Context) {
 }
 
 func (s *Server) driveCancelRide(c *gin.Context) {
-	s.driveChangeStatus(c, func(r *driveRide, me string) error {
+	s.driveChangeStatus(c, "cancel", func(r *driveRide, me string) error {
 		if !strings.EqualFold(r.CustomerFID, me) {
 			return fmt.Errorf("nur der Kunde kann das Gesuch zurückziehen")
 		}
@@ -676,7 +676,7 @@ func (s *Server) driveCancelRide(c *gin.Context) {
 	})
 }
 
-func (s *Server) driveChangeStatus(c *gin.Context, fn func(*driveRide, string) error) {
+func (s *Server) driveChangeStatus(c *gin.Context, aktion string, fn func(*driveRide, string) error) {
 	me := s.sessionFID(c)
 	if me == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
@@ -689,6 +689,11 @@ func (s *Server) driveChangeStatus(c *gin.Context, fn func(*driveRide, string) e
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	if !s.driveIsOwner(rec) {
+		if s.driveForward(c, rec, aktion, nil) {
+			return
+		}
+	}
 	if err := fn(r, me); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
@@ -700,6 +705,8 @@ func (s *Server) driveChangeStatus(c *gin.Context, fn func(*driveRide, string) e
 		s.driveNotify(r, "freigegeben")
 	case "done":
 		s.driveNotify(r, "abgeschlossen")
+	case "cancelled":
+		s.driveNotify(r, "zurückgezogen")
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
 }
@@ -878,6 +885,11 @@ func (s *Server) driveLinkEscrow(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	if !s.driveIsOwner(rec) {
+		if s.driveForward(c, rec, "escrow", map[string]any{"escrow_id": req.EscrowID}) {
+			return
+		}
+	}
 	if !strings.EqualFold(r.CustomerFID, me) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Nur der Kunde kann bezahlen."})
 		return
@@ -890,6 +902,7 @@ func (s *Server) driveLinkEscrow(c *gin.Context) {
 	r.EscrowID = strings.ToLower(strings.TrimSpace(req.EscrowID))
 	r.PaidFND = r.PriceFND // hinterlegter Betrag, wird nach der Fahrt ausgezahlt
 	s.driveSaveRide(rec, r)
+	s.driveNotify(r, "hinterlegt") // R645: fehlte auf dem lokalen Weg
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
 }
 
@@ -916,6 +929,11 @@ func (s *Server) driveDirectPaid(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
+	}
+	if !s.driveIsOwner(rec) {
+		if s.driveForward(c, rec, "paid", map[string]any{"amount_fnd": req.AmountFND, "tx": req.TxHash}) {
+			return
+		}
 	}
 	if !strings.EqualFold(r.CustomerFID, me) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Nur der Kunde kann die Zahlung vermerken."})
@@ -956,6 +974,11 @@ func (s *Server) driveCashPaid(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	if !s.driveIsOwner(rec) {
+		if s.driveForward(c, rec, "cash", map[string]any{"amount_fnd": req.AmountFND}) {
+			return
+		}
+	}
 	if !strings.EqualFold(r.DriverFID, me) {
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "Nur der Fahrer kann den Erhalt des Bargelds quittieren."})
@@ -974,6 +997,7 @@ func (s *Server) driveCashPaid(c *gin.Context) {
 		r.DoneAt = &jetzt
 	}
 	s.driveSaveRide(rec, r)
+	s.driveNotify(r, "bezahlt") // R645: fehlte auf dem lokalen Weg
 	if s.log != nil {
 		s.log.Info("Barzahlung quittiert", zap.String("ride", r.ID), zap.Float64("fnd", r.PaidFND))
 	}
@@ -1159,6 +1183,13 @@ func (s *Server) driveNotify(r *driveRide, was string) {
 				s.pushNotify(fid, "Fahrt abgeschlossen",
 					"Die Fahrt wurde als erledigt markiert.", "/drive", "drive-"+r.ID, false)
 			}
+		case "hinterlegt":
+			s.pushNotify(r.DriverFID, "Betrag hinterlegt",
+				fmt.Sprintf("%.2f FND liegen bereit und werden nach der Fahrt ausgezahlt.", r.PaidFND),
+				"/drive", "drive-"+r.ID, false)
+		case "zurückgezogen":
+			s.pushNotify(r.DriverFID, "Fahrt zurückgezogen",
+				"Der Kunde hat das Gesuch zurückgezogen.", "/drive", "drive-"+r.ID, false)
 		case "bezahlt":
 			s.pushNotify(r.DriverFID, "Zahlung eingegangen",
 				fmt.Sprintf("%.2f FND für die Fahrt gutgeschrieben.", r.PaidFND),
@@ -1191,6 +1222,11 @@ func (s *Server) drivePosition(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
 	}
+	if !s.driveIsOwner(rec) {
+		if s.driveForward(c, rec, "position", map[string]any{"lat": req.Lat, "lon": req.Lon}) {
+			return
+		}
+	}
 	if !strings.EqualFold(r.DriverFID, me) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Nur der zugeteilte Fahrer kann seinen Standort melden."})
 		return
@@ -1210,4 +1246,24 @@ func (s *Server) drivePosition(c *gin.Context) {
 	s.driveSaveRide(rec, r)
 	s.driveNotify(r, "position")
 	c.JSON(http.StatusOK, gin.H{"ok": true, "eta_min": r.EtaMin})
+}
+
+// driveAngebotFuer rechnet aus, was dieser Fahrer für diese Fahrt verlangt und
+// wie lange er bis zum ersten Halt braucht.
+func (s *Server) driveAngebotFuer(fid string, r *driveRide) (preis, etaMin float64) {
+	drec, err := s.store.Get(storage.RecordDriver, "driver:"+fid)
+	if err != nil || drec == nil {
+		return 0, 0
+	}
+	d := driverFromRecord(drec)
+	if d == nil {
+		return 0, 0
+	}
+	anfahrt := 0.0
+	if len(r.Stops) > 0 && (d.Lat != 0 || d.Lon != 0) {
+		anfahrt = geo.HaversineKm(d.Lat, d.Lon, r.Stops[0].Lat, r.Stops[0].Lon)
+		etaMin = fahrzeitMin(anfahrt*1.25, 2)
+	}
+	preis, _, _ = drivePrice(d, r.DistanceKm, anfahrt)
+	return preis, etaMin
 }
