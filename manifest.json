@@ -1,8 +1,8 @@
 {
-  "version": "R646",
-  "description": "FUNDUS R646 - Fahrtdienst Drive verbessert",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R646/FND-R646-update.zip",
-  "node_argon2": "7ddbd25e2e26220f568518bcdf7c4aeb3118355e4d42e1b424229dbb344e420f",
-  "published_at": "2026-10-14T14:22:10.7147888Z",
-  "signature": "0xcd9dd51b0b41014d025a7520d98e6c2da5837fe2f8433fae2bf569beb90a89a141cadcf2b2cf523b41c40c51e11ab2920f8c9665a9783b2ba9d94e7bb22073c11c"
+  "version": "R647",
+  "description": "FUNDUS R647 - Fahrtdienst Drive verbessert",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R647/FND-R647-update.zip",
+  "node_argon2": "e52901289e2d8e72f5107a89515719ffdccc8cbbed972632c237a53210f8d67a",
+  "published_at": "2026-10-14T14:53:55.3777559Z",
+  "signature": "0xfe39cdfd1b62bb2c5abc656b3361bca5d4845af419b1c28db3e230535aa1a3d21e430719534bacfa1ba46d6f1e427e65d449a5237a24e11759fc7737407a1f581c"
 }
