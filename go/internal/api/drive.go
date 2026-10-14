@@ -90,6 +90,7 @@ type driveRide struct {
 	TargetDriver string      `json:"target_driver"` // leer = öffentlich für alle
 	Status       string      `json:"status"`        // "open" | "locked" | "done" | "cancelled"
 	DriverFID    string      `json:"driver_fid"`
+	DriverName   string      `json:"driver_name,omitempty"` // Anzeigename des Fahrers (R637)
 	PriceFND     float64     `json:"price_fnd"`     // vereinbarter Preis beim Annehmen
 	// Bezahlung (R636)
 	PaymentMode  string      `json:"payment_mode,omitempty"` // "escrow" | "cash"
@@ -376,6 +377,9 @@ func (s *Server) driveSaveOwnProfile(c *gin.Context) {
 		return
 	}
 	d.FID = fid // nicht aus dem Körper übernehmbar
+	// Name immer aus dem Verzeichnis (R637): Der Browser schickte ihn leer, und
+	// in der Fahrerliste stand dann nur die gekürzte Kennung.
+	d.Name = s.displayNameFor(fid)
 	d.UpdatedAt = time.Now()
 	if d.PerKmFND < 0 || d.ApproachFlatFND < 0 || d.ApproachPerKm < 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Preise dürfen nicht negativ sein."})
@@ -558,6 +562,7 @@ func (s *Server) driveAcceptRide(c *gin.Context) {
 	jetzt := time.Now()
 	r.Status = "locked"
 	r.DriverFID = fid
+	r.DriverName = s.displayNameFor(fid) // damit der Kunde sieht, wer fährt
 	r.LockedAt = &jetzt
 	s.driveSaveRide(rec, r)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
@@ -568,7 +573,7 @@ func (s *Server) driveReleaseRide(c *gin.Context) {
 		if !strings.EqualFold(r.DriverFID, me) {
 			return fmt.Errorf("nur der zugeteilte Fahrer kann freigeben")
 		}
-		r.Status, r.DriverFID, r.LockedAt, r.PriceFND = "open", "", nil, 0
+		r.Status, r.DriverFID, r.DriverName, r.LockedAt, r.PriceFND = "open", "", "", nil, 0
 		return nil
 	})
 }
@@ -799,6 +804,7 @@ func (s *Server) driveLinkEscrow(c *gin.Context) {
 	}
 	r.PaymentMode = "escrow"
 	r.EscrowID = strings.ToLower(strings.TrimSpace(req.EscrowID))
+	r.PaidFND = r.PriceFND // hinterlegter Betrag, wird nach der Fahrt ausgezahlt
 	s.driveSaveRide(rec, r)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
 }

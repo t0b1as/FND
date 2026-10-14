@@ -65,6 +65,17 @@ return function()
       })
       .catch(function(){ el.textContent = '–'; });
   }
+  // Drive-Kachel: Anzahl offener Fahrtgesuche (R637).
+  function driveZahl(){
+    var el = document.getElementById('tile-drive-count'); if (!el) return;
+    fetch('/api/v1/drive/rides', {credentials:'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d) { el.textContent = '–'; return; }
+        el.textContent = (d.rides || []).filter(function(x){ return x.status === 'open'; }).length;
+      }).catch(function(){ el.textContent = '–'; });
+  }
+  driveZahl();
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setzen);
   else setzen();
   setTimeout(setzen, 1200);
@@ -93,6 +104,12 @@ return function()
     <div class="tile-glow"></div>
     <div class="tile-icon">]] .. require("icons").svg("messenger") .. [[</div>
     <div class="tile-value" id="tile-msg-count">–</div>
+    <div class="tile-label">%s</div>
+  </a>
+  <a href="/drive" class="tile tile-cyan" data-nav-key="drive" data-nav-zone="landing">
+    <div class="tile-glow"></div>
+    <div class="tile-icon">]] .. require("icons").svg("drive") .. [[</div>
+    <div class="tile-value" id="tile-drive-count">–</div>
     <div class="tile-label">%s</div>
   </a>
   <a href="/jobs" class="tile tile-purple wip" data-wip="BETA" data-nav-key="jobs" data-nav-zone="landing">
@@ -142,6 +159,7 @@ return function()
         energy,   t("home.energy_count"),
         certs,    (t("nav.certificates") or "Zertifikate"),
         (t("nav.messenger") or "Messenger"),
+        "Drive",
         jobs,     (t("nav.jobs") or "Jobs"),
         peers,    t("home.peers"),
         (t("nav.files") or "Speicher"),

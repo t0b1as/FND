@@ -12,6 +12,7 @@
     { key:"energy",       path:"/energy",       label:"Energie",      icon:"⚡", beta:true, color:"gold" },
     { key:"certificates", path:"/certificates", label:"Zertifikate",  icon:"📜", beta:true, color:"blue" },
     { key:"shop",         path:"/shop",         label:"FND/SOL",      icon:"💰", color:"green",  defQuick:true },
+    { key:"drive",        path:"/drive",        label:"Drive",        icon:"🚗", color:"cyan" },
     { key:"jobs",         path:"/jobs",         label:"Jobs",         icon:"💼", beta:true, color:"purple", defLanding:false },
     { key:"files",        path:"/files",        label:"Dateien",      icon:"📁", color:"pink",   defQuick:true, quickPath:"/shared", quickLabel:"Freigaben" },
     { key:"messenger",    path:"/messenger",    label:"Messenger",    icon:"💬", beta:true, color:"blue", defQuick:true },

@@ -283,18 +283,43 @@ async function berechneRoute(){
   } catch(e) { info.textContent = '✗ ' + e.message; }
 }
 
-// Was würde das bei den bekannten Fahrern kosten?
+// Kostenschätzung (R637): nach dem NÄCHSTGELEGENEN Fahrer, denn der fährt am
+// ehesten – und seine Anfahrt bestimmt einen guten Teil des Preises. Die
+// Spanne der übrigen Fahrer steht als Einordnung daneben.
 async function zeigeKostenSchaetzung(km){
+  const info = document.getElementById('route-info');
   try {
-    const r = await fetch('/api/v1/drive/drivers');
+    // Standort des ersten Halts als Bezugspunkt für die Anfahrt.
+    const start = _stops[0] || {};
+    let url = '/api/v1/drive/drivers';
+    if (start.lat || start.lon) url += '?lat=' + start.lat + '&lon=' + start.lon;
+    const r = await fetch(url);
     const d = await r.json();
-    const f = (d.drivers||[]).filter(function(x){ return x.per_km_fnd > 0; })
-                             .map(function(x){ return x.approach_flat_fnd + km * x.per_km_fnd; })
-                             .sort(function(a,b){ return a-b; });
-    if (!f.length) return;
-    const info = document.getElementById('route-info');
-    info.innerHTML += '<div class="meta" style="margin-top:4px">Fahrer im Netz verlangen dafür etwa ' +
-      f[0].toFixed(2) + ' bis ' + f[f.length-1].toFixed(2) + ' FND.</div>';
+    const fahrer = (d.drivers||[]).filter(function(x){ return x.per_km_fnd > 0; });
+    if (!fahrer.length) {
+      info.innerHTML += '<div class="meta" style="margin-top:4px">Noch kein Fahrer im Netz, ' +
+        'der Preise hinterlegt hat.</div>';
+      return;
+    }
+    function preis(f){
+      const anfahrt = (f.distance_km != null) ? f.distance_km : 0;
+      return f.approach_flat_fnd + anfahrt * f.approach_per_km + km * f.per_km_fnd;
+    }
+    // Nächstgelegener zuerst – die Liste kommt bereits nach Entfernung sortiert.
+    const naechster = fahrer[0];
+    const p = preis(naechster);
+    const bew = (naechster.rating && naechster.rating.count)
+      ? ' · ★ ' + naechster.rating.avg : '';
+    let txt = '<div class="kosten-schaetzung">Geschätzt bei <b>' +
+      escHtml(naechster.name || naechster.fid.slice(0,10)) + '</b>' +
+      (naechster.distance_km != null ? ' (' + naechster.distance_km.toFixed(1) + ' km entfernt' + bew + ')' : bew) +
+      ': <b>' + p.toFixed(2) + ' FND</b>';
+    if (fahrer.length > 1) {
+      const alle = fahrer.map(preis).sort(function(a,b){ return a-b; });
+      txt += '<span class="meta"> · ' + fahrer.length + ' Fahrer im Netz, ' +
+             alle[0].toFixed(2) + ' bis ' + alle[alle.length-1].toFixed(2) + ' FND</span>';
+    }
+    info.innerHTML += txt + '</div>';
   } catch(e) {}
 }
 
@@ -402,26 +427,57 @@ function gesuchKarte(g){
     aktionen = '<button class="btn-sm btn-danger" onclick="rideAktion(\'' + g.id + '\',\'cancel\')">Zurückziehen</button>';
   }
   if (g.status === 'done') {
-    aktionen = '<button class="btn-sm" onclick="bewerten(\'' + g.id + '\')">⭐ Bewerten</button>';
+    // Wer bewertet wen? (R637) Der Kunde bewertet den Fahrer und umgekehrt.
+    const wen = g.mine ? 'Fahrer' : 'Kunde';
+    aktionen = '<button class="btn-sm" onclick="bewerten(\'' + g.id + '\')">⭐ ' + wen + ' bewerten</button>';
+  }
+  // Wer ist beteiligt? (R637) Kunde und Fahrer mit Namen zeigen.
+  // Fehlende Felder dürfen die Liste nicht zerreißen: ältere Gesuche kennen
+  // den Namen noch nicht (R637).
+  let leute = '<span class="meta">Kunde: ' + escHtml(wer(g.customer_name, g.customer_fid)) + '</span>';
+  if (g.driver_name || g.driver_fid) {
+    leute += '<span class="meta"> · Fahrer: ' + escHtml(wer(g.driver_name, g.driver_fid)) + '</span>';
   }
   return '<div class="ride-card">' +
     '<div class="ride-top"><b>' + (g.kind === 'goods' ? '📦 Ware' : '🧍 Personen') + '</b>' +
     '<span class="ride-status" style="color:' + farbe + '">' + stat + '</span></div>' +
     '<div class="ride-route">' + escHtml(weg) + '</div>' +
+    '<div>' + leute + '</div>' +
     '<div class="meta">' + (g.distance_km||0).toFixed(1) + ' km · etwa ' + (g.duration_min||0) + ' min' +
       (g.route_source === 'luftlinie' ? ' (geschätzt)' : '') +
       (g.when_text ? ' · ' + escHtml(g.when_text) : '') + '</div>' +
     ware +
     (g.note ? '<div class="meta">„' + escHtml(g.note) + '“</div>' : '') +
     (g.price_fnd ? '<div class="meta">Vereinbart: <b>' + g.price_fnd.toFixed(2) + ' FND</b></div>' : '') +
-    (g.payment_mode === 'cash'
-      ? '<div class="meta" style="color:var(--green)">💶 Bar bezahlt' +
-        (g.paid_fnd ? ': ' + g.paid_fnd.toFixed(2) + ' FND' : '') + ' – vom Fahrer quittiert</div>'
-      : (g.escrow_id
-         ? '<div class="meta" style="color:var(--green)">💳 Betrag hinterlegt, Freigabe nach der Fahrt</div>'
-         : '')) +
+    zahlungsZeile(g) +
     '<div class="ride-actions">' + aktionen + '</div></div>';
 }
+// Zahlungsstand, nach Abschluss mit dem tatsächlich erhaltenen Betrag (R637).
+function zahlungsZeile(g){
+  const betrag = g.paid_fnd || g.price_fnd || 0;
+  if (g.payment_mode === 'cash') {
+    return '<div class="bezahlt">💶 Bar erhalten: <b>' + betrag.toFixed(2) +
+           ' FND</b> <span class="meta">– vom Fahrer quittiert</span></div>';
+  }
+  if (g.escrow_id) {
+    return g.status === 'done'
+      ? '<div class="bezahlt">💳 Ausgezahlt: <b>' + betrag.toFixed(2) + ' FND</b></div>'
+      : '<div class="bezahlt">💳 <b>' + betrag.toFixed(2) +
+        ' FND</b> hinterlegt <span class="meta">– Freigabe nach der Fahrt</span></div>';
+  }
+  if (g.status === 'done') {
+    return '<div class="meta">Keine Zahlung über Fundus vermerkt.</div>';
+  }
+  return '';
+}
+
+// Name, sonst gekürzte Kennung, sonst Platzhalter.
+function wer(name, fid){
+  if (name && String(name).trim()) return String(name);
+  if (fid && String(fid).length > 10) return String(fid).slice(0,10) + '…';
+  return fid || 'unbekannt';
+}
+
 function escHtml(s){ return String(s||'').replace(/[<>&]/g, function(c){ return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c]; }); }
 
 async function annehmen(id){
@@ -435,6 +491,14 @@ async function annehmen(id){
 
 // Baut eine Route für die Karten-App des Geräts: Start ist der aktuelle
 // Standort (falls verfügbar), dann alle Halte des Kunden der Reihe nach.
+// Entfernung zweier Punkte in Metern (Haversine).
+function metersBetween(lat1, lon1, lat2, lon2){
+  const R = 6371000, rad = Math.PI/180;
+  const dLat = (lat2-lat1)*rad, dLon = (lon2-lon1)*rad;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+
 // Navigation erneut öffnen (Knopf in der Fahrtkarte).
 function navFuer(id){
   const g = (_letzteGesuche || []).find(function(x){ return x.id === id; });
@@ -446,14 +510,33 @@ async function navigationOeffnen(g){
   const punkte = g.stops.filter(function(s){ return s.lat || s.lon; });
   if (!punkte.length) { alert('Für diese Fahrt sind keine Koordinaten hinterlegt.'); return; }
 
-  let start = null;
-  try { const p = await holeStandort(); start = p.lat + ',' + p.lon; } catch(e) {}
+  let eigen = null;
+  try { eigen = await holeStandort(); } catch(e) {}
 
   const ziel = punkte[punkte.length-1];
-  const zwischen = punkte.slice(0, punkte.length-1)
-                         .map(function(s){ return s.lat + ',' + s.lon; });
-  // Ohne eigenen Standort ist der erste Halt der Start.
-  if (!start && zwischen.length) start = zwischen.shift();
+  let halte = punkte.slice(0, punkte.length-1);
+
+  // R638: Steht der Fahrer bereits am Abholort, stand dieselbe Adresse als
+  // Start UND als erstes Zwischenziel in der Route. Liegt der eigene Standort
+  // dicht genug am ersten Halt, fällt dieser Halt weg.
+  let start = null;
+  if (eigen) {
+    start = eigen.lat + ',' + eigen.lon;
+    if (halte.length && metersBetween(eigen.lat, eigen.lon, halte[0].lat, halte[0].lon) < 250) {
+      halte = halte.slice(1);
+    }
+  } else if (halte.length) {
+    // Ohne eigenen Standort ist der erste Halt der Start.
+    start = halte[0].lat + ',' + halte[0].lon;
+    halte = halte.slice(1);
+  }
+  // Auch doppelte Halte hintereinander herausnehmen.
+  const zwischen = [];
+  halte.forEach(function(h){
+    const letzter = zwischen.length ? zwischen[zwischen.length-1] : null;
+    const txt = h.lat + ',' + h.lon;
+    if (txt !== letzter) zwischen.push(txt);
+  });
 
   let url = 'https://www.google.com/maps/dir/?api=1' +
             '&destination=' + encodeURIComponent(ziel.lat + ',' + ziel.lon) +

@@ -2449,3 +2449,59 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 /* Leaflet-Popups an das dunkle Thema anpassen */
 .leaflet-popup-content-wrapper, .leaflet-popup-tip { background:var(--surface); color:var(--text); }
 .leaflet-popup-content a { color:var(--green); }
+/* Drive: Zahlungsstand und Kostenschätzung (R637) */
+.bezahlt { margin-top:6px; font-size:var(--fs-sm); color:var(--green); }
+.kosten-schaetzung { margin-top:6px; font-size:var(--fs-sm); }
+
+/* ── Drive mobil (R638) ──────────────────────────────────────────────────
+   Gleiches Muster wie beim Marktplatz: einspaltig, volle Breite je Feld,
+   Tippflächen mindestens 44 px, nichts quetschen. */
+@media (max-width: 600px) {
+  /* Reiter: waagerecht scrollbar statt umbrechend – vier Reiter passen sonst
+     nicht nebeneinander und der Block wird doppelt so hoch. */
+  #drive-tabs {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  #drive-tabs::-webkit-scrollbar { display: none; }
+  #drive-tabs .tab-btn { flex: 0 0 auto; padding: 10px 14px; font-size: 14px; }
+
+  /* Halte: Beschriftung über das Feld, Knöpfe daneben und groß genug. */
+  .stop-row {
+    display: grid; grid-template-columns: 1fr auto auto;
+    grid-template-areas: "label label label" "input ort weg";
+    gap: 6px; margin-bottom: 10px;
+  }
+  .stop-label { grid-area: label; flex: none; font-weight: 600; }
+  .stop-input { grid-area: input; }
+  .stop-row .btn-sm { min-width: 44px; min-height: 44px; font-size: 16px; }
+  .stop-row .btn-sm:nth-of-type(1) { grid-area: ort; }
+  .stop-row .btn-sm:nth-of-type(2) { grid-area: weg; }
+
+  /* Formularraster einspaltig – zwei Spalten sind auf dem Handy zu eng. */
+  .drive-tab .set-grid { grid-template-columns: 1fr; }
+  .drive-tab .set-grid label { width: 100%; }
+
+  /* Auswahl Personen/Ware und öffentlich/gezielt: volle Breite, antippbar. */
+  .drive-tab .deliv-pick { flex-direction: column; gap: 8px; }
+  .drive-tab .deliv-opt { width: 100%; padding: 12px 14px; }
+
+  /* Knopfzeilen: volle Breite, damit nichts in die nächste Zeile rutscht. */
+  .drive-tab .set-body > div[style*="display:flex"] { flex-direction: column; }
+  .drive-tab .set-body > div[style*="display:flex"] > .btn { width: 100%; }
+
+  /* Fahrtkarten: Kopfzeile umbrechen lassen, Aktionen als volle Knöpfe. */
+  .ride-card { padding: 14px; }
+  .ride-top { flex-wrap: wrap; }
+  .ride-route { font-size: 15px; font-weight: 600; }
+  .ride-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .ride-actions .btn-sm {
+    width: 100%; min-height: 44px; display: flex;
+    align-items: center; justify-content: center; text-align: center;
+  }
+  /* Einzelner Knopf über die ganze Breite. */
+  .ride-actions .btn-sm:only-child { grid-column: 1 / -1; }
+
+  /* Karte: etwas flacher, damit die Liste darunter noch sichtbar ist. */
+  .drive-map { height: 240px; }
+}
