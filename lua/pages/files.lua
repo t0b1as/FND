@@ -18,6 +18,14 @@ html.fm-ro .fm-list-card .file-card-head{gap:8px;flex-wrap:wrap}
 #fm-filter{flex:1;min-width:140px;max-width:420px;padding:11px 16px;border-radius:22px;border:1px solid var(--border);
   background:var(--bg,#0e0e1a);color:var(--text);font-size:14px;transition:border-color .18s ease, box-shadow .18s ease}
 #fm-filter:focus{outline:none;border-color:var(--green-ctrl);box-shadow:0 0 0 3px rgba(23,168,98,0.18), 0 0 14px rgba(23,168,98,0.22)}</style>]==])
+    -- R649: Hinweis, wo Hochladen und Löschen zu finden sind. Diese Ansicht
+    -- zeigt bewusst nur die Freigaben des Netzes und ist rein lesend; wer hier
+    -- landet, sucht aber oft den Dateimanager.
+    ngx.print([==[<div class="info-notice" style="display:block!important;margin-bottom:12px">
+  Diese Ansicht zeigt die Freigaben des gesamten Netzes, nur zum Ansehen.
+  Eigene Dateien hochladen, freigeben oder löschen:
+  <a href="/files" style="font-weight:600">zum Dateimanager</a>
+</div>]==])
   end
 
   local stats, _ = render.api_get("/v1/files/stats")

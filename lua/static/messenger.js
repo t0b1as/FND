@@ -1045,7 +1045,12 @@ function openChatFromURL() {
     contacts[id] = {
         fundusID: to,
         publicKey: key || (existing && existing.publicKey) || '',
-        alias: (existing && existing.alias) || (to.slice(0, 8) + '…'),
+        // R649: ?name= wurde bisher ignoriert – ein aus Drive oder dem
+        // Marktplatz geöffneter Chat zeigte nur die gekürzte Adresse, obwohl
+        // der Name bekannt war.
+        alias: (existing && existing.alias) ||
+               ((new URLSearchParams(window.location.search).get('name') || '').trim()) ||
+               (to.slice(0, 8) + '…'),
         online: existing ? existing.online : false,
     };
     renderContacts();

@@ -255,6 +255,24 @@ ngx.print([[
 </script>
 
 <!-- ── E-Mail-Versand (R557) ──────────────────────────────────── -->
+<div class="set-card" id="external-admin">
+  <div class="set-head"><h3>Betreiberbereich von außen</h3></div>
+  <div class="set-body">
+    <p class="meta">Dateimanager und Einstellungen verwalten echte Pfade auf dem Pi,
+      WLAN-Zugänge und Schlüssel. Sie sind deshalb auf das Heimnetz beschränkt.</p>
+    <label class="set-check">
+      <input type="checkbox" id="ext-admin" onchange="extAdminSetzen(this.checked)">
+      Auch über die öffentliche Adresse erreichbar machen
+    </label>
+    <div id="ext-admin-status" class="meta"></div>
+    <div class="meta" style="margin-top:8px;color:#ffc107">
+      Dann schützt nur noch das Admin-Passwort. Wähle ein langes Passwort und
+      schalte es wieder ab, sobald du es nicht mehr brauchst. Umstellen geht nur
+      aus dem Heimnetz.
+    </div>
+  </div>
+</div>
+
 <div class="set-card" id="mail-card">
   <div class="set-head"><h3>E-Mail-Versand (SMTP)</h3></div>
   <div class="set-body">
@@ -891,6 +909,46 @@ document.addEventListener('DOMContentLoaded', updLoad);
 </style>
 
 <script>
+// Betreiberbereich von außen (R650)
+async function extAdminLaden(){
+  try {
+    const r = await fetch('/api/v1/admin/external-access', {credentials:'same-origin'});
+    if (!r.ok) return;
+    const d = await r.json();
+    const cb = document.getElementById('ext-admin'); if (!cb) return;
+    cb.checked = !!d.enabled;
+    cb.disabled = !d.lan;
+    const st = document.getElementById('ext-admin-status');
+    if (!d.lan) {
+      st.textContent = 'Umstellen geht nur aus dem Heimnetz.';
+    } else {
+      st.textContent = d.enabled
+        ? 'Derzeit auch von außen erreichbar.'
+        : 'Derzeit nur im Heimnetz erreichbar.';
+    }
+  } catch(e) {}
+}
+
+async function extAdminSetzen(an){
+  const st = document.getElementById('ext-admin-status');
+  if (an && !confirm('Dateimanager und Einstellungen werden über die öffentliche Adresse erreichbar.\n' +
+                     'Geschützt sind sie dann nur noch durch das Admin-Passwort.\n\nFortfahren?')) {
+    document.getElementById('ext-admin').checked = false;
+    return;
+  }
+  try {
+    const r = await fetch('/api/v1/admin/external-access', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({enabled: an})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    st.textContent = an ? '✓ Jetzt auch von außen erreichbar.' : '✓ Wieder auf das Heimnetz beschränkt.';
+  } catch(e) {
+    st.textContent = '✗ ' + e.message;
+    document.getElementById('ext-admin').checked = !an;
+  }
+}
+document.addEventListener('DOMContentLoaded', extAdminLaden);
+
 const ST = ]] .. (require("cjson.safe").encode({
   scanning_ports = t("settings.scanning_ports"), no_connection = t("settings.no_connection"),
   no_meter = t("settings.no_meter"), writing_env = t("settings.writing_env"),

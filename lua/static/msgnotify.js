@@ -134,7 +134,16 @@
       ws.onopen = () => { wsRetry = 0; };
       ws.onmessage = (ev) => {
         let msg; try { msg = JSON.parse(ev.data); } catch(e){ return; }
-        if (msg.type === 'receipt' || msg.type === 'signal') return; // keine Töne dafür
+        // R650: NUR echte Chatnachrichten zählen und melden. Über dieselbe
+        // Verbindung laufen inzwischen auch Quittungen, Tipp-Signale,
+        // Verlaufsabgleich und Drive-Ereignisse – die wurden bisher alle als
+        // „Neue Nachricht" gemeldet, ohne Absender und ohne Text. Genau das
+        // waren die leeren Meldungen.
+        // Echte Chatnachrichten tragen type "text" oder "file" und IMMER einen
+        // Absender. Alles andere – Quittungen, Tipp-Signale, Verlaufsabgleich,
+        // Drive-Ereignisse – wird hier nicht gemeldet.
+        const istNachricht = (!msg.type || msg.type === 'text' || msg.type === 'file');
+        if (!istNachricht || !msg.sender_id) return;
         unread++;
         state.count = unread;
         state.lastSender = msg.sender_id || '';

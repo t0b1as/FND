@@ -585,6 +585,15 @@ function aktionenFuer(g){
     const wen = g.mine ? 'Fahrer' : 'Kunde';
     aktionen = '<button class="btn-sm" onclick="bewerten(\'' + g.id + '\')">⭐ ' + wen + ' bewerten</button>';
   }
+  // Kontakt aufnehmen (R649): Als Kunde schreibt man dem Fahrer, als Fahrer
+  // dem Kunden. ZULETZT angehängt, weil die Zweige oben die Variable neu
+  // setzen – vorangestellt wäre der Knopf wieder verschwunden.
+  const gegen = g.mine ? g.driver_fid : g.customer_fid;
+  const gname = g.mine ? (g.driver_name || '') : (g.customer_name || '');
+  if (gegen && g.status !== 'cancelled') {
+    aktionen = '<button class="btn-sm" onclick="schreibeAn(\'' + gegen + '\',\'' +
+               String(gname).replace(/['\\]/g, '') + '\')">💬 Nachricht</button>' + aktionen;
+  }
   return aktionen;
 }
 
@@ -703,6 +712,14 @@ function metersBetween(lat1, lon1, lat2, lon2){
   const dLat = (lat2-lat1)*rad, dLon = (lon2-lon1)*rad;
   const a = Math.sin(dLat/2)**2 + Math.cos(lat1*rad)*Math.cos(lat2*rad)*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(a));
+}
+
+// Messenger mit dem Gegenüber öffnen (R649).
+function schreibeAn(fid, name){
+  if (!fid) return;
+  let url = '/messenger?to=' + encodeURIComponent(fid);
+  if (name) url += '&name=' + encodeURIComponent(name);
+  window.location.href = url;
 }
 
 // Navigation erneut öffnen (Knopf in der Fahrtkarte).
