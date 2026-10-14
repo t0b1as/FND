@@ -506,19 +506,44 @@ function zeichneGesuchKarte(liste){
                        iconSize:[30,30], iconAnchor:[15,15]})
     }).addTo(_gesuchKarte);
     const preis = g.price_fnd || g.estimate_fnd;
+    let ware = '';
+    if (g.kind === 'goods' && g.goods) {
+      const masse = [g.goods.length_cm, g.goods.width_cm, g.goods.height_cm].filter(Boolean).join(' × ');
+      ware = '<br>Ware: ' + escHtml(g.goods.desc || '') +
+             (masse ? ' · ' + masse + ' cm' : '') +
+             (g.goods.weight_kg ? ' · ' + g.goods.weight_kg + ' kg' : '');
+    }
     const inhalt =
       '<b>' + escHtml(wer(g.customer_name, g.customer_fid)) + '</b><br>' +
       escHtml(start.label || '?') + ' → ' + escHtml(ziel.label || '?') + '<br>' +
       (g.distance_km || 0).toFixed(1) + ' km · etwa ' + (g.duration_min || 0) + ' min' +
       (preis ? '<br><b>' + preis.toFixed(2) + ' FND</b>' + (g.price_fnd ? '' : ' geschätzt') : '') +
       (g.when_text ? '<br>' + escHtml(g.when_text) : '') +
-      '<br><a href="#" onclick="annehmen(\'' + g.id + '\');return false;">Annehmen</a>';
-    m.bindPopup(inhalt);
-    // Beim Überfahren aufklappen, beim Verlassen wieder zu – auf dem Handy
-    // greift stattdessen das Antippen.
-    m.on('mouseover', function(){ m.openPopup(); });
-    m.on('mouseout',  function(){ m.closePopup(); });
-    m.on('click',     function(){ m.openPopup(); });
+      ware +
+      (g.note ? '<br>„' + escHtml(g.note) + '“' : '') +
+      '<div class="popup-aktionen">' + aktionenFuer(g) + '</div>';
+    m.bindPopup(inhalt, {autoClose: false, closeOnClick: false});
+
+    // R648: Vorher schloss das Popup, sobald die Maus den Punkt verließ – also
+    // bevor man hineinfahren und etwas anklicken konnte. Jetzt wird das
+    // Schließen verzögert und abgebrochen, sobald die Maus im Popup ist. Ein
+    // Klick auf den Punkt hält es dauerhaft offen.
+    let zu = null, fest = false;
+    const schliessenSpaeter = function(){
+      clearTimeout(zu);
+      zu = setTimeout(function(){ if (!fest) m.closePopup(); }, 400);
+    };
+    const offenHalten = function(){ clearTimeout(zu); };
+    m.on('mouseover', function(){ offenHalten(); m.openPopup(); });
+    m.on('mouseout',  schliessenSpaeter);
+    m.on('click',     function(){ fest = true; offenHalten(); m.openPopup(); });
+    m.on('popupopen', function(e){
+      const el = e.popup.getElement();
+      if (!el) return;
+      el.addEventListener('mouseenter', offenHalten);
+      el.addEventListener('mouseleave', schliessenSpaeter);
+    });
+    m.on('popupclose', function(){ fest = false; });
     _gesuchEbenen.push(m);
     punkte.push([start.lat, start.lon]);
   });
@@ -526,16 +551,9 @@ function zeichneGesuchKarte(liste){
   setTimeout(function(){ _gesuchKarte.invalidateSize(); }, 50);
 }
 
-function gesuchKarte(g){
-  const weg = g.stops.map(function(s){ return s.label || '?'; }).join(' → ');
-  const stat = {open:'offen', locked:'vergeben', done:'abgeschlossen', cancelled:'zurückgezogen'}[g.status] || g.status;
-  const farbe = {open:'var(--green)', locked:'#ffc107', done:'var(--muted)', cancelled:'#ff8a80'}[g.status];
-  let ware = '';
-  if (g.kind === 'goods' && g.goods) {
-    const m = [g.goods.length_cm, g.goods.width_cm, g.goods.height_cm].filter(Boolean).join(' × ');
-    ware = '<div class="meta">Ware: ' + (g.goods.desc || '') +
-           (m ? ' · ' + m + ' cm' : '') + (g.goods.weight_kg ? ' · ' + g.goods.weight_kg + ' kg' : '') + '</div>';
-  }
+// Aktionen zu einer Fahrt – an EINER Stelle (R648), damit die Karte unter
+// der Übersicht und das Popup auf der Karte dasselbe anbieten.
+function aktionenFuer(g){
   let aktionen = '';
   if (g.status === 'open' && !g.mine) {
     aktionen = '<button class="btn-sm" onclick="annehmen(\'' + g.id + '\')">Annehmen</button>';
@@ -567,6 +585,20 @@ function gesuchKarte(g){
     const wen = g.mine ? 'Fahrer' : 'Kunde';
     aktionen = '<button class="btn-sm" onclick="bewerten(\'' + g.id + '\')">⭐ ' + wen + ' bewerten</button>';
   }
+  return aktionen;
+}
+
+function gesuchKarte(g){
+  const weg = g.stops.map(function(s){ return s.label || '?'; }).join(' → ');
+  const stat = {open:'offen', locked:'vergeben', done:'abgeschlossen', cancelled:'zurückgezogen'}[g.status] || g.status;
+  const farbe = {open:'var(--green)', locked:'#ffc107', done:'var(--muted)', cancelled:'#ff8a80'}[g.status];
+  let ware = '';
+  if (g.kind === 'goods' && g.goods) {
+    const m = [g.goods.length_cm, g.goods.width_cm, g.goods.height_cm].filter(Boolean).join(' × ');
+    ware = '<div class="meta">Ware: ' + (g.goods.desc || '') +
+           (m ? ' · ' + m + ' cm' : '') + (g.goods.weight_kg ? ' · ' + g.goods.weight_kg + ' kg' : '') + '</div>';
+  }
+  const aktionen = aktionenFuer(g);
   // Wer ist beteiligt? (R637) Kunde und Fahrer mit Namen zeigen.
   // R642: In der Kopfzeile steht, mit WEM man es zu tun hat – als Fahrer der
   // Kunde, als Kunde der Fahrer. Die Art der Fahrt bleibt als Symbol davor.

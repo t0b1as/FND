@@ -2539,3 +2539,7 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   border-radius: 50%; text-align: center; line-height: 26px; font-size: 15px;
   box-shadow: 0 2px 8px rgba(0,0,0,.5); cursor: pointer;
 }
+/* Drive: Aktionen im Karten-Popup (R648) */
+.popup-aktionen { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.popup-aktionen .btn-sm { width:auto; font-size:12px; padding:5px 10px; }
+.leaflet-popup-content { min-width: 210px; }
