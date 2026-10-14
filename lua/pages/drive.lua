@@ -146,6 +146,7 @@ return function()
 let _stops = [{label:"",lat:0,lon:0},{label:"",lat:0,lon:0}];
 let _route = null;
 let _karte = null, _marker = [];
+let _letzteGesuche = [];
 
 function driveTab(name){
   document.querySelectorAll('.drive-tab').forEach(function(s){ s.style.display='none'; });
@@ -206,6 +207,17 @@ async function geocode(text){
 function holeStandort(){
   return new Promise(function(erfuellt, abgelehnt){
     if (!navigator.geolocation) { abgelehnt(new Error('Dieses Gerät kennt keine Ortung.')); return; }
+    // R637: Browser geben den Standort NUR in einem sicheren Kontext frei –
+    // also über https oder localhost. Über http://10.10.11.x wird die Anfrage
+    // stillschweigend verweigert: kein Popup, keine Fehlermeldung, nichts
+    // passiert. Genau das war mobil zu sehen. Deshalb vorher prüfen und es
+    // deutlich sagen, statt den Nutzer rätseln zu lassen.
+    if (window.isSecureContext === false) {
+      abgelehnt(new Error('Ortung braucht eine gesicherte Verbindung. Diese Seite läuft über ' +
+        location.protocol + '//' + location.host + '. Bitte über https öffnen, ' +
+        'dann fragt das Gerät nach der Erlaubnis.'));
+      return;
+    }
     navigator.geolocation.getCurrentPosition(
       function(p){ erfuellt({lat: p.coords.latitude, lon: p.coords.longitude, genauigkeit: p.coords.accuracy}); },
       function(e){
@@ -356,6 +368,7 @@ async function ladeGesuche(){
     const d = await r.json();
     const liste = d.rides || [];
     if (!liste.length) { box.innerHTML = '<div class="empty-hint" data-empty="listings">Keine Fahrtgesuche</div>'; return; }
+    _letzteGesuche = liste;
     box.innerHTML = liste.map(gesuchKarte).join('');
   } catch(e) { box.innerHTML = '<div class="empty-hint">Nicht abrufbar: ' + e.message + '</div>'; }
 }
@@ -375,7 +388,8 @@ function gesuchKarte(g){
     aktionen = '<button class="btn-sm" onclick="annehmen(\'' + g.id + '\')">Annehmen</button>';
   } else if (g.status === 'locked' && g.driving) {
     // Fahrer: abschließen, zurückgeben – und Barzahlung quittieren (R636).
-    aktionen = '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'done\')">Fahrt abgeschlossen</button>' +
+    aktionen = '<button class="btn-sm" onclick="navFuer(\'' + g.id + '\')">🧭 Navigation</button>' +
+               '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'done\')">Fahrt abgeschlossen</button>' +
                '<button class="btn-sm" onclick="barQuittieren(\'' + g.id + '\',' + (g.price_fnd||0) + ')">💶 Bar erhalten</button>' +
                '<button class="btn-sm" onclick="rideAktion(\'' + g.id + '\',\'release\')">Zurückgeben</button>';
   } else if (g.status === 'locked' && g.mine) {
@@ -410,7 +424,44 @@ function gesuchKarte(g){
 }
 function escHtml(s){ return String(s||'').replace(/[<>&]/g, function(c){ return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c]; }); }
 
-async function annehmen(id){ await rideAktion(id, 'accept'); }
+async function annehmen(id){
+  await rideAktion(id, 'accept');
+  // R637: Direkt die Navigation öffnen – vom aktuellen Standort über alle
+  // Halte des Kunden bis zum Ziel. Der Fahrer soll nach dem Annehmen nicht
+  // erst Adressen abtippen müssen.
+  const g = (_letzteGesuche || []).find(function(x){ return x.id === id; });
+  if (g) navigationOeffnen(g);
+}
+
+// Baut eine Route für die Karten-App des Geräts: Start ist der aktuelle
+// Standort (falls verfügbar), dann alle Halte des Kunden der Reihe nach.
+// Navigation erneut öffnen (Knopf in der Fahrtkarte).
+function navFuer(id){
+  const g = (_letzteGesuche || []).find(function(x){ return x.id === id; });
+  if (g) navigationOeffnen(g);
+}
+
+async function navigationOeffnen(g){
+  if (!g || !g.stops || !g.stops.length) return;
+  const punkte = g.stops.filter(function(s){ return s.lat || s.lon; });
+  if (!punkte.length) { alert('Für diese Fahrt sind keine Koordinaten hinterlegt.'); return; }
+
+  let start = null;
+  try { const p = await holeStandort(); start = p.lat + ',' + p.lon; } catch(e) {}
+
+  const ziel = punkte[punkte.length-1];
+  const zwischen = punkte.slice(0, punkte.length-1)
+                         .map(function(s){ return s.lat + ',' + s.lon; });
+  // Ohne eigenen Standort ist der erste Halt der Start.
+  if (!start && zwischen.length) start = zwischen.shift();
+
+  let url = 'https://www.google.com/maps/dir/?api=1' +
+            '&destination=' + encodeURIComponent(ziel.lat + ',' + ziel.lon) +
+            '&travelmode=driving';
+  if (start)           url += '&origin=' + encodeURIComponent(start);
+  if (zwischen.length) url += '&waypoints=' + encodeURIComponent(zwischen.join('|'));
+  window.open(url, '_blank', 'noopener');
+}
 
 async function rideAktion(id, was){
   try {
