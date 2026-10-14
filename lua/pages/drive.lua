@@ -448,10 +448,26 @@ function gesuchKarte(g){
       (g.when_text ? ' · ' + escHtml(g.when_text) : '') + '</div>' +
     ware +
     (g.note ? '<div class="meta">„' + escHtml(g.note) + '“</div>' : '') +
-    (g.price_fnd ? '<div class="meta">Vereinbart: <b>' + g.price_fnd.toFixed(2) + ' FND</b></div>' : '') +
+    preisZeile(g) +
     zahlungsZeile(g) +
     '<div class="ride-actions">' + aktionen + '</div></div>';
 }
+// Preis am Gesuch (R639): Steht ein Fahrer fest, gilt der vereinbarte Betrag.
+// Vorher die Schätzung nach dem nächstgelegenen Fahrer – vorher stand an
+// offenen Gesuchen gar kein Preis.
+function preisZeile(g){
+  if (g.price_fnd) {
+    return '<div class="meta">Vereinbart: <b>' + g.price_fnd.toFixed(2) + ' FND</b></div>';
+  }
+  if (g.estimate_fnd) {
+    const wer = g.estimate_name ? (' bei ' + escHtml(g.estimate_name)) : '';
+    const rest = (g.estimate_count > 1) ? (' · ' + g.estimate_count + ' Fahrer in Reichweite') : '';
+    return '<div class="meta">Geschätzt' + wer + ': <b>' + g.estimate_fnd.toFixed(2) +
+           ' FND</b><span class="meta">' + rest + '</span></div>';
+  }
+  return '<div class="meta">Noch kein Fahrer mit Preisen in Reichweite.</div>';
+}
+
 // Zahlungsstand, nach Abschluss mit dem tatsächlich erhaltenen Betrag (R637).
 function zahlungsZeile(g){
   const betrag = g.paid_fnd || g.price_fnd || 0;

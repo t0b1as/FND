@@ -92,6 +92,11 @@ type driveRide struct {
 	DriverFID    string      `json:"driver_fid"`
 	DriverName   string      `json:"driver_name,omitempty"` // Anzeigename des Fahrers (R637)
 	PriceFND     float64     `json:"price_fnd"`     // vereinbarter Preis beim Annehmen
+	// Schätzung beim Einstellen (R639): Damit am Gesuch ein Preis steht, auch
+	// bevor ein Fahrer zugesagt hat. Grundlage ist der nächstgelegene Fahrer.
+	EstimateFND   float64 `json:"estimate_fnd,omitempty"`
+	EstimateName  string  `json:"estimate_name,omitempty"`
+	EstimateCount int     `json:"estimate_count,omitempty"`
 	// Bezahlung (R636)
 	PaymentMode  string      `json:"payment_mode,omitempty"` // "escrow" | "cash"
 	EscrowID     string      `json:"escrow_id,omitempty"`
@@ -135,9 +140,34 @@ func luftlinienRoute(stops []DriveStop) driveRoute {
 	km *= 1.25
 	return driveRoute{
 		DistanceKm:  rund2(km),
-		DurationMin: math.Round(km / 50 * 60), // grob 50 km/h im Mittel
+		DurationMin: fahrzeitMin(km, len(stops)),
 		Source:      "luftlinie",
 	}
+}
+
+// fahrzeitMin schätzt die Fahrzeit realistisch (R639).
+//
+// Vorher wurde pauschal mit 50 km/h gerechnet. Das ist weit daneben, vor allem
+// auf kurzen Strecken: 5 km durch den Ort dauern keine 6 Minuten, sondern eher
+// eine Viertelstunde. Jetzt hängt die Durchschnittsgeschwindigkeit von der
+// Entfernung ab – kurze Fahrten laufen über Ortsstraßen mit Ampeln, lange zum
+// guten Teil über Landstraße und Autobahn. Dazu eine Grundzeit fürs Losfahren
+// und Parken sowie ein Zuschlag je Zwischenhalt.
+func fahrzeitMin(km float64, halte int) float64 {
+	var v float64 // mittlere Geschwindigkeit in km/h
+	switch {
+	case km < 10:
+		v = 28
+	case km < 50:
+		v = 40
+	default:
+		v = 62
+	}
+	min := km/v*60 + 5 // 5 Minuten Grundzeit
+	if halte > 2 {
+		min += float64(halte-2) * 3 // je Zwischenhalt drei Minuten
+	}
+	return math.Round(min)
 }
 
 // osrmRoute fragt einen Routendienst. Fehler sind kein Drama – dann greift die
@@ -185,9 +215,15 @@ func (s *Server) osrmRoute(ctx context.Context, stops []DriveStop) (driveRoute, 
 		return driveRoute{}, fmt.Errorf("keine Route gefunden")
 	}
 	r := out.Routes[0]
+	// Der Routendienst rechnet mit freier Fahrt: keine Ampeln, kein Verkehr,
+	// kein Halten. In der Praxis dauert es länger (R639).
+	dauer := r.Duration/60*1.2 + 3
+	if len(stops) > 2 {
+		dauer += float64(len(stops)-2) * 3 // je Zwischenhalt
+	}
 	return driveRoute{
 		DistanceKm:  rund2(r.Distance / 1000),
-		DurationMin: math.Round(r.Duration / 60),
+		DurationMin: math.Round(dauer),
 		Source:      "osrm",
 		Geometry:    r.Geometry,
 	}, nil
@@ -499,6 +535,7 @@ func (s *Server) driveCreateRide(c *gin.Context) {
 	r.PriceFND = 0
 	r.CreatedAt = time.Now()
 	r.ID = "ride:" + fmt.Sprintf("%d", time.Now().UnixNano())
+	r.EstimateFND, r.EstimateName, r.EstimateCount = s.schaetzePreis(r.Stops[0], r.DistanceKm)
 
 	rec := &storage.Record{
 		ID:        r.ID,
@@ -875,4 +912,44 @@ func (s *Server) driveDriverWallet(c *gin.Context) {
 		"wallet":     addr.Hex(),
 		"price_fnd":  r.PriceFND,
 	})
+}
+
+// schaetzePreis rechnet aus, was die Fahrt beim nächstgelegenen Fahrer kosten
+// würde (R639). Zurück kommen Betrag, dessen Name und wie viele Fahrer mit
+// hinterlegten Preisen es überhaupt gibt.
+func (s *Server) schaetzePreis(start DriveStop, km float64) (float64, string, int) {
+	recs, err := s.store.List(storage.RecordDriver)
+	if err != nil {
+		return 0, "", 0
+	}
+	type kandidat struct {
+		d    *driveDriver
+		dist float64
+	}
+	var liste []kandidat
+	for _, rec := range recs {
+		if rec == nil || rec.DeletedAt != nil {
+			continue
+		}
+		d := driverFromRecord(rec)
+		if d == nil || !d.Active || d.PerKmFND <= 0 {
+			continue
+		}
+		dist := 0.0
+		if (d.Lat != 0 || d.Lon != 0) && (start.Lat != 0 || start.Lon != 0) {
+			dist = geo.HaversineKm(d.Lat, d.Lon, start.Lat, start.Lon)
+			// Außerhalb des Einsatzgebiets kommt er ohnehin nicht.
+			if d.RadiusKm > 0 && dist > d.RadiusKm {
+				continue
+			}
+		}
+		liste = append(liste, kandidat{d, dist})
+	}
+	if len(liste) == 0 {
+		return 0, "", 0
+	}
+	sort.Slice(liste, func(i, j int) bool { return liste[i].dist < liste[j].dist })
+	n := liste[0]
+	gesamt, _, _ := drivePrice(n.d, km, n.dist)
+	return gesamt, n.d.Name, len(liste)
 }

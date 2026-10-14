@@ -2457,14 +2457,20 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
    Gleiches Muster wie beim Marktplatz: einspaltig, volle Breite je Feld,
    Tippflächen mindestens 44 px, nichts quetschen. */
 @media (max-width: 600px) {
-  /* Reiter: waagerecht scrollbar statt umbrechend – vier Reiter passen sonst
-     nicht nebeneinander und der Block wird doppelt so hoch. */
+  /* Reiter zweizeilig (R639): Waagerechtes Scrollen hat die hinteren Reiter
+     unsichtbar gemacht – man sah nicht, dass es sie gibt. Zwei Zeilen zu je
+     zwei Reitern zeigen alle vier auf einen Blick. */
   #drive-tabs {
-    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 0;
+    overflow: visible; border-bottom: none;
   }
-  #drive-tabs::-webkit-scrollbar { display: none; }
-  #drive-tabs .tab-btn { flex: 0 0 auto; padding: 10px 14px; font-size: 14px; }
+  #drive-tabs .tab-btn {
+    width: 100%; min-height: 44px; padding: 10px 8px; font-size: 14px;
+    border: 1px solid var(--border); border-radius: 0; margin: 0 -1px -1px 0;
+  }
+  #drive-tabs .tab-btn.active {
+    border-color: var(--green); background: var(--green-bg); position: relative; z-index: 1;
+  }
 
   /* Halte: Beschriftung über das Feld, Knöpfe daneben und groß genug. */
   .stop-row {
