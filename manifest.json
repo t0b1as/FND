@@ -1,8 +1,8 @@
 {
-  "version": "R635",
-  "description": "FUNDUS R635 - Fahrtdienst Drive hinzugef├╝gt",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R635/FND-R635-update.zip",
-  "node_argon2": "d7d16b6682922a31ec75cc74f2d737dfa114d1df0f1006c3accdee9265fd0475",
-  "published_at": "2026-10-14T11:14:45.4742938Z",
-  "signature": "0xb41e2a323ba4946920980e3527a74b85af5f1498da8434ab4bf33038990966246502cccaa0f553d677aad8310a75a00b33e42a1b3a69eb0c769f9d85a72375081c"
+  "version": "R636",
+  "description": "FUNDUS R636 - Fahrtdienst Drive verbessert",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R636/FND-R636-update.zip",
+  "node_argon2": "2592984d70a9f0156472c5976aadc140314a0de14b403dc6a3e92b3c9a0a9481",
+  "published_at": "2026-10-14T11:35:13.6374534Z",
+  "signature": "0x1de33698b9a8d75649d146a68777976a7d73ab9dc02684ce033bcf6bcb60df7955dcb8b1a8bc158daf893b0bb2a6387274d001b1513ff4b07ed000149f2b6d541c"
 }
