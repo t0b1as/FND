@@ -2664,3 +2664,28 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
    stehen und verdeckte sonst die erste Zeile der Eigenschaftsfilter. */
 #attr-filter { margin-top: 14px; clear: both; }
 #attr-filter > .attr-filter { margin-top: 0; }
+
+/* ── Anmeldepflicht: Erklärung statt Fehlermeldungen (R659) ──────────────── */
+#auth-gate {
+  position: fixed; inset: 0; z-index: 9500;
+  background: rgba(4, 7, 12, .94); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  overflow: auto;
+}
+#auth-gate .ag-box {
+  max-width: 520px; width: 100%; background: var(--surface);
+  border: 1px solid var(--green); border-radius: var(--radius);
+  padding: 26px 28px; box-shadow: 0 10px 40px rgba(0,0,0,.6);
+}
+#auth-gate .ag-titel {
+  font-size: 22px; font-weight: 700; color: var(--green); margin-bottom: 12px;
+}
+#auth-gate p { color: var(--text-dim); margin: 10px 0; line-height: 1.5; }
+#auth-gate .ag-weg {
+  border-left: 3px solid var(--green); padding: 10px 0 10px 14px;
+  margin: 14px 0; color: var(--text-dim); line-height: 1.5;
+}
+#auth-gate .ag-weg b { color: var(--text); }
+#auth-gate .ag-warn { color: #ffc107; font-size: var(--fs-sm); }
+#auth-gate .btn { width: 100%; margin-top: 16px; }
+@media (max-width: 600px) { #auth-gate .ag-box { padding: 20px 18px; } }
