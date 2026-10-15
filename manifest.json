@@ -1,8 +1,8 @@
 {
-  "version": "R654",
-  "description": "FUNDUS R654 - Immo und Auto",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R654/FND-R654-update.zip",
-  "node_argon2": "782834cb2278eee45ea00be75d6a59d48e3d5c0f2ee40b0cf9fd230a33370abf",
-  "published_at": "2026-10-15T06:34:28.6516573Z",
-  "signature": "0x35f6e032f079dbec824d1898d3d66dab63b60e2594a76150314fbf198c0f2f934b3f037b7bea4e9b3097e44ad68369bae6800e8d5b8b7032a596602cc5c9a6091c"
+  "version": "R656",
+  "description": "FUNDUS R656 - Immo und Auto",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R656/FND-R656-update.zip",
+  "node_argon2": "4663f0757bef06879e4f2515ef0023984ae072575030212cb5e37731e2f2f33c",
+  "published_at": "2026-10-15T08:00:12.1923303Z",
+  "signature": "0x95413ec86b29c0e1934353e0932e56e03698c17d20d39e959c8ed66185663d493d65e0db773b1d75662773a6425dc9f2e03cb6fc0ffd507c882a9cda88d026481c"
 }
