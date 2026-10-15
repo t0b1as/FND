@@ -349,6 +349,7 @@ func (s *Server) registerRoutes() {
 	// Listings (Waren & Dienste)
 	listings := r.Group("/api/v1/listings")
 	{
+		listings.GET("/attrs", s.listingAttrs) // Eigenschaften je Kategorie (R652)
 		listings.GET("/categories", s.listCategories) // alle im Netz benutzten Kategorien (R608)
 		listings.GET("",       s.listListings)
 		listings.POST("",      s.createListing)
@@ -451,7 +452,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R650"
+const NodeRevision = "R653"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -813,6 +814,16 @@ func (s *Server) createListing(c *gin.Context) {
 	if s.node != nil {
 		if sig, err := s.node.SignData(record.SigningBytes()); err == nil {
 			record.Signature = sig
+		}
+	}
+	// Kategoriespezifische Eigenschaften übernehmen (R652) – nur Felder, die
+	// das Schema der gewählten Kategorie kennt.
+	if roh, ok := record.Data["attrs"].(map[string]any); ok {
+		kat, _ := record.Data["category"].(string)
+		if sauber := bereinigeAttrs(kat, roh); sauber != nil {
+			record.Data["attrs"] = sauber
+		} else {
+			delete(record.Data, "attrs")
 		}
 	}
 	// Vorschaubilder gleich im Voraus erzeugen (R631): Der Node hat die Dateien
@@ -1452,6 +1463,19 @@ func (s *Server) listCategories(c *gin.Context) {
 // anderer Node des Erstellers schickt (R611) – damit beide Wege exakt
 // dieselben Regeln anwenden.
 func (s *Server) applyListingUpdate(existing *storage.Record, body map[string]any) {
+	// Eigenschaften gegen das Schema prüfen (R652). Die Kategorie kann sich in
+	// derselben Änderung mit ändern, deshalb die neue heranziehen.
+	if roh, ok := body["attrs"].(map[string]any); ok {
+		kat, _ := body["category"].(string)
+		if kat == "" && existing.Data != nil {
+			kat, _ = existing.Data["category"].(string)
+		}
+		if sauber := bereinigeAttrs(kat, roh); sauber != nil {
+			body["attrs"] = sauber
+		} else {
+			delete(body, "attrs")
+		}
+	}
 	// Felder MERGEN statt komplett ersetzen: nur die im Body gesendeten
 	// Felder werden aktualisiert. So gehen z.B. Bilder (images/image_hashes)
 	// nicht verloren, wenn das Edit-Formular sie nicht mitsendet.

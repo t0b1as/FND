@@ -108,7 +108,9 @@ function renderFilterBar() {
     const radiusVal = document.getElementById('s-radius') ? document.getElementById('s-radius').value : '';
     mount.innerHTML =
         '<input type="text" class="filter-text" placeholder="Titel/Beschreibung filtern…" value="'+esc(_textFilter)+'" oninput="filterByText(this.value)">' +
-        '<select class="filter-cat" onchange="filterByCategory(this.value)">'+categoryOptions()+'</select>' +
+        '<select class="filter-cat" onchange="filterByCategory(this.value)">'+categoryOptions()+'</select>'+
+        '<div id=\"attr-filter\" style=\"display:none\"></div>'+
+        '' +
         '<select class="filter-cond" onchange="filterByCondition(this.value)">'+conditionOptions()+'</select>' +
         '<input type="number" class="filter-price" min="0" placeholder="max €" value="'+esc(_priceFilter)+'" oninput="filterByPrice(this.value)">' +
         '<input type="number" class="filter-radius" min="0" placeholder="km" value="'+esc(radiusVal)+'" onchange="setRadius(this.value)" title="Umkreis in km">' +
@@ -169,11 +171,114 @@ function applyFilters() {
             const hay = ((it.title||'') + ' ' + (it.description||'') + ' ' + (it.category||'')).toLowerCase();
             if (!hay.includes(tf)) return false;
         }
+        if (!attrPasst(it)) return false;   // R652
         return true;
     });
     applySortAndRender();
 }
-function filterByCategory(cat) { _catFilter = cat || ''; applyFilters(); }
+// ── Eigenschaftsfilter für Fahrzeuge und Immobilien (R652) ────────────────
+// Die Felder kommen aus demselben Schema wie das Formular. Angezeigt werden sie
+// nur, wenn eine Kategorie gewählt ist, die welche hat.
+let _attrSchema = null, _attrFilter = {}, _sortKey = '';
+
+async function attrSchemaHolen(){
+  if (_attrSchema) return _attrSchema;
+  try {
+    const r = await fetch('/api/v1/listings/attrs');
+    const d = await r.json();
+    _attrSchema = d.schema || {};
+  } catch(e) { _attrSchema = {}; }
+  return _attrSchema;
+}
+
+function attrPasst(it){
+  const keys = Object.keys(_attrFilter);
+  if (!keys.length) return true;
+  const a = it.attrs || {};
+  for (const k of keys) {
+    const f = _attrFilter[k];
+    if (f === '' || f == null) continue;
+    if (k.endsWith('__min') || k.endsWith('__max')) {
+      const basis = k.slice(0, -5);
+      const z = parseFloat(a[basis]);
+      if (isNaN(z)) return false;              // Angabe fehlt
+      if (k.endsWith('__min') && z < parseFloat(f)) return false;
+      if (k.endsWith('__max') && z > parseFloat(f)) return false;
+      continue;
+    }
+    const v = a[k];
+    if (v == null) return false;
+    if (typeof v === 'boolean') { if (String(v) !== String(f)) return false; continue; }
+    if (String(v).toLowerCase().indexOf(String(f).toLowerCase()) < 0) return false;
+  }
+  return true;
+}
+
+function attrFilterSetzen(key, wert){
+  if (wert === '' || wert == null) delete _attrFilter[key];
+  else _attrFilter[key] = wert;
+  applyFilters();
+}
+
+function sortSetzen(key){ _sortKey = key || ''; applyFilters(); }
+
+// Zeichnet die Filterfelder zur gewählten Kategorie.
+async function attrFilterZeichnen(){
+  const box = document.getElementById('attr-filter');
+  if (!box) return;
+  const schema = await attrSchemaHolen();
+  const alle = schema[_catFilter] || [];
+  const felder = alle.filter(function(f){ return f.filter; });
+  if (!felder.length) { box.innerHTML = ''; box.style.display = 'none'; _attrFilter = {}; return; }
+  box.style.display = '';
+
+  const teile = felder.map(function(f){
+    const einheit = f.unit ? ' <span class="meta">(' + f.unit + ')</span>' : '';
+    if (f.type === 'bool') {
+      return '<label>' + esc(f.label) +
+        '<select onchange="attrFilterSetzen(\'' + f.key + '\', this.value)">' +
+        '<option value="">egal</option><option value="true">ja</option><option value="false">nein</option>' +
+        '</select></label>';
+    }
+    if (f.type === 'select') {
+      const opts = ['<option value="">alle</option>'].concat((f.options||[]).map(function(o){
+        return '<option value="' + esc(o) + '">' + esc(o) + '</option>'; })).join('');
+      return '<label>' + esc(f.label) +
+        '<select onchange="attrFilterSetzen(\'' + f.key + '\', this.value)">' + opts + '</select></label>';
+    }
+    if (f.type === 'number') {
+      return '<label>' + esc(f.label) + einheit +
+        '<span style="display:flex;gap:6px">' +
+        '<input type="number" step="any" placeholder="von" style="min-width:0" ' +
+        'oninput="attrFilterSetzen(\'' + f.key + '__min\', this.value)">' +
+        '<input type="number" step="any" placeholder="bis" style="min-width:0" ' +
+        'oninput="attrFilterSetzen(\'' + f.key + '__max\', this.value)">' +
+        '</span></label>';
+    }
+    return '<label>' + esc(f.label) +
+      '<input type="text" placeholder="enthält …" ' +
+      'oninput="attrFilterSetzen(\'' + f.key + '\', this.value)"></label>';
+  });
+
+  // Sortierung: Preis plus die Felder, die sich dafür eignen.
+  const sortierbar = alle.filter(function(f){ return f.sort; });
+  let sortOpts = '<option value="">Preis aufsteigend</option>' +
+                 '<option value="-price">Preis absteigend</option>';
+  sortierbar.forEach(function(f){
+    sortOpts += '<option value="' + f.key + '">' + esc(f.label) + ' aufsteigend</option>' +
+                '<option value="-' + f.key + '">' + esc(f.label) + ' absteigend</option>';
+  });
+  teile.push('<label>Sortierung<select onchange="sortSetzen(this.value)">' + sortOpts + '</select></label>');
+
+  box.innerHTML = '<div class="attr-filter">' + teile.join('') + '</div>';
+}
+
+function filterByCategory(cat) {
+  _catFilter = cat || '';
+  _attrFilter = {}; _sortKey = '';   // R652: Filter gehören zur Kategorie
+  attrFilterZeichnen();
+  applyFilters();
+}
 function filterByCondition(cond) { _condFilter = cond || ''; applyFilters(); }
 function filterByText(txt) {
     _textFilter = txt || '';
@@ -429,6 +534,25 @@ function setSortFromSelect(col) {
     applySortAndRender();
 }
 function applySortAndRender() {
+    // Eigenschaftssortierung hat Vorrang, wenn eine gewählt ist (R652).
+    if (_sortKey) {
+        const ab = _sortKey.charAt(0) === '-';
+        const key = ab ? _sortKey.slice(1) : _sortKey;
+        const zahl = function(it){
+            if (key === 'price') return parseFloat(it.price_min);
+            return parseFloat((it.attrs || {})[key]);
+        };
+        _allResults.sort(function(a, b){
+            const x = zahl(a), y = zahl(b);
+            const ox = !isNaN(x), oy = !isNaN(y);
+            if (ox !== oy) return ox ? -1 : 1;   // ohne Angabe ans Ende
+            if (ox && x !== y) return ab ? (y - x) : (x - y);
+            return (a.id || '').localeCompare(b.id || '');
+        });
+        _currentPage = 1;
+        renderResultsPage();
+        return;
+    }
     const d = _sortDir;
     _allResults.sort((a, b) => {
         let av, bv;

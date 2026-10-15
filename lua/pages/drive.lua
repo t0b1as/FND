@@ -697,6 +697,9 @@ function escHtml(s){ return String(s||'').replace(/[<>&]/g, function(c){ return 
 
 async function annehmen(id){
   await rideAktion(id, 'accept');
+  // Als Fahrer übernehme ich die Fahrt – das weiß der andere Node nicht.
+  const eigen = (_letzteGesuche || []).find(function(x){ return x.id === id; });
+  if (eigen && eigen.status === 'locked') { eigen.driving = true; uebernehmeFahrt(eigen); }
   // R637: Direkt die Navigation öffnen – vom aktuellen Standort über alle
   // Halte des Kunden bis zum Ziel. Der Fahrer soll nach dem Annehmen nicht
   // erst Adressen abtippen müssen.
@@ -775,8 +778,29 @@ async function rideAktion(id, was){
       {method:'POST', credentials:'same-origin'});
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    // R651: Die Antwort enthält den neuen Stand. Direkt übernehmen, statt neu
+    // zu laden – lief die Aktion über den Node des Kunden, ist die hiesige
+    // Fassung noch die alte und die Liste zeigte wieder „noch kein Fahrer".
+    if (d.ride) uebernehmeFahrt(d.ride);
     ladeGesuche();
   } catch(e) { alert('✗ ' + e.message); }
+}
+
+// Einen Stand in die gemerkte Liste einsetzen und neu zeichnen.
+function uebernehmeFahrt(g){
+  if (!g || !g.id) return;
+  const i = (_letzteGesuche || []).findIndex(function(x){ return x.id === g.id; });
+  if (i >= 0) {
+    // „mine"/„driving" kommen vom eigenen Node und fehlen in der Antwort des
+    // anderen – die bisherigen Werte behalten.
+    g.mine = _letzteGesuche[i].mine;
+    g.driving = _letzteGesuche[i].driving;
+    _letzteGesuche[i] = g;
+  } else {
+    _letzteGesuche.push(g);
+  }
+  const box = document.getElementById('gesuch-liste');
+  if (box) box.innerHTML = _letzteGesuche.map(gesuchKarte).join('');
 }
 
 async function bewerten(id){

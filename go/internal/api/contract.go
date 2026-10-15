@@ -302,8 +302,14 @@ func (s *Server) escrowCreate(c *gin.Context) {
 	// Kaufvertrag, stehen aber nicht auf der Chain. Keine Adresse – die geht
 	// wie bisher verschlüsselt per Messenger an den Verkäufer.
 	delivery := "pickup"
-	if strings.EqualFold(strings.TrimSpace(req.Delivery), "shipping") {
+	switch strings.ToLower(strings.TrimSpace(req.Delivery)) {
+	case "shipping":
 		delivery = "shipping"
+	case "rent":
+		// Miete (R652): Die Sache wechselt nur auf Zeit den Besitzer. Der Preis
+		// ist dann die Miete für den vereinbarten Zeitraum; Rückgabe und Kaution
+		// regeln die Beteiligten im Kaufvertrag bzw. per Nachricht.
+		delivery = "rent"
 	}
 	_ = s.store.Put(&storage.Record{
 		ID:        "purchase-" + strings.ToLower(trimHexPrefix(txHash)),
@@ -667,9 +673,12 @@ func (s *Server) buildContractData(escrowIDStr string) (*ContractData, error) {
 	// Kaufvermerk (R570): Menge, Übergabeart und Versandkosten je Kauf.
 	if s.store != nil {
 	if rec, err := s.store.Get(storage.RecordPurchase, "purchase-"+strings.ToLower(trimHexPrefix(escrowIDStr))); err == nil && rec != nil {
-		if d, _ := rec.Data["delivery"].(string); d == "shipping" {
+		switch d, _ := rec.Data["delivery"].(string); d {
+		case "shipping":
 			data.DeliveryTxt = "Versand"
-		} else {
+		case "rent":
+			data.DeliveryTxt = "Miete (Rückgabe vereinbart)" // R652
+		default:
 			data.DeliveryTxt = "Selbstabholung"
 		}
 		if sc, ok := toFloatOK(rec.Data["shipping_fnd"]); ok {

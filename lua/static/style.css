@@ -2543,3 +2543,12 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .popup-aktionen { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
 .popup-aktionen .btn-sm { width:auto; font-size:12px; padding:5px 10px; }
 .leaflet-popup-content { min-width: 210px; }
+/* Marktplatz: kategoriespezifische Eigenschaften (R652) */
+.attr-gruppe {
+  margin: 14px 0 6px; font-size: var(--fs-sm); font-weight: 600;
+  color: var(--green); text-transform: uppercase; letter-spacing: .04em;
+}
+#attr-felder .set-grid { gap: 10px; }
+.attr-filter { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.attr-filter label { font-size: var(--fs-sm); }
+@media (max-width: 600px) { .attr-filter { grid-template-columns: 1fr; } }

@@ -111,6 +111,7 @@ return function()
         {"Möbel",      t("listing.category.furniture")},
         {"Kleidung",   t("listing.category.clothing")},
         {"Fahrzeug",   t("listing.category.vehicle")},
+        {"Immobilie",  "Immobilie"},
         {"Werkzeug",   t("listing.category.tools")},
         {"Haushalt",   t("listing.category.household")},
         {"Sport",      t("listing.category.sports")},
@@ -142,6 +143,9 @@ return function()
         <input type="text" id="f-category-custom" list="cat-suggest" placeholder="Eigene Kategorie, z.B. 3D-Druck" maxlength="40" autocomplete="off" style="display:none;margin-top:6px">
         <datalist id="cat-suggest"></datalist>
       </div>
+      <!-- Kategoriespezifische Eigenschaften (R652): erscheinen nur bei
+           Fahrzeug oder Immobilie, gezeichnet aus dem Schema des Nodes. -->
+      <div id="attr-felder" style="display:none"></div>
       <div class="field">
         <label for="f-condition">%s</label>
         <select id="f-condition" name="condition">%s</select>
@@ -173,6 +177,9 @@ return function()
         </label>
         <label style="cursor:pointer">
           <input type="radio" name="f-delivery" value="shipping" onchange="deliveryModeChanged()"> %s
+        </label>
+        <label class="deliv-opt">
+          <input type="radio" name="f-delivery" value="rent" onchange="deliveryModeChanged()"> Miete
         </label>
       </div>
       <div id="f-shipping-cost-row" style="display:none;margin-top:6px">

@@ -692,6 +692,7 @@ async function submitListing(event) {
     const payload = {
         title:        getField("f-title"),
         category:     categoryValue(),
+        attrs:        await attrWerteLesen(categoryValue()), // R652
         quantity:     Math.max(1, parseInt(getField("f-quantity"), 10) || 1),
         condition:    getField("f-condition"),
         price:        parseFloat(getField("f-price")) || 0,
@@ -914,3 +915,90 @@ async function deleteAddrBookEntry(id) {
 
 // Dropdown beim Laden der Seite befüllen.
 document.addEventListener("DOMContentLoaded", loadAddrBookDropdown);
+
+// ── Kategoriespezifische Eigenschaften (R652) ──────────────────────────────
+// Fahrzeuge und Immobilien brauchen eigene Angaben. Die Felder kommen vom Node
+// (ein Schema für Formular, Filter und Sortierung), damit nichts auseinander
+// läuft, und erscheinen nur bei der passenden Kategorie.
+let _attrSchema = null;
+
+async function attrSchemaLaden(){
+  if (_attrSchema) return _attrSchema;
+  try {
+    const r = await fetch('/api/v1/listings/attrs');
+    const d = await r.json();
+    _attrSchema = d.schema || {};
+  } catch(e) { _attrSchema = {}; }
+  return _attrSchema;
+}
+
+// Zeichnet die Felder zur gewählten Kategorie. vorhanden = bereits gespeicherte
+// Werte (beim Bearbeiten).
+async function attrFelderZeichnen(kategorie, vorhanden){
+  const box = document.getElementById('attr-felder');
+  if (!box) return;
+  const schema = await attrSchemaLaden();
+  const felder = schema[kategorie] || [];
+  if (!felder.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
+  box.style.display = '';
+  const werte = vorhanden || {};
+
+  // Nach Gruppen bündeln, in der Reihenfolge des Schemas.
+  const gruppen = [];
+  felder.forEach(function(f){
+    let g = gruppen.find(function(x){ return x.name === (f.group || ''); });
+    if (!g) { g = {name: f.group || '', felder: []}; gruppen.push(g); }
+    g.felder.push(f);
+  });
+
+  box.innerHTML = gruppen.map(function(g){
+    const inhalt = g.felder.map(function(f){
+      const id = 'attr-' + f.key;
+      const v = werte[f.key];
+      const einheit = f.unit ? ' <span class="meta">(' + f.unit + ')</span>' : '';
+      if (f.type === 'bool') {
+        return '<label class="set-check"><input type="checkbox" id="' + id + '"' +
+               (v ? ' checked' : '') + '> ' + f.label + '</label>';
+      }
+      if (f.type === 'select') {
+        const opts = ['<option value="">–</option>'].concat(f.options.map(function(o){
+          return '<option value="' + o.replace(/"/g,'&quot;') + '"' +
+                 (v === o ? ' selected' : '') + '>' + o + '</option>';
+        })).join('');
+        return '<label>' + f.label + einheit + '<select id="' + id + '">' + opts + '</select></label>';
+      }
+      const typ = f.type === 'number' ? 'number' : 'text';
+      const schritt = f.type === 'number' ? ' step="any"' : '';
+      return '<label>' + f.label + einheit + '<input type="' + typ + '"' + schritt +
+             ' id="' + id + '" value="' + (v != null ? String(v).replace(/"/g,'&quot;') : '') + '"></label>';
+    }).join('');
+    return (g.name ? '<div class="attr-gruppe">' + g.name + '</div>' : '') +
+           '<div class="set-grid">' + inhalt + '</div>';
+  }).join('');
+}
+
+// Liest die ausgefüllten Felder aus.
+async function attrWerteLesen(kategorie){
+  const schema = await attrSchemaLaden();
+  const felder = schema[kategorie] || [];
+  const out = {};
+  felder.forEach(function(f){
+    const el = document.getElementById('attr-' + f.key);
+    if (!el) return;
+    if (f.type === 'bool') { if (el.checked) out[f.key] = true; return; }
+    const v = String(el.value || '').trim();
+    if (!v) return;
+    out[f.key] = (f.type === 'number') ? parseFloat(v.replace(',', '.')) : v;
+  });
+  return out;
+}
+
+// An die Kategorieauswahl hängen.
+function attrAnKategorie(){
+  const sel = document.getElementById('f-category');
+  if (!sel) return;
+  const anwenden = function(){ attrFelderZeichnen(sel.value, window._attrVorhanden); };
+  sel.addEventListener('change', anwenden);
+  anwenden();
+}
+document.addEventListener('DOMContentLoaded', attrAnKategorie);

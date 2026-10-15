@@ -59,6 +59,11 @@ type SearchQuery struct {
 	RadiusKm     float64 `json:"radius_km"`
 	TTL          int     `json:"ttl"`           // Hop-Limit (aktuell informativ)
 	CreatedAt    int64   `json:"created_at"`    // Unix-Sekunden (gegen alte Pings)
+	// Eigenschaftsfilter und Sortierung (R653). Teil der ANFRAGE, nicht des
+	// HTTP-Kontexts: Die Suche läuft auch auf fremden Nodes, die unsere
+	// Parameter sonst nie zu sehen bekämen.
+	Attrs        map[string]string `json:"attrs,omitempty"`  // key bzw. key_min/key_max
+	Sort         string            `json:"sort,omitempty"`
 }
 
 // SearchHit ist ein einzelner Treffer-Stub (klein gehalten – Details werden
@@ -72,6 +77,7 @@ type SearchHit struct {
 	PriceMin   float64 `json:"price_min"`
 	Thumbnail  string  `json:"thumbnail,omitempty"`   // erstes Thumbnail (Base64)
 	ImageHash  string  `json:"image_hash,omitempty"`  // erster Vollbild-Hash
+	Attrs      map[string]any `json:"attrs,omitempty"` // kategoriespezifische Eigenschaften (R652)
 	Lat        float64 `json:"lat,omitempty"`
 	Lon        float64 `json:"lon,omitempty"`
 	DistanceKm float64 `json:"distance_km,omitempty"`
@@ -236,10 +242,17 @@ func (s *Server) searchLocal(q SearchQuery) []SearchHit {
 		if p, ok := toFloatOK(d["price_min"]); ok {
 			hit.PriceMin = p
 		}
+		// Eigenschaftsfilter (R652)
+		if !attrFilterPasst(q.Attrs, d) {
+			continue
+		}
 		if imgs, ok := d["images"].([]any); ok && len(imgs) > 0 {
 			if s0, ok := imgs[0].(string); ok {
 				hit.Thumbnail = s0
 			}
+		}
+		if a, ok := d["attrs"].(map[string]any); ok && len(a) > 0 {
+			hit.Attrs = a
 		}
 		if hashes, ok := d["image_hashes"].([]any); ok && len(hashes) > 0 {
 			if h0, ok := hashes[0].(string); ok {
@@ -264,7 +277,7 @@ func (s *Server) searchLocal(q SearchQuery) []SearchHit {
 	// menge), dann sinnvoll sortieren und ERST DANN deckeln — so bekommt man bei
 	// Überlauf die relevantesten Treffer statt willkürlicher. Bei Distanz-Suche
 	// nach Nähe, sonst stabil nach Preis dann ID.
-	sortSearchHits(hits, q.Lat != 0 || q.Lon != 0)
+	sortSearchHitsBy(hits, q.Lat != 0 || q.Lon != 0, q.Sort)
 	if len(hits) > searchLocalMax {
 		hits = hits[:searchLocalMax]
 	}
@@ -273,6 +286,50 @@ func (s *Server) searchLocal(q SearchQuery) []SearchHit {
 
 // sortSearchHits sortiert Treffer: bei Geo-Suche nach Distanz (nächste zuerst),
 // sonst nach Preis aufsteigend; Gleichstand nach ID (stabil/deterministisch).
+// sortByAttr: Sortierschlüssel aus der Anfrage, z.B. "mileage_km" oder
+// "-year_built" für absteigend (R652).
+func sortSearchHitsBy(hits []SearchHit, byDistance bool, sortKey string) {
+	sortKey = strings.TrimSpace(sortKey)
+	if sortKey == "" {
+		sortSearchHits(hits, byDistance)
+		return
+	}
+	ab := strings.HasPrefix(sortKey, "-")
+	key := strings.TrimPrefix(sortKey, "-")
+	zahl := func(h SearchHit) (float64, bool) {
+		switch key {
+		case "price":
+			return h.PriceMin, true
+		case "distance":
+			return h.DistanceKm, true
+		}
+		if h.Attrs == nil {
+			return 0, false
+		}
+		v, ok := h.Attrs[key]
+		if !ok {
+			return 0, false
+		}
+		return toFloatOK(v)
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		x, okx := zahl(hits[i])
+		y, oky := zahl(hits[j])
+		// Angebote ohne die Angabe immer ans Ende – sonst stünden sie bei
+		// aufsteigender Sortierung mit 0 ganz vorn.
+		if okx != oky {
+			return okx
+		}
+		if okx && x != y {
+			if ab {
+				return x > y
+			}
+			return x < y
+		}
+		return hits[i].ID < hits[j].ID
+	})
+}
+
 func sortSearchHits(hits []SearchHit, byDistance bool) {
 	sort.Slice(hits, func(i, j int) bool {
 		a, b := hits[i], hits[j]
@@ -390,6 +447,8 @@ func (s *Server) startSearch(c *gin.Context) {
 		RadiusKm:    parseFloatDefault(c.Query("radius_km"), 0),
 		TTL:         3,
 		CreatedAt:   time.Now().Unix(),
+		Sort:        c.Query("sort"),
+		Attrs:       attrFilterAusQuery(c),
 	}
 	if s.node != nil {
 		q.RequesterID = s.nodeID()

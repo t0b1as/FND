@@ -54,6 +54,7 @@ return function(captures)
         {"Möbel",      t("listing.category.furniture")},
         {"Kleidung",   t("listing.category.clothing")},
         {"Fahrzeug",   t("listing.category.vehicle")},
+        {"Immobilie",  "Immobilie"},
         {"Werkzeug",   t("listing.category.tools")},
         {"Haushalt",   t("listing.category.household")},
         {"Sport",      t("listing.category.sports")},
