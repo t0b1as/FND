@@ -955,7 +955,8 @@ async function attrFelderZeichnen(kategorie, vorhanden){
     const inhalt = g.felder.map(function(f){
       const id = 'attr-' + f.key;
       const v = werte[f.key];
-      const einheit = f.unit ? ' <span class="meta">(' + f.unit + ')</span>' : '';
+      const einheit = f.unit ? ' <span class="attr-einheit">(' + f.unit + ')</span>' : '';
+      const name = '<span class="attr-name">' + f.label + einheit + '</span>';
       if (f.type === 'bool') {
         return '<label class="set-check"><input type="checkbox" id="' + id + '"' +
                (v ? ' checked' : '') + '> ' + f.label + '</label>';
@@ -965,15 +966,19 @@ async function attrFelderZeichnen(kategorie, vorhanden){
           return '<option value="' + o.replace(/"/g,'&quot;') + '"' +
                  (v === o ? ' selected' : '') + '>' + o + '</option>';
         })).join('');
-        return '<label>' + f.label + einheit + '<select id="' + id + '">' + opts + '</select></label>';
+        return '<label>' + name + '<select id="' + id + '">' + opts + '</select></label>';
       }
       const typ = f.type === 'number' ? 'number' : 'text';
       const schritt = f.type === 'number' ? ' step="any"' : '';
-      return '<label>' + f.label + einheit + '<input type="' + typ + '"' + schritt +
+      return '<label>' + name + '<input type="' + typ + '"' + schritt +
              ' id="' + id + '" value="' + (v != null ? String(v).replace(/"/g,'&quot;') : '') + '"></label>';
     }).join('');
-    return (g.name ? '<div class="attr-gruppe">' + g.name + '</div>' : '') +
-           '<div class="set-grid">' + inhalt + '</div>';
+    // Überschrift INNERHALB des Rasters (R654): So bleiben die beiden Spalten
+    // über alle Gruppen hinweg auf derselben Linie, statt je Gruppe neu zu
+    // beginnen.
+    return '<div class="attr-raster">' +
+           (g.name ? '<div class="attr-gruppe">' + g.name + '</div>' : '') +
+           inhalt + '</div>';
   }).join('');
 }
 

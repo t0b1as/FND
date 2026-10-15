@@ -2552,3 +2552,48 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .attr-filter { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .attr-filter label { font-size: var(--fs-sm); }
 @media (max-width: 600px) { .attr-filter { grid-template-columns: 1fr; } }
+
+/* ── Eigenschaften zweispaltig und kompakt (R654) ─────────────────────────
+   Vorher ergab auto-fit je nach Fensterbreite drei oder vier Spalten, und
+   jede Gruppe begann ein eigenes Raster – die Felder standen dadurch versetzt
+   untereinander. Jetzt zwei feste Spalten über alle Gruppen hinweg. */
+.attr-raster {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 14px; margin: 0 0 4px;
+}
+.attr-raster > .attr-gruppe {
+  grid-column: 1 / -1;
+  margin: 12px 0 2px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.attr-raster:first-child > .attr-gruppe { margin-top: 4px; }
+.attr-raster label {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: var(--fs-sm); color: var(--muted); min-width: 0;
+}
+.attr-raster label > span.meta { font-size: 11px; }
+.attr-raster input, .attr-raster select {
+  width: 100%; min-width: 0; padding: 6px 9px; font-size: 14px;
+}
+/* Ja-Nein-Felder sitzen in derselben Zelle wie die übrigen, nur waagerecht. */
+.attr-raster label.set-check {
+  flex-direction: row; align-items: center; gap: 8px;
+  margin: 0; align-self: end; min-height: 34px;
+}
+.attr-raster label.set-check input { width: auto; }
+@media (max-width: 600px) {
+  .attr-raster { grid-template-columns: 1fr; gap: 8px; }
+}
+/* Beschriftung und Einheit in einer Zeile – sonst rutschen die Eingabefelder
+   je nach Feld unterschiedlich weit nach unten und die Spalten werden
+   unruhig (R654). */
+.attr-raster label { justify-content: flex-end; }
+.attr-name {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 1.3; min-height: 1.3em;
+}
+.attr-einheit { color: var(--muted); font-size: 11px; }
+.attr-raster { align-items: end; }
+/* Ja-Nein-Felder linksbündig – das flex-end der übrigen Beschriftungen wirkt
+   bei ihnen waagerecht und hätte sie an den rechten Rand geschoben (R654). */
+.attr-raster label.set-check { justify-content: flex-start; }
