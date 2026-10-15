@@ -246,9 +246,9 @@ async function attrFilterZeichnen(erzwingen){
   felder = felder.filter(function(f){ return merkmale.indexOf(f) < 0; });
 
   const teile = felder.map(function(f){
-    const einheit = f.unit ? ' <span class="meta">(' + f.unit + ')</span>' : '';
+    const einheit = f.unit ? ' <span class="attr-einheit">(' + f.unit + ')</span>' : '';
     if (f.type === 'bool') {
-      return '<label>' + esc(f.label) +
+      return '<label><span class="attr-name">' + esc(f.label) + '</span>' +
         '<select onchange="attrFilterSetzen(\'' + f.key + '\', this.value)">' +
         '<option value="">egal</option><option value="true">ja</option><option value="false">nein</option>' +
         '</select></label>';
@@ -256,19 +256,21 @@ async function attrFilterZeichnen(erzwingen){
     if (f.type === 'select') {
       const opts = ['<option value="">alle</option>'].concat((f.options||[]).map(function(o){
         return '<option value="' + esc(o) + '">' + esc(o) + '</option>'; })).join('');
-      return '<label>' + esc(f.label) +
+      return '<label><span class="attr-name">' + esc(f.label) + '</span>' +
         '<select onchange="attrFilterSetzen(\'' + f.key + '\', this.value)">' + opts + '</select></label>';
     }
-    if (f.type === 'number') {
-      return '<label>' + esc(f.label) + einheit +
-        '<span style="display:flex;gap:6px">' +
-        '<input type="number" step="any" placeholder="von" style="min-width:0" ' +
+    // Monat/Jahr im Filter als Jahr von–bis (R658): Der Typ war hier nicht
+    // bekannt und landete im Freitextzweig – im Feld stand „enthält …“.
+    if (f.type === 'number' || f.type === 'monthyear') {
+      return '<label><span class="attr-name">' + esc(f.label) + einheit + '</span>' +
+        '<span class="attr-paar">' +
+        '<input type="number" step="any" placeholder="von" ' +
         'oninput="attrFilterSetzen(\'' + f.key + '__min\', this.value)">' +
-        '<input type="number" step="any" placeholder="bis" style="min-width:0" ' +
+        '<input type="number" step="any" placeholder="bis" ' +
         'oninput="attrFilterSetzen(\'' + f.key + '__max\', this.value)">' +
         '</span></label>';
     }
-    return '<label>' + esc(f.label) +
+    return '<label><span class="attr-name">' + esc(f.label) + '</span>' +
       '<input type="text" placeholder="enthält …" ' +
       'oninput="attrFilterSetzen(\'' + f.key + '\', this.value)"></label>';
   });
@@ -281,7 +283,8 @@ async function attrFilterZeichnen(erzwingen){
     sortOpts += '<option value="' + f.key + '">' + esc(f.label) + ' aufsteigend</option>' +
                 '<option value="-' + f.key + '">' + esc(f.label) + ' absteigend</option>';
   });
-  teile.push('<label>Sortierung<select onchange="sortSetzen(this.value)">' + sortOpts + '</select></label>');
+  teile.push('<label><span class="attr-name">Sortierung</span>' +
+             '<select onchange="sortSetzen(this.value)">' + sortOpts + '</select></label>');
 
   let html = '<div class="attr-filter">' + teile.join('') + '</div>';
   if (merkmale.length) {
