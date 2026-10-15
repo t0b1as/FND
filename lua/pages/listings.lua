@@ -6,6 +6,10 @@ return function()
     local t = render.header("listing.title_page", "listings")
 
     ngx.print('<div class="top-bar"><a href="/listings/new" class="btn">' .. t("listing.new") .. '</a><div id="filter-mount"></div></div>')
+    -- R657: EIGENER Behälter außerhalb der Filterleiste. Die wird bei jedem
+    -- Zeichnen der Ergebnisse komplett neu gebaut – ein Behälter darin wäre
+    -- sofort wieder leer, und die Eigenschaftsfilter verschwänden still.
+    ngx.print('<div id="attr-filter" style="display:none"></div>')
 
     -- Suchsteuerung ist in die Filterleiste (bei den Ergebnissen) gewandert.
     -- Versteckte Elemente behalten, damit der bestehende Such-JS-Code sie lesen kann.
@@ -108,10 +112,7 @@ function renderFilterBar() {
     const radiusVal = document.getElementById('s-radius') ? document.getElementById('s-radius').value : '';
     mount.innerHTML =
         '<input type="text" class="filter-text" placeholder="Titel/Beschreibung filtern…" value="'+esc(_textFilter)+'" oninput="filterByText(this.value)">' +
-        '<select class="filter-cat" onchange="filterByCategory(this.value)">'+categoryOptions()+'</select>'+
-        '<div id=\"attr-filter\" style=\"display:none\"></div>'+
-        '' +
-        '<select class="filter-cond" onchange="filterByCondition(this.value)">'+conditionOptions()+'</select>' +
+        '<select class="filter-cat" onchange="filterByCategory(this.value)">'+categoryOptions()+'</select>'+        '<select class="filter-cond" onchange="filterByCondition(this.value)">'+conditionOptions()+'</select>' +
         '<input type="number" class="filter-price" min="0" placeholder="max €" value="'+esc(_priceFilter)+'" oninput="filterByPrice(this.value)">' +
         '<input type="number" class="filter-radius" min="0" placeholder="km" value="'+esc(radiusVal)+'" onchange="setRadius(this.value)" title="Umkreis in km">' +
         '<select class="filter-sort" onchange="setSortFromSelect(this.value)">' +
@@ -223,12 +224,19 @@ function attrFilterSetzen(key, wert){
 function sortSetzen(key){ _sortKey = key || ''; applyFilters(); }
 
 // Zeichnet die Filterfelder zur gewählten Kategorie.
-async function attrFilterZeichnen(){
+let _attrFilterKat = null;   // für welche Kategorie die Felder gerade stehen
+
+async function attrFilterZeichnen(erzwingen){
   const box = document.getElementById('attr-filter');
   if (!box) return;
+  // R657: Nur bei Kategoriewechsel neu aufbauen. Sonst würden die Felder bei
+  // jedem Zeichnen der Ergebnisse ersetzt – und jede gerade getroffene Auswahl
+  // wäre wieder leer, während der Filter im Hintergrund weiter gilt.
+  if (!erzwingen && _attrFilterKat === _catFilter) return;
+  _attrFilterKat = _catFilter;
   const schema = await attrSchemaHolen();
   const alle = schema[_catFilter] || [];
-  const felder = alle.filter(function(f){ return f.filter; });
+  let felder = alle.filter(function(f){ return f.filter; });  // R657: wird unten gefiltert
   if (!felder.length) { box.innerHTML = ''; box.style.display = 'none'; _attrFilter = {}; return; }
   box.style.display = '';
 
@@ -291,7 +299,7 @@ async function attrFilterZeichnen(){
 function filterByCategory(cat) {
   _catFilter = cat || '';
   _attrFilter = {}; _sortKey = '';   // R652: Filter gehören zur Kategorie
-  attrFilterZeichnen();
+  attrFilterZeichnen(true);
   applyFilters();
 }
 function filterByCondition(cond) { _condFilter = cond || ''; applyFilters(); }
@@ -347,6 +355,7 @@ function renderResultsPage() {
 
     // Filterleiste oben (neben Neues Angebot) rendern.
     renderFilterBar();
+    attrFilterZeichnen();   // R657: Eigenschaftsfilter zur gewählten Kategorie
     let html = renderChips() + renderViewToggle();
     if (_view === 'grid') {
         html += '<div class="hit-grid">';
