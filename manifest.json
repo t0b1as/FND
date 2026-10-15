@@ -1,8 +1,8 @@
 {
-  "version": "R659",
-  "description": "FUNDUS R659 - Immo und Auto",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R659/FND-R659-update.zip",
-  "node_argon2": "adac7f9eba1cadbef02df688d79140aa3c2a999cf1c42326f8d8033124d46f44",
-  "published_at": "2026-10-15T09:10:05.8606869Z",
-  "signature": "0x6c31bc5df68b6ca960e008fc7833a3402e34625d6a425798ef90d518b7074473272eab35b0cca2aa19918aa16b1099e33be4248fbcbbe3f83ce24639f9f8c2ce1c"
+  "version": "R660",
+  "description": "FUNDUS R660 - Immo und Auto",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R660/FND-R660-update.zip",
+  "node_argon2": "df4db84446946c415cde1c90f458f9143fc03764ac7736921a42fac6faebd144",
+  "published_at": "2026-10-15T09:25:13.3820391Z",
+  "signature": "0xea9dc3fb863405b4c2452f8c15d0cbd5e0833d2311a4ddc017f9071243ed72647ea2d5f942b919c09270feed87bd6d90e018d52597cd2b5628bd7c11bc9193611b"
 }
