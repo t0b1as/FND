@@ -952,6 +952,16 @@ async function attrFelderZeichnen(kategorie, vorhanden){
   });
 
   box.innerHTML = gruppen.map(function(g){
+    // Gruppen, die NUR aus Haken bestehen (Ausstattung), dichter darstellen:
+    // 59 Merkmale in Feldbreite wären eine endlose Liste (R656).
+    if (g.felder.length > 4 && g.felder.every(function(f){ return f.type === 'bool'; })) {
+      const haken = g.felder.map(function(f){
+        return '<label class="eq-haken"><input type="checkbox" id="attr-' + f.key + '"' +
+               (werte[f.key] ? ' checked' : '') + '> ' + f.label + '</label>';
+      }).join('');
+      return '<div class="attr-raster"><div class="attr-gruppe">' + g.name + '</div></div>' +
+             '<div class="eq-raster">' + haken + '</div>';
+    }
     const inhalt = g.felder.map(function(f){
       const id = 'attr-' + f.key;
       const v = werte[f.key];
@@ -960,6 +970,21 @@ async function attrFelderZeichnen(kategorie, vorhanden){
       if (f.type === 'bool') {
         return '<label class="set-check"><input type="checkbox" id="' + id + '"' +
                (v ? ' checked' : '') + '> ' + f.label + '</label>';
+      }
+      if (f.type === 'monthyear') {
+        // Monat und Jahr nebeneinander in EINER Zelle (R655), damit sie nicht
+        // durch den Umbruch getrennt werden.
+        const mon = ['<option value="">MM</option>'];
+        for (let m = 1; m <= 12; m++) {
+          const mm = String(m).padStart(2, '0');
+          mon.push('<option value="' + m + '"' + (werte[f.key + '_month'] == m ? ' selected' : '') + '>' + mm + '</option>');
+        }
+        const jahre = ['<option value="">JJJJ</option>'].concat((f.options||[]).map(function(o){
+          return '<option value="' + o + '"' + (String(v) === String(o) ? ' selected' : '') + '>' + o + '</option>';
+        })).join('');
+        return '<label>' + name + '<span class="attr-paar">' +
+               '<select id="' + id + '_month">' + mon.join('') + '</select>' +
+               '<select id="' + id + '">' + jahre + '</select></span></label>';
       }
       if (f.type === 'select') {
         const opts = ['<option value="">–</option>'].concat(f.options.map(function(o){
@@ -991,6 +1016,13 @@ async function attrWerteLesen(kategorie){
     const el = document.getElementById('attr-' + f.key);
     if (!el) return;
     if (f.type === 'bool') { if (el.checked) out[f.key] = true; return; }
+    if (f.type === 'monthyear') {
+      const j = String(el.value || '').trim();
+      if (j) out[f.key] = parseInt(j, 10);
+      const me = document.getElementById('attr-' + f.key + '_month');
+      if (me && me.value) out[f.key + '_month'] = parseInt(me.value, 10);
+      return;
+    }
     const v = String(el.value || '').trim();
     if (!v) return;
     out[f.key] = (f.type === 'number') ? parseFloat(v.replace(',', '.')) : v;

@@ -2558,9 +2558,12 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
    jede Gruppe begann ein eigenes Raster – die Felder standen dadurch versetzt
    untereinander. Jetzt zwei feste Spalten über alle Gruppen hinweg. */
 .attr-raster {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px 14px; margin: 0 0 4px;
 }
+/* Mittlere Breiten: drei bzw. zwei Spalten, damit nichts gequetscht wird. */
+@media (max-width: 1100px) { .attr-raster { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 820px)  { .attr-raster { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .attr-raster > .attr-gruppe {
   grid-column: 1 / -1;
   margin: 12px 0 2px; padding-bottom: 4px;
@@ -2581,8 +2584,10 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
   margin: 0; align-self: end; min-height: 34px;
 }
 .attr-raster label.set-check input { width: auto; }
+/* Handy: zwei Spalten statt einer – die Felder sind schmal genug (R655). */
 @media (max-width: 600px) {
-  .attr-raster { grid-template-columns: 1fr; gap: 8px; }
+  .attr-raster { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 10px; }
+  .attr-raster .attr-name { font-size: 12px; }
 }
 /* Beschriftung und Einheit in einer Zeile – sonst rutschen die Eingabefelder
    je nach Feld unterschiedlich weit nach unten und die Spalten werden
@@ -2597,3 +2602,32 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 /* Ja-Nein-Felder linksbündig – das flex-end der übrigen Beschriftungen wirkt
    bei ihnen waagerecht und hätte sie an den rechten Rand geschoben (R654). */
 .attr-raster label.set-check { justify-content: flex-start; }
+/* Monat und Jahr nebeneinander in einer Zelle (R655) */
+.attr-paar { display: flex; gap: 6px; min-width: 0; }
+.attr-paar select:first-child { flex: 0 0 68px; }
+.attr-paar select:last-child { flex: 1 1 auto; min-width: 0; }
+
+/* ── Ausstattungsmerkmale als dichte Hakenliste (R656) ────────────────────
+   Viele kurze Ja-Nein-Angaben: in Feldbreite wäre das eine endlose Spalte. */
+.eq-raster {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 2px 12px; margin: 0 0 6px;
+}
+.eq-haken {
+  display: flex; align-items: center; gap: 7px; min-height: 28px;
+  font-size: 13px; color: var(--text-dim); cursor: pointer; min-width: 0;
+}
+.eq-haken input { width: auto; accent-color: var(--green); flex: 0 0 auto; }
+.eq-haken:hover { color: var(--text); }
+@media (max-width: 600px) {
+  .eq-raster { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 8px; }
+  .eq-haken { font-size: 12px; min-height: 32px; }
+}
+/* Ausstattungsfilter einklappbar – 59 Haken sollen die Suchleiste nicht
+   erschlagen (R656). */
+.eq-filter { margin-top: 8px; }
+.eq-filter > summary {
+  cursor: pointer; font-size: var(--fs-sm); color: var(--green);
+  padding: 6px 0; user-select: none;
+}
+.eq-filter[open] > summary { margin-bottom: 4px; }

@@ -452,7 +452,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R654"
+const NodeRevision = "R656"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -732,6 +732,18 @@ func toFloatOK(v any) (float64, bool) {
 		return n, true
 	case int:
 		return float64(n), true
+	case int64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	case string:
+		// R655: Auswahlwerte wie das Baujahr "2015" kommen als Zeichenkette.
+		// Ohne diesen Zweig wären sie weder sortier- noch filterbar – und zwar
+		// stillschweigend, weil ein fehlgeschlagener Vergleich wie "keine
+		// Angabe" aussieht.
+		f, err := strconv.ParseFloat(strings.TrimSpace(strings.ReplaceAll(n, ",", ".")), 64)
+		return f, err == nil
 	}
 	return 0, false
 }

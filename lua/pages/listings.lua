@@ -232,6 +232,11 @@ async function attrFilterZeichnen(){
   if (!felder.length) { box.innerHTML = ''; box.style.display = 'none'; _attrFilter = {}; return; }
   box.style.display = '';
 
+  // Ausstattungsmerkmale (R656) getrennt behandeln: als Haken „nur mit", nicht
+  // als 59 Auswahlfelder. Ein nicht gesetzter Haken heißt „egal".
+  const merkmale = felder.filter(function(f){ return f.type === 'bool' && f.key.indexOf('eq_') === 0; });
+  felder = felder.filter(function(f){ return merkmale.indexOf(f) < 0; });
+
   const teile = felder.map(function(f){
     const einheit = f.unit ? ' <span class="meta">(' + f.unit + ')</span>' : '';
     if (f.type === 'bool') {
@@ -270,7 +275,17 @@ async function attrFilterZeichnen(){
   });
   teile.push('<label>Sortierung<select onchange="sortSetzen(this.value)">' + sortOpts + '</select></label>');
 
-  box.innerHTML = '<div class="attr-filter">' + teile.join('') + '</div>';
+  let html = '<div class="attr-filter">' + teile.join('') + '</div>';
+  if (merkmale.length) {
+    const haken = merkmale.map(function(f){
+      return '<label class="eq-haken"><input type="checkbox" ' +
+             'onchange="attrFilterSetzen(\'' + f.key + '\', this.checked ? \'true\' : \'\')"> ' +
+             esc(f.label) + '</label>';
+    }).join('');
+    html += '<details class="eq-filter"><summary>Ausstattung (' + merkmale.length + ')</summary>' +
+            '<div class="eq-raster">' + haken + '</div></details>';
+  }
+  box.innerHTML = html;
 }
 
 function filterByCategory(cat) {

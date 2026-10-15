@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -45,6 +46,17 @@ var autoMarken = []string{
 	"Tesla", "Toyota", "Triumph", "Vespa", "Volkswagen", "Volvo", "Yamaha", "Andere",
 }
 
+// baujahre liefert die Jahre von heute rückwärts bis ab – als Auswahl, damit
+// keine Tippfehler wie "20215" entstehen (R655).
+func baujahre(ab int) []string {
+	jetzt := time.Now().Year() + 1 // Modelljahr des Folgejahres gibt es schon
+	out := make([]string, 0, jetzt-ab+1)
+	for j := jetzt; j >= ab; j-- {
+		out = append(out, strconv.Itoa(j))
+	}
+	return out
+}
+
 // listingAttrSchema: Eigenschaften je Kategorie.
 var listingAttrSchema = map[string][]attrFeld{
 	"Fahrzeug": {
@@ -55,7 +67,13 @@ var listingAttrSchema = map[string][]attrFeld{
 		// hängt an der Marke. Eine feste Liste wäre nach einem Jahr veraltet und
 		// würde neue Modelle ausschließen (R653).
 		{Key: "model", Label: "Modell", Type: "text", Group: "Fahrzeug", Filter: true},
-		{Key: "first_reg", Label: "Erstzulassung", Type: "number", Unit: "Jahr", Group: "Fahrzeug", Filter: true, Sort: true},
+		// Erstzulassung als Monat UND Jahr in EINEM Feld (R655): zwei getrennte
+		// Felder konnten durch den Zeilenumbruch auseinandergerissen werden,
+		// und ein einzelnes "Monat" ohne Bezug ist nicht verständlich.
+		// Gespeichert wird in first_reg (Jahr, sortierbar) und
+		// first_reg_month – so bleibt beides vergleichbar.
+		{Key: "first_reg", Label: "Erstzulassung", Type: "monthyear", Group: "Fahrzeug",
+			Filter: true, Sort: true, Options: baujahre(1950)},
 		{Key: "mileage_km", Label: "Kilometerstand", Type: "number", Unit: "km", Group: "Fahrzeug", Filter: true, Sort: true},
 		{Key: "power_kw", Label: "Leistung", Type: "number", Unit: "kW", Group: "Technik", Filter: true, Sort: true},
 		{Key: "displacement_ccm", Label: "Hubraum", Type: "number", Unit: "cm³", Group: "Technik"},
@@ -79,6 +97,68 @@ var listingAttrSchema = map[string][]attrFeld{
 		{Key: "consumption", Label: "Verbrauch", Type: "number", Unit: "l/100 km", Group: "Technik"},
 		{Key: "range_km", Label: "Reichweite (elektrisch)", Type: "number", Unit: "km", Group: "Technik"},
 		{Key: "battery_kwh", Label: "Batteriekapazität", Type: "number", Unit: "kWh", Group: "Technik"},
+
+		// Ausstattung (R656): die üblichen Merkmale als Haken, nach Bereichen
+		// gegliedert. Alle filterbar – danach wird beim Autokauf gesucht.
+		{Key: "eq_klimaanlage", Label: "Klimaanlage", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_klimaautomatik", Label: "Klimaautomatik", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_sitzheizung", Label: "Sitzheizung", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_lenkradheizung", Label: "Lenkradheizung", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_standheizung", Label: "Standheizung", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_elektr_fensterheber", Label: "Elektr. Fensterheber", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_elektr_sitzverstellung", Label: "Elektr. Sitzverstellung", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_massagesitze", Label: "Massagesitze", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_ledersitze", Label: "Ledersitze", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_sportsitze", Label: "Sportsitze", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_zentralverriegelung", Label: "Zentralverriegelung", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_keyless_go", Label: "Keyless Go", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_elektr_heckklappe", Label: "Elektr. Heckklappe", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_servolenkung", Label: "Servolenkung", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_schiebedach", Label: "Schiebedach", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_panoramadach", Label: "Panoramadach", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_anhaengerkupplung", Label: "Anhängerkupplung", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_dachreling", Label: "Dachreling", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_alufelgen", Label: "Alufelgen", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_isofix", Label: "Isofix", Type: "bool", Group: "Komfort", Filter: true},
+		{Key: "eq_navigationssystem", Label: "Navigationssystem", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_bluetooth", Label: "Bluetooth", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_freisprecheinrichtung", Label: "Freisprecheinrichtung", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_apple_carplay", Label: "Apple CarPlay", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_android_auto", Label: "Android Auto", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_dab_radio", Label: "DAB-Radio", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_soundsystem", Label: "Soundsystem", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_head_up_display", Label: "Head-up-Display", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_usb", Label: "USB", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_induktive_ladestation", Label: "Induktive Ladestation", Type: "bool", Group: "Multimedia", Filter: true},
+		{Key: "eq_tempomat", Label: "Tempomat", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_abstandstempomat", Label: "Abstandstempomat", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_einparkhilfe", Label: "Einparkhilfe", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_rueckfahrkamera", Label: "Rückfahrkamera", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_360_kamera", Label: "360°-Kamera", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_spurhalteassistent", Label: "Spurhalteassistent", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_totwinkelassistent", Label: "Totwinkelassistent", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_notbremsassistent", Label: "Notbremsassistent", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_verkehrszeichenerkennung", Label: "Verkehrszeichenerkennung", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_muedigkeitserkennung", Label: "Müdigkeitserkennung", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_berganfahrhilfe", Label: "Berganfahrhilfe", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_esp", Label: "ESP", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_abs", Label: "ABS", Type: "bool", Group: "Assistenz", Filter: true},
+		{Key: "eq_led_scheinwerfer", Label: "LED-Scheinwerfer", Type: "bool", Group: "Licht und Sicht", Filter: true},
+		{Key: "eq_xenon", Label: "Xenon", Type: "bool", Group: "Licht und Sicht", Filter: true},
+		{Key: "eq_kurvenlicht", Label: "Kurvenlicht", Type: "bool", Group: "Licht und Sicht", Filter: true},
+		{Key: "eq_nebelscheinwerfer", Label: "Nebelscheinwerfer", Type: "bool", Group: "Licht und Sicht", Filter: true},
+		{Key: "eq_regensensor", Label: "Regensensor", Type: "bool", Group: "Licht und Sicht", Filter: true},
+		{Key: "eq_lichtsensor", Label: "Lichtsensor", Type: "bool", Group: "Licht und Sicht", Filter: true},
+		{Key: "eq_beheizbare_frontscheibe", Label: "Beheizbare Frontscheibe", Type: "bool", Group: "Licht und Sicht", Filter: true},
+		{Key: "eq_getoente_scheiben", Label: "Getönte Scheiben", Type: "bool", Group: "Licht und Sicht", Filter: true},
+		{Key: "eq_nichtraucherfahrzeug", Label: "Nichtraucherfahrzeug", Type: "bool", Group: "Zusatz", Filter: true},
+		{Key: "eq_scheckheftgepflegt", Label: "Scheckheftgepflegt", Type: "bool", Group: "Zusatz", Filter: true},
+		{Key: "eq_garantie", Label: "Garantie", Type: "bool", Group: "Zusatz", Filter: true},
+		{Key: "eq_winterreifen", Label: "Winterreifen", Type: "bool", Group: "Zusatz", Filter: true},
+		{Key: "eq_sommerreifen", Label: "Sommerreifen", Type: "bool", Group: "Zusatz", Filter: true},
+		{Key: "eq_allwetterreifen", Label: "Allwetterreifen", Type: "bool", Group: "Zusatz", Filter: true},
+		{Key: "eq_behindertengerecht", Label: "Behindertengerecht", Type: "bool", Group: "Zusatz", Filter: true},
+		{Key: "eq_taxi_mietwagen", Label: "Taxi/Mietwagen", Type: "bool", Group: "Zusatz", Filter: true},
 	},
 	"Immobilie": {
 		{Key: "property_type", Label: "Objektart", Type: "select", Group: "Objekt", Filter: true,
@@ -91,7 +171,8 @@ var listingAttrSchema = map[string][]attrFeld{
 		{Key: "bedrooms", Label: "Schlafzimmer", Type: "number", Group: "Objekt"},
 		{Key: "bathrooms", Label: "Badezimmer", Type: "number", Group: "Objekt"},
 		{Key: "floor", Label: "Etage", Type: "number", Group: "Objekt"},
-		{Key: "year_built", Label: "Baujahr", Type: "number", Unit: "Jahr", Group: "Objekt", Filter: true, Sort: true},
+		{Key: "year_built", Label: "Baujahr", Type: "select", Group: "Objekt", Filter: true, Sort: true,
+			Options: baujahre(1850)},
 		{Key: "condition", Label: "Zustand", Type: "select", Group: "Objekt",
 			Options: []string{"Neubau", "Erstbezug", "Saniert", "Gepflegt", "Renovierungsbedürftig", "Abrissobjekt"}},
 		{Key: "available_from", Label: "Verfügbar ab", Type: "select", Group: "Objekt",
@@ -153,6 +234,16 @@ func bereinigeAttrs(kategorie string, roh map[string]any) map[string]any {
 			continue
 		}
 		switch f.Type {
+		case "monthyear":
+			// Jahr als Zahl, Monat getrennt daneben (R655).
+			if z, ok := toFloatOK(v); ok && z > 1800 && z < 2200 {
+				out[f.Key] = z
+			}
+			if m, ok := roh[f.Key+"_month"]; ok {
+				if mz, ok := toFloatOK(m); ok && mz >= 1 && mz <= 12 {
+					out[f.Key+"_month"] = mz
+				}
+			}
 		case "number":
 			if z, ok := toFloatOK(v); ok {
 				out[f.Key] = z

@@ -143,14 +143,15 @@ return function()
         <input type="text" id="f-category-custom" list="cat-suggest" placeholder="Eigene Kategorie, z.B. 3D-Druck" maxlength="40" autocomplete="off" style="display:none;margin-top:6px">
         <datalist id="cat-suggest"></datalist>
       </div>
-      <!-- Kategoriespezifische Eigenschaften (R652): erscheinen nur bei
-           Fahrzeug oder Immobilie, gezeichnet aus dem Schema des Nodes. -->
-      <div id="attr-felder" style="display:none"></div>
       <div class="field">
         <label for="f-condition">%s</label>
         <select id="f-condition" name="condition">%s</select>
       </div>
     </div>
+    <!-- Kategoriespezifische Eigenschaften (R655): AUSSERHALB der Zeile mit
+         Kategorie und Zustand – dort war der Block auf eine halbe Breite
+         eingeengt und konnte nur zwei Spalten zeigen. -->
+    <div id="attr-felder" style="display:none"></div>
     <div class="field">
       <label for="f-price">%s</label>
       <input type="number" id="f-price" name="price" min="0" step="0.01" placeholder="0.00">
