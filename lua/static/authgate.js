@@ -56,16 +56,21 @@
   function anmeldenOeffnen() {
     _amAnmelden = true;
     overlayWeg();
-    // Das Anmeldefenster direkt öffnen (R660) – nicht erst über das Abzeichen,
-    // das nur ein Menü aufklappt.
-    if (typeof window.walletOpenDialog === 'function') {
-      window.walletOpenDialog();
-      warteAufAnmeldung();
-      return;
-    }
-    const badge = document.getElementById('wallet-badge');
-    if (badge) { badge.click(); warteAufAnmeldung(); return; }
-    location.href = '/messenger';   // dort gibt es ein Anmeldefeld
+    // Das Anmeldefenster direkt öffnen (R660). Es stammt aus walletauth.js, das
+    // verzögert geladen wird – deshalb notfalls kurz darauf warten (R661),
+    // statt stillschweigend nichts zu tun.
+    let versuche = 0;
+    (function oeffne() {
+      if (typeof window.walletOpenDialog === 'function') {
+        window.walletOpenDialog();
+        warteAufAnmeldung();
+        return;
+      }
+      if (++versuche < 25) { setTimeout(oeffne, 100); return; }
+      const badge = document.getElementById('wallet-badge');
+      if (badge) { badge.click(); warteAufAnmeldung(); return; }
+      location.href = '/messenger';   // dort gibt es ein Anmeldefeld
+    })();
   }
 
   // Regelmäßig nachsehen: Sobald die Anmeldung steht, ist alles gut. Bricht
