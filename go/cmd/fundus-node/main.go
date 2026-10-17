@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	mrand "math/rand"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -156,10 +157,40 @@ func main() {
 	// Gefundene Updates werden ANGEBOTEN (Einstellungen → Software-Update) und
 	// nur mit FUNDUS_UPDATE_AUTO=true sofort installiert.
 	pendingUpdate := &update.Pending{}
+
+	// R664: Die automatische Installation lässt sich jetzt im Betrieb
+	// umschalten – über eine Datei, die auch der Webserver und die
+	// Einstellungen kennen. Die Umgebungsvariable gilt weiterhin und hat
+	// Vorrang, damit eine bewusst gesetzte Vorgabe nicht aus der Oberfläche
+	// heraus abgeschaltet werden kann.
+	autoDateiPfad := filepath.Join(cfg.DataDir, "update-auto.enabled")
+	autoAktiv := func() bool {
+		if cfg.UpdateAuto {
+			return true
+		}
+		_, err := os.Stat(autoDateiPfad)
+		return err == nil
+	}
+
 	offerUpdate := func(m *update.Manifest) {
 		pendingUpdate.Set(m)
-		if cfg.UpdateAuto {
-			go func() { _ = applyViaHelper(m) }()
+		if autoAktiv() {
+			// Versetzter Start (R664): Ohne Verzögerung würden alle Nodes des
+			// Netzes dasselbe Update zur selben Minute einspielen und sich
+			// gleichzeitig neu starten. Das Netz wäre für Minuten leer. Bis zu
+			// 20 Minuten Streuung verteilt das.
+			wartezeit := time.Duration(mrand.Int63n(int64(20 * time.Minute)))
+			log.Info("Update wird automatisch installiert",
+				zap.String("version", m.Version),
+				zap.Duration("in", wartezeit.Round(time.Second)))
+			go func() {
+				select {
+				case <-time.After(wartezeit):
+				case <-ctx.Done():
+					return
+				}
+				_ = applyViaHelper(m)
+			}()
 			return
 		}
 		log.Info("Update verfügbar – installieren unter Einstellungen → Software-Update",
@@ -636,7 +667,10 @@ func main() {
 		HelperVersion: func() string { v, _ := helperVer.Load().(string); return v },
 		Current: currentRev,
 		Source:  cfg.UpdateManifestURL,
-		Auto:    cfg.UpdateAuto,
+		Auto:     cfg.UpdateAuto,
+		AutoFn:   autoAktiv,              // R664: aktueller Stand, auch nach Umschalten
+		AutoFest: cfg.UpdateAuto,          // per Umgebungsvariable vorgegeben – nicht abschaltbar
+		AutoPfad: autoDateiPfad,
 		Pending: pendingUpdate.Get,
 		Check: func() {
 			if poller != nil {

@@ -30,6 +30,13 @@ type UpdateControl struct {
 	Check   func()
 	Apply   func(m *update.Manifest) error
 	Info    func() update.PollInfo // Ergebnis der letzten GitHub-Prüfung
+
+	// Automatische Installation im Betrieb umschaltbar (R664).
+	// AutoFn liefert den aktuellen Stand, AutoFest sagt, ob er per
+	// Umgebungsvariable fest vorgegeben ist, AutoPfad ist die Schaltdatei.
+	AutoFn   func() bool
+	AutoFest bool
+	AutoPfad string
 	HelperVersion func() string    // Revision des fundus-helper (führt Installationen aus)
 }
 
@@ -50,7 +57,8 @@ func (s *Server) updateStatus(c *gin.Context) {
 		"enabled": uc.Source != "",
 		"current": uc.Current,
 		"source":  uc.Source,
-		"auto":    uc.Auto,
+		"auto":      uc.autoJetzt(),
+		"auto_fest": uc.AutoFest,
 	}
 	if uc.HelperVersion != nil {
 		out["helper"] = uc.HelperVersion()
@@ -190,4 +198,48 @@ func (s *Server) updateInfo(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, out)
+}
+
+// autoJetzt: aktueller Stand der automatischen Installation.
+func (uc *UpdateControl) autoJetzt() bool {
+	if uc.AutoFn != nil {
+		return uc.AutoFn()
+	}
+	return uc.Auto
+}
+
+// POST /api/v1/admin/update/auto   { "enabled": true|false }
+//
+// Schaltet die automatische Installation um (R664). Die Umgebungsvariable
+// FUNDUS_UPDATE_AUTO hat Vorrang: Ist sie gesetzt, lässt sich die Automatik
+// hier nicht abschalten – sonst könnte eine bewusst gesetzte Vorgabe des
+// Betreibers aus der Oberfläche heraus ausgehebelt werden.
+func (s *Server) updateAutoSet(c *gin.Context) {
+	uc := s.updateCtl
+	if uc == nil || uc.AutoPfad == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Update-Steuerung nicht verfügbar"})
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if uc.AutoFest && !req.Enabled {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": "Durch FUNDUS_UPDATE_AUTO fest vorgegeben – nur dort abschaltbar."})
+		return
+	}
+	if req.Enabled {
+		if err := os.WriteFile(uc.AutoPfad, []byte("1\n"), 0o640); err != nil {
+			s.internalError(c, err)
+			return
+		}
+	} else if err := os.Remove(uc.AutoPfad); err != nil && !os.IsNotExist(err) {
+		s.internalError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "auto": uc.autoJetzt()})
 }

@@ -39,6 +39,7 @@ func (s *Server) registerAdminRoutes() {
 		g.POST("/solana/rpc",      s.adminSolRPCSet)  // Solana-Zugang speichern (leer = fundus.env)
 		g.POST("/update/check",    s.updateCheck)
 		g.POST("/update/apply",    s.updateApply)
+		g.POST("/update/auto",     s.updateAutoSet)   // Automatik umschalten (R664)
 		g.GET("/config",           s.adminCheckConfig)
 		g.POST("/grid/init",       s.adminInitGridWallets)
 		g.GET("/grid/wallets",     s.adminListGridWallets)

@@ -36,6 +36,21 @@ ngx.print([[
       <button class="btn" onclick="updCheck(this)">Jetzt prüfen</button>
       <span id="upd-src" class="meta" style="margin-left:8px"></span>
     </div>
+    <!-- Automatische Installation (R664) -->
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+      <label class="set-check">
+        <input type="checkbox" id="upd-auto" onchange="updAutoSetzen(this.checked)">
+        Neue Versionen automatisch installieren
+      </label>
+      <div id="upd-auto-status" class="meta" style="margin-top:4px"></div>
+      <div class="meta" style="margin-top:6px;line-height:1.5">
+        Der Node prüft stündlich, ob eine neuere Fassung veröffentlicht wurde.
+        Signatur und Prüfsumme werden vor jeder Installation geprüft, und bei
+        einem Fehlschlag wird die vorige Fassung zurückgeholt. Der Node startet
+        dabei neu und ist kurz nicht erreichbar; der Zeitpunkt wird um bis zu
+        20 Minuten gestreut, damit nicht alle Nodes gleichzeitig verschwinden.
+      </div>
+    </div>
     <div id="upd-msg" class="status-line" style="margin-top:8px"></div>
     <div id="upd-progress" class="upd-progress" style="display:none">
       <div class="upd-bar"><div class="upd-bar-fill" id="upd-bar-fill"></div></div>
@@ -909,6 +924,44 @@ document.addEventListener('DOMContentLoaded', updLoad);
 </style>
 
 <script>
+// Automatische Installation (R664)
+async function updAutoLaden(){
+  try {
+    const r = await fetch('/api/v1/admin/update/status', {credentials:'same-origin'});
+    if (!r.ok) return;
+    const d = await r.json();
+    const cb = document.getElementById('upd-auto'); if (!cb) return;
+    cb.checked = !!d.auto;
+    cb.disabled = !!d.auto_fest;
+    const st = document.getElementById('upd-auto-status');
+    if (d.auto_fest) {
+      st.textContent = 'Durch FUNDUS_UPDATE_AUTO fest vorgegeben – nur dort abschaltbar.';
+    } else {
+      st.textContent = d.auto ? 'Eingeschaltet.' : 'Ausgeschaltet – Updates werden nur angeboten.';
+    }
+  } catch(e) {}
+}
+
+async function updAutoSetzen(an){
+  const st = document.getElementById('upd-auto-status');
+  if (an && !confirm('Neue Versionen künftig automatisch installieren?\n\n' +
+                     'Der Node startet dabei neu und ist kurz nicht erreichbar.')) {
+    document.getElementById('upd-auto').checked = false;
+    return;
+  }
+  try {
+    const r = await fetch('/api/v1/admin/update/auto', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({enabled: an})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    st.textContent = d.auto ? '✓ Eingeschaltet.' : '✓ Ausgeschaltet – Updates werden nur angeboten.';
+  } catch(e) {
+    st.textContent = '✗ ' + e.message;
+    document.getElementById('upd-auto').checked = !an;
+  }
+}
+document.addEventListener('DOMContentLoaded', updAutoLaden);
+
 // Betreiberbereich von außen (R650)
 async function extAdminLaden(){
   try {
