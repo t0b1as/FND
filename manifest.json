@@ -1,8 +1,8 @@
 {
-  "version": "R668",
-  "description": "FUNDUS R668 - Messenger",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R668/FND-R668-update.zip",
-  "node_argon2": "2a83c7d07255d7ade7167f01c596ee7dd98c80fcab13ed458620a48683765215",
-  "published_at": "2026-10-17T13:18:18.1739036Z",
-  "signature": "0xfd17179a02521731be6707e8f60bbd472b484d6ac93c9191c08f3239c9f0ec937e291b14766ec3512a65ed8fff9c2c21601394f372d8fa4621d2fcd3a3e116651c"
+  "version": "R672",
+  "description": "FUNDUS R672 - load sharing",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R672/FND-R672-update.zip",
+  "node_argon2": "30183d939a6942760ddc542abc4d81a3dcdad1bebe917c5a46b4efadc27f19c8",
+  "published_at": "2026-10-17T16:05:05.0843546Z",
+  "signature": "0xf06944a8da9ad8c3f6843c4b6a29d39fb9b1abe70fafd758c8849adb4542194533873272f4cc44c4fc9e81a40118258b537413ec01d622ff218b1e8d4f5f2a2d1b"
 }
