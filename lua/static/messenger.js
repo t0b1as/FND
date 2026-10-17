@@ -717,7 +717,25 @@ function showCallUI(video) {
     vc.classList.toggle('audio-only', !video);
 }
 
+// R666: Jede Stufe des Anrufaufbaus wird protokolliert. "Kameraanfrage kommt,
+// sonst nichts" kann an sechs Stellen hängen – ohne Spur ist das Raten.
+function callLog(stufe, zusatz) {
+    const z = '[Anruf] ' + stufe + (zusatz ? ': ' + zusatz : '');
+    console.log(z);
+    window.__anrufSpur = (window.__anrufSpur || []);
+    window.__anrufSpur.push(new Date().toISOString().slice(11, 23) + ' ' + z);
+}
+
 async function startCall(mode) {
+    callLog('gestartet', mode);
+    if (!window.isSecureContext) {
+        // Ohne HTTPS gibt der Browser weder Kamera noch Mikrofon frei – auf dem
+        // Rechner oft übersehen, weil localhost als sicher gilt.
+        showToast('📵 Anruf nur über HTTPS möglich',
+                  'Diese Seite läuft über http. Kamera und Mikrofon bleiben gesperrt.');
+        callLog('abgebrochen', 'kein sicherer Kontext');
+        return;
+    }
     if (!myIdentity) { showToast('Bitte zuerst anmelden', ''); return; }
     if (!activeChat) { showToast('Bitte zuerst einen Chat öffnen', ''); return; }
     if (peerConn) { showToast('Es läuft bereits ein Anruf', ''); return; }
@@ -725,12 +743,18 @@ async function startCall(mode) {
     callPeer = { fundusID: activeChat.fundusID, publicKey: activeChat.publicKey };
     try {
         localStream = await getMedia(mode === 'video');
+        callLog('Medien erhalten', localStream.getTracks().map(t => t.kind).join('+'));
         showCallUI(mode === 'video');
-        document.getElementById('local-video').srcObject = localStream;
+        const lv = document.getElementById('local-video');
+        if (!lv) throw new Error('Anruffenster fehlt in der Seite (local-video)');
+        lv.srcObject = localStream;
         peerConn = createPeerConnection();
         const offer = await peerConn.createOffer();
         await peerConn.setLocalDescription(offer);
+        callLog('Angebot erstellt', offer.type);
         await sendSignal({ type: mode === 'video' ? 'call_video' : 'call_audio', sdp: JSON.stringify(offer) });
+        callLog('Angebot verschickt', callPeer.fundusID.slice(0, 12));
+        waehltonAn();   // R666: hörbare Rückmeldung, dass es klingelt
         showToast(mode === 'video' ? '📹 Rufe an…' : '🎙️ Rufe an…', callPeer.fundusID.slice(0, 10) + '…');
     } catch (e) { callError(e); }
 }
@@ -741,6 +765,7 @@ function createPeerConnection() {
         localStream.getTracks().forEach(t => pc.addTrack(t, localStream));
     }
     pc.ontrack = (ev) => {
+        tonAus();   // R666: es ist verbunden – Wähl-/Anrufton beenden
         const rv = document.getElementById('remote-video');
         rv.srcObject = ev.streams[0];
         // Mobil: Wiedergabe ausdrücklich starten (Autoplay mit Ton ist sonst blockiert).
@@ -751,7 +776,10 @@ function createPeerConnection() {
             try { await sendSignal({ type: 'ice', ice: JSON.stringify(ev.candidate) }); } catch (e) {}
         }
     };
+    pc.oniceconnectionstatechange = () => callLog('ICE', pc.iceConnectionState);
+    pc.onicegatheringstatechange = () => callLog('ICE-Sammlung', pc.iceGatheringState);
     pc.onconnectionstatechange = () => {
+        callLog('Verbindung', pc.connectionState);
         if (pc.connectionState === 'failed') {
             showToast('📵 Verbindung fehlgeschlagen', iceHasTurn ? 'Auch über den TURN-Server keine Verbindung.' : 'Beide Seiten hinter strengem NAT – ohne TURN-Server (FUNDUS_TURN_URLS) nicht erreichbar.');
             hangup();
@@ -781,7 +809,7 @@ function showIncomingCall(from, video) {
         '<div class="ic-btns"><button class="btn btn-danger" id="ic-no">Ablehnen</button>' +
         '<button class="btn" id="ic-yes">Annehmen</button></div>';
     box.style.display = 'block';
-    if (window.playPling) window.playPling();
+    anruftonAn();   // R666: dauerhafter Anrufton statt eines einzelnen Tons
     document.getElementById('ic-no').onclick = () => { box.style.display = 'none'; sendSignal({ type: 'hangup' }).catch(()=>{}); resetCall(); };
     document.getElementById('ic-yes').onclick = () => { box.style.display = 'none'; acceptCall(video); };
 }
@@ -826,6 +854,7 @@ async function handleSignal(msg) {
             callPeer = { fundusID: from, publicKey: msg.sender_pub_x || '' };
             pendingOffer = JSON.parse(signal.sdp);
             pendingIce = [];
+            callLog('Anruf empfangen', from.slice(0, 12));
             showIncomingCall(from, signal.type === 'call_video');
             break;
         case 'answer':
@@ -866,6 +895,7 @@ async function sendSignal(signal) {
 }
 
 function resetCall() {
+    tonAus();   // R666
     callPeer = null; pendingIce = []; pendingOffer = null; isMuted = false; isCamOff = false;
 }
 
@@ -1175,8 +1205,8 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
         while (zeilen.length > 1 && zeilen[0].startsWith('> ')) {
             zitat += (zitat ? '\n' : '') + zeilen.shift().slice(2);
         }
-        content = (zitat ? '<span class="zitat">' + emojifyText(escapeHtml(zitat)) + '</span>' : '')
-                + emojifyText(escapeHtml(zeilen.join('\n')));
+        content = (zitat ? zitatHtml(zitat) : '')
+                + verlinke(emojifyText(escapeHtml(zeilen.join('\n'))));
     }
     if (file) {
         const url  = '/api/v1/files/download/' + encodeURIComponent(file.hash);
@@ -1552,7 +1582,9 @@ let _antwortAuf = null;
 function msgAntworten(blase) {
     const t = blasenText(blase);
     if (!t) return;
-    _antwortAuf = t.split('\n')[0].slice(0, 120);
+    // R666: Kennung mitführen, damit das Zitat ein Sprungziel bekommt.
+    const id = blase.dataset.msgId || '';
+    _antwortAuf = (id ? '[' + id + '] ' : '') + t.split('\n')[0].slice(0, 120);
     antwortLeisteZeigen();
     const feld = document.getElementById('msg-input') || document.querySelector('.msg-input');
     if (feld) feld.focus();
@@ -1572,7 +1604,7 @@ function antwortLeisteZeigen() {
     l.id = 'antwort-leiste';
     l.className = 'antwort-leiste';
     const txt = document.createElement('span');
-    txt.textContent = '↩ ' + _antwortAuf;
+    txt.textContent = '↩ ' + _antwortAuf.replace(/^\[[^\]]*\]\s?/, '');
     const x = document.createElement('button');
     x.textContent = '✕'; x.title = 'Antwort verwerfen';
     x.onclick = antwortAbbrechen;
@@ -1866,4 +1898,226 @@ function nameZiel(el) {
     document.addEventListener('touchmove', abbrechen, { passive: true });
     document.addEventListener('touchend', abbrechen, { passive: true });
     document.addEventListener('touchcancel', abbrechen, { passive: true });
+})();
+
+// ── Anklickbare Links (R666) ─────────────────────────────────────────────
+// Wirkt auf BEREITS maskiertem Text: Die Maskierung geschieht vorher, hier
+// werden nur noch Adressen erkannt. Andersherum wäre es eine Sicherheitslücke.
+function verlinke(htmlSicher) {
+    return String(htmlSicher).replace(
+        /(https?:\/\/[^\s<"]+|www\.[^\s<"]+|[\w.+-]+@[\w-]+\.[\w.]{2,})/g,
+        (treffer) => {
+            const sauber = treffer.replace(/[.,;:!?)]+$/, '');
+            const rest = treffer.slice(sauber.length);
+            let ziel = sauber;
+            if (sauber.indexOf('@') >= 0 && sauber.indexOf('//') < 0) ziel = 'mailto:' + sauber;
+            else if (sauber.startsWith('www.')) ziel = 'https://' + sauber;
+            return '<a href="' + ziel + '" target="_blank" rel="noopener noreferrer nofollow">' +
+                   sauber + '</a>' + rest;
+        });
+}
+
+// ── Antworten mit Sprung zur Nachricht (R666) ────────────────────────────
+// Das Zitat trägt die Kennung der Ursprungsnachricht mit: "> [id] Text".
+// Beim Anklicken springt die Ansicht dorthin und hebt sie kurz hervor.
+function zitatHtml(zitat) {
+    const m = zitat.match(/^\[([^\]\s]{1,64})\]\s?([\s\S]*)$/);
+    if (!m) return '<span class="zitat">' + verlinke(emojifyText(escapeHtml(zitat))) + '</span>';
+    const id = m[1], txt = m[2];
+    return '<a href="#" class="zitat zitat-link" onclick="zuNachricht(\'' +
+           escapeHtml(id).replace(/'/g, '') + '\');return false;">' +
+           emojifyText(escapeHtml(txt)) + '</a>';
+}
+
+function zuNachricht(id) {
+    const b = document.querySelector('.msg-bubble[data-msg-id="' + CSS.escape(String(id)) + '"]');
+    if (!b) { if (typeof showToast === 'function') showToast('Nachricht nicht geladen', 'Weiter nach oben blättern.'); return; }
+    b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    b.classList.add('hervor');
+    setTimeout(() => b.classList.remove('hervor'), 1600);
+}
+
+// ── Anruf- und Wählton (R666) ────────────────────────────────────────────
+// Selbst erzeugt statt als Datei: Kein zusätzlicher Download, kein Caching-
+// Problem, und der Ton lässt sich jederzeit sauber abbrechen.
+let _tonCtx = null, _tonStop = null;
+
+function tonKontext() {
+    if (!_tonCtx) {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        _tonCtx = new AC();
+    }
+    if (_tonCtx.state === 'suspended') _tonCtx.resume().catch(() => {});
+    return _tonCtx;
+}
+
+// muster: [[frequenz, dauer], …] in Sekunden; pause bis zur Wiederholung.
+function tonSchleife(muster, pause, lautstaerke) {
+    tonAus();
+    const ctx = tonKontext();
+    if (!ctx) return;
+    const gain = ctx.createGain();
+    gain.gain.value = lautstaerke;
+    gain.connect(ctx.destination);
+    let timer = null, lauft = true;
+    const runde = () => {
+        if (!lauft) return;
+        let t = ctx.currentTime;
+        muster.forEach(([f, d]) => {
+            const o = ctx.createOscillator();
+            o.type = 'sine'; o.frequency.value = f;
+            const g = ctx.createGain();
+            // Weiche Flanken, sonst knackt es bei jedem Ton.
+            g.gain.setValueAtTime(0, t);
+            g.gain.linearRampToValueAtTime(1, t + 0.02);
+            g.gain.setValueAtTime(1, t + d - 0.02);
+            g.gain.linearRampToValueAtTime(0, t + d);
+            o.connect(g); g.connect(gain);
+            o.start(t); o.stop(t + d);
+            t += d;
+        });
+        const gesamt = muster.reduce((a, [, d]) => a + d, 0) + pause;
+        timer = setTimeout(runde, gesamt * 1000);
+    };
+    runde();
+    _tonStop = () => { lauft = false; if (timer) clearTimeout(timer); try { gain.disconnect(); } catch (e) {} };
+}
+
+function tonAus() { if (_tonStop) { _tonStop(); _tonStop = null; } }
+
+// Wählton beim Anrufer: ruhiges Doppeltuten, wie man es vom Telefon kennt.
+function waehltonAn()  { tonSchleife([[440, 0.9], [0, 0.0]], 3.1, 0.07); }
+// Anrufton beim Angerufenen: deutlicher, zweistufig.
+function anruftonAn()  { tonSchleife([[660, 0.35], [0, 0.12], [880, 0.35]], 1.6, 0.10); }
+
+// ── Sprachnachrichten (R666) ─────────────────────────────────────────────
+// Senden-Knopf lange gedrückt halten = aufnehmen, loslassen = verschicken.
+// Zum Abbrechen während der Aufnahme nach oben wegziehen – so kennt man es
+// von anderen Messengern, und es verhindert versehentliche Nachrichten.
+let _aufnahme = null, _aufChunks = [], _aufStart = 0, _aufTimer = null, _aufAbbruch = false;
+
+async function sprachStart() {
+    if (_aufnahme) return;
+    if (!activeChat) { showToast('Bitte zuerst einen Chat öffnen', ''); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+        showToast('Aufnahme nicht möglich', 'Der Browser unterstützt keine Tonaufnahme.');
+        return;
+    }
+    let strom;
+    try {
+        strom = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (e) {
+        showToast('Kein Zugriff aufs Mikrofon', e.message || '');
+        return;
+    }
+    // Opus in WebM ist das, was Browser zuverlässig können; sonst die Vorgabe.
+    let typ = '';
+    for (const k of ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']) {
+        if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(k)) { typ = k; break; }
+    }
+    _aufChunks = []; _aufAbbruch = false; _aufStart = Date.now();
+    _aufnahme = new MediaRecorder(strom, typ ? { mimeType: typ } : undefined);
+    _aufnahme.ondataavailable = (ev) => { if (ev.data && ev.data.size) _aufChunks.push(ev.data); };
+    _aufnahme.onstop = async () => {
+        strom.getTracks().forEach(t => t.stop());
+        const dauer = (Date.now() - _aufStart) / 1000;
+        const art = _aufnahme.mimeType || typ || 'audio/webm';
+        _aufnahme = null;
+        sprachAnzeigeAus();
+        // Sehr kurze Aufnahmen sind fast immer ein Verrutschen, nicht gewollt.
+        if (_aufAbbruch || dauer < 0.8 || !_aufChunks.length) { _aufChunks = []; return; }
+        const blob = new Blob(_aufChunks, { type: art });
+        _aufChunks = [];
+        await sprachSenden(blob, dauer, art);
+    };
+    _aufnahme.start();
+    sprachAnzeigeAn();
+    if (navigator.vibrate) navigator.vibrate(18);
+    // Harte Obergrenze: Eine vergessene Aufnahme soll nicht endlos laufen.
+    _aufTimer = setTimeout(() => sprachStopp(false), 120000);
+}
+
+function sprachStopp(abbrechen) {
+    if (_aufTimer) { clearTimeout(_aufTimer); _aufTimer = null; }
+    if (!_aufnahme) { sprachAnzeigeAus(); return; }
+    _aufAbbruch = !!abbrechen;
+    try { _aufnahme.stop(); } catch (e) { _aufnahme = null; sprachAnzeigeAus(); }
+}
+
+function sprachAnzeigeAn() {
+    sprachAnzeigeAus();
+    const el = document.createElement('div');
+    el.id = 'sprach-anzeige';
+    el.className = 'sprach-anzeige';
+    el.innerHTML = '<span class="sa-punkt"></span><span id="sa-zeit">0:00</span>' +
+                   '<span class="sa-hinweis">zum Abbrechen nach oben ziehen</span>';
+    document.body.appendChild(el);
+    el._timer = setInterval(() => {
+        const s = Math.floor((Date.now() - _aufStart) / 1000);
+        const z = document.getElementById('sa-zeit');
+        if (z) z.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    }, 250);
+}
+
+function sprachAnzeigeAus() {
+    const el = document.getElementById('sprach-anzeige');
+    if (el) { if (el._timer) clearInterval(el._timer); el.remove(); }
+}
+
+async function sprachSenden(blob, dauer, art) {
+    const chat = { fundusID: activeChat.fundusID, publicKey: activeChat.publicKey };
+    const endung = art.indexOf('ogg') >= 0 ? 'ogg' : (art.indexOf('mp4') >= 0 ? 'm4a' : 'webm');
+    const name = 'sprachnachricht-' + Math.round(dauer) + 's.' + endung;
+    const st = appendSystemMessage('Sende Sprachnachricht…');
+    try {
+        const fd = new FormData();
+        fd.append('file', new File([blob], name, { type: art }));
+        const up = await fetch('/api/v1/files/upload', { method: 'POST', credentials: 'same-origin', body: fd });
+        const ud = await up.json();
+        if (!up.ok || !ud.content_hash) throw new Error(ud.error || ('HTTP ' + up.status));
+        const r = await fetch('/api/v1/messenger/send', { method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                recipient_id: chat.fundusID, recipient_pub_key: chat.publicKey || '',
+                type: 'file', file_hash: ud.content_hash, file_name: name,
+                file_size: blob.size, mime_type: art,
+            }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        if (st && st.remove) st.remove();
+        appendMessage({ id: d.id || null, from: myIdentity, outgoing: true, ts: new Date(),
+                        file: { hash: ud.content_hash, name, size: blob.size, mime: art } });
+    } catch (e) {
+        if (st) st.textContent = '✗ Sprachnachricht: ' + e.message;
+    }
+}
+
+// Langes Drücken auf den Senden-Knopf startet die Aufnahme.
+(function sprachBinden() {
+    const knopf = document.getElementById('send-btn');
+    if (!knopf) return;
+    let halten = null, startY = 0, laeuft = false;
+
+    const beginn = (y) => {
+        startY = y;
+        halten = setTimeout(() => { halten = null; laeuft = true; sprachStart(); }, 450);
+    };
+    const ende = () => {
+        if (halten) { clearTimeout(halten); halten = null; return; }   // kurzer Druck: normales Senden
+        if (laeuft) { laeuft = false; sprachStopp(false); }
+    };
+    const ziehen = (y) => {
+        if (laeuft && startY - y > 70) { laeuft = false; sprachStopp(true); }
+    };
+
+    knopf.addEventListener('touchstart', (ev) => beginn(ev.touches[0].clientY), { passive: true });
+    knopf.addEventListener('touchmove',  (ev) => ziehen(ev.touches[0].clientY), { passive: true });
+    knopf.addEventListener('touchend',   ende, { passive: true });
+    knopf.addEventListener('touchcancel', () => { if (laeuft) { laeuft = false; sprachStopp(true); } }, { passive: true });
+    // Am Rechner mit gedrückter Maustaste.
+    knopf.addEventListener('mousedown', (ev) => beginn(ev.clientY));
+    document.addEventListener('mousemove', (ev) => ziehen(ev.clientY));
+    document.addEventListener('mouseup', ende);
 })();
