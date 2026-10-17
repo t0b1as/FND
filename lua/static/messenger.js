@@ -572,6 +572,7 @@ async function sendText() {
     text = antwortVoranstellen(text);   // R663: Zitat voranstellen, falls geantwortet wird
 
     input.value = '';
+    sendeKnopfAnpassen();   // R668: wieder Aufnahmepunkt zeigen
 
     // R612: Die Antwort wurde bisher NICHT geprüft – scheiterte das Senden
     // (abgelehnt, nicht angemeldet, Netzfehler), erschien die Nachricht
@@ -2073,32 +2074,11 @@ function sprachAnzeigeAus() {
 }
 
 async function sprachSenden(blob, dauer, art) {
-    const chat = { fundusID: activeChat.fundusID, publicKey: activeChat.publicKey };
+    // R668: nutzt dieselbe Sendefunktion wie das Einfügen aus der
+    // Zwischenablage – vorher war der Ablauf hier ein zweites Mal ausgeschrieben.
     const endung = art.indexOf('ogg') >= 0 ? 'ogg' : (art.indexOf('mp4') >= 0 ? 'm4a' : 'webm');
     const name = 'sprachnachricht-' + Math.round(dauer) + 's.' + endung;
-    const st = appendSystemMessage('Sende Sprachnachricht…');
-    try {
-        const fd = new FormData();
-        fd.append('file', new File([blob], name, { type: art }));
-        const up = await fetch('/api/v1/files/upload', { method: 'POST', credentials: 'same-origin', body: fd });
-        const ud = await up.json();
-        if (!up.ok || !ud.content_hash) throw new Error(ud.error || ('HTTP ' + up.status));
-        const r = await fetch('/api/v1/messenger/send', { method: 'POST', credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                recipient_id: chat.fundusID, recipient_pub_key: chat.publicKey || '',
-                type: 'file', file_hash: ud.content_hash, file_name: name,
-                file_size: blob.size, mime_type: art,
-            }),
-        });
-        const d = await r.json();
-        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-        if (st && st.remove) st.remove();
-        appendMessage({ id: d.id || null, from: myIdentity, outgoing: true, ts: new Date(),
-                        file: { hash: ud.content_hash, name, size: blob.size, mime: art } });
-    } catch (e) {
-        if (st) st.textContent = '✗ Sprachnachricht: ' + e.message;
-    }
+    await datenSenden(new File([blob], name, { type: art }), 'Sprachnachricht');
 }
 
 // Langes Drücken auf den Senden-Knopf startet die Aufnahme.
@@ -2109,7 +2089,14 @@ async function sprachSenden(blob, dauer, art) {
 
     const beginn = (y) => {
         startY = y;
-        halten = setTimeout(() => { halten = null; laeuft = true; sprachStart(); }, 450);
+        halten = setTimeout(() => {
+            halten = null;
+            // Steht Text im Feld, ist der Knopf ein Sendeknopf – dann nicht
+            // aufnehmen, sonst ginge der getippte Text beim Halten verloren.
+            const feld = document.getElementById('msg-input');
+            if (feld && feld.value.trim()) return;
+            laeuft = true; sprachStart();
+        }, 450);
     };
     const ende = () => {
         if (halten) { clearTimeout(halten); halten = null; return; }   // kurzer Druck: normales Senden
@@ -2199,3 +2186,101 @@ function tonSpringen(ev, id) {
     const r = b.getBoundingClientRect();
     a.currentTime = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * a.duration;
 }
+
+// ── Aus der Zwischenablage einfügen (R668) ───────────────────────────────
+// Bilder und GIFs lassen sich jetzt direkt ins Eingabefeld einfügen. Ein
+// Bildschirmfoto landet so ohne Umweg über Datei speichern und Anhängen im
+// Chat.
+//
+// datenSenden ist die gemeinsame Grundlage für Einfügen und Sprachaufnahme –
+// beide laden hoch und verschicken dann dieselbe Art Nachricht. Zwei getrennte
+// Wege wären nach dem dritten Nachbessern auseinandergelaufen.
+async function datenSenden(datei, beschriftung) {
+    if (!activeChat) { showToast('Bitte zuerst einen Chat öffnen', ''); return false; }
+    const chat = { fundusID: activeChat.fundusID, publicKey: activeChat.publicKey };
+    const st = appendSystemMessage((beschriftung || 'Datei') + ' wird gesendet…');
+    try {
+        const fd = new FormData();
+        fd.append('file', datei);
+        const up = await fetch('/api/v1/files/upload',
+            { method: 'POST', credentials: 'same-origin', body: fd });
+        const ud = await up.json();
+        if (!up.ok || !ud.content_hash) throw new Error(ud.error || ('HTTP ' + up.status));
+        const r = await fetch('/api/v1/messenger/send', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                recipient_id: chat.fundusID, recipient_pub_key: chat.publicKey || '',
+                type: 'file', file_hash: ud.content_hash, file_name: datei.name,
+                file_size: datei.size, mime_type: datei.type || '',
+            }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        if (st && st.remove) st.remove();
+        appendMessage({
+            id: d.id || null, from: myIdentity, outgoing: true, ts: new Date(),
+            file: { hash: ud.content_hash, name: datei.name, size: datei.size, mime: datei.type || '' },
+        });
+        return true;
+    } catch (e) {
+        if (st) st.textContent = '✗ ' + (beschriftung || 'Datei') + ': ' + e.message;
+        return false;
+    }
+}
+
+// Einfügen abfangen: Enthält die Zwischenablage ein Bild, wird es verschickt.
+// Reiner Text wird NICHT abgefangen, sonst ließe sich nichts mehr einfügen.
+(function einfuegenBinden() {
+    const feld = document.getElementById('msg-input');
+    if (!feld) return;
+    const verarbeiten = async (ev) => {
+        const cd = ev.clipboardData || window.clipboardData;
+        if (!cd) return;
+        const bilder = [];
+        for (const it of (cd.items || [])) {
+            if (it.kind === 'file' && String(it.type || '').startsWith('image/')) {
+                const f = it.getAsFile();
+                if (f) bilder.push(f);
+            }
+        }
+        if (!bilder.length) return;      // nur Text: normal einfügen lassen
+        ev.preventDefault();
+        for (const b of bilder) {
+            // Bildschirmfotos heißen oft "image.png" oder gar nichts – einen
+            // sprechenden Namen vergeben, sonst steht das später so im Verlauf.
+            const endung = (b.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+            const name = (b.name && b.name !== 'image.png') ? b.name
+                       : 'eingefuegt-' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.' + endung;
+            await datenSenden(new File([b], name, { type: b.type }),
+                              endung === 'gif' ? 'GIF' : 'Bild');
+        }
+    };
+    feld.addEventListener('paste', verarbeiten);
+    // Auch wenn der Fokus nicht im Feld liegt – im Chat eingefügt ist eindeutig.
+    document.addEventListener('paste', (ev) => {
+        if (document.activeElement === feld) return;   // sonst doppelt
+        if (!activeChat) return;
+        verarbeiten(ev);
+    });
+})();
+
+// ── Knopf zeigt, was er tut (R668) ───────────────────────────────────────
+// Leeres Feld: Aufnahmepunkt – langes Drücken nimmt eine Sprachnachricht auf.
+// Sobald Text im Feld steht, wird daraus der Sendepfeil.
+function sendeKnopfAnpassen() {
+    const feld = document.getElementById('msg-input');
+    const ico = document.querySelector('#send-btn .send-ico');
+    const btn = document.getElementById('send-btn');
+    if (!feld || !ico || !btn) return;
+    const hatText = !!feld.value.trim();
+    ico.textContent = hatText ? '➤' : '⏺';
+    btn.classList.toggle('aufnahme-modus', !hatText);
+    btn.title = hatText ? 'Senden' : 'Gedrückt halten für Sprachnachricht';
+}
+(function sendeKnopfBinden() {
+    const feld = document.getElementById('msg-input');
+    if (!feld) return;
+    ['input', 'change', 'keyup'].forEach(e => feld.addEventListener(e, sendeKnopfAnpassen));
+    sendeKnopfAnpassen();
+})();

@@ -2799,3 +2799,11 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 /* In eigenen (grünen) Blasen erbt der Abspieler deren Textfarbe, in
    eingehenden die grüne Akzentfarbe – so passt er immer zur Blase. */
 .msg-bubble.incoming .ton-player { color: var(--green); }
+
+/* ── Senden-/Aufnahmeknopf (R668) ────────────────────────────────────────── */
+/* Leeres Feld: Aufnahmepunkt in Rot – wie man es von Aufnahmeknöpfen kennt.
+   Sobald Text im Feld steht, wird daraus der gewohnte grüne Sendepfeil. */
+#send-btn .send-ico { display: inline-block; transition: transform .12s ease; }
+#send-btn.aufnahme-modus .send-ico { color: #ef4444; font-size: 1.15em; }
+#send-btn.aufnahme-modus:active .send-ico { transform: scale(1.25); }
+#send-btn.aufnahme-modus .send-txt { display: none; }
