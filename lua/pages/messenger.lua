@@ -78,6 +78,9 @@ ngx.print([[
       <span id="chat-with-sub" class="msg-chat-sub" title="Adresse kopieren"></span>
     </div>
     <div class="msg-call-buttons">
+      <!-- Verlauf leeren (R662): bewusst im Kopf und nicht im Nachrichtenmenü –
+           es betrifft die ganze Unterhaltung, nicht eine Nachricht. -->
+      <button class="btn" title="Verlauf bei mir löschen" onclick="verlaufLoeschen()">🗑</button>
       <button class="btn" ]] .. 'title="' .. t("messenger.title_audio") .. '"' .. [[ onclick="startCall('audio')">🎙️</button>
       <button class="btn" ]] .. 'title="' .. t("messenger.title_video") .. '"' .. [[ onclick="startCall('video')">📹</button>
     </div>

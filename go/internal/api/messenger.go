@@ -191,6 +191,10 @@ func (s *Server) registerMessengerRoutes() {
 		g.GET("/messenger/whoami",    s.messengerWhoami)
 		g.POST("/messenger/contacts", s.messengerAddContact)
 		g.GET("/messenger/history",   s.messengerHistory)
+		// Bearbeiten, Löschen, Verlauf leeren (R662)
+		g.POST("/messenger/edit",   s.messengerEdit)
+		g.POST("/messenger/delete", s.messengerDelete)
+		g.POST("/messenger/clear",  s.messengerClear)
 
 		// WebSocket für Echtzeit-Nachrichten
 		g.GET("/messenger/ws", s.messengerWebSocket)
@@ -272,6 +276,51 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 					"receipt_kind": payload.ReceiptKind,
 					"peer_id":      msg.SenderID,
 					"ts":           at,
+				})
+				return
+			}
+
+			// Bearbeiten und Löschen (R662): Ändern den vorhandenen Verlauf,
+			// statt einen neuen Eintrag zu erzeugen. VOR der Bekanntheitsprüfung,
+			// denn sie tragen eine eigene Kennung und sollen auch dann greifen,
+			// wenn die Ursprungsnachricht längst bekannt ist.
+			// Das Gegenüber hat den gemeinsamen Verlauf gelöscht und bittet
+			// uns, dasselbe zu tun (R663). Wir folgen dem, weil beide Seiten
+			// das ausdrücklich so gewählt haben.
+			if payload != nil && payload.ClearConv {
+				if sess.history != nil {
+					_ = sess.history.ClearConv(msg.SenderID)
+				}
+				sess.broadcastWS(gin.H{
+					"type":    "msgchange",
+					"peer_id": msg.SenderID,
+					"clear":   true,
+					"ts":      msg.Timestamp,
+				})
+				return
+			}
+			if payload != nil && (payload.EditFor != "" || payload.DeleteFor != "") {
+				peer := msg.SenderID
+				if sess.history != nil {
+					if payload.EditFor != "" {
+						_, _ = sess.history.UpdateText(peer, payload.EditFor,
+							payload.Text, msg.Timestamp)
+					} else {
+						// Nur eigene Nachrichten darf das Gegenüber bei uns
+						// entfernen – sonst könnte jemand unsere eigenen
+						// Beiträge aus unserem Verlauf löschen lassen.
+						if eigen, err := s.istEigeneNachricht(sess, peer, payload.DeleteFor); err == nil && !eigen {
+							_, _ = sess.history.DeleteEntry(peer, payload.DeleteFor)
+						}
+					}
+				}
+				sess.broadcastWS(gin.H{
+					"type":       "msgchange",
+					"peer_id":    peer,
+					"edit_for":   payload.EditFor,
+					"delete_for": payload.DeleteFor,
+					"text":       payload.Text,
+					"ts":         msg.Timestamp,
 				})
 				return
 			}

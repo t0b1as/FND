@@ -53,6 +53,11 @@ type HistoryEntry struct {
 	// nil = noch nicht zugestellt/gelesen.
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 	ReadAt      *time.Time `json:"read_at,omitempty"`
+
+	// EditedAt: gesetzt, wenn die Nachricht nachträglich geändert wurde (R662).
+	// Die Oberfläche zeigt daraufhin einen Hinweis – eine stille Änderung wäre
+	// in einem Chat nicht in Ordnung.
+	EditedAt *time.Time `json:"edited_at,omitempty"`
 }
 
 // HistoryStore verwaltet den verschlüsselten Verlauf einer Identität.
@@ -389,4 +394,108 @@ func (h *HistoryStore) readAll(peerID string) ([]HistoryEntry, error) {
 		entries = append(entries, e)
 	}
 	return entries, sc.Err()
+}
+
+// ── Bearbeiten, Löschen, Verlauf leeren (R662) ───────────────────────────
+//
+// Die Konversationsdatei wird nur angehängt. Für Änderungen wird sie deshalb
+// vollständig gelesen, angepasst und neu geschrieben – bei den hier üblichen
+// Größen (einige tausend Zeilen) ist das unproblematisch und deutlich
+// einfacher als ein Journal mit Grabsteinen.
+//
+// WICHTIG: Gelöscht wird nur der eigene Verlauf. Beim Gegenüber verschwindet
+// die Nachricht nur, wenn dessen Node die Mitteilung erhält und anwendet – wer
+// etwas gelesen hat, hat es gelesen. Das ist eine Eigenschaft des Entwurfs,
+// keine Lücke: Es gibt keine zentrale Stelle, die nachträglich durchgreifen
+// könnte.
+
+// schreibeAlle ersetzt die Konversationsdatei durch die übergebenen Einträge.
+func (h *HistoryStore) schreibeAlle(peerID string, eintraege []HistoryEntry) error {
+	pfad := h.convPath(peerID)
+	tmp := pfad + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
+	if err != nil {
+		return fmt.Errorf("history: open tmp: %w", err)
+	}
+	for _, e := range eintraege {
+		plain, err := json.Marshal(e)
+		if err != nil {
+			_ = f.Close()
+			return fmt.Errorf("history: marshal: %w", err)
+		}
+		enc, err := identity.Encrypt(plain, h.key[:])
+		if err != nil {
+			_ = f.Close()
+			return fmt.Errorf("history: encrypt: %w", err)
+		}
+		if _, err := f.WriteString(base64.StdEncoding.EncodeToString(enc) + "\n"); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("history: write: %w", err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	// Erst umbenennen, wenn alles geschrieben ist – sonst stünde bei einem
+	// Absturz mitten im Schreiben ein halber Verlauf auf der Platte.
+	return os.Rename(tmp, pfad)
+}
+
+// UpdateText ändert den Text einer Nachricht. Liefert false, wenn es sie nicht
+// gibt. editedAt wird vermerkt, damit die Oberfläche "bearbeitet" anzeigen kann.
+func (h *HistoryStore) UpdateText(peerID, messageID, neuerText string, editedAt time.Time) (bool, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	alle, err := h.readAll(peerID)
+	if err != nil {
+		return false, err
+	}
+	gefunden := false
+	for i := range alle {
+		if alle[i].ID == messageID {
+			alle[i].Text = neuerText
+			t := editedAt
+			alle[i].EditedAt = &t
+			gefunden = true
+			break
+		}
+	}
+	if !gefunden {
+		return false, nil
+	}
+	return true, h.schreibeAlle(peerID, alle)
+}
+
+// DeleteEntry entfernt eine Nachricht aus dem Verlauf.
+func (h *HistoryStore) DeleteEntry(peerID, messageID string) (bool, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	alle, err := h.readAll(peerID)
+	if err != nil {
+		return false, err
+	}
+	out := make([]HistoryEntry, 0, len(alle))
+	gefunden := false
+	for _, e := range alle {
+		if e.ID == messageID {
+			gefunden = true
+			continue
+		}
+		out = append(out, e)
+	}
+	if !gefunden {
+		return false, nil
+	}
+	return true, h.schreibeAlle(peerID, out)
+}
+
+// ClearConv leert den Verlauf einer Konversation vollständig.
+func (h *HistoryStore) ClearConv(peerID string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	pfad := h.convPath(peerID)
+	if err := os.Remove(pfad); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("history: remove: %w", err)
+	}
+	return nil
 }

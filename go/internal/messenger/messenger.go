@@ -96,6 +96,17 @@ type Payload struct {
 	// SenderName: Anzeigename des Absenders (verschlüsselt mitgeschickt, damit
 	// der Empfänger ihn auch ohne gespeicherten Kontakt erkennt).
 	SenderName string `json:"sn,omitempty"`
+
+	// Bearbeiten und Löschen (R662). Beides reist über denselben
+	// verschlüsselten Weg wie eine normale Nachricht und landet bei Bedarf im
+	// Postfach – so kommt es auch an, wenn der Empfänger gerade offline ist.
+	EditFor   string `json:"edit_for,omitempty"`   // ID der zu ändernden Nachricht
+	DeleteFor string `json:"delete_for,omitempty"` // ID der zu löschenden Nachricht
+
+	// ClearConv: der Absender hat den gemeinsamen Verlauf gelöscht und bittet
+	// das Gegenüber, dasselbe zu tun (R663). Eine Bitte, keine Anweisung – der
+	// empfangende Node entscheidet, ob er sie befolgt.
+	ClearConv bool `json:"clear_conv,omitempty"`
 }
 
 // Quittungsarten (WhatsApp-analog): delivered = beim Empfänger angekommen,
@@ -548,4 +559,30 @@ func generateID() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// SendEdit und SendDelete teilen dem Gegenüber mit, dass eine frühere
+// Nachricht geändert oder entfernt wurde (R662).
+//
+// Beides reist als TypeText über denselben verschlüsselten Weg wie eine
+// gewöhnliche Nachricht. Das ist Absicht: So greift die vorhandene
+// Ende-zu-Ende-Verschlüsselung, und bei einem offline erreichbaren Gegenüber
+// landet die Mitteilung im Postfach statt verloren zu gehen. Als Signal
+// verschickt wäre sie weg, sobald jemand das Fenster geschlossen hat.
+func (m *Messenger) SendEdit(ctx context.Context, recipientID, recipientX25519Hex,
+	messageID, neuerText string) (*Message, error) {
+	return m.sendPayload(ctx, recipientID, recipientX25519Hex, TypeText,
+		Payload{EditFor: messageID, Text: neuerText})
+}
+
+func (m *Messenger) SendDelete(ctx context.Context, recipientID, recipientX25519Hex,
+	messageID string) (*Message, error) {
+	return m.sendPayload(ctx, recipientID, recipientX25519Hex, TypeText,
+		Payload{DeleteFor: messageID})
+}
+
+// SendClear bittet das Gegenüber, den gemeinsamen Verlauf ebenfalls zu löschen.
+func (m *Messenger) SendClear(ctx context.Context, recipientID, recipientX25519Hex string) (*Message, error) {
+	return m.sendPayload(ctx, recipientID, recipientX25519Hex, TypeText,
+		Payload{ClearConv: true})
 }

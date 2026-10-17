@@ -307,6 +307,21 @@ async function handleIncomingMessage(msg) {
         applyReceipt(msg.receipt_for, msg.receipt_kind, msg.ts);
         return;
     }
+    // Das Gegenüber hat eine Nachricht geändert oder entfernt (R662).
+    if (msg.type === 'msgchange') {
+        if (msg.clear) {   // R663: Gegenüber hat den Verlauf gelöscht
+            document.querySelectorAll('.msg-bubble').forEach(b => b.remove());
+            return;
+        }
+        const ziel = msg.edit_for || msg.delete_for;
+        const b = ziel && document.querySelector(
+            '.msg-bubble[data-msg-id="' + CSS.escape(String(ziel)) + '"]');
+        if (b) {
+            if (msg.delete_for) b.remove();
+            else msgTextSetzen(b, msg.text || '', true);
+        }
+        return;
+    }
 
     // Backend liefert die Nachricht bereits ENTSCHLÜSSELT über den WebSocket
     // (decrypted:true). Dann direkt anzeigen — kein zweiter decrypt-Roundtrip.
@@ -552,8 +567,9 @@ async function sendText() {
     }
     if (!activeChat) { showToast('✗ Kein Empfänger gewählt', 'Adresse oben eingeben oder Kontakt anklicken'); return; }
     const input = document.getElementById('msg-input');
-    const text  = input.value.trim();
+    let text  = input.value.trim();
     if (!text) return;
+    text = antwortVoranstellen(text);   // R663: Zitat voranstellen, falls geantwortet wird
 
     input.value = '';
 
@@ -1150,7 +1166,17 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
     if (id) div.dataset.msgId = id;
 
     let content = '';
-    if (text)  content = emojifyText(escapeHtml(text));
+    if (text) {
+        // R663: Führende Zeilen mit "> " sind ein Zitat (Antworten-Funktion)
+        // und werden abgesetzt dargestellt statt als gewöhnlicher Text.
+        const zeilen = String(text).split('\n');
+        let zitat = '';
+        while (zeilen.length > 1 && zeilen[0].startsWith('> ')) {
+            zitat += (zitat ? '\n' : '') + zeilen.shift().slice(2);
+        }
+        content = (zitat ? '<span class="zitat">' + emojifyText(escapeHtml(zitat)) + '</span>' : '')
+                + emojifyText(escapeHtml(zeilen.join('\n')));
+    }
     if (file) {
         const url  = '/api/v1/files/download/' + encodeURIComponent(file.hash);
         const mime = (file.mime || '').toLowerCase();
@@ -1434,3 +1460,344 @@ function msgNewByAddr() {
     if (inp) { inp.value = ''; inp.focus(); }
     activeChat = null; updateSendState();
 }
+
+// ── Nachricht bearbeiten, löschen, Verlauf leeren (R662) ──────────────────
+//
+// Bedienung: am Rechner Rechtsklick auf die Blase, am Handy langes Antippen.
+// Beides öffnet dasselbe Menü, damit es nur eine Stelle gibt, die gepflegt
+// werden muss.
+
+let _menuOffen = null;
+
+function msgMenuSchliessen() {
+    if (_menuOffen) { _menuOffen.remove(); _menuOffen = null; }
+}
+document.addEventListener('click', msgMenuSchliessen);
+document.addEventListener('scroll', msgMenuSchliessen, true);
+
+function msgMenuOeffnen(blase, x, y) {
+    msgMenuSchliessen();
+    const id = blase.dataset.msgId;
+    if (!id) return;
+    const eigen = blase.classList.contains('outgoing');
+    const hatText = !!blase.querySelector('.msg-text, .bubble-text') ||
+                    !blase.querySelector('.msg-file, a[download]');
+
+    const punkte = [];
+    punkte.push(['↩ Antworten', () => msgAntworten(blase)]);
+    punkte.push(['➦ Weiterleiten', () => msgWeiterleiten(blase)]);
+    punkte.push(['⧉ Kopieren', () => msgKopieren(blase)]);
+    if (eigen && hatText) punkte.push(['✎ Bearbeiten', () => msgBearbeiten(blase, id)]);
+    punkte.push(['🗑 Bei mir löschen', () => msgLoeschen(id, false)]);
+    if (eigen) punkte.push(['🗑 Bei beiden löschen', () => msgLoeschen(id, true)]);
+
+    const m = document.createElement('div');
+    m.className = 'msg-menu';
+    punkte.forEach(([beschriftung, fn]) => {
+        const b = document.createElement('button');
+        b.textContent = beschriftung;
+        b.onclick = (ev) => { ev.stopPropagation(); msgMenuSchliessen(); fn(); };
+        m.appendChild(b);
+    });
+    document.body.appendChild(m);
+    // Innerhalb des Fensters halten – sonst ragt es am rechten oder unteren
+    // Rand heraus und ist nicht erreichbar.
+    const r = m.getBoundingClientRect();
+    m.style.left = Math.max(8, Math.min(x, window.innerWidth  - r.width  - 8)) + 'px';
+    m.style.top  = Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) + 'px';
+    _menuOffen = m;
+}
+
+function aktuellerPeer() {
+    // R663: Vorher stand hier window.activeChat – activeChat ist aber mit let
+    // angelegt und liegt damit NICHT auf window. Die Adresse war dadurch immer
+    // leer und jede Aktion lief ins Leere, ohne dass man den Grund sah.
+    return (activeChat && (activeChat.fundusID || activeChat.id)) || '';
+}
+
+// Reinen Text einer Blase holen – ohne Uhrzeit, Haken und Bearbeitet-Vermerk.
+function blasenText(blase) {
+    const kopie = blase.cloneNode(true);
+    kopie.querySelectorAll('.msg-time, .bubble-time, .msg-status, .msg-edited').forEach(e => e.remove());
+    return kopie.innerText.trim();
+}
+
+function msgKopieren(blase) {
+    const t = blasenText(blase);
+    if (!t) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).catch(() => msgKopierenNotfalls(t));
+    } else {
+        msgKopierenNotfalls(t);
+    }
+}
+
+// Ohne sicheren Kontext gibt es die Zwischenablage nicht – dann über ein
+// unsichtbares Feld, sonst passiert beim Kopieren wortlos nichts (R663).
+function msgKopierenNotfalls(t) {
+    const f = document.createElement('textarea');
+    f.value = t; f.style.position = 'fixed'; f.style.opacity = '0';
+    document.body.appendChild(f); f.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    f.remove();
+}
+
+// ── Antworten (R663) ─────────────────────────────────────────────────────
+// Die zitierte Stelle wird dem Text vorangestellt. Bewusst ohne Erweiterung
+// des Protokolls: So sehen auch ältere Nodes das Zitat, und es gibt keine
+// Nachricht, die auf eine inzwischen gelöschte verweist.
+let _antwortAuf = null;
+
+function msgAntworten(blase) {
+    const t = blasenText(blase);
+    if (!t) return;
+    _antwortAuf = t.split('\n')[0].slice(0, 120);
+    antwortLeisteZeigen();
+    const feld = document.getElementById('msg-input') || document.querySelector('.msg-input');
+    if (feld) feld.focus();
+}
+
+function antwortAbbrechen() {
+    _antwortAuf = null;
+    const l = document.getElementById('antwort-leiste');
+    if (l) l.remove();
+}
+
+function antwortLeisteZeigen() {
+    antwortLeisteEntfernenStill();
+    const anker = document.querySelector('.msg-compose, .msg-input-row, #msg-form');
+    if (!anker || !_antwortAuf) return;
+    const l = document.createElement('div');
+    l.id = 'antwort-leiste';
+    l.className = 'antwort-leiste';
+    const txt = document.createElement('span');
+    txt.textContent = '↩ ' + _antwortAuf;
+    const x = document.createElement('button');
+    x.textContent = '✕'; x.title = 'Antwort verwerfen';
+    x.onclick = antwortAbbrechen;
+    l.appendChild(txt); l.appendChild(x);
+    anker.parentNode.insertBefore(l, anker);
+}
+
+function antwortLeisteEntfernenStill() {
+    const l = document.getElementById('antwort-leiste');
+    if (l) l.remove();
+}
+
+// Wird vor dem Senden aufgerufen: stellt das Zitat voran und räumt auf.
+function antwortVoranstellen(text) {
+    if (!_antwortAuf) return text;
+    const zitat = '> ' + _antwortAuf + '\n';
+    _antwortAuf = null;
+    antwortLeisteEntfernenStill();
+    return zitat + text;
+}
+
+// ── Weiterleiten (R663) ──────────────────────────────────────────────────
+async function msgWeiterleiten(blase) {
+    const t = blasenText(blase);
+    if (!t) return;
+    const ziel = await kontaktWaehlen('Weiterleiten an:');
+    if (!ziel) return;
+    try {
+        const r = await fetch('/api/v1/messenger/send', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                recipient_id: ziel.fundusID,
+                recipient_pub_key: ziel.publicKey || '',
+                text: t, type: 'text',
+            }),
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        if (typeof toast === 'function') toast('Weitergeleitet', 'an ' + (ziel.alias || ziel.fundusID));
+    } catch (e) { alert('✗ ' + e.message); }
+}
+
+// Auswahl aus den eigenen Kontakten; ohne Kontakte Eingabe einer Adresse.
+function kontaktWaehlen(titel) {
+    return new Promise((fertig) => {
+        const liste = Object.values(typeof contacts === 'object' && contacts ? contacts : {});
+        if (!liste.length) {
+            const a = prompt(titel + ' (Fundus-Adresse)');
+            fertig(a ? { fundusID: a.trim() } : null);
+            return;
+        }
+        msgMenuSchliessen();
+        const hg = document.createElement('div');
+        hg.className = 'kontakt-waehler';
+        const box = document.createElement('div');
+        box.className = 'kw-box';
+        const h = document.createElement('div');
+        h.className = 'kw-titel'; h.textContent = titel;
+        box.appendChild(h);
+        liste.forEach((k) => {
+            const b = document.createElement('button');
+            b.textContent = k.alias || k.fundusID;
+            b.onclick = () => { hg.remove(); fertig(k); };
+            box.appendChild(b);
+        });
+        const ab = document.createElement('button');
+        ab.className = 'kw-ab'; ab.textContent = 'Abbrechen';
+        ab.onclick = () => { hg.remove(); fertig(null); };
+        box.appendChild(ab);
+        hg.appendChild(box);
+        hg.onclick = (ev) => { if (ev.target === hg) { hg.remove(); fertig(null); } };
+        document.body.appendChild(hg);
+    });
+}
+
+async function msgBearbeiten(blase, id) {
+    const alt = blase.innerText.replace(/\s*\d{1,2}:\d{2}\s*$/, '').replace(/\s*\(bearbeitet\)\s*$/, '').trim();
+    const neu = prompt('Nachricht bearbeiten:', alt);
+    if (neu === null) return;
+    const text = neu.trim();
+    if (!text || text === alt) return;
+    try {
+        const r = await fetch('/api/v1/messenger/edit', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ peer: aktuellerPeer(), message_id: id, text })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        msgTextSetzen(blase, text, true);
+        if (!d.zugestellt) {
+            toast && toast('Geändert', 'Beim Gegenüber noch nicht angekommen – wird nachgeholt, sobald er erreichbar ist.');
+        }
+    } catch (e) { alert('✗ ' + e.message); }
+}
+
+async function msgLoeschen(id, beimAnderen) {
+    if (beimAnderen && !confirm('Die Nachricht auch beim Gegenüber entfernen?\n\n' +
+        'Das wirkt nur, wenn dessen Node die Mitteilung erhält. Gelesen ist gelesen.')) return;
+    try {
+        const r = await fetch('/api/v1/messenger/delete', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ peer: aktuellerPeer(), message_id: id, beim_anderen: !!beimAnderen })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        const b = document.querySelector('.msg-bubble[data-msg-id="' + CSS.escape(String(id)) + '"]');
+        if (b) b.remove();
+    } catch (e) { alert('✗ ' + e.message); }
+}
+
+// Verlauf löschen – mit Wahl, ob nur bei mir oder auch beim Gegenüber (R663).
+async function verlaufLoeschen() {
+    const peer = aktuellerPeer();
+    if (!peer) { alert('Keine Unterhaltung geöffnet.'); return; }
+    const wahl = await verlaufDialog();
+    if (!wahl) return;
+    try {
+        const r = await fetch('/api/v1/messenger/clear', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ peer, beim_anderen: wahl === 'beide' })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        document.querySelectorAll('.msg-bubble').forEach(b => b.remove());
+        if (wahl === 'beide' && !d.zugestellt && typeof toast === 'function') {
+            toast('Verlauf gelöscht', 'Beim Gegenüber noch nicht angekommen – wird nachgeholt, sobald er erreichbar ist.');
+        }
+    } catch (e) { alert('✗ ' + e.message); }
+}
+
+// Zwei deutlich benannte Knöpfe statt einer Ja/Nein-Frage: Der Unterschied
+// zwischen „nur bei mir" und „bei beiden" ist zu wichtig für ein Häkchen.
+function verlaufDialog() {
+    return new Promise((fertig) => {
+        const hg = document.createElement('div');
+        hg.className = 'kontakt-waehler';
+        const box = document.createElement('div');
+        box.className = 'kw-box';
+        const h = document.createElement('div');
+        h.className = 'kw-titel';
+        h.textContent = 'Verlauf dieser Unterhaltung löschen';
+        box.appendChild(h);
+        const hinweis = document.createElement('div');
+        hinweis.className = 'kw-hinweis';
+        hinweis.textContent = 'Das lässt sich nicht rückgängig machen.';
+        box.appendChild(hinweis);
+        [['Nur bei mir', 'lokal'],
+         ['Bei mir und beim Gegenüber', 'beide']].forEach(([beschriftung, wert]) => {
+            const b = document.createElement('button');
+            b.textContent = beschriftung;
+            b.onclick = () => { hg.remove(); fertig(wert); };
+            box.appendChild(b);
+        });
+        const nach = document.createElement('div');
+        nach.className = 'kw-hinweis';
+        nach.textContent = 'Beim Gegenüber wirkt es nur, wenn dessen Node die ' +
+                           'Mitteilung erhält. Gelesen ist gelesen.';
+        box.appendChild(nach);
+        const ab = document.createElement('button');
+        ab.className = 'kw-ab'; ab.textContent = 'Abbrechen';
+        ab.onclick = () => { hg.remove(); fertig(null); };
+        box.appendChild(ab);
+        hg.appendChild(box);
+        hg.onclick = (ev) => { if (ev.target === hg) { hg.remove(); fertig(null); } };
+        document.body.appendChild(hg);
+    });
+}
+
+// Text einer Blase ersetzen und als bearbeitet kennzeichnen.
+function msgTextSetzen(blase, text, bearbeitet) {
+    const zeit = blase.querySelector('.msg-time, .bubble-time');
+    const marke = blase.querySelector('.msg-status');
+    blase.textContent = '';
+    const span = document.createElement('span');
+    span.innerHTML = (typeof emojifyText === 'function')
+        ? emojifyText(escapeHtml(text)) : escapeHtml(text);
+    blase.appendChild(span);
+    if (bearbeitet) {
+        const e = document.createElement('span');
+        e.className = 'msg-edited';
+        e.textContent = ' (bearbeitet)';
+        blase.appendChild(e);
+    }
+    if (zeit) blase.appendChild(zeit);
+    if (marke) blase.appendChild(marke);
+}
+
+// Menü an die Blasen hängen: Rechtsklick und langes Antippen.
+(function msgMenuBinden() {
+    let halten = null, startXY = null;
+    // R663: In der AUFFANGPHASE (true), damit kein anderer Behandler den
+    // Rechtsklick vorher abfängt oder das Weiterreichen stoppt.
+    document.addEventListener('contextmenu', (ev) => {
+        const b = ev.target.closest && ev.target.closest('.msg-bubble');
+        if (!b) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        msgMenuOeffnen(b, ev.clientX, ev.clientY);
+    }, true);
+    document.addEventListener('touchstart', (ev) => {
+        const b = ev.target.closest && ev.target.closest('.msg-bubble');
+        if (!b) return;
+        const t = ev.touches[0];
+        startXY = { x: t.clientX, y: t.clientY };
+        halten = setTimeout(() => {
+            halten = null;
+            if (navigator.vibrate) navigator.vibrate(18);
+            msgMenuOeffnen(b, startXY.x, startXY.y);
+        }, 500);
+    }, { passive: true });
+    const abbrechen = (ev) => {
+        // Beim Wischen abbrechen, sonst springt das Menü beim Scrollen auf.
+        if (halten && ev.touches && ev.touches[0] && startXY) {
+            const t = ev.touches[0];
+            if (Math.abs(t.clientX - startXY.x) > 12 || Math.abs(t.clientY - startXY.y) > 12) {
+                clearTimeout(halten); halten = null;
+            }
+            return;
+        }
+        if (halten) { clearTimeout(halten); halten = null; }
+    };
+    document.addEventListener('touchmove', abbrechen, { passive: true });
+    document.addEventListener('touchend', abbrechen, { passive: true });
+    document.addEventListener('touchcancel', abbrechen, { passive: true });
+})();
