@@ -80,6 +80,16 @@ type Session struct {
 	wsConns   []*websocket.Conn
 	wsMu      sync.Mutex
 
+	// Doppelte Zustellung abfangen (R667). Dieselbe Nachricht kommt über
+	// mehrere Wege an: direkt, aus dem Postfach, über den Abgleich mit den
+	// eigenen Nodes. Die bisherige Prüfung fragte erst den Verlauf und legte
+	// die Nachricht DANACH ab – kamen zwei Wege fast gleichzeitig an, bestanden
+	// beide die Prüfung und die Nachricht erschien zweimal. Hier wird die
+	// Kennung unter EINER Sperre geprüft und vorgemerkt, es passt also nichts
+	// mehr dazwischen. Wirkt auch, wenn gar kein Verlauf vorhanden ist.
+	gesehen   map[string]time.Time
+	gesehenMu sync.Mutex
+
 	// Präsenz: letzte Aktivität (Unix-Sekunden, jede API-Anfrage der Sitzung)
 	// und "für andere unsichtbar". Der NODE meldet aktive Sitzungen als online –
 	// unabhängig von Browser-Zeitgebern (Hintergrund-Tabs, Handys).
@@ -327,10 +337,14 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 
 			// Bereits bekannt? Dieselbe Nachricht kommt über mehrere Wege an
 			// (direkt, Postfach, nach Neustart erneut). Dann weder anzeigen
-			// noch benachrichtigen – sonst erscheint sie mehrfach (R582).
-			if sess.history != nil && payload != nil && payload.Signal == nil &&
-				msg.ID != "" && sess.history.Known(msg.ID) {
-				return
+			// noch benachrichtigen – sonst erscheint sie mehrfach (R582/R667).
+			if payload != nil && payload.Signal == nil {
+				if !sess.nachrichtNeu(msg.ID) {
+					return
+				}
+				if sess.history != nil && msg.ID != "" && sess.history.Known(msg.ID) {
+					return
+				}
 			}
 
 			// Verlauf persistieren (eingehend). payload ist bereits entschlüsselt.
@@ -825,6 +839,34 @@ func (s *Server) messengerMarkRead(c *gin.Context) {
 // Nachrichten VOR diesem Zeitstempel geladen (dynamisches Nachladen beim
 // Hochscrollen).
 // GET /api/v1/messenger/history?peer=<id>&before=<ts>&limit=32
+// nachrichtNeu merkt die Kennung vor und sagt, ob sie NEU war (R667).
+// Ohne Kennung lässt sich nichts aussagen – dann gilt sie als neu, sonst
+// verschwänden Nachrichten ohne ID ganz.
+func (sess *Session) nachrichtNeu(id string) bool {
+	if id == "" {
+		return true
+	}
+	sess.gesehenMu.Lock()
+	defer sess.gesehenMu.Unlock()
+	if sess.gesehen == nil {
+		sess.gesehen = make(map[string]time.Time, 256)
+	}
+	if _, da := sess.gesehen[id]; da {
+		return false
+	}
+	// Alte Einträge ausdünnen, damit die Liste nicht unbegrenzt wächst.
+	if len(sess.gesehen) > 4000 {
+		grenze := time.Now().Add(-6 * time.Hour)
+		for k, t := range sess.gesehen {
+			if t.Before(grenze) {
+				delete(sess.gesehen, k)
+			}
+		}
+	}
+	sess.gesehen[id] = time.Now()
+	return true
+}
+
 func (s *Server) messengerHistory(c *gin.Context) {
 	sess := s.getSession(c)
 	if sess == nil {

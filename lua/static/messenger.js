@@ -1213,13 +1213,20 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
         const mime = (file.mime || '').toLowerCase();
         const name = (file.name || '').toLowerCase();
         const isImage = mime.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|avif)$/.test(name);
-        const isVideo = mime.startsWith('video/') || /\.(mp4|webm|ogg|mov|m4v)$/.test(name);
+        // R667: Ton ZUERST prüfen. Eine Sprachnachricht als .webm traf sonst auf
+        // die Videoerkennung (dort steht webm ebenfalls) und wurde als Video
+        // dargestellt – schwarzer Kasten mit weißer Bedienleiste.
+        const isAudio = mime.startsWith('audio/') || /\.(mp3|m4a|aac|wav|flac|opus)$/.test(name) ||
+                        (/\.(webm|ogg)$/.test(name) && mime.indexOf('video') < 0);
+        const isVideo = !isAudio && (mime.startsWith('video/') || /\.(mp4|webm|ogg|mov|m4v)$/.test(name));
         const sizeMB  = file.size ? (file.size / 1e6).toFixed(1) : '?';
         if (isImage) {
             // Bilder & GIFs inline (GIF animiert automatisch im <img>).
             content = `<a href="${url}" target="_blank" class="msg-media-link">
                          <img src="${url}" class="msg-media-img" loading="lazy" alt="${escapeHtml(file.name||'')}">
                        </a>`;
+        } else if (isAudio) {
+            content = tonAbspielerHtml(url, file);
         } else if (isVideo) {
             // Video inline mit Steuerung (nutzt HTTP-Range → Seeking).
             content = `<video class="msg-media-video" controls preload="metadata" src="${url}"></video>`;
@@ -2121,3 +2128,74 @@ async function sprachSenden(blob, dauer, art) {
     document.addEventListener('mousemove', (ev) => ziehen(ev.clientY));
     document.addEventListener('mouseup', ende);
 })();
+
+// ── Eigener Abspieler für Sprachnachrichten (R667) ───────────────────────
+// Die eingebaute Bedienleiste des Browsers lässt sich nicht einfärben; sie ist
+// weiß und passt nicht zur Blase. Deshalb eine eigene, schlichte Leiste in den
+// Farben der Oberfläche: Knopf, Fortschritt, Dauer.
+let _tonZaehler = 0;
+
+function tonAbspielerHtml(url, file) {
+    const id = 'ton' + (++_tonZaehler);
+    const dauer = (file.name || '').match(/-(\d+)s\./);
+    const vorab = dauer ? zeitText(parseInt(dauer[1], 10)) : '';
+    return '<div class="ton-player" id="' + id + '">' +
+           '<button class="tp-knopf" onclick="tonSchalten(\'' + id + '\')" aria-label="Abspielen">▶</button>' +
+           '<div class="tp-balken" onclick="tonSpringen(event, \'' + id + '\')">' +
+           '<div class="tp-fort"></div></div>' +
+           '<span class="tp-zeit">' + vorab + '</span>' +
+           '<audio preload="metadata" src="' + url + '"></audio></div>';
+}
+
+function zeitText(sek) {
+    if (!isFinite(sek) || sek < 0) return '0:00';
+    const s = Math.round(sek);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function tonSchalten(id) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    const a = box.querySelector('audio');
+    const k = box.querySelector('.tp-knopf');
+    if (!a) return;
+    if (a.paused) {
+        // Nur eine Sprachnachricht gleichzeitig – sonst reden zwei Stimmen.
+        document.querySelectorAll('.ton-player audio').forEach((x) => {
+            if (x !== a && !x.paused) { x.pause(); }
+        });
+        document.querySelectorAll('.ton-player .tp-knopf').forEach((x) => {
+            if (x !== k) x.textContent = '▶';
+        });
+        if (!a._gebunden) {
+            a._gebunden = true;
+            const fort = box.querySelector('.tp-fort');
+            const zeit = box.querySelector('.tp-zeit');
+            a.addEventListener('timeupdate', () => {
+                if (a.duration && isFinite(a.duration)) {
+                    fort.style.width = (a.currentTime / a.duration * 100) + '%';
+                }
+                zeit.textContent = zeitText(a.currentTime) + (a.duration && isFinite(a.duration)
+                    ? ' / ' + zeitText(a.duration) : '');
+            });
+            a.addEventListener('ended', () => { k.textContent = '▶'; fort.style.width = '0%'; });
+            a.addEventListener('error', () => { zeit.textContent = 'nicht abspielbar'; });
+        }
+        const pr = a.play();
+        if (pr && pr.catch) pr.catch(() => { box.querySelector('.tp-zeit').textContent = 'nicht abspielbar'; });
+        k.textContent = '❙❙';
+    } else {
+        a.pause();
+        k.textContent = '▶';
+    }
+}
+
+function tonSpringen(ev, id) {
+    const box = document.getElementById(id);
+    if (!box) return;
+    const a = box.querySelector('audio');
+    const b = box.querySelector('.tp-balken');
+    if (!a || !a.duration || !isFinite(a.duration)) return;
+    const r = b.getBoundingClientRect();
+    a.currentTime = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * a.duration;
+}
