@@ -1,8 +1,8 @@
 {
-  "version": "R661",
-  "description": "FUNDUS R661 - Immo und Auto",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R661/FND-R661-update.zip",
-  "node_argon2": "02b90bed18fafca1d17c510d08ebe13ca7358ea10c7a77966a5606a39e28d054",
-  "published_at": "2026-10-15T10:12:34.8654985Z",
-  "signature": "0xa02abc85445f0f53789af862e6c5a597e4846cdbb0be465144a8e45326761fd35305c28a292618057ef53b051659c95d37981befdddaa0ad414eb8ccfc06e62e1b"
+  "version": "R663",
+  "description": "FUNDUS R663 - Messenger edit",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R663/FND-R663-update.zip",
+  "node_argon2": "72f87d5cdf8ddd737b00ab3cae5c8c310bc76fad18743ac10e23ea6895c260d4",
+  "published_at": "2026-10-17T02:05:46.0776888Z",
+  "signature": "0x6c6f9e1f8dfa902e76b815a98d2c0736bd9128fd0cdb07558de67415021ff1fa41e2e0a0a2e4603c3c1cc466376d30edb77da7f8b4b2b52fe08848eb61265ac91b"
 }
