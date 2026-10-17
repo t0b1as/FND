@@ -1198,6 +1198,11 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
     if (id) div.dataset.msgId = id;
 
     let content = '';
+    // R673: Blasen, die nur ein Bild oder Video enthalten, bekommen eine
+    // Kennzeichnung – sie werden ohne Hintergrund und ohne Innenabstand
+    // dargestellt. Sonst rahmt die grüne Blase das Bild ein, was wie ein
+    // dicker Rand aussieht.
+    if (file && !text) div.classList.add('nur-medien');
     if (text) {
         // R663: Führende Zeilen mit "> " sind ein Zitat (Antworten-Funktion)
         // und werden abgesetzt dargestellt statt als gewöhnlicher Text.
@@ -2021,7 +2026,11 @@ async function sprachStart() {
     }
     // Opus in WebM ist das, was Browser zuverlässig können; sonst die Vorgabe.
     let typ = '';
-    for (const k of ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']) {
+    // R674: mp4/AAC ZUERST. WebM/Opus ist technisch besser, aber Safari auf
+    // dem iPhone spielt es nicht ab – eine Nachricht, die beim Empfänger
+    // stumm bleibt, nützt niemandem.
+    for (const k of ['audio/mp4', 'audio/mp4;codecs=mp4a.40.2',
+                     'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus']) {
         if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(k)) { typ = k; break; }
     }
     _aufChunks = []; _aufAbbruch = false; _aufStart = Date.now();
@@ -2125,13 +2134,26 @@ let _tonZaehler = 0;
 function tonAbspielerHtml(url, file) {
     const id = 'ton' + (++_tonZaehler);
     const dauer = (file.name || '').match(/-(\d+)s\./);
-    const vorab = dauer ? zeitText(parseInt(dauer[1], 10)) : '';
+    const sek = dauer ? parseInt(dauer[1], 10) : 0;
+    const vorab = sek ? zeitText(sek) : '';
+    // R674: Kann dieser Browser das Format überhaupt? Safari auf dem iPhone
+    // spielt kein WebM. Vorher lief in dem Fall die Zeit hoch, ohne dass etwas
+    // zu hören war – schlimmer als eine klare Auskunft.
+    const art = file.mime || '';
+    let hinweis = '';
+    try {
+        const pruef = document.createElement('audio');
+        if (art && pruef.canPlayType && pruef.canPlayType(art) === '') {
+            hinweis = ' <span class="tp-warn" title="' + escapeHtml(art) +
+                      '">Format hier nicht abspielbar</span>';
+        }
+    } catch (e) {}
     return '<div class="ton-player" id="' + id + '">' +
            '<button class="tp-knopf" onclick="tonSchalten(\'' + id + '\')" aria-label="Abspielen">▶</button>' +
            '<div class="tp-balken" onclick="tonSpringen(event, \'' + id + '\')">' +
            '<div class="tp-fort"></div></div>' +
-           '<span class="tp-zeit">' + vorab + '</span>' +
-           '<audio preload="metadata" src="' + url + '"></audio></div>';
+           '<span class="tp-zeit">' + vorab + '</span>' + hinweis +
+           '<audio preload="metadata" data-sek="' + sek + '" src="' + url + '"></audio></div>';
 }
 
 function zeitText(sek) {
@@ -2158,12 +2180,50 @@ function tonSchalten(id) {
             a._gebunden = true;
             const fort = box.querySelector('.tp-fort');
             const zeit = box.querySelector('.tp-zeit');
+
+            // R674: Eine Aufnahme über MediaRecorder trägt KEINE Gesamtlänge im
+            // Behälter – sie wird fortlaufend geschrieben, und am Ende steht
+            // nichts nach. duration ist dann Infinity. Genau deshalb blieb der
+            // Balken bei null und die Zeit zählte nur hoch.
+            //
+            // Zwei Wege, in dieser Reihenfolge:
+            //   1. Einmal ans Ende springen. Der Browser rechnet die Länge
+            //      daraufhin aus und meldet sie über durationchange.
+            //   2. Scheitert das, die Länge aus dem Dateinamen nehmen – wir
+            //      schreiben sie dort beim Aufnehmen hinein ("…-6s.webm").
+            a._laenge = 0;
+            const ausDateiname = () => {
+                const q = box.querySelector('audio');
+                const m = (q && q.getAttribute('data-sek')) || '';
+                const v = parseInt(m, 10);
+                return isFinite(v) && v > 0 ? v : 0;
+            };
+            const laenge = () => {
+                if (isFinite(a.duration) && a.duration > 0) return a.duration;
+                if (a._laenge > 0) return a._laenge;
+                return ausDateiname();
+            };
+            a.addEventListener('durationchange', () => {
+                if (isFinite(a.duration) && a.duration > 0) a._laenge = a.duration;
+            });
+            if (!isFinite(a.duration) || a.duration === 0) {
+                // Der Sprung ans Ende zwingt den Browser, die Länge zu bestimmen.
+                try {
+                    a.currentTime = 1e7;
+                    a.addEventListener('seeked', function zurueck() {
+                        a.removeEventListener('seeked', zurueck);
+                        if (isFinite(a.duration) && a.duration > 0) a._laenge = a.duration;
+                        a.currentTime = 0;
+                    }, { once: false });
+                } catch (e) {}
+            }
+
             a.addEventListener('timeupdate', () => {
-                if (a.duration && isFinite(a.duration)) {
-                    fort.style.width = (a.currentTime / a.duration * 100) + '%';
+                const d = laenge();
+                if (d > 0) {
+                    fort.style.width = Math.min(100, a.currentTime / d * 100) + '%';
                 }
-                zeit.textContent = zeitText(a.currentTime) + (a.duration && isFinite(a.duration)
-                    ? ' / ' + zeitText(a.duration) : '');
+                zeit.textContent = zeitText(a.currentTime) + (d > 0 ? ' / ' + zeitText(d) : '');
             });
             a.addEventListener('ended', () => { k.textContent = '▶'; fort.style.width = '0%'; });
             a.addEventListener('error', () => { zeit.textContent = 'nicht abspielbar'; });
@@ -2182,9 +2242,12 @@ function tonSpringen(ev, id) {
     if (!box) return;
     const a = box.querySelector('audio');
     const b = box.querySelector('.tp-balken');
-    if (!a || !a.duration || !isFinite(a.duration)) return;
+    // R674: auch mit der ersatzweise ermittelten Länge springen können.
+    let d = (isFinite(a.duration) && a.duration > 0) ? a.duration : (a._laenge || 0);
+    if (!d) d = parseInt(a.getAttribute('data-sek') || '0', 10);
+    if (!d) return;
     const r = b.getBoundingClientRect();
-    a.currentTime = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * a.duration;
+    a.currentTime = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)) * d;
 }
 
 // ── Aus der Zwischenablage einfügen (R668) ───────────────────────────────

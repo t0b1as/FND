@@ -2807,3 +2807,41 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 #send-btn.aufnahme-modus .send-ico { color: #ef4444; font-size: 1.15em; }
 #send-btn.aufnahme-modus:active .send-ico { transform: scale(1.25); }
 #send-btn.aufnahme-modus .send-txt { display: none; }
+
+/* ── Bilder in Nachrichten (R673) ────────────────────────────────────────
+   Die Klassen msg-media-img/-link hatten bisher GAR KEINE Gestaltung: Das
+   Bild blieb klein, und die grüne Blase rahmte es breit ein. */
+.msg-media-link { display: block; line-height: 0; }
+.msg-media-img {
+  display: block;
+  max-width: min(520px, 78vw);
+  max-height: 460px;
+  width: auto; height: auto;
+  border-radius: 12px;
+  background: rgba(0,0,0,.25);
+}
+/* Enthält die Blase nur ein Bild oder Video: kein Hintergrund, kein Rand,
+   kein Innenabstand – das Bild IST die Nachricht. */
+.msg-bubble.nur-medien {
+  background: none !important;
+  border: 0 !important;
+  padding: 0 !important;
+  box-shadow: none !important;
+  max-width: min(520px, 80vw);
+}
+/* Uhrzeit und Haken sitzen dann auf dem Bild statt daneben. */
+.msg-bubble.nur-medien { position: relative; }
+.msg-bubble.nur-medien .msg-time,
+.msg-bubble.nur-medien .bubble-time,
+.msg-bubble.nur-medien .msg-status {
+  position: absolute; right: 8px; bottom: 6px;
+  background: rgba(0,0,0,.55); color: #fff;
+  padding: 2px 7px; border-radius: 999px; font-size: 11px;
+}
+.msg-bubble.nur-medien .msg-status { right: 52px; }
+.msg-bubble.nur-medien video { border-radius: 12px; max-width: 100%; display: block; }
+@media (max-width: 600px) {
+  .msg-media-img { max-width: 82vw; max-height: 60vh; }
+}
+/* Hinweis bei nicht abspielbarem Format (R674) */
+.tp-warn { font-size: 10px; color: #ffc107; white-space: nowrap; }
