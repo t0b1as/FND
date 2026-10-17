@@ -975,6 +975,7 @@ function renderContacts() {
     for (const c of Object.values(contacts)) {
         const div = document.createElement('div');
         div.className = 'contact-item' + (activeChat?.fundusID === c.fundusID ? ' active' : '');
+        div.dataset.fid = String(c.fundusID || '').toLowerCase();   // R665: fürs Kontextmenü
         div.innerHTML = `
             <span class="msg-av-wrap">${avatarHTML(c.fundusID, displayName(c.fundusID, c))}<span class="contact-indicator msg-av-dot" style="color:${c.online ? 'var(--color-success,#16a34a)' : '#aaa'}">●</span></span>
             <span class="contact-name">${escapeHtml(displayName(c.fundusID, c))}</span>
@@ -1670,8 +1671,8 @@ async function msgBearbeiten(blase, id) {
 }
 
 async function msgLoeschen(id, beimAnderen) {
-    if (beimAnderen && !confirm('Die Nachricht auch beim Gegenüber entfernen?\n\n' +
-        'Das wirkt nur, wenn dessen Node die Mitteilung erhält. Gelesen ist gelesen.')) return;
+    // R665: Ohne Rückfrage. Die Wahl steht bereits im Menü ("bei mir" oder
+    // "bei beiden"), eine zweite Nachfrage fragt dasselbe noch einmal.
     try {
         const r = await fetch('/api/v1/messenger/delete', {
             method: 'POST', credentials: 'same-origin',
@@ -1686,9 +1687,11 @@ async function msgLoeschen(id, beimAnderen) {
 }
 
 // Verlauf löschen – mit Wahl, ob nur bei mir oder auch beim Gegenüber (R663).
-async function verlaufLoeschen() {
-    const peer = aktuellerPeer();
-    if (!peer) { alert('Keine Unterhaltung geöffnet.'); return; }
+async function verlaufLoeschen(fidOpt) {
+    // R665: Auch für eine Unterhaltung, die gerade NICHT offen ist – aufgerufen
+    // aus dem Kontextmenü auf dem Namen in der Kontaktliste.
+    const peer = (fidOpt || aktuellerPeer() || '').toLowerCase();
+    if (!peer) { alert('Keine Unterhaltung gewählt.'); return; }
     const wahl = await verlaufDialog();
     if (!wahl) return;
     try {
@@ -1699,7 +1702,9 @@ async function verlaufLoeschen() {
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-        document.querySelectorAll('.msg-bubble').forEach(b => b.remove());
+        if (peer === (aktuellerPeer() || '').toLowerCase()) {
+            document.querySelectorAll('.msg-bubble').forEach(b => b.remove());
+        }
         if (wahl === 'beide' && !d.zugestellt && typeof toast === 'function') {
             toast('Verlauf gelöscht', 'Beim Gegenüber noch nicht angekommen – wird nachgeholt, sobald er erreichbar ist.');
         }
@@ -1763,12 +1768,71 @@ function msgTextSetzen(blase, text, bearbeitet) {
     if (marke) blase.appendChild(marke);
 }
 
+// ── Kontextmenü auf dem Namen (R665) ─────────────────────────────────────
+// Der Verlauf ließ sich bisher nur über das Mülleimer-Symbol im Chatkopf
+// löschen – leicht zu übersehen. Jetzt auch per Rechtsklick bzw. langem
+// Antippen auf den Namen, sowohl in der Kontaktliste als auch im Chatkopf.
+
+function nameMenuOeffnen(fid, name, x, y) {
+    msgMenuSchliessen();
+    if (!fid) return;
+    const punkte = [
+        ['💬 Chat öffnen', () => {
+            const k = (typeof contacts === 'object' && contacts) ? contacts[fid] : null;
+            if (k) openChat(k); else openChat({ fundusID: fid, alias: name });
+        }],
+        ['⧉ Adresse kopieren', () => msgKopierenNotfalls(fid)],
+        ['🗑 Verlauf löschen …', () => verlaufLoeschen(fid)],
+    ];
+    const m = document.createElement('div');
+    m.className = 'msg-menu';
+    const kopf = document.createElement('div');
+    kopf.className = 'msg-menu-kopf';
+    kopf.textContent = name || fid;
+    m.appendChild(kopf);
+    punkte.forEach(([beschriftung, fn]) => {
+        const b = document.createElement('button');
+        b.textContent = beschriftung;
+        b.onclick = (ev) => { ev.stopPropagation(); msgMenuSchliessen(); fn(); };
+        m.appendChild(b);
+    });
+    document.body.appendChild(m);
+    const r = m.getBoundingClientRect();
+    m.style.left = Math.max(8, Math.min(x, window.innerWidth  - r.width  - 8)) + 'px';
+    m.style.top  = Math.max(8, Math.min(y, window.innerHeight - r.height - 8)) + 'px';
+    _menuOffen = m;
+}
+
+// Welcher Name wurde angefasst? Kontaktliste oder Chatkopf.
+function nameZiel(el) {
+    if (!el || !el.closest) return null;
+    const k = el.closest('.contact-item');
+    if (k) {
+        const fid = k.dataset.fid || (k.__fid || '');
+        const nm = (k.querySelector('.contact-name') || {}).textContent || '';
+        if (fid) return { fid: String(fid).toLowerCase(), name: nm.trim() };
+    }
+    const kopf = el.closest('#chat-with-name, #chat-with-sub, #chat-avatar');
+    if (kopf) {
+        const fid = aktuellerPeer();
+        const nm = (document.getElementById('chat-with-name') || {}).textContent || '';
+        if (fid) return { fid, name: nm.trim() };
+    }
+    return null;
+}
+
 // Menü an die Blasen hängen: Rechtsklick und langes Antippen.
 (function msgMenuBinden() {
     let halten = null, startXY = null;
     // R663: In der AUFFANGPHASE (true), damit kein anderer Behandler den
     // Rechtsklick vorher abfängt oder das Weiterreichen stoppt.
     document.addEventListener('contextmenu', (ev) => {
+        const z = nameZiel(ev.target);
+        if (z) {
+            ev.preventDefault(); ev.stopPropagation();
+            nameMenuOeffnen(z.fid, z.name, ev.clientX, ev.clientY);
+            return;
+        }
         const b = ev.target.closest && ev.target.closest('.msg-bubble');
         if (!b) return;
         ev.preventDefault();
@@ -1776,14 +1840,16 @@ function msgTextSetzen(blase, text, bearbeitet) {
         msgMenuOeffnen(b, ev.clientX, ev.clientY);
     }, true);
     document.addEventListener('touchstart', (ev) => {
-        const b = ev.target.closest && ev.target.closest('.msg-bubble');
-        if (!b) return;
+        const z = nameZiel(ev.target);
+        const b = (!z && ev.target.closest) ? ev.target.closest('.msg-bubble') : null;
+        if (!z && !b) return;
         const t = ev.touches[0];
         startXY = { x: t.clientX, y: t.clientY };
         halten = setTimeout(() => {
             halten = null;
             if (navigator.vibrate) navigator.vibrate(18);
-            msgMenuOeffnen(b, startXY.x, startXY.y);
+            if (z) nameMenuOeffnen(z.fid, z.name, startXY.x, startXY.y);
+            else msgMenuOeffnen(b, startXY.x, startXY.y);
         }, 500);
     }, { passive: true });
     const abbrechen = (ev) => {
