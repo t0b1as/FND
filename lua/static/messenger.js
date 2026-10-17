@@ -1198,11 +1198,6 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
     if (id) div.dataset.msgId = id;
 
     let content = '';
-    // R673: Blasen, die nur ein Bild oder Video enthalten, bekommen eine
-    // Kennzeichnung – sie werden ohne Hintergrund und ohne Innenabstand
-    // dargestellt. Sonst rahmt die grüne Blase das Bild ein, was wie ein
-    // dicker Rand aussieht.
-    if (file && !text) div.classList.add('nur-medien');
     if (text) {
         // R663: Führende Zeilen mit "> " sind ein Zitat (Antworten-Funktion)
         // und werden abgesetzt dargestellt statt als gewöhnlicher Text.
@@ -1226,6 +1221,12 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
                         (/\.(webm|ogg)$/.test(name) && mime.indexOf('video') < 0);
         const isVideo = !isAudio && (mime.startsWith('video/') || /\.(mp4|webm|ogg|mov|m4v)$/.test(name));
         const sizeMB  = file.size ? (file.size / 1e6).toFixed(1) : '?';
+        // R675: Hintergrund nur bei Bild und Video entfernen. Vorher galt das
+        // für jede Nachricht ohne Text, also auch für Sprachnachrichten – der
+        // Abspieler erbt seine Farbe von der Blase und war dadurch schwarz auf
+        // schwarz. Ton braucht die grüne Blase.
+        if (!text && (isImage || isVideo)) div.classList.add('nur-medien');
+
         if (isImage) {
             // Bilder & GIFs inline (GIF animiert automatisch im <img>).
             content = `<a href="${url}" target="_blank" class="msg-media-link">
