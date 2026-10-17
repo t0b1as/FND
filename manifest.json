@@ -1,8 +1,8 @@
 {
-  "version": "R663",
-  "description": "FUNDUS R663 - Messenger edit",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R663/FND-R663-update.zip",
-  "node_argon2": "72f87d5cdf8ddd737b00ab3cae5c8c310bc76fad18743ac10e23ea6895c260d4",
-  "published_at": "2026-10-17T02:05:46.0776888Z",
-  "signature": "0x6c6f9e1f8dfa902e76b815a98d2c0736bd9128fd0cdb07558de67415021ff1fa41e2e0a0a2e4603c3c1cc466376d30edb77da7f8b4b2b52fe08848eb61265ac91b"
+  "version": "R664",
+  "description": "FUNDUS R664 - Autoupdate Option",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R664/FND-R664-update.zip",
+  "node_argon2": "034965b3b3cb7f90a6dbcf37291a18fc05db20f44d9b6f71d2d4ab38f5cf595d",
+  "published_at": "2026-10-17T02:42:38.299454Z",
+  "signature": "0xe2982c5e079c61888835123b43649db2dd9191605ad16cd831ac5795ac8f080533732451fd548a702d4f8aa2688c5008243c696c22ef9946638e26e5e5262fd71b"
 }
