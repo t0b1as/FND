@@ -1,8 +1,8 @@
 {
-  "version": "R672",
-  "description": "FUNDUS R672 - load sharing",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R672/FND-R672-update.zip",
-  "node_argon2": "30183d939a6942760ddc542abc4d81a3dcdad1bebe917c5a46b4efadc27f19c8",
-  "published_at": "2026-10-17T16:05:05.0843546Z",
-  "signature": "0xf06944a8da9ad8c3f6843c4b6a29d39fb9b1abe70fafd758c8849adb4542194533873272f4cc44c4fc9e81a40118258b537413ec01d622ff218b1e8d4f5f2a2d1b"
+  "version": "R674",
+  "description": "FUNDUS R674 - messanger",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R674/FND-R674-update.zip",
+  "node_argon2": "6225d8c12ac33306182324f2506a5e67070c80faba53ade5ae8dff694d8f492e",
+  "published_at": "2026-10-17T18:10:27.7886777Z",
+  "signature": "0x0e075a8e9faf9857b89ff7d25ee6e7f13888efddd74d9417958572441029dc0810a8b3737cef862f64f893640fc1530d7454c00a60082595ffe373a196e172311c"
 }
