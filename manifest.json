@@ -1,8 +1,8 @@
 {
-  "version": "R666",
-  "description": "FUNDUS R666 - Messenger",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R666/FND-R666-update.zip",
-  "node_argon2": "b022a8188ab8faee24568899452a3acb7d99d852e05df57c2ea38a837b1c6281",
-  "published_at": "2026-10-17T07:07:32.7425211Z",
-  "signature": "0x09496cd1ec9b363609bc21e26bb87881beaf4e87d13366c9e3075acbdbcef86e7c0c4b0435f95750fab92d5b926c670b29dbc546244cb886a72582560ea8a5f21b"
+  "version": "R667",
+  "description": "FUNDUS R667 - Messenger",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R667/FND-R667-update.zip",
+  "node_argon2": "5bc1b54c4da9ebde4e5b2d7015d06df8f3934373c896ece9ab531ceeb69eb8b3",
+  "published_at": "2026-10-17T08:23:20.3721277Z",
+  "signature": "0x0a50ce96702de1a1c99654f84a4c464d5ffbf29c24d0f09b256e1e9521ca60d8127e7b15e8d4b99aca32f33feba68a16eef8d846c2370be5521ff17986b6cbb61b"
 }
