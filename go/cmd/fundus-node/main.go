@@ -25,7 +25,9 @@ import (
 	"github.com/fundus/node/internal/helperproto"
 	"github.com/fundus/node/internal/llm"
 	"github.com/fundus/node/internal/meter"
+	"github.com/fundus/node/internal/identity"
 	"github.com/fundus/node/internal/p2p"
+	"github.com/fundus/node/internal/platform"
 	"github.com/fundus/node/internal/shop"
 	"github.com/fundus/node/internal/storage"
 	"github.com/fundus/node/internal/topology"
@@ -67,6 +69,24 @@ func main() {
 		zap.String("dataDir", cfg.DataDir),
 		zap.Int("port", cfg.Port),
 		zap.Int("p2pPort", cfg.P2PPort),
+	)
+
+	// Gerät erkennen und die Grenzen danach setzen (R670). Vorher standen sie
+	// fest im Code und waren auf einen Pi 4 mit 4 GB gemünzt.
+	prof := platform.Erkenne()
+	identity.SetECDHConcurrency(prof.ECDHGleich)
+	api.SetThumbLimits(prof.DecodePixel, prof.ThumbGleich)
+	api.SetPlatform(prof)
+	log.Info("Gerät erkannt",
+		zap.String("modell", prof.Modell),
+		zap.Int("ram_mib", prof.RAMMiB),
+		zap.Int("kerne", prof.Kerne),
+		zap.String("klasse", prof.Klasse),
+		zap.Int("bildpixel_max", prof.DecodePixel),
+		zap.Int("vorschau_gleichzeitig", prof.ThumbGleich),
+		zap.Int("ecdh_gleichzeitig", prof.ECDHGleich),
+		zap.Int("anmeldungen_gleichzeitig", prof.LoginGleich),
+		zap.Int("lastgewicht", prof.BalanceAnteil),
 	)
 
 	// -------------------------------------------------------------------------

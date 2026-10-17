@@ -270,6 +270,49 @@ ngx.print([[
 </script>
 
 <!-- ── E-Mail-Versand (R557) ──────────────────────────────────── -->
+<div class="set-card" id="balance">
+  <div class="set-head"><h3>Lastverteilung auf mehrere Pis</h3></div>
+  <div class="set-body">
+    <p class="meta">Dieser Node liefert die Oberfläche aus und reicht die
+      Schnittstelle an die eingetragenen Pis weiter – sich selbst eingeschlossen.
+      Jeder Besucher bleibt dauerhaft bei dem Pi, der ihm zugewiesen wurde.</p>
+    <p class="meta">Die Empfänger erkennt der Node selbst über das P2P-Netz –
+      eigene Geräte im Heimnetz ohne Einrichtung, entferntere nur mit
+      gemeinsamem Geheimnis. Hier eingetragene Zeilen haben Vorrang.</p>
+    <label>Zusätzliche Empfänger, je Zeile <span class="meta">host:port [gewicht=N]</span>
+      <textarea id="bal-peers" rows="4" spellcheck="false"
+                placeholder="10.10.11.25:3000&#10;10.10.11.39:3000&#10;10.10.11.71:3000"></textarea>
+    </label>
+    <label class="set-check" style="margin-top:10px">
+      <input type="checkbox" id="bal-an" onchange="balSetzen()">
+      Verteilung einschalten
+    </label>
+    <!-- Transportweg (R672) -->
+    <label style="margin-top:10px">Weg zu den anderen Pis
+      <select id="bal-transport" onchange="balSpeichern(null)">
+        <option value="p2p">Verschlüsselter P2P-Tunnel (empfohlen)</option>
+        <option value="direkt">Direkt per HTTP – nur im eigenen Netz</option>
+      </select>
+    </label>
+    <div class="meta" style="margin-top:6px;line-height:1.5;color:#ffc107">
+      Durch diesen Weg wandern E-Mail und Passwort bei jeder Anmeldung.
+      Im Tunnel prüft libp2p die Gegenstelle kryptografisch und verschlüsselt
+      die Verbindung. Direkt per HTTP liest jeder mit, der im Netz mitschneidet.
+    </div>
+    <div style="margin-top:8px">
+      <button class="btn" onclick="balSpeichern(this)">Empfänger speichern</button>
+      <button class="btn-sm" onclick="balLaden()" style="margin-left:8px">↻</button>
+    </div>
+    <div id="bal-status" class="meta" style="margin-top:8px"></div>
+    <div class="meta" style="margin-top:8px;line-height:1.5">
+      Die Zuordnung muss kleben: Eine Sitzung lebt im Arbeitsspeicher genau des
+      Nodes, der die Anmeldung gerechnet hat, und der Verlauf liegt auf dessen
+      Platte. Reihum verteilt wäre man bei jedem zweiten Aufruf abgemeldet.
+      Verwaltung und Fernsteuerung bleiben immer auf diesem Pi.
+    </div>
+  </div>
+</div>
+
 <div class="set-card" id="external-admin">
   <div class="set-head"><h3>Betreiberbereich von außen</h3></div>
   <div class="set-body">
@@ -924,6 +967,53 @@ document.addEventListener('DOMContentLoaded', updLoad);
 </style>
 
 <script>
+// Lastverteilung (R669)
+async function balLaden(){
+  try {
+    const r = await fetch('/api/v1/admin/balance', {credentials:'same-origin'});
+    if (!r.ok) return;
+    const d = await r.json();
+    const ta = document.getElementById('bal-peers');
+    if (ta && document.activeElement !== ta) ta.value = (d.peers || []).join('\n');
+    const cb = document.getElementById('bal-an'); if (cb) cb.checked = !!d.enabled;
+    const tr = document.getElementById('bal-transport');
+    if (tr) tr.value = d.transport || 'p2p';
+    const st = document.getElementById('bal-status');
+    st.textContent = d.enabled
+      ? 'Eingeschaltet – ' + (d.peers || []).length + ' Empfänger.'
+      : 'Ausgeschaltet – alle Anfragen bleiben auf diesem Pi.';
+  } catch(e) {}
+}
+
+async function balSpeichern(btn){
+  const ta = document.getElementById('bal-peers');
+  const st = document.getElementById('bal-status');
+  const peers = (ta.value || '').split('\n').map(z => z.trim()).filter(Boolean);
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fetch('/api/v1/admin/balance', {method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({enabled: document.getElementById('bal-an').checked, peers,
+                            transport: (document.getElementById('bal-transport')||{}).value || 'p2p'})});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    st.textContent = '✓ Gespeichert – ' + peers.length + ' Empfänger.';
+  } catch(e) { st.textContent = '✗ ' + e.message; }
+  if (btn) btn.disabled = false;
+}
+
+async function balSetzen(){
+  const an = document.getElementById('bal-an').checked;
+  if (an && !confirm('Anfragen künftig auf die eingetragenen Pis verteilen?\n\n' +
+                     'Bereits angemeldete Besucher müssen sich einmal neu anmelden.')) {
+    document.getElementById('bal-an').checked = false;
+    return;
+  }
+  await balSpeichern(null);
+  balLaden();
+}
+document.addEventListener('DOMContentLoaded', balLaden);
+
 // Automatische Installation (R664)
 async function updAutoLaden(){
   try {

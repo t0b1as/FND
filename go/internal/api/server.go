@@ -156,6 +156,9 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerThumbProtocol()       // fertige Vorschaubilder zwischen Nodes
 	s.registerDriveActionProtocol() // Fahrten vom Node des Fahrers aus ändern (R644)
 	s.registerDriveNotifyProtocol() // Meldungen über Node-Grenzen zustellen (R646)
+	// Selbsterkennung für die Lastverteilung (R671): fragt die Nachbarn über
+	// das P2P-Netz und schreibt die Empfängerliste selbst.
+	go s.clusterLoop(context.Background())
 	// Betreiberbereich von außen freischalten (R650) – nur aus dem Heimnetz.
 	s.router.GET("/api/v1/admin/external-access", s.getExternalAdmin)
 	s.router.POST("/api/v1/admin/external-access", s.setExternalAdmin)
@@ -455,7 +458,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R668"
+const NodeRevision = "R672"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

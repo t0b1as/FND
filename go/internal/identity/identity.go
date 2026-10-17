@@ -1149,6 +1149,20 @@ func FromSessionSecret(sec SessionSecret) (*Identity, error) {
 // ecdhSem begrenzt gleichzeitige ECDH-Ableitungen auf 2 × 64 MiB.
 var ecdhSem = make(chan struct{}, 2)
 
+// SetECDHConcurrency setzt die Zahl gleichzeitiger Schlüsselaustausche (R670).
+// Die bisherige 2 war auf einen Pi 4 mit 4 GB gemünzt und bremst auf größeren
+// Geräten grundlos. Nur beim Start aufrufen, bevor Ableitungen laufen –
+// danach wäre der Austausch der Sperre ein Datenrennen.
+func SetECDHConcurrency(n int) {
+	if n < 1 {
+		n = 1
+	}
+	if n > 32 {
+		n = 32
+	}
+	ecdhSem = make(chan struct{}, n)
+}
+
 // ecdhCache: abgeleitete Gesprächsschlüssel, nur im Arbeitsspeicher.
 var (
 	ecdhCacheMu sync.RWMutex

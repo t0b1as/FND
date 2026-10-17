@@ -29,6 +29,24 @@ import (
 //   3. Pixel-Limit — Bilder über maxDecodePixels werden abgelehnt (Schutz vor
 //      Decompression-Bombs und Speicher-Explosion).
 
+// R670: Zur Laufzeit gesetzt, abhängig vom erkannten Gerät. Die festen Werte
+// galten für einen Pi 4 mit 4 GB: Auf einem Pi 3 mit 768 MB reißt ein großes
+// Bild den Dienst um, auf einem Pi 5 bremsen sie grundlos.
+var (
+	maxDecodePixels  = maxDecodePixelsStd
+	thumbConcurrency = thumbConcurrencyStd
+)
+
+// SetThumbLimits setzt die Grenzen für Vorschaubilder. Nur beim Start.
+func SetThumbLimits(pixel, gleichzeitig int) {
+	if pixel >= 1_000_000 {
+		maxDecodePixels = pixel
+	}
+	if gleichzeitig >= 1 && gleichzeitig <= 16 {
+		thumbConcurrency = gleichzeitig
+	}
+}
+
 const (
 	// Lange Kante des Thumbnails. 512 statt 256 seit R558: Im Bildraster des
 	// Marktplatzes sind die Kacheln bis ~350 px breit, auf Displays mit
@@ -41,7 +59,7 @@ const (
 	// liefern 48 bis 50 MP. Der Speicher wird nicht über die Grenze, sondern
 	// über die Gleichzeitigkeit geschützt: Große Bilder laufen allein
 	// (siehe bigImageThreshold).
-	maxDecodePixels   = 64 * 1000 * 1000
+	maxDecodePixelsStd = 64 * 1000 * 1000
 
 	// Ab dieser Größe belegt das dekodierte Bild über 50 MB. Solche Bilder
 	// werden einzeln verarbeitet, nie parallel.
@@ -56,7 +74,7 @@ const (
 	// 3 statt 2 (R622): Seit die Verkleinerung zweistufig läuft (R594) braucht
 	// ein Bild nur noch rund 16 statt 288 MB. Mit zwei gleichzeitig blieben im
 	// Marktplatz sichtbar nur zwei Bilder scharf, der Rest wartete zu lange.
-	thumbConcurrency  = 3
+	thumbConcurrencyStd = 3
 )
 
 // thumbnailer erzeugt und cacht Thumbnails.
