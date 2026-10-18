@@ -887,6 +887,20 @@ func (bc *Blockchain) load() error {
 	bc.state = st
 	bc.head = head
 	bc.height = m.Height
+
+	// R705: Wurde gerade voll durchgerechnet, SOFORT ein Abbild ablegen.
+	//
+	// Ohne das müsste man bis zum nächsten Vielfachen von SnapshotInterval
+	// warten – bei 5 s Blockzeit bis zu drei Stunden. Ein Neustart davor hätte
+	// wieder alles durchgerechnet. Gerade nach einem Update, wo mehrere
+	// Neustarts dicht aufeinander folgen, ist das genau der falsche Moment.
+	//
+	// Hier gibt es keine Sperre zu beachten: load() läuft beim Aufbau, bevor
+	// der Node Blöcke annimmt. Deshalb der direkte Weg statt des gesperrten.
+	// Fehler sind belanglos – das Abbild ist eine Abkürzung, keine Wahrheit.
+	if ab == 1 && m.Height >= SnapshotInterval {
+		_ = bc.schreibeAbbild(st, head, m.Height)
+	}
 	return nil
 }
 
