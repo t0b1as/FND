@@ -19,8 +19,22 @@
 
     if (document.getElementById('bg-netz')) return;
 
-    const leise = window.matchMedia &&
+    // R703: Die Systemeinstellung „Bewegung reduzieren" lässt das Netz still
+    // stehen – nachgemessen: nach drei Sekunden kein einziger Knoten an neuer
+    // Stelle. Unter Windows ist sie oft gesetzt, weil dort „Animationen
+    // anzeigen" abgeschaltet ist, ohne dass jemand bewusst Bewegung abgewählt
+    // hätte. Wer sie braucht, soll sie behalten; wer sie nur geerbt hat, soll
+    // nicht vor einem toten Bild sitzen.
+    //
+    // Deshalb eine eigene Einstellung, die Vorrang hat:
+    //   "aus" → steht still, auch ohne Systemeinstellung
+    //   "an"  → bewegt sich, auch MIT Systemeinstellung
+    //   nicht gesetzt → die Systemeinstellung entscheidet (wie bisher)
+    let wahl = null;
+    try { wahl = localStorage.getItem('fnd_bg_motion'); } catch (e) {}
+    const system = window.matchMedia &&
         window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const leise = (wahl === 'aus') ? true : (wahl === 'an' ? false : system);
 
     const leinwand = document.createElement('canvas');
     leinwand.id = 'bg-netz';
@@ -153,6 +167,18 @@
         letzte = 0;
         requestAnimationFrame(schleife);
     }
+
+    // R703: Von der Einstellungsseite aus umschaltbar. Die Seite wird danach
+    // neu geladen – den laufenden Zustand umzubauen wäre mehr Technik als Nutzen.
+    window.FundusBG = {
+        bewegung: function (an) {
+            try { localStorage.setItem('fnd_bg_motion', an ? 'an' : 'aus'); } catch (e) {}
+            location.reload();
+        },
+        stand: function () {
+            return { wahl: wahl, system: system, bewegtSich: !leise };
+        },
+    };
 
     aufbauen();
 

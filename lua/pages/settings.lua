@@ -270,6 +270,17 @@ ngx.print([[
 </script>
 
 <!-- ── E-Mail-Versand (R557) ──────────────────────────────────── -->
+<div class="set-card" id="bg-motion">
+  <div class="set-head"><h3>Bewegter Hintergrund</h3></div>
+  <div class="set-body">
+    <label class="set-check">
+      <input type="checkbox" id="bg-an" onchange="bgSetzen(this.checked)">
+      Knotennetz im Hintergrund bewegen
+    </label>
+    <div id="bg-stand" class="meta" style="margin-top:8px;line-height:1.5"></div>
+  </div>
+</div>
+
 <div class="set-card" id="balance">
   <div class="set-head"><h3>Lastverteilung auf mehrere Pis</h3></div>
   <div class="set-body">
@@ -967,6 +978,30 @@ document.addEventListener('DOMContentLoaded', updLoad);
 </style>
 
 <script>
+// Bewegter Hintergrund (R703)
+function bgSetzen(an){
+  if (window.FundusBG) window.FundusBG.bewegung(an);
+}
+(function bgStand(){
+  const el = document.getElementById('bg-stand');
+  const cb = document.getElementById('bg-an');
+  if (!el || !cb || !window.FundusBG) return;
+  const st = window.FundusBG.stand();
+  cb.checked = st.bewegtSich;
+  if (st.system && st.wahl !== 'an') {
+    el.innerHTML = 'Dein System meldet &bdquo;Bewegung reduzieren&ldquo;, deshalb steht das ' +
+      'Netz still. Unter Windows ist das oft gesetzt, weil dort &bdquo;Animationen ' +
+      'anzeigen&ldquo; abgeschaltet ist. Der Haken oben setzt sich darüber hinweg.';
+  } else if (st.system && st.wahl === 'an') {
+    el.textContent = 'Dein System meldet „Bewegung reduzieren" – du hast die Bewegung ' +
+      'hier bewusst eingeschaltet.';
+  } else {
+    el.textContent = st.bewegtSich
+      ? 'Das Netz bewegt sich.'
+      : 'Das Netz steht still, weil du es hier abgeschaltet hast.';
+  }
+})();
+
 // Lastverteilung (R669)
 async function balLaden(){
   try {
