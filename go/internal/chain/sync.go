@@ -115,7 +115,17 @@ func (bc *Blockchain) ImportBlock(blk *Block) error {
 	// Validator-Set nach dem Block neu ableiten (Stake kann sich geändert haben).
 	// IDENTISCHE Position wie in ProduceBlockRound — sonst forkt die Kette.
 	bc.refreshValidatorSetLocked()
-	return bc.saveMeta()
+	if err := bc.saveMeta(); err != nil {
+		return err
+	}
+	// R704: Alle SnapshotInterval Blöcke ein Zustandsabbild ablegen, damit der
+	// nächste Start nicht wieder die ganze Chain durchrechnen muss. Ein
+	// Fehlschlag wird nur vermerkt und bricht nichts ab – das Abbild ist eine
+	// Abkürzung, kein Teil der Wahrheit.
+	if blk.Header.Height > 0 && blk.Header.Height%SnapshotInterval == 0 {
+		_ = bc.schreibeAbbildLocked()
+	}
+	return nil
 }
 
 // GenesisHeaderHash gibt den Hash des Genesis-Headers zurück (Höhe 0). Peers

@@ -20,6 +20,8 @@ import (
 
 // Blockchain verwaltet Kette, State und Persistenz (thread-safe).
 type Blockchain struct {
+	// snapInfo: wie der Zustand beim Start hergestellt wurde (R704)
+	snapInfo string
 	mu           sync.RWMutex
 	state        *State
 	head         *BlockHeader   // Header des letzten Blocks
@@ -690,6 +692,13 @@ func (bc *Blockchain) ProduceBlockRound(txs []*Transaction, timestamp, round uin
 	if err := bc.saveMeta(); err != nil {
 		return nil, err
 	}
+	// R704: Alle SnapshotInterval Blöcke ein Zustandsabbild ablegen, damit der
+	// nächste Start nicht wieder die ganze Chain durchrechnen muss. Ein
+	// Fehlschlag wird nur vermerkt und bricht nichts ab – das Abbild ist eine
+	// Abkürzung, kein Teil der Wahrheit.
+	if blk.Header.Height > 0 && blk.Header.Height%SnapshotInterval == 0 {
+		_ = bc.schreibeAbbildLocked()
+	}
 	return blk, nil
 }
 
@@ -784,6 +793,17 @@ func (bc *Blockchain) RewindTo(h uint64) error {
 	return nil
 }
 
+// SnapshotInfo sagt, wie der Zustand beim Start hergestellt wurde – damit im
+// Protokoll steht, ob die Abkürzung gegriffen hat (R704).
+func (bc *Blockchain) SnapshotInfo() string {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+	if bc.snapInfo == "" {
+		return "frische Chain"
+	}
+	return bc.snapInfo
+}
+
 func (bc *Blockchain) saveMeta() error {
 	hh := bc.head.Hash()
 	m := chainMeta{Height: bc.height, HeadHash: fmt.Sprintf("%x", hh[:]), SchemaVersion: StateSchemaVersion}
@@ -829,8 +849,28 @@ func (bc *Blockchain) load() error {
 	}
 	head := &genBlk.Header
 
-	// Alle Folgeblöcke 1..height anwenden.
-	for h := uint64(1); h <= m.Height; h++ {
+	// R704: Abkürzung über ein Zustandsabbild. Vorher wurde IMMER die gesamte
+	// Chain durchgerechnet – bei 5 s Blockzeit nach einem Jahr über sechs
+	// Millionen Blöcke, also Start in Stunden statt Sekunden.
+	//
+	// Das Abbild wird nie blind geglaubt: leseAbbild prüft die Zustandswurzel
+	// gegen den Blockkopf dieser Höhe. Passt sie nicht, kommt nil zurück und es
+	// wird ganz normal durchgerechnet. Ein Fehler im Abbild kostet also
+	// Startzeit, niemals Richtigkeit.
+	ab := uint64(1)
+	bc.snapInfo = fmt.Sprintf("ohne Abbild, %d Blöcke", m.Height)
+	if snapSt, snapH, _ := bc.ladeAbbild(m.Height); snapSt != nil && snapH >= 1 {
+		if blk, err := bc.loadBlock(snapH); err == nil {
+			st = snapSt
+			head = &blk.Header
+			ab = snapH + 1
+			bc.snapInfo = fmt.Sprintf("Abbild bei Höhe %d, nur %d Blöcke nachgerechnet",
+				snapH, m.Height-snapH)
+		}
+	}
+
+	// Alle Folgeblöcke ab..height anwenden.
+	for h := ab; h <= m.Height; h++ {
 		blk, err := bc.loadBlock(h)
 		if err != nil {
 			return fmt.Errorf("Block %d: %w", h, err)

@@ -616,6 +616,10 @@ func main() {
 					log.Warn("Konsens: Gründer-Set ungültig — Chain läuft ohne PoA", zap.Error(verr))
 				}
 
+				// R704: Dazusagen, ob die Abkürzung über ein Zustandsabbild
+				// gegriffen hat. Ohne diese Zeile sieht man nicht, warum der
+				// Start schnell oder langsam war.
+				log.Info("Chain-Zustand hergestellt", zap.String("weg", bc.SnapshotInfo()))
 				log.Info("Fundus-Chain aktiv (PoA-Konsens: Multi-Node mit Round-Robin-Produktion)",
 					zap.Uint64("height", bc.Height()),
 					zap.String("fee_collector", feeCollector.Hex()),
