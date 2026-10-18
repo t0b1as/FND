@@ -720,12 +720,26 @@ func (s *Server) messengerSend(c *gin.Context) {
 		//
 		// Verschlüsseln ist hier unnötig: Die Nutzlast verlässt den Node nicht,
 		// und beide Sitzungen liegen ohnehin in seinem Speicher.
-		if s.signalLokalZustellen(sess, req.RecipientID, *req.Signal) {
-			c.JSON(http.StatusOK, gin.H{"ok": true, "lokal": true})
-			return
-		}
+		// R688: Lokale Zustellung ZUSÄTZLICH, nicht ANSTATT.
+		//
+		// In R685 stand hier ein return. Ist das Zielkonto auch auf DIESEM Node
+		// angemeldet, wurde dadurch nur diese eine Sitzung bedient und die
+		// Zustellung an die übrigen Geräte fiel aus. Vom 71er aus klingelte es
+		// deshalb nirgends sonst – obwohl der Anruf als erfolgreich galt.
+		//
+		// Ein Konto kann auf mehreren Nodes angemeldet sein, und bei einem Anruf
+		// sollen ALLE Geräte klingeln. Also: lokal zustellen UND über das Netz
+		// an die übrigen Geräte schicken.
+		lokal := s.signalLokalZustellen(sess, req.RecipientID, *req.Signal)
 		msg, err = sess.messenger.SendSignal(c.Request.Context(),
 			req.RecipientID, req.RecipientPubKey, *req.Signal)
+		if err != nil && lokal {
+			// Weiterreichen misslungen, aber hier klingelt es. Das ist kein
+			// Fehler für den Anrufer – nur die anderen Geräte bleiben still.
+			s.log.Warn("Anruf nur lokal zugestellt", zap.Error(err))
+			c.JSON(http.StatusOK, gin.H{"ok": true, "lokal": true, "netz": false})
+			return
+		}
 
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"error": "unbekannter Typ"})

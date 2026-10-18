@@ -28,9 +28,26 @@
 
   // ---- Töne (per WebAudio erzeugt, kein externer Sound nötig) ----
   let audioCtx = null;
+
+  // R688: Browser geben Ton erst frei, NACHDEM der Nutzer die Seite einmal
+  // berührt hat. Bei einem eingehenden Anruf gibt es diese Berührung nicht –
+  // der Tonkontext wird deshalb bei der ersten beliebigen Eingabe angelegt und
+  // wach gehalten, damit später wirklich etwas zu hören ist.
+  (function tonVorbereiten() {
+    const wecken = function () {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume().catch(function(){});
+      } catch(e) {}
+    };
+    ['pointerdown','touchstart','keydown','click'].forEach(function (e) {
+      document.addEventListener(e, wecken, { passive: true });
+    });
+  })();
   function tone(freqs, durs, type) {
     try {
       if (!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume().catch(function(){});
       let t = audioCtx.currentTime;
       freqs.forEach((f, i) => {
         const o = audioCtx.createOscillator();
