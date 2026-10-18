@@ -227,6 +227,7 @@ function _M.header(title_key, active)
   <script src="/static/bg-network.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/qr.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/walletauth.js?v=]] .. rev .. [[" defer></script>
+  <script src="/static/call.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/msgnotify.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/authgate.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/navupdate.js?v=]] .. rev .. [[" defer></script>

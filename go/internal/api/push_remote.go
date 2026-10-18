@@ -114,10 +114,31 @@ func (s *Server) anrufMeldungVerteilen(empfaenger, anruferName string, video boo
 		return
 	}
 	fid := strings.ToLower(strings.TrimSpace(empfaenger))
+	// R691: ZUERST hier nachsehen. Die lokale Meldung hing bisher an einer
+	// laufenden Sitzung (R686) – hat das Gerät seine Push-Anmeldung auf DIESEM
+	// Node erteilt, ist aber gerade keine Sitzung aktiv (etwa nach einem
+	// Neustart), meldete niemand. Die Anmeldung überlebt den Neustart, die
+	// Sitzung nicht. Deshalb wird sie jetzt unabhängig davon genutzt.
+	if s.hatPushAnmeldung(fid) {
+		titel := "📞 Anruf"
+		if video {
+			titel = "📹 Videoanruf"
+		}
+		name := strings.TrimSpace(anruferName)
+		if name == "" {
+			name = "jemandem"
+		}
+		s.pushNotify(fid, titel, "Anruf von "+name, "/messenger", "call", true)
+		if s.log != nil {
+			s.log.Info("Anrufmeldung lokal zugestellt", zap.String("an", fid))
+		}
+	}
+
 	ziele := s.eigeneNodes(fid) // Heim-Node und Geräteliste des Empfängers
 	if s.log != nil {
 		s.log.Info("Anrufmeldung wird verteilt", zap.String("an", fid),
-			zap.Int("nodes", len(ziele)))
+			zap.Int("nodes", len(ziele)),
+			zap.Bool("hier_angemeldet", s.hatPushAnmeldung(fid)))
 	}
 	if len(ziele) == 0 {
 		// R690: Kennt dieser Node keine Geräte des Empfängers, wurde bisher

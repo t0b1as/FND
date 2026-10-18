@@ -164,6 +164,14 @@
         // geöffnet ist. Deshalb klingelte es bisher nur dort. Ein Anruf, der
         // nur in einem bestimmten Reiter klingelt, ist kein Anruf.
         if (msg.signal && msg.sender_id) {
+            // R692: An das Anrufmodul weiterreichen, das auf jeder Seite läuft.
+            // Dort wird der Anruf wirklich angenommen – der Hinweisbalken von
+            // R687 sagte nur, DASS jemand anruft, und schickte einen in den
+            // Messenger. Das war der falsche Weg.
+            if (window.FundusCall && typeof window.FundusCall.signal === 'function') {
+                window.FundusCall.signal(msg.signal, msg.sender_id);
+                return;
+            }
             const art = msg.signal.type || '';
             if (art === 'call_audio' || art === 'call_video' || art === 'offer') {
                 anrufMelden(msg.sender_id, art === 'call_video');
