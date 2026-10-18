@@ -1,8 +1,8 @@
 {
-  "version": "R684",
-  "description": "FUNDUS R684 - messanger",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R684/FND-R684-update.zip",
-  "node_argon2": "eee156b6097a5e24d5628550d7367e01b8ae9e63a1fa8d913e2f09e376e64049",
-  "published_at": "2026-10-18T07:49:31.9257464Z",
-  "signature": "0xb6125d204c07665247236505899ca0515c4104acb9847c0a37b23b3414d43f2926d3209e0895d2490f31dab7cb6649993e40c5714fe9acc150d8045e4acb63c41c"
+  "version": "R685",
+  "description": "FUNDUS R685 - messanger",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R685/FND-R685-update.zip",
+  "node_argon2": "4ec41cfe3a98c728b317c0f1798147f0da20424b2734dd0eb7a7079140ac7e6f",
+  "published_at": "2026-10-18T08:12:19.683533Z",
+  "signature": "0xc988a664eacf7a5f304a61f538e30c4fabc436bc34f80d75934c098ca38bc2081c7a50a09a777327e05b27fa5ea7a089fae6f37a84c0a77b6c214acceaea99cb1c"
 }
