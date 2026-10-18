@@ -730,6 +730,19 @@ func (s *Server) messengerSend(c *gin.Context) {
 		// Ein Konto kann auf mehreren Nodes angemeldet sein, und bei einem Anruf
 		// sollen ALLE Geräte klingeln. Also: lokal zustellen UND über das Netz
 		// an die übrigen Geräte schicken.
+		// R689: Meldung an ALLE Nodes des Empfängers, unabhängig vom Signalweg.
+		// Push-Anmeldungen liegen nur dort, wo sie erteilt wurden – ohne diesen
+		// Weg klingelt es nur, wenn der Messenger gerade offen ist.
+		switch req.Signal.Type {
+		case messenger.SignalCallAudio, messenger.SignalCallVideo:
+			name := "jemandem"
+			if sess.identity != nil {
+				name = s.displayNameFor(sess.identity.FundusID)
+			}
+			s.anrufMeldungVerteilen(req.RecipientID, name,
+				req.Signal.Type == messenger.SignalCallVideo)
+		}
+
 		lokal := s.signalLokalZustellen(sess, req.RecipientID, *req.Signal)
 		msg, err = sess.messenger.SendSignal(c.Request.Context(),
 			req.RecipientID, req.RecipientPubKey, *req.Signal)

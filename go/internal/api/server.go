@@ -157,6 +157,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerDriveActionProtocol() // Fahrten vom Node des Fahrers aus ändern (R644)
 	s.registerDriveNotifyProtocol() // Meldungen über Node-Grenzen zustellen (R646)
 	s.registerKeyDirAsk()           // fehlende Schlüssel im Netz erfragen (R687)
+	s.registerPushAsk()             // Anrufmeldung über Node-Grenzen (R689)
 	// Selbsterkennung für die Lastverteilung (R671): fragt die Nachbarn über
 	// das P2P-Netz und schreibt die Empfängerliste selbst.
 	go s.clusterLoop(context.Background())
@@ -459,7 +460,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R688"
+const NodeRevision = "R689"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
