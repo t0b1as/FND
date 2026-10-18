@@ -778,10 +778,20 @@ function createPeerConnection() {
         }
     };
     pc.oniceconnectionstatechange = () => callLog('ICE', pc.iceConnectionState);
+    eisBeobachten(pc);   // R677: Aussetzer aussitzen statt auflegen
     pc.onicegatheringstatechange = () => callLog('ICE-Sammlung', pc.iceGatheringState);
     pc.onconnectionstatechange = () => {
         callLog('Verbindung', pc.connectionState);
+        if (pc.connectionState === 'connected') {
+            _eisNeu = 0;                 // wieder da: Zähler zurücksetzen
+            wakeLockAnfordern();
+        }
         if (pc.connectionState === 'failed') {
+            // R677: Nicht sofort auflegen. Nach einem Bildschirmwechsel kommt
+            // der Browser oft mit abgerissenen Kandidaten zurück – ein
+            // Neuaufbau der Wege (ICE-Restart) rettet das Gespräch meist.
+            // Erst wenn auch der scheitert, ist es wirklich vorbei.
+            if (eisNeuaufbau()) return;
             showToast('📵 Verbindung fehlgeschlagen', iceHasTurn ? 'Auch über den TURN-Server keine Verbindung.' : 'Beide Seiten hinter strengem NAT – ohne TURN-Server (FUNDUS_TURN_URLS) nicht erreichbar.');
             hangup();
         }
@@ -864,6 +874,24 @@ async function handleSignal(msg) {
                 await flushIce();
             }
             break;
+        // R677: Die Gegenseite baut die Wege neu auf (nach Bildschirmsperre
+        // oder App-Wechsel). Wir nehmen das Angebot an und antworten – ohne
+        // diesen Zweig liefe der Neuaufbau ins Leere und das Gespräch wäre
+        // trotzdem vorbei.
+        case 'ice_restart':
+            if (peerConn) {
+                try {
+                    await peerConn.setRemoteDescription(JSON.parse(signal.sdp));
+                    const antwort = await peerConn.createAnswer();
+                    await peerConn.setLocalDescription(antwort);
+                    await sendSignal({ type: 'answer', sdp: JSON.stringify(antwort) });
+                    await flushIce();
+                    callLog('Neuaufbau beantwortet', '');
+                } catch (e) {
+                    callLog('Neuaufbau nicht annehmbar', e.message || '');
+                }
+            }
+            break;
         case 'ice': {
             const cand = JSON.parse(signal.ice);
             if (peerConn && peerConn.remoteDescription) {
@@ -897,6 +925,8 @@ async function sendSignal(signal) {
 
 function resetCall() {
     tonAus();   // R666
+    wakeLockFreigeben();          // R677: Bildschirm darf wieder schlafen
+    clearTimeout(_eisTimer); _eisNeu = 0;
     callPeer = null; pendingIce = []; pendingOffer = null; isMuted = false; isCamOff = false;
 }
 
@@ -2348,3 +2378,99 @@ function sendeKnopfAnpassen() {
     ['input', 'change', 'keyup'].forEach(e => feld.addEventListener(e, sendeKnopfAnpassen));
     sendeKnopfAnpassen();
 })();
+
+// ── Gespräch über Bildschirmsperre und App-Wechsel retten (R677) ─────────
+//
+// Was hier wirklich passiert: Wir legen NICHT selbst auf. Das Betriebssystem
+// hält die Seite an, sobald der Bildschirm ausgeht oder eine andere App in den
+// Vordergrund kommt. Dabei sterben die ausgehandelten Verbindungswege, und
+// wenn die Seite wieder läuft, meldet WebRTC "failed".
+//
+// Drei Gegenmaßnahmen, in dieser Reihenfolge wirksam:
+//   1. Bildschirmsperre verhindern, solange ein Gespräch läuft. Damit tritt
+//      der häufigste Fall gar nicht erst ein.
+//   2. Beim Zurückkommen die Wege neu aushandeln, statt aufzulegen.
+//   3. Kurze Aussetzer aussitzen – "disconnected" erholt sich oft von selbst.
+//
+// Was NICHT geht, und das muss man wissen: Auf dem iPhone hält Safari eine
+// Seite im Hintergrund vollständig an. Kein Webprogramm kann das umgehen; dafür
+// bräuchte es eine eigene App mit entsprechender Berechtigung.
+
+let _wakeLock = null;
+
+async function wakeLockAnfordern() {
+    if (!('wakeLock' in navigator) || _wakeLock) return;
+    try {
+        _wakeLock = await navigator.wakeLock.request('screen');
+        callLog('Bildschirmsperre', 'verhindert');
+        _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+    } catch (e) {
+        // Scheitert etwa bei zu wenig Akku – dann eben ohne.
+        callLog('Bildschirmsperre', 'nicht möglich: ' + (e.message || e.name));
+    }
+}
+
+function wakeLockFreigeben() {
+    if (!_wakeLock) return;
+    try { _wakeLock.release(); } catch (e) {}
+    _wakeLock = null;
+}
+
+// ── Wege neu aushandeln ──────────────────────────────────────────────────
+let _eisNeu = 0;
+let _eisTimer = null;
+
+function eisNeuaufbau() {
+    if (!peerConn || !callPeer) return false;
+    // Höchstens dreimal: Sonst dreht sich das endlos, wenn wirklich kein Weg
+    // existiert, und die Gegenseite bekommt eine Flut von Angeboten.
+    if (_eisNeu >= 3) {
+        callLog('Neuaufbau', 'aufgegeben nach 3 Versuchen');
+        return false;
+    }
+    _eisNeu++;
+    callLog('Neuaufbau', 'Versuch ' + _eisNeu);
+    showToast('📶 Verbindung wird wiederhergestellt…', 'Bitte einen Moment');
+    (async () => {
+        try {
+            const offer = await peerConn.createOffer({ iceRestart: true });
+            await peerConn.setLocalDescription(offer);
+            await sendSignal({ type: 'ice_restart', sdp: JSON.stringify(offer) });
+        } catch (e) {
+            callLog('Neuaufbau fehlgeschlagen', e.message || '');
+        }
+    })();
+    return true;
+}
+
+// Kurze Aussetzer aussitzen: "disconnected" wird oft von selbst wieder
+// "connected". Erst wenn es nach einigen Sekunden noch hängt, eingreifen.
+function eisBeobachten(pc) {
+    pc.addEventListener('iceconnectionstatechange', () => {
+        const z = pc.iceConnectionState;
+        if (z === 'disconnected') {
+            clearTimeout(_eisTimer);
+            _eisTimer = setTimeout(() => {
+                if (peerConn === pc &&
+                    (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed')) {
+                    eisNeuaufbau();
+                }
+            }, 6000);
+        } else if (z === 'connected' || z === 'completed') {
+            clearTimeout(_eisTimer);
+            _eisNeu = 0;
+        }
+    });
+}
+
+// Beim Zurückkommen in den Vordergrund prüfen, ob das Gespräch noch steht.
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (!peerConn) return;
+    wakeLockAnfordern();          // Sperre wird beim Wegschalten vom System aufgehoben
+    const z = peerConn.iceConnectionState;
+    callLog('zurück im Vordergrund', z);
+    if (z === 'disconnected' || z === 'failed') {
+        eisNeuaufbau();
+    }
+});

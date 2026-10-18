@@ -2845,3 +2845,23 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 }
 /* Hinweis bei nicht abspielbarem Format (R674) */
 .tp-warn { font-size: 10px; color: #ffc107; white-space: nowrap; }
+
+/* ── Glühendes Knotennetz im Hintergrund (R676) ──────────────────────────
+   Liegt hinter allem und nimmt keine Klicks entgegen. Fest am Fenster, nicht
+   am Dokument: Beim Blättern soll es stehen bleiben, sonst wirkt es unruhig. */
+#bg-netz {
+  position: fixed; inset: 0; z-index: -2;
+  pointer-events: none; display: block;
+  opacity: .8;
+}
+/* Verlauf darüber: Oben und unten abdunkeln, damit Text überall lesbar bleibt
+   und das Netz nicht mit der Navigation konkurriert. */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  /* R676: Deutlich zurückhaltender. Der erste Verlauf hat die obere Hälfte
+     weggedunkelt und damit genau das verdeckt, was er rahmen sollte. */
+  background:
+    radial-gradient(ellipse 140% 55% at 50% 0%, rgba(7,9,14,.55) 0%, transparent 70%),
+    radial-gradient(ellipse 140% 45% at 50% 100%, rgba(7,9,14,.45) 0%, transparent 70%);
+}
+@media (max-width: 700px) { #bg-netz { opacity: .6; } }
