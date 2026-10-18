@@ -701,6 +701,20 @@ func (s *Server) messengerSend(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "signal fehlt"})
 			return
 		}
+		// R685: Empfänger auf DIESEM Node? Dann direkt zustellen.
+		//
+		// Die Zustellung läuft sonst ausschließlich über P2P an die Peer-
+		// Kennungen des Empfängers. Sind beide beim selben Node angemeldet, ist
+		// das die EIGENE Kennung – und an sich selbst kann ein Node nicht
+		// zustellen. Deshalb klingelte es von Node zu Node, aber nicht zwischen
+		// zwei Konten auf demselben Gerät.
+		//
+		// Verschlüsseln ist hier unnötig: Die Nutzlast verlässt den Node nicht,
+		// und beide Sitzungen liegen ohnehin in seinem Speicher.
+		if sess.signalLokalZustellen(req.RecipientID, *req.Signal) {
+			c.JSON(http.StatusOK, gin.H{"ok": true, "lokal": true})
+			return
+		}
 		msg, err = sess.messenger.SendSignal(c.Request.Context(),
 			req.RecipientID, req.RecipientPubKey, *req.Signal)
 
@@ -877,6 +891,33 @@ func (sess *Session) nachrichtNeu(id string) bool {
 		}
 	}
 	sess.gesehen[id] = time.Now()
+	return true
+}
+
+// signalLokalZustellen reicht ein Anruf-Signal an eine Sitzung weiter, die auf
+// DIESEM Node angemeldet ist (R685). Gibt true zurück, wenn zugestellt wurde.
+func (sess *Session) signalLokalZustellen(empfaenger string, signal messenger.SignalMsg) bool {
+	if sess == nil || sess.identity == nil {
+		return false
+	}
+	ziel := strings.ToLower(strings.TrimSpace(empfaenger))
+	if ziel == "" || ziel == strings.ToLower(sess.identity.FundusID) {
+		return false // an sich selbst wird nicht zugestellt
+	}
+	sessionMu.RLock()
+	empf := sessionStore[ziel]
+	sessionMu.RUnlock()
+	if empf == nil {
+		return false
+	}
+	empf.broadcastWS(gin.H{
+		"id":        generateID(),
+		"sender_id": strings.ToLower(sess.identity.FundusID),
+		"type":      messenger.TypeSignal,
+		"ts":        time.Now(),
+		"decrypted": true,
+		"signal":    signal,
+	})
 	return true
 }
 
