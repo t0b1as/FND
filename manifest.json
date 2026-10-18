@@ -1,8 +1,8 @@
 {
-  "version": "R686",
-  "description": "FUNDUS R686 - messanger",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R686/FND-R686-update.zip",
-  "node_argon2": "f31e4a79ba557dd3c631c7633462de321a63f8a4c67a084e5bd72b598f5fc3ab",
-  "published_at": "2026-10-18T08:32:54.6689342Z",
-  "signature": "0xfe7a203b3b2a8bbfda68f13e081c0a109ad6a412b797cc9f93a7423a8ecaf3b704f717aa9b45bb6510524fdaf63578fef7e5ae6c4215a51a5481a58ab0a499e61c"
+  "version": "R687",
+  "description": "FUNDUS R687 - messanger",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R687/FND-R687-update.zip",
+  "node_argon2": "d2512ba8c9aeb52f5c636321bef6195b39b1b8ca4cc3615fbbb49f5385f21a28",
+  "published_at": "2026-10-18T09:26:08.531261Z",
+  "signature": "0xbe38c3bf1ebb0763593bcffc2bef7cafdb0c8d37821ca67cb3756e734374511a65c1a3c500270e0a80e3b997870b27a229b98a6f231357810b4c22a5a3e40ae01b"
 }
