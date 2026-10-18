@@ -711,7 +711,7 @@ func (s *Server) messengerSend(c *gin.Context) {
 		//
 		// Verschlüsseln ist hier unnötig: Die Nutzlast verlässt den Node nicht,
 		// und beide Sitzungen liegen ohnehin in seinem Speicher.
-		if sess.signalLokalZustellen(req.RecipientID, *req.Signal) {
+		if s.signalLokalZustellen(sess, req.RecipientID, *req.Signal) {
 			c.JSON(http.StatusOK, gin.H{"ok": true, "lokal": true})
 			return
 		}
@@ -896,7 +896,7 @@ func (sess *Session) nachrichtNeu(id string) bool {
 
 // signalLokalZustellen reicht ein Anruf-Signal an eine Sitzung weiter, die auf
 // DIESEM Node angemeldet ist (R685). Gibt true zurück, wenn zugestellt wurde.
-func (sess *Session) signalLokalZustellen(empfaenger string, signal messenger.SignalMsg) bool {
+func (s *Server) signalLokalZustellen(sess *Session, empfaenger string, signal messenger.SignalMsg) bool {
 	if sess == nil || sess.identity == nil {
 		return false
 	}
@@ -910,6 +910,16 @@ func (sess *Session) signalLokalZustellen(empfaenger string, signal messenger.Si
 	if empf == nil {
 		return false
 	}
+	// R686: Auch auf dem lokalen Weg benachrichtigen. Das fehlte – und genau
+	// deshalb blieb das Handy bei einem Anruf vom selben Node still: kein Ton,
+	// keine Vibration. Beides macht das Betriebssystem anhand der Meldung, nicht
+	// die Seite. Ohne Meldung passiert nichts, wenn der Bildschirm aus ist.
+	name := s.displayNameFor(sess.identity.FundusID)
+	switch signal.Type {
+	case messenger.SignalCallAudio, messenger.SignalCallVideo, messenger.SignalOffer:
+		s.notifyUser(ziel, "messages", "📞 Anruf", "Anruf von "+name, "/messenger", "call", true)
+	}
+
 	empf.broadcastWS(gin.H{
 		"id":        generateID(),
 		"sender_id": strings.ToLower(sess.identity.FundusID),

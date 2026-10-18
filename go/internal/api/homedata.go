@@ -297,19 +297,63 @@ func (s *Server) pullHistoryFromHome(sess *Session, peer string) {
 }
 
 // forwardHistoryToHome schickt einen neuen Verlaufseintrag an den Heim-Node.
+// forwardHistoryToHome legt einen Verlaufseintrag auf ALLEN übrigen eigenen
+// Nodes ab (R686).
+//
+// Vorher ging er nur an EINEN Node, den im Schlüsselverzeichnis vermerkten
+// „Heim-Node". Wer auf drei Geräten angemeldet ist, sah seine Nachrichten
+// dadurch nur auf zweien: dem gerade benutzten und dem Heim-Node. Jetzt gehen
+// sie an jeden bekannten eigenen Node.
+//
+// Doppelte sind unkritisch: Der Verlauf prüft beim Anhängen die Kennung und
+// legt dieselbe Nachricht nur einmal ab.
 func (s *Server) forwardHistoryToHome(sess *Session, e messenger.HistoryEntry) {
-	if sess == nil || sess.history == nil || s.homePeerOfSession(sess) == "" {
+	if sess == nil || sess.history == nil || sess.identity == nil || s.node == nil {
 		return
 	}
 	line, err := sess.history.EncryptEntry(e)
 	if err != nil {
 		return
 	}
+	ziele := s.eigeneNodes(sess.identity.FundusID)
+	if len(ziele) == 0 {
+		return
+	}
 	go func() {
-		if _, err := s.homeCall(sess, "history.append", e.PeerID, map[string]string{"line": line}); err != nil && s.log != nil {
-			s.log.Debug("Verlauf nicht an Heim-Node übertragen", zap.Error(err))
+		for _, pid := range ziele {
+			if _, err := s.homeCallPeer(sess, pid, "history.append", e.PeerID,
+				map[string]string{"line": line}); err != nil && s.log != nil {
+				s.log.Debug("Verlauf nicht an eigenen Node übertragen",
+					zap.String("peer", pid), zap.Error(err))
+			}
 		}
 	}()
+}
+
+// eigeneNodes: alle bekannten Nodes dieses Kontos außer diesem hier.
+func (s *Server) eigeneNodes(fid string) []string {
+	if s.node == nil || s.store == nil {
+		return nil
+	}
+	rec, err := s.store.Get(storage.RecordKeyDir, "keydir:"+strings.ToLower(fid))
+	if err != nil || rec == nil || rec.Data == nil {
+		return nil
+	}
+	ich := s.node.ID().String()
+	out, gesehen := []string{}, map[string]bool{ich: true}
+	// home_peer und die Geräteliste zusammen betrachten – je nach Alter des
+	// Eintrags steht das eine, das andere oder beides drin.
+	if hp, _ := rec.Data["home_peer"].(string); hp != "" && !gesehen[hp] {
+		gesehen[hp] = true
+		out = append(out, hp)
+	}
+	for _, p := range keydirPeers(rec.Data) {
+		if p != "" && !gesehen[p] {
+			gesehen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func (s *Server) homePeerOfSession(sess *Session) string {

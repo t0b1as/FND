@@ -94,7 +94,7 @@ ngx.print([[
     <video id="local-video"  autoplay playsinline muted
            style="position:absolute;bottom:8px;right:8px;width:120px;
                   border-radius:4px;border:2px solid #fff"></video>
-    <div style="position:absolute;bottom:8px;left:8px;display:flex;gap:8px">
+    <div class="call-controls">
       <button class="btn btn-danger" onclick="hangup()" ]] .. 'title="' .. t("messenger.title_hangup") .. '"' .. [[>📵</button>
       <button class="btn" id="mute-btn" onclick="toggleMute()" ]] .. 'title="' .. t("messenger.title_mute") .. '"' .. [[>🎙️</button>
       <button class="btn" id="cam-btn"  onclick="toggleCamera()" ]] .. 'title="' .. t("messenger.title_camera") .. '"' .. [[>📷</button>
@@ -294,7 +294,15 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 .incoming-call .ic-btns .btn { flex:1; }
 
 /* Audio-Anruf: keine Videoflächen, nur Steuerleiste */
-#video-container.audio-only { min-height:64px; }
+/* R686: Bei einem reinen Sprachanruf gibt es kein Videobild. Der Bereich fiel
+   auf 64px zusammen, während die Knöpfe absolut am unteren Rand klebten – sie
+   rutschten dadurch über die Kopfzeile darüber, und deren Text schien zwischen
+   ihnen durch. Ohne Video stehen die Knöpfe jetzt im Fluss statt absolut. */
+#video-container.audio-only { min-height:0; }
+#video-container.audio-only #remote-video,
+#video-container.audio-only #local-video { display:none; }
+.call-controls { position:absolute; bottom:8px; left:8px; display:flex; gap:8px; z-index:3; }
+#video-container.audio-only .call-controls { position:static; padding:8px; }
 #video-container.audio-only video { display:none; }
 #video-container.audio-only::before { content:"🎙️ Audioanruf läuft"; display:block; color:#fff;
                                       padding:14px 14px 0; font-weight:600; }
