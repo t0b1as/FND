@@ -3008,29 +3008,137 @@ button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
 /* ── Anrufbild auf jeder Seite (R692) ─────────────────────────────────────
    Das Modul bringt seine Oberfläche selbst mit, weil es auf Seiten läuft, die
    kein Anruf-Markup haben. */
+/* R693: Leiste am unteren Rand statt Vorhang über der ganzen Seite. Der
+   Behälter nimmt KEINE Klicks entgegen, nur die Leiste selbst – so bleibt die
+   Seite während eines Gesprächs vollständig bedienbar. */
 #fnd-call {
-  position: fixed; inset: 0; z-index: 9700;
-  background: rgba(4,7,12,.88); backdrop-filter: blur(4px);
-  display: none; align-items: center; justify-content: center; padding: 20px;
+  position: fixed; inset: auto 0 0 0; z-index: 9700;
+  background: none; display: none; justify-content: center;
+  padding: 0 10px 10px; pointer-events: none;
 }
 #fnd-call .fc-box {
+  pointer-events: auto;
   background: var(--surface); border: 1px solid var(--green);
-  border-radius: 16px; padding: 22px; width: min(460px, 94vw);
-  box-shadow: 0 14px 44px rgba(0,0,0,.65); text-align: center;
+  border-radius: 14px; padding: 12px 14px; width: min(460px, 96vw);
+  box-shadow: 0 14px 44px rgba(0,0,0,.65);
 }
-#fnd-call .fc-wer { font-size: 18px; font-weight: 600; color: var(--text); }
-#fnd-call .fc-stand { font-size: 13px; color: var(--muted); margin-top: 6px; }
-#fnd-call .fc-videos { display: none; margin-top: 14px; position: relative; }
-#fnd-call.mit-video .fc-videos { display: block; }
-#fnd-call .fc-remote { width: 100%; max-height: 320px; border-radius: 10px; background: #111; }
+#fnd-call .fc-kopf { display: flex; align-items: center; gap: 10px; }
+#fnd-call .fc-info { flex: 1; min-width: 0; text-align: left; }
+#fnd-call .fc-gross {
+  flex: 0 0 auto; background: rgba(255,255,255,.08) !important;
+  color: var(--text); padding: 6px 10px !important; min-height: 34px !important;
+  font-size: 13px !important;
+}
+/* Eingeklappt: nur Kopf und Knöpfe. Aufgeklappt: zusätzlich das Videobild. */
+#fnd-call .fc-videos { display: none; }
+#fnd-call.fc-offen.mit-video .fc-videos { display: block; margin-top: 12px; position: relative; }
+#fnd-call .fc-wer { font-size: 15px; font-weight: 600; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#fnd-call .fc-stand { font-size: 12px; color: var(--muted); margin-top: 2px; }
+#fnd-call .fc-remote { width: 100%; max-height: 40vh; border-radius: 10px; background: #111; display: block; }
 #fnd-call .fc-local {
   position: absolute; right: 8px; bottom: 8px; width: 96px;
   border-radius: 6px; border: 2px solid rgba(255,255,255,.8);
 }
-#fnd-call .fc-knoepfe { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+#fnd-call .fc-knoepfe { display: flex; gap: 8px; justify-content: center; margin-top: 10px; flex-wrap: wrap; }
 #fnd-call button {
-  border: 0; border-radius: 10px; padding: 12px 22px; font-size: 15px;
-  font-weight: 600; cursor: pointer; min-height: 46px;
+  border: 0; border-radius: 10px; padding: 10px 18px; font-size: 14px;
+  font-weight: 600; cursor: pointer; min-height: 44px;
 }
 #fnd-call .fc-an { background: var(--green); color: #04120a; }
 #fnd-call .fc-ab { background: #ef4444; color: #fff; }
+
+/* ── Barrierefreiheit (R694) ──────────────────────────────────────────────
+   Zwei gemessene Mängel, keine Vermutungen.
+
+   1. KONTRAST in der eigenen (grünen) Blase: Uhrzeit, Haken und der
+      Bearbeitet-Vermerk lagen bei 2,35 – gefordert sind 4,5. Auf dem grünen
+      Grund braucht es helle statt gedämpfter Farben. */
+.msg-bubble.outgoing .msg-time,
+.msg-bubble.outgoing .bubble-time,
+.msg-bubble.outgoing .msg-status,
+.msg-bubble.outgoing .msg-edited,
+.msg-bubble.outgoing .tp-zeit,
+.msg-bubble.outgoing .zitat,
+.msg-bubble.outgoing .zitat-link {
+  color: rgba(255, 255, 255, .92) !important;
+}
+.msg-bubble.outgoing .msg-edited { font-style: italic; }
+
+/*  2. FOKUS: Knöpfe und Links hatten keine sichtbare Markierung. Wer mit der
+       Tastatur bedient, sieht sonst nicht, wo er steht. :focus-visible wirkt
+       nur bei Tastatur- und nicht bei Mausbedienung – so stört es niemanden,
+       der die Maus benutzt. */
+a:focus-visible,
+button:focus-visible,
+.btn:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible,
+summary:focus-visible,
+.tile:focus-visible,
+.contact-item:focus-visible,
+.msg-bubble:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* Auf dunklem Grund zusätzlich ein heller Saum, damit die Markierung auch auf
+   grünen Flächen zu sehen ist. */
+.btn.btn-primary:focus-visible,
+#send-btn:focus-visible,
+.msg-bubble.outgoing:focus-visible {
+  outline-color: #fff;
+  box-shadow: 0 0 0 5px rgba(0, 230, 118, .45);
+}
+
+/*  3. Sprunglink: Mit der Tastatur musste man sich bisher durch die gesamte
+       Navigation arbeiten, bevor man zum Inhalt kam. */
+.skip-link {
+  position: absolute; left: 8px; top: -60px; z-index: 10000;
+  background: var(--green); color: #04120a; font-weight: 600;
+  padding: 10px 16px; border-radius: 8px; transition: top .15s ease;
+}
+.skip-link:focus { top: 8px; }
+
+/*  4. Bewegung: Der Hintergrund aus R676 beachtet die Systemeinstellung schon.
+       Hier noch die übrigen Animationen – Pulsieren und Blinken sind für
+       manche Menschen nicht nur störend, sondern auslösend. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+}
+
+/* ── Sammelbestellungen (R696) ───────────────────────────────────────────── */
+.gb-karte {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; margin-bottom: 12px;
+  background-color: rgba(26, 29, 39, .5);
+  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+}
+.gb-karte.gb-mein { border-color: var(--green); }
+.gb-kopf { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
+.gb-kopf strong { color: var(--text); font-size: 15px; }
+.gb-stand {
+  flex: 0 0 auto; font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  background: rgba(255,255,255,.08); color: var(--muted); white-space: nowrap;
+}
+.gb-stand.gb-bestellt  { background: rgba(255,193,7,.18);  color: #ffc107; }
+.gb-stand.gb-geliefert { background: rgba(0,230,118,.18);  color: var(--green); }
+.gb-stand.gb-abgesagt  { background: rgba(239,68,68,.18);  color: #ef4444; }
+/* Fortschritt zur Mindestmenge – das ist die Kernfrage jeder
+   Sammelbestellung: Kommen genug zusammen? */
+.gb-balken {
+  height: 8px; border-radius: 4px; background: rgba(0,0,0,.3);
+  overflow: hidden; margin: 10px 0 6px;
+}
+.gb-fort { height: 100%; background: var(--green); border-radius: 4px; transition: width .3s ease; }
+.gb-text { font-size: 13px; color: var(--text-dim); margin-top: 8px; white-space: pre-wrap; }
+.gb-leute { margin-top: 8px; font-size: 13px; }
+.gb-leute summary { cursor: pointer; color: var(--muted); }
+.gb-leute ul { margin: 6px 0 0 18px; color: var(--text-dim); }
+.gb-knoepfe { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }

@@ -92,16 +92,26 @@
         if (box) return box;
         box = document.createElement('div');
         box.id = 'fnd-call';
+        // R693: Leiste statt Vollbild. Vorher lag ein deckender Vorhang über der
+        // ganzen Seite – man konnte während eines Gesprächs nichts mehr
+        // bedienen. Die Leiste belegt nur einen Streifen; der Rest der Seite
+        // bleibt anklickbar und scrollbar.
         box.innerHTML =
             '<div class="fc-box">' +
-            '  <div class="fc-wer"></div>' +
-            '  <div class="fc-stand"></div>' +
+            '  <div class="fc-kopf">' +
+            '    <div class="fc-info"><div class="fc-wer"></div><div class="fc-stand"></div></div>' +
+            '    <button class="fc-gross" title="Größer/kleiner">▾</button>' +
+            '  </div>' +
             '  <div class="fc-videos">' +
             '    <video class="fc-remote" autoplay playsinline></video>' +
             '    <video class="fc-local" autoplay playsinline muted></video>' +
             '  </div>' +
             '  <div class="fc-knoepfe"></div>' +
             '</div>';
+        box.querySelector('.fc-gross').onclick = function () {
+            box.classList.toggle('fc-offen');
+            this.textContent = box.classList.contains('fc-offen') ? '▴' : '▾';
+        };
         document.body.appendChild(box);
         return box;
     }
@@ -118,6 +128,8 @@
         box.querySelector('.fc-wer').textContent = wer;
         box.querySelector('.fc-stand').textContent = stand;
         box.classList.toggle('mit-video', !!mitVideo);
+        // Beim Videoanruf gleich aufgeklappt – sonst sieht man das Bild nicht.
+        if (mitVideo) box.classList.add('fc-offen');
         const k = box.querySelector('.fc-knoepfe');
         k.textContent = '';
         knoepfe.forEach(function (b) { k.appendChild(b); });
@@ -288,4 +300,31 @@
         laeuft: function () { return !!(pc || offenesAngebot); },
     };
     log('bereit', location.pathname);
+
+    // ── Seitenwechsel während eines Gesprächs (R693) ──────────────────────
+    //
+    // Die Verbindung lebt in DIESER Seite. Ein Seitenwechsel lädt sie neu und
+    // beendet damit das Gespräch – daran führt im Browser kein Weg vorbei,
+    // solange jede Seite neu geladen wird. Statt es wortlos abreißen zu lassen,
+    // wird nachgefragt.
+    document.addEventListener('click', function (ev) {
+        if (!pc && !offenesAngebot) return;
+        const a = ev.target.closest && ev.target.closest('a[href]');
+        if (!a) return;
+        const ziel = a.getAttribute('href') || '';
+        if (!ziel || ziel.charAt(0) === '#' || a.target === '_blank') return;
+        if (!confirm('Es läuft ein Gespräch.\n\nDie Seite zu wechseln beendet es. Fortfahren?')) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        } else {
+            beenden('Seitenwechsel');
+        }
+    }, true);
+
+    window.addEventListener('beforeunload', function (e) {
+        if (!pc) return;
+        signalSenden({ type: 'hangup' }).catch(function () {});
+        e.preventDefault();
+        e.returnValue = '';
+    });
 })();

@@ -70,7 +70,7 @@ return function()
     main.innerHTML = html;
     if (d.can_rate) {
       var val = mine ? mine.stars : 0, pick = document.getElementById('rt-pick');
-      function paint(){ pick.innerHTML = [1,2,3,4,5].map(function(i){ return '<button type="button" data-v="' + i + '" class="' + (i <= val ? 'on' : '') + '">★</button>'; }).join(''); }
+      function paint(){ pick.innerHTML = [1,2,3,4,5].map(function(i){ return '<button type="button" data-v="' + i + '" class="' + (i <= val ? 'on' : '') + '" aria-label="Bewerten">★</button>'; }).join(''); }
       paint();
       pick.onclick = function(e){ var v = e.target.getAttribute('data-v'); if (v) { val = +v; paint(); } };
       document.getElementById('rt-send').onclick = async function(){

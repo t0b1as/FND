@@ -87,7 +87,7 @@ return function()
 <section id="tab-gesuche" class="drive-tab" style="display:none">
   <div class="set-card">
     <div class="set-head"><h3>Kunde finden</h3>
-      <button class="btn-sm" onclick="ladeGesuche()">↻</button></div>
+      <button class="btn-sm" onclick="ladeGesuche()" aria-label="Neu laden">↻</button></div>
     <div class="set-body">
       <!-- Karte der offenen Gesuche (R647): Abholort als Punkt, Einzelheiten
            beim Überfahren bzw. Antippen. -->
@@ -101,7 +101,7 @@ return function()
 <section id="tab-fahrer" class="drive-tab" style="display:none">
   <div class="set-card">
     <div class="set-head"><h3>Fahrer in deiner Nähe</h3>
-      <button class="btn-sm" onclick="ladeFahrer()">↻</button></div>
+      <button class="btn-sm" onclick="ladeFahrer()" aria-label="Neu laden">↻</button></div>
     <div class="set-body">
       <div id="karte" class="drive-map"></div>
       <div id="fahrer-liste"></div>

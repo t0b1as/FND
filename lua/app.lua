@@ -88,6 +88,8 @@ local routes = {
       handler = require "pages.shop" },
     { method = "GET", pattern = "^/drive$",
       handler = require "pages.drive" },
+    { method = "GET", pattern = "^/sammelbestellung$",
+      handler = require "pages.groupbuy" },
     { method = "GET", pattern = "^/swaptest$",
       handler = require "pages.swaptest" },
 

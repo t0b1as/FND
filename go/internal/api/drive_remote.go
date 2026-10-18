@@ -162,6 +162,33 @@ func (s *Server) registerDriveActionProtocol() {
 			return raw
 		}
 
+		// Sammelbestellungen (R696) laufen über denselben Weg: Die Bestellung
+		// gehört dem Node des Organisators, Teilnehmer sitzen anderswo. Statt
+		// ein zweites Protokoll zu bauen, wird dieses mitbenutzt – die Aktion
+		// trägt dafür das Kürzel "gb:".
+		if strings.HasPrefix(m.Action, "gb:") {
+			grec, g, gerr := s.gbLoad(m.RideID)
+			if gerr != nil {
+				return fehler(gerr.Error())
+			}
+			if !s.driveIsOwner(grec) {
+				return fehler("diese Bestellung gehört einem anderen Node")
+			}
+			msg, ok := s.gbApply(g, strings.ToLower(m.FID),
+				strings.TrimPrefix(m.Action, "gb:"), m.Data)
+			if !ok {
+				return fehler(msg)
+			}
+			s.gbSave(grec, g)
+			if s.log != nil {
+				s.log.Info("Sammelbestellung von anderem Node geändert",
+					zap.String("id", m.RideID), zap.String("aktion", m.Action),
+					zap.String("peer", peerID))
+			}
+			raw, _ := json.Marshal(map[string]any{"ok": true, "bestellung": toMap(g)})
+			return raw
+		}
+
 		rec, r, err := s.driveLoadRide(m.RideID)
 		if err != nil {
 			return fehler(err.Error())

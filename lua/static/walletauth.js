@@ -113,7 +113,7 @@
     card.className = "wallet-card";
     card.innerHTML =
       '<div class="wallet-card-head"><strong>Anmelden</strong>'+
-      '<button class="wallet-x" onclick="document.getElementById(\'wallet-dialog\').remove()">✕</button></div>'+
+      '<button class="wallet-x" onclick="document.getElementById(\'wallet-dialog\').remove()" aria-label="Schließen">✕</button></div>'+
       '<p class="wallet-hint">Deine Wallet-Identität gilt überall: Marktplatz, Partner, Messenger — auch auf anderen Knoten. Der Schlüssel bleibt nur temporär im Speicher.</p>'+
       '<div class="wallet-tabs">'+
         '<button class="wallet-tab active" id="wt-email" onclick="walletTab(\'email\')">E-Mail + Passwort</button>'+
@@ -260,7 +260,7 @@
       card.className = "wallet-card";
       card.innerHTML =
         '<div class="wallet-card-head"><strong>Deine Seed-Wörter</strong>'+
-        '<button class="wallet-x" onclick="this.closest(\'.wallet-overlay\').remove()">✕</button></div>'+
+        '<button class="wallet-x" onclick="this.closest(\'.wallet-overlay\').remove()" aria-label="Schließen">✕</button></div>'+
         '<p class="wallet-hint" style="color:#f66">Diese Wörter sind dein Wallet-Zugang. Sicher aufbewahren, niemals teilen. Wer sie hat, kann dein FND senden.</p>'+
         (d.chain_address ? '<p class="wallet-hint">Diese Wörter öffnen die Wallet <b style="font-family:monospace">'+d.chain_address+'</b> – überall gleich (auch in fnd-wallet).</p>' : '')+
         (d.linked_differs ? '<p class="wallet-hint" style="color:#7ee2a8">⚠ Für deinen Login ist eine ANDERE Wallet hinterlegt ('+d.linked_address+'). Diese Wörter öffnen sie NICHT – sichere auch deren Seed-Wörter.</p>' : '')+
@@ -289,7 +289,7 @@
     ov.className = "wallet-overlay";
     ov.onclick = function(e){ if (e.target === ov) ov.remove(); };
     ov.innerHTML = '<div class="wallet-card"><div class="wallet-card-head"><strong>'+walletEsc(title)+'</strong>'+
-      '<button class="wallet-x" onclick="this.closest(\'.wallet-overlay\').remove()">✕</button></div>'+html+'</div>';
+      '<button class="wallet-x" onclick="this.closest(\'.wallet-overlay\').remove()" aria-label="Schließen">✕</button></div>'+html+'</div>';
     document.body.appendChild(ov);
     return ov;
   }
@@ -655,7 +655,7 @@
     const ov = walletCard("Benachrichtigungen",
       '<p class="wallet-hint">Hinweise bei neuen Nachrichten und Anrufen, Kaufanfragen auf deine Orders und abgeschlossenen Swaps – auch wenn Fundus geschlossen ist. Gilt für dieses Gerät.</p>'+
       '<p class="wallet-hint" id="push-state">…</p>'+
-      '<button class="wallet-submit" id="push-toggle" disabled>…</button>'+
+      '<button class="wallet-submit" id="push-toggle" disabled aria-label="Weitere Optionen">…</button>'+
       '<button type="button" class="wallet-linkbtn" id="push-test" style="margin-top:8px;display:none">Test senden</button>'+
       '<p class="wallet-hint" id="push-out"></p>');
     const st = ov.querySelector('#push-state'), tg = ov.querySelector('#push-toggle'), ts = ov.querySelector('#push-test'), out = ov.querySelector('#push-out');

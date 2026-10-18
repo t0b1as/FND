@@ -852,7 +852,7 @@ function openAddrBook() {
         ov.innerHTML = '<div class="fundus-modal">'+
             '<div class="fundus-modal-head">'+
             '<h3>📖 Wallet-Adressbuch</h3>'+
-            '<button class="btn-sm" onclick="document.getElementById(\'addrbook-modal\').remove()">✕</button></div>'+
+            '<button class="btn-sm" onclick="document.getElementById(\'addrbook-modal\').remove()" aria-label="Schließen">✕</button></div>'+
             '<div class="fundus-modal-body">'+
             '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
             '<input type="text" id="ab-desc" placeholder="Beschreibung (z.B. Haupt-Wallet)" style="flex:1;min-width:140px">'+
@@ -877,7 +877,7 @@ async function renderAddrBookList() {
         box.innerHTML = entries.map(function(e){
             return '<div class="addr-entry">'+
                 '<span><span class="addr-desc">'+(e.description||'(ohne Beschreibung)')+'</span><br><span class="addr-hash">'+e.address+'</span></span>'+
-                '<button class="btn-sm btn-danger" onclick="deleteAddrBookEntry(\''+e.id+'\')">✕</button></div>';
+                '<button class="btn-sm btn-danger" onclick="deleteAddrBookEntry(\''+e.id+'\')" aria-label="Schließen">✕</button></div>';
         }).join("");
     } catch(e) {}
 }

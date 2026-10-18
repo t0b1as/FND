@@ -301,7 +301,7 @@ ngx.print([[
     </div>
     <div style="margin-top:8px">
       <button class="btn" onclick="balSpeichern(this)">Empfänger speichern</button>
-      <button class="btn-sm" onclick="balLaden()" style="margin-left:8px">↻</button>
+      <button class="btn-sm" onclick="balLaden()" style="margin-left:8px" aria-label="Neu laden">↻</button>
     </div>
     <div id="bal-status" class="meta" style="margin-top:8px"></div>
     <div class="meta" style="margin-top:8px;line-height:1.5">

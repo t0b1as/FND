@@ -48,7 +48,7 @@ return function()
 <div class="adm-card">
   <div class="adm-head">
     <h3>]] .. t("admin.grid_wallets") .. [[</h3>
-    <button class="btn-sm" onclick="loadGridWallets()">↻</button>
+    <button class="btn-sm" onclick="loadGridWallets()" aria-label="Neu laden">↻</button>
   </div>
   <div class="adm-body">
     <div id="grid-wallets"><div class="empty-hint">]] .. t("admin.loading") .. [[</div></div>
@@ -67,7 +67,7 @@ return function()
 <div class="adm-card">
   <div class="adm-head">
     <h3>]] .. t("admin.storage_provider") .. [[</h3>
-    <button class="btn-sm" onclick="loadStorage()">↻</button>
+    <button class="btn-sm" onclick="loadStorage()" aria-label="Neu laden">↻</button>
   </div>
   <div class="adm-body">
     <div class="sto-grid">
@@ -100,7 +100,7 @@ return function()
 <div class="adm-card">
   <div class="adm-head">
     <h3>]] .. t("admin.config_check") .. [[</h3>
-    <button class="btn-sm" onclick="loadConfig()">↻</button>
+    <button class="btn-sm" onclick="loadConfig()" aria-label="Neu laden">↻</button>
   </div>
   <div class="adm-body">
     <div id="cfg-list"><div class="empty-hint">]] .. t("admin.loading") .. [[</div></div>

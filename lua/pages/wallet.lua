@@ -412,7 +412,7 @@ loadEscrows().catch(()=>{});
 <div class="w-card">
   <div class="w-head">
     <h3>]==] .. t("wallet.open_escrows") .. [==[</h3>
-    <button class="btn-sm" onclick="loadEscrows()">↻</button>
+    <button class="btn-sm" onclick="loadEscrows()" aria-label="Neu laden">↻</button>
   </div>
   <div class="w-body">
     <div id="escrow-list"><div class="empty-hint">]==] .. t("wallet.loading") .. [==[</div></div>
@@ -1116,7 +1116,7 @@ async function confirmSeedBackup(){
         return '<div class="ab-row" data-id="' + esc(e.id) + '">' +
           '<span class="ab-kind ' + (e.kind === 'sol' ? 'sol' : '') + '">' + (e.kind === 'sol' ? 'SOL' : 'FND') + '</span>' +
           '<div class="ab-main"><div class="ab-desc">' + esc(e.description || '(ohne Beschreibung)') + '</div><div class="ab-addr">' + esc(e.address) + '</div></div>' +
-          '<div class="ab-btns"><button class="btn-sm" data-act="edit">✎</button><button class="btn-sm" data-act="copy">📋</button><button class="btn-sm btn-danger" data-act="del">✕</button></div></div>';
+          '<div class="ab-btns"><button class="btn-sm" data-act="edit" aria-label="Bearbeiten">✎</button><button class="btn-sm" data-act="copy" aria-label="In die Zwischenablage kopieren">📋</button><button class="btn-sm btn-danger" data-act="del" aria-label="Schließen">✕</button></div></div>';
       }).join('');
     } catch(e){ box.textContent = e.message === 'Bitte zuerst anmelden.' ? 'Bitte zuerst anmelden – dann siehst du dein Adressbuch.' : '✗ ' + e.message; }
   }
@@ -1129,7 +1129,7 @@ async function confirmSeedBackup(){
     if (btn.dataset.act === 'edit') {
       var desc = row.querySelector('.ab-desc').textContent.replace('(ohne Beschreibung)', '');
       row.querySelector('.ab-main').innerHTML = '<input type="text" class="ab-e-desc" value="' + esc(desc) + '" placeholder="Beschreibung"><input type="text" class="ab-e-addr" value="' + esc(addr) + '" spellcheck="false">';
-      row.querySelector('.ab-btns').innerHTML = '<button class="btn-sm" data-act="save">✓</button><button class="btn-sm" data-act="cancel">✕</button>';
+      row.querySelector('.ab-btns').innerHTML = '<button class="btn-sm" data-act="save" aria-label="Bestätigen">✓</button><button class="btn-sm" data-act="cancel" aria-label="Schließen">✕</button>';
       return;
     }
     if (btn.dataset.act === 'cancel') { load(); return; }

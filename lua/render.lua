@@ -233,6 +233,7 @@ function _M.header(title_key, active)
   <script src="/static/navupdate.js?v=]] .. rev .. [[" defer></script>
 </head>
 <body class="%s">
+<a href="#inhalt" class="skip-link">Zum Inhalt springen</a>
 <nav>
   <div class="brand-wrap">
   <a href="/" class="brand">
@@ -273,20 +274,20 @@ function _M.header(title_key, active)
   <a href="/partner"   class="%s" data-nav-key="partner" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("partner") .. [[</span>]] .. t("nav.partner_label") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_infrastructure") .. [[</div>
-  <a href="/topology" class="%s"><span class="di">🗺</span>]] .. t("nav.topology_label") .. [[</a>
-  <a href="/peers"    class="%s"><span class="di">🌐</span>]] .. t("nav.peers") .. [[</a>
+  <a href="/topology" class="%s" aria-label="Karte anzeigen"><span class="di">🗺</span>]] .. t("nav.topology_label") .. [[</a>
+  <a href="/peers"    class="%s" aria-label="Im Netz anzeigen"><span class="di">🌐</span>]] .. t("nav.peers") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_account") .. [[</div>
   <a href="/wallet"   class="%s" data-nav-key="wallet" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("wallet") .. [[</span>]] .. t("nav.wallet") .. [[</a>
   <a href="/start" data-nav-key="start" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("star") .. [[</span>]] .. t("nav.start_label") .. [[</a>
-  <a href="/settings" class="%s"><span class="di">⚙</span>]] .. t("nav.settings") .. [[</a>
-  <a href="/admin"    class="%s"><span class="di">🔧</span>]] .. t("nav.admin") .. [[</a>
+  <a href="/settings" class="%s" aria-label="Einstellungen"><span class="di">⚙</span>]] .. t("nav.settings") .. [[</a>
+  <a href="/admin"    class="%s" aria-label="Werkzeuge"><span class="di">🔧</span>]] .. t("nav.admin") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_language") .. [[</div>
   ]] .. i18n.lang_menu_html(lang) .. [[
 </div>
 
-<main>
+<main id="inhalt" tabindex="-1">
 ]],
         lang,
         t("nav.brand"),

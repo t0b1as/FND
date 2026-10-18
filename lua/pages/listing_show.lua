@@ -218,7 +218,7 @@ return function(captures)
             walletRow = walletRow .. string.format(
                 '<div class="seller-wallet-row" style="margin:8px 0;font-size:12px;color:var(--muted)">'..
                 '%s: <code style="font-size:11px">%s</code> '..
-                '<button class="btn-sm" style="padding:2px 8px;font-size:11px" onclick="copyWallet(\'%s\')">📋</button></div>',
+                '<button class="btn-sm" style="padding:2px 8px;font-size:11px" onclick="copyWallet(\'%s\')" aria-label="In die Zwischenablage kopieren">📋</button></div>',
                 t("listing.seller_wallet"), sellerWallet, sellerWallet)
             -- Bewertungen des Verkäufers (auf diesem Node gegen die Chain geprüft)
             walletRow = walletRow .. string.format(

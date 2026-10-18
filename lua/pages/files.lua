@@ -134,8 +134,8 @@ ngx.print(string.format([[
     <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none"
            onchange="handleFolderUpload(this.files)">
     <div style="display:flex;gap:8px;margin-top:8px">
-      <button type="button" class="btn-sm" onclick="document.getElementById('file-input').click()">📄 ]] .. t("files.upload_files_btn") .. [[</button>
-      <button type="button" class="btn-sm" onclick="document.getElementById('folder-input').click()">📁 ]] .. t("files.upload_folder_btn") .. [[</button>
+      <button type="button" class="btn-sm" onclick="document.getElementById('file-input').click()" aria-label="Neue Datei">📄 ]] .. t("files.upload_files_btn") .. [[</button>
+      <button type="button" class="btn-sm" onclick="document.getElementById('folder-input').click()" aria-label="Neuer Ordner">📁 ]] .. t("files.upload_folder_btn") .. [[</button>
     </div>
     <div id="upload-list" class="upload-list"></div>
   </div>
@@ -149,7 +149,7 @@ ngx.print(string.format([[
     <div class="inline-form" style="flex-wrap:wrap;gap:6px">
       <input type="text" id="share-dir-name" placeholder="]] .. t("files.share_dir_name_ph") .. [[" style="flex:1;min-width:120px">
       <input type="text" id="share-dir-path" placeholder="]] .. t("files.share_dir_path_ph") .. [[" style="flex:2;min-width:180px">
-      <button class="btn-sm" type="button" onclick="openDirBrowser()">📂 ]] .. t("files.browse_btn") .. [[</button>
+      <button class="btn-sm" type="button" onclick="openDirBrowser()" aria-label="Ordner öffnen">📂 ]] .. t("files.browse_btn") .. [[</button>
       <button class="btn-sm btn-prim" onclick="createDirShare()">]] .. t("files.share_dir_btn") .. [[</button>
     </div>
     <div id="share-dir-msg" class="status-line" style="margin-top:6px"></div>
@@ -709,8 +709,8 @@ function renderFileList() {
       <span class="fhash">${cnt} ${FT.files_word||'Dateien'}</span>
       <span class="fredundancy" style="font-size:12px;color:var(--muted)">📦</span>
       <div class="fbtns">
-        <button class="btn-sm" onclick="openFolder('${f.hash}','${nm.replace(/'/g,"")}')">↗</button>
-        <button class="btn-sm btn-danger" onclick="deleteFile('${f.hash}')">✕</button>
+        <button class="btn-sm" onclick="openFolder('${f.hash}','${nm.replace(/'/g,"")}')" aria-label="Öffnen">↗</button>
+        <button class="btn-sm btn-danger" onclick="deleteFile('${f.hash}')" aria-label="Schließen">✕</button>
       </div>
     </div>`;
     }
@@ -730,8 +730,8 @@ function renderFileList() {
       <span class="fredundancy" id="${rid}" style="color:var(--muted);font-size:12px" title="${RO ? 'Quelle' : FT.redundancy_col}">${RO ? (f.from_peer === 'local' ? 'dieser Node' : '…' + String(f.from_peer||'').slice(-6)) : '·'}</span>
       <div class="fbtns">
         ${RO ? '' : `<button class="${shareCls}" onclick="toggleShare('${f.hash}','${nm.replace(/'/g,"")}',${f.size||0},'${(f.mime_type||"")}',${isEnc},${shared})" title="${shared?FT.unshare:FT.make_findable}">${shared?'✅':'🔗'}</button>`}
-        <button class="btn-sm" onclick="downloadFile('${f.hash}','${nm.replace(/'/g,"")}')">↓</button>
-        ${RO ? '' : `<button class="btn-sm btn-danger" onclick="deleteFile('${f.hash}')">✕</button>`}
+        <button class="btn-sm" onclick="downloadFile('${f.hash}','${nm.replace(/'/g,"")}')" aria-label="Herunterladen">↓</button>
+        ${RO ? '' : `<button class="btn-sm btn-danger" onclick="deleteFile('${f.hash}')" aria-label="Schließen">✕</button>`}
       </div>
     </div>`;
   }).join('');
@@ -802,7 +802,7 @@ function renderFolderView() {
       '<span class="fsize">'+fmtSize(f.size||0)+'</span>'+
       '<span class="fhash">'+(f.hash||'').slice(0,16)+'…</span>'+
       '<span class="fredundancy"></span>'+
-      '<div class="fbtns"><button class="btn-sm" onclick="downloadFile(\''+f.hash+'\',\''+f.name.replace(/'/g,"")+'\')">↓</button></div></div>';
+      '<div class="fbtns"><button class="btn-sm" onclick="downloadFile(\''+f.hash+'\',\''+f.name.replace(/'/g,"")+'\')" aria-label="Herunterladen">↓</button></div></div>';
   });
   list.innerHTML = html;
 }
@@ -1157,7 +1157,7 @@ function renderFsResults(hits) {
       + '>' + icon + lock + nm + '</span>'
       + '<span class="fsize">' + fmtSize(h.size||0) + '</span>'
       + '<span class="fhash">' + src + '</span>'
-      + '<div class="fbtns"><button class="btn-sm btn-prim" onclick="downloadFile(\'' + h.hash + '\',\'' + nm.replace(/'/g,"") + '\',\'' + ((h.from_peer && h.from_peer !== 'local') ? h.from_peer : '') + '\')">↓</button></div>'
+      + '<div class="fbtns"><button class="btn-sm btn-prim" onclick="downloadFile(\'' + h.hash + '\',\'' + nm.replace(/'/g,"") + '\',\'' + ((h.from_peer && h.from_peer !== 'local') ? h.from_peer : '') + '\')" aria-label="Herunterladen">↓</button></div>'
       + '</div>';
   }).join('');
 }
@@ -1471,7 +1471,7 @@ async function loadNetworkShares(silent) {
         const pidShort = pid.slice(0,12);
         html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
           '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" title="Node '+pidShort+'…">🌐 '+(s.name||'?')+' <span class="meta" style="font-size:10px">('+(s.files||0)+' '+(FT.files_word||'Dateien')+')</span></span>'+
-          '<span><button class="btn-sm" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')">↗</button></span></div>';
+          '<span><button class="btn-sm" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" aria-label="Öffnen">↗</button></span></div>';
       });
     });
     box.innerHTML = html || '<div class="empty-hint">'+(FT.net_shares_none||'Keine Netz-Freigaben')+'</div>';
@@ -1552,7 +1552,7 @@ async function openDirBrowser(startPath) {
     ov.innerHTML = '<div style="background:var(--sur);border:1px solid var(--brd);border-radius:10px;padding:16px;width:min(520px,92vw);max-height:80vh;display:flex;flex-direction:column">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'+
       '<strong id="db-path" style="font-size:12px;word-break:break-all"></strong>'+
-      '<button class="btn-sm" onclick="document.getElementById(\'dir-browser\').remove()">✕</button></div>'+
+      '<button class="btn-sm" onclick="document.getElementById(\'dir-browser\').remove()" aria-label="Schließen">✕</button></div>'+
       '<div id="db-list" style="overflow-y:auto;flex:1;font-size:13px"></div>'+
       '<div style="margin-top:10px;display:flex;gap:8px">'+
       '<button class="btn-sm btn-prim" id="db-pick" style="flex:1">Diesen Ordner freigeben</button></div></div>';

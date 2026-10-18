@@ -367,6 +367,21 @@ func (s *Server) registerRoutes() {
 		listings.DELETE("/:id", s.deleteListing)
 	}
 
+	// Sammelbestellungen (R696): gemeinsam bestellen, um den Mengenpreis zu
+	// bekommen. Der Händler braucht dafür keine Wallet – die Hinterlegung läuft
+	// zwischen Teilnehmern und Organisator.
+	gb := r.Group("/api/v1/groupbuy")
+	{
+		gb.GET("/meta", s.gbMeta)
+		gb.GET("", s.gbList)
+		gb.POST("", s.gbCreate)
+		gb.POST("/:id/join", s.gbJoin)
+		gb.POST("/:id/leave", s.gbLeave)
+		gb.POST("/:id/ordered", s.gbOrdered)
+		gb.POST("/:id/delivered", s.gbDelivered)
+		gb.POST("/:id/cancel", s.gbCancel)
+	}
+
 	// Wallet-Adressbuch (lokale Empfangsadressen für Kaufabwicklung)
 	addrbook := r.Group("/api/v1/addressbook")
 	{
@@ -460,7 +475,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R692"
+const NodeRevision = "R697"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

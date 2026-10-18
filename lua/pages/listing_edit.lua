@@ -105,7 +105,7 @@ return function(captures)
       <select id="f-seller-wallet" style="flex:1;min-width:180px">
         <option value="">]] .. t("listing.seller_wallet_none") .. [[</option>
       </select>
-      <button type="button" class="btn-sm" onclick="openAddrBook()">📖 ]] .. t("listing.manage_addrbook") .. [[</button>
+      <button type="button" class="btn-sm" onclick="openAddrBook()" aria-label="Beschreibung aus Vorlage">📖 ]] .. t("listing.manage_addrbook") .. [[</button>
     </div>
     <small class="meta" data-current-wallet="%s">]] .. t("listing.seller_wallet_hint") .. [[</small></div>
   <div class="field">

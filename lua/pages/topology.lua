@@ -267,7 +267,7 @@ function renderConnections(conns) {
           <span class="muted">(${c.distance_source})</span></span>
       </div>
       <button class="btn btn-sm btn-danger"
-              onclick="removeConn('${c.peer_id}')">✕</button>
+              onclick="removeConn('${c.peer_id}')" aria-label="Schließen">✕</button>
     </div>`).join('');
 }
 

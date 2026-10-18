@@ -448,7 +448,7 @@ async function loadMine(){
         '<span>'+(o.type==="market"?OB.market:Number(o.price_sol).toFixed(8)+" SOL")+'</span>'+
         '<span class="ob-exp" title="Gültigkeit">'+orderExpText(o.expires_at)+'</span>'+
         '<button class="btn-sm" title="Gültigkeit ab jetzt auf 7 Tage setzen" onclick="renewOrder(\''+o.id+'\')">+7 T</button>'+
-        '<button class="btn-sm btn-danger" onclick="cancelOrder(\''+o.id+'\')">✕</button></div>';
+        '<button class="btn-sm btn-danger" onclick="cancelOrder(\''+o.id+'\')" aria-label="Schließen">✕</button></div>';
     }).join("");
   } catch(e){}
 }
@@ -519,10 +519,10 @@ setInterval(loadRate, 30000); // Kurs alle 30s aktualisieren
       freiwilligen Spende hilfst du bei Entwicklung und Betrieb. Die Spende ist <b>ohne Gegenleistung</b> –
       FND erhältst du über den Tausch FND ⇄ SOL oben im Orderbuch.</p>
     <div class="donate-row">
-      <button type="button" class="btn donate-amt" data-amt="5">5 €</button>
-      <button type="button" class="btn donate-amt" data-amt="10">10 €</button>
-      <button type="button" class="btn donate-amt" data-amt="25">25 €</button>
-      <button type="button" class="btn donate-amt" data-amt="50">50 €</button>
+      <button type="button" class="btn donate-amt" data-amt="5" aria-label="5 Euro spenden">5 €</button>
+      <button type="button" class="btn donate-amt" data-amt="10" aria-label="10 Euro spenden">10 €</button>
+      <button type="button" class="btn donate-amt" data-amt="25" aria-label="25 Euro spenden">25 €</button>
+      <button type="button" class="btn donate-amt" data-amt="50" aria-label="50 Euro spenden">50 €</button>
       <input type="number" id="donate-amount" min="1" step="1" placeholder="Betrag €" inputmode="decimal">
     </div>
     <a id="donate-link" class="btn btn-paypal" target="_blank" rel="noopener noreferrer"

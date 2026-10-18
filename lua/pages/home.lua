@@ -114,6 +114,13 @@ return function()
     <div class="tile-value" id="tile-drive-count">–</div>
     <div class="tile-label">%s</div>
   </a>
+  <a href="/sammelbestellung" class="tile tile-amber wip" data-wip="NEU"
+     data-nav-key="groupbuy" data-nav-zone="landing">
+    <div class="tile-glow"></div>
+    <div class="tile-icon">]] .. require("icons").svg("shop") .. [[</div>
+    <div class="tile-value" id="tile-gb-count">–</div>
+    <div class="tile-label">%s</div>
+  </a>
   <a href="/jobs" class="tile tile-purple wip" data-wip="BETA" data-nav-key="jobs" data-nav-zone="landing">
     <div class="tile-glow"></div>
     <div class="tile-icon">]] .. require("icons").svg("jobs") .. [[</div>
@@ -162,6 +169,7 @@ return function()
         certs,    (t("nav.certificates") or "Zertifikate"),
         (t("nav.messenger") or "Messenger"),
         "Drive",
+        "Sammelbestellung",
         jobs,     (t("nav.jobs") or "Jobs"),
         peers,    t("home.peers"),
         (t("nav.files") or "Speicher"),
