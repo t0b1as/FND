@@ -2865,3 +2865,79 @@ body::after {
     radial-gradient(ellipse 140% 45% at 50% 100%, rgba(7,9,14,.45) 0%, transparent 70%);
 }
 @media (max-width: 700px) { #bg-netz { opacity: .6; } }
+
+/* ── Steuerelemente halbdurchsichtig (R678) ───────────────────────────────
+   Bewusst NICHT über opacity: Das würde auch Beschriftungen und Symbole
+   verblassen lassen, und halb sichtbarer Text ist unbrauchbar. Stattdessen
+   bekommen nur die FLÄCHEN einen Alphawert; Text, Rahmen und Symbole bleiben
+   voll deckend. Dazu eine leichte Weichzeichnung dahinter, damit das Netz
+   durchscheint, ohne die Lesbarkeit zu stören. */
+.set-card, .msg-header, .msg-input-row, .top-bar, .tile, .ride-card,
+.kw-box, .msg-menu, .hit-card, .filter-cat, #attr-filter, .set-body {
+  background-color: rgba(26, 29, 39, .5) !important;
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+}
+input, select, textarea,
+.btn, button.btn, .btn-sm, .tab-btn {
+  background-color: rgba(34, 38, 58, .5) !important;
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+}
+/* Der grüne Hauptknopf bleibt kräftig: Er ist der Aufruf zum Handeln und darf
+   nicht im Hintergrund verschwinden. */
+.btn.btn-primary, #send-btn, .btn.primary, button[type="submit"] {
+  background-color: rgba(0, 230, 118, .78) !important;
+}
+/* Nachrichtenblasen: etwas kräftiger als der Rest, sonst wird gerade der Text
+   unruhig, den man am längsten liest. */
+.msg-bubble.incoming { background-color: rgba(34, 38, 58, .62) !important; }
+.msg-bubble.outgoing { background-color: rgba(0, 150, 80, .62) !important; }
+.msg-bubble.nur-medien { background: none !important; }
+/* Ohne Weichzeichner-Unterstützung (ältere Browser) deckender, sonst würde
+   der Hintergrund direkt durch den Text schlagen. */
+@supports not (backdrop-filter: blur(1px)) {
+  .set-card, .msg-header, .msg-input-row, .top-bar, .tile, .ride-card,
+  .kw-box, .msg-menu, .hit-card, #attr-filter, .set-body {
+    background-color: rgba(26, 29, 39, .88) !important;
+  }
+  input, select, textarea, .btn, button.btn, .btn-sm, .tab-btn {
+    background-color: rgba(34, 38, 58, .9) !important;
+  }
+}
+
+/* ── Langes Drücken auf iOS (R679) ───────────────────────────────────────
+   iOS markiert beim langen Drücken den Text des Knopfes und blendet das
+   Auswahlmenü ein. Beim Sendeknopf kollidiert das direkt mit der Aufnahme
+   einer Sprachnachricht: Statt aufzunehmen, markiert das Gerät "Senden".
+
+   Drei Dinge sind dafür nötig, einzeln reichen sie nicht:
+     user-select         – verhindert das Markieren selbst
+     -webkit-touch-callout – verhindert das Lupen- und Auswahlmenü
+     touch-action        – verhindert zusätzlich das Zoomen bei Doppeltippen */
+button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
+.msg-menu button, .kw-box button, .eq-haken, .set-check,
+.tp-knopf, .contact-item, #send-btn, #send-btn * {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+}
+/* Nachrichtenblasen: Auf Geräten MIT Zeigegerät bleibt Text markierbar – dort
+   gibt es kein langes Drücken, und Markieren ist dort der übliche Weg zum
+   Kopieren. Nur auf Tippgeräten wird es unterbunden, weil dort das lange
+   Drücken unser Menü öffnet; zum Kopieren steht dort der Menüeintrag bereit. */
+@media (hover: none) and (pointer: coarse) {
+  .msg-bubble, .msg-bubble * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  /* Eingabefelder bleiben selbstverständlich bedienbar. */
+  input, textarea, [contenteditable] {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+    -webkit-touch-callout: default;
+  }
+}
