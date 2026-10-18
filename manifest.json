@@ -1,8 +1,8 @@
 {
-  "version": "R675",
-  "description": "FUNDUS R675 - messanger",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R675/FND-R675-update.zip",
-  "node_argon2": "ee4e6908af16555b7f85a61682653a63267ac0426be87aa9d4915c45b90524b4",
-  "published_at": "2026-10-17T18:41:37.7830565Z",
-  "signature": "0x87307105acc6f01a5e672e70c79549a8efc260e0f694d220ce6b69dd79ee8198388df5c82453d5d8be71f2ae4f0e7ed177d50d487dd4beb79f4cfd2a6a554bc01c"
+  "version": "R677",
+  "description": "FUNDUS R677 - messanger",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R677/FND-R677-update.zip",
+  "node_argon2": "5696f93bb3210f017bb3b919c021035d5bc1896268cbb8b9d491d4966c8d9839",
+  "published_at": "2026-10-18T01:45:46.1291913Z",
+  "signature": "0x4f5a59639db7fc3f866e75b7957576e47b06d2977d5b3ff4a9ca711c3f6e6e91744aad95b65663ce993b629730041fc08c331287f8157a8e0b7d86415bc1c1cd1b"
 }
