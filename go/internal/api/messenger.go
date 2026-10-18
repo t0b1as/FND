@@ -638,6 +638,15 @@ func (s *Server) messengerSend(c *gin.Context) {
 				}
 			}
 		}
+		// R687: Fehlt der Eintrag HIER, heißt das nicht, dass es ihn nicht gibt
+		// – nur dass dieser Node ihn nicht hat. Also bei den Nachbarn nachfragen,
+		// bevor aufgegeben wird. Das war die Ursache dafür, dass Anrufe nur in
+		// eine Richtung funktionierten.
+		if req.RecipientPubKey == "" {
+			if x := s.keyDirHolen(c.Request.Context(), req.RecipientID); x != "" {
+				req.RecipientPubKey = x
+			}
+		}
 		if req.RecipientPubKey == "" {
 			// Kein PubKey verfügbar (Empfänger war nie online). Statt abzubrechen:
 			// Nachricht in die lokale Ausgangs-Warteschlange legen. Ein Worker

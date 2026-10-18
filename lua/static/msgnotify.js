@@ -142,6 +142,17 @@
         // Echte Chatnachrichten tragen type "text" oder "file" und IMMER einen
         // Absender. Alles andere – Quittungen, Tipp-Signale, Verlaufsabgleich,
         // Drive-Ereignisse – wird hier nicht gemeldet.
+        // R687: Eingehende ANRUFE auch außerhalb des Messengers melden. Diese
+        // Verbindung besteht auf jeder Seite – der Messenger selbst nur, wenn er
+        // geöffnet ist. Deshalb klingelte es bisher nur dort. Ein Anruf, der
+        // nur in einem bestimmten Reiter klingelt, ist kein Anruf.
+        if (msg.signal && msg.sender_id) {
+            const art = msg.signal.type || '';
+            if (art === 'call_audio' || art === 'call_video' || art === 'offer') {
+                anrufMelden(msg.sender_id, art === 'call_video');
+            }
+            return;
+        }
         const istNachricht = (!msg.type || msg.type === 'text' || msg.type === 'file');
         if (!istNachricht || !msg.sender_id) return;
         unread++;
@@ -167,3 +178,42 @@
     document.addEventListener('DOMContentLoaded', () => { updateBadge(); setTimeout(connect, 500); });
   } else { updateBadge(); setTimeout(connect, 500); }
 })();
+
+  // ── Eingehender Anruf außerhalb des Messengers (R687) ──────────────────
+  // Klingeln, vibrieren und einen Hinweis zeigen, über den man in den
+  // Messenger gelangt. Der eigentliche Anruf wird dort angenommen – diese
+  // Seite kann das nicht, sie soll nur dafür sorgen, dass man ihn mitbekommt.
+  let anrufTon = null, anrufVibro = null, anrufBanner = null;
+
+  function anrufStoppen() {
+    if (anrufTon) { clearInterval(anrufTon); anrufTon = null; }
+    if (anrufVibro) { clearInterval(anrufVibro); anrufVibro = null; }
+    if (navigator.vibrate) { try { navigator.vibrate(0); } catch(e) {} }
+    if (anrufBanner) { anrufBanner.remove(); anrufBanner = null; }
+  }
+
+  function anrufMelden(von, video) {
+    if (anrufBanner) return;                 // es klingelt bereits
+    const klingeln = () => {
+      tone([660, 0, 880], [0.35, 0.12, 0.35], 'sine');
+      if (navigator.vibrate) { try { navigator.vibrate([400, 200, 400]); } catch(e) {} }
+    };
+    klingeln();
+    anrufTon = setInterval(klingeln, 2000);
+    // Nach 45 Sekunden von selbst aufhören – sonst klingelt es endlos, wenn
+    // der Anrufer längst aufgelegt hat.
+    setTimeout(anrufStoppen, 45000);
+
+    anrufBanner = document.createElement('div');
+    anrufBanner.className = 'anruf-banner';
+    anrufBanner.innerHTML =
+      '<span class="ab-text">' + (video ? '📹' : '📞') + ' Anruf von ' +
+      String(von).slice(0, 10) + '…</span>' +
+      '<button class="ab-an">Annehmen</button><button class="ab-ab">Ignorieren</button>';
+    document.body.appendChild(anrufBanner);
+    anrufBanner.querySelector('.ab-an').onclick = () => {
+      anrufStoppen();
+      location.href = '/messenger?to=' + encodeURIComponent(von);
+    };
+    anrufBanner.querySelector('.ab-ab').onclick = anrufStoppen;
+  }

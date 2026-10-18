@@ -133,6 +133,7 @@ const MSGT = ]] .. (require("cjson.safe").encode({
     placeholder_msg = t("messenger.placeholder_msg"), recipient_first = t("messenger.recipient_first"),
 }) or "{}") .. [[;
 </script>
+<script src="/static/media-viewer.js?v=]] .. require("render").rev() .. [["></script>
 <script src="/static/messenger.js?v=]] .. require("render").rev() .. [["></script>
 
 <style>

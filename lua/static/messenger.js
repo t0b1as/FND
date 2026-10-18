@@ -1283,7 +1283,12 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
 
         if (isImage) {
             // Bilder & GIFs inline (GIF animiert automatisch im <img>).
-            content = `<a href="${url}" target="_blank" class="msg-media-link">
+            // R687: Im Vordergrund vergrößern statt in einem neuen Fenster
+            // öffnen. Ein neuer Reiter reißt aus dem Gespräch heraus und ist
+            // auf dem Handy besonders lästig – man muss erst wieder
+            // zurückwechseln.
+            content = `<a href="#" class="msg-media-link"
+                          onclick="bildGross('${file.hash}','${escapeHtml(file.name||'')}','${mime}');return false;">
                          <img src="${url}" class="msg-media-img" loading="lazy" alt="${escapeHtml(file.name||'')}">
                        </a>`;
         } else if (isAudio) {
@@ -2535,3 +2540,25 @@ document.addEventListener('visibilitychange', () => {
         eisNeuaufbau();
     }
 });
+
+// ── Bild im Vordergrund vergrößern (R687) ────────────────────────────────
+// Nutzt denselben Betrachter wie der Dateimanager: dunkler Hintergrund, Klick
+// daneben oder Esc schließt, Pfeiltasten blättern. Bewusst kein eigener
+// Nachbau – zwei Betrachter wären zwei Baustellen.
+function bildGross(hash, name, mime) {
+    if (!hash) return;
+    // Alle Bilder des Gesprächs sammeln, damit man blättern kann.
+    const liste = [];
+    let start = 0;
+    document.querySelectorAll('.msg-media-link').forEach((a) => {
+        const m = (a.getAttribute('onclick') || '').match(/bildGross\('([^']+)','([^']*)','([^']*)'/);
+        if (!m) return;
+        if (m[1] === hash) start = liste.length;
+        liste.push({ hash: m[1], name: m[2] || 'bild', mime: m[3] || '' });
+    });
+    if (window.FundusMedia && typeof window.FundusMedia.open === 'function') {
+        if (window.FundusMedia.open(liste.length ? liste : [{ hash, name, mime }], start)) return;
+    }
+    // Ohne Betrachter: alter Weg, damit das Bild wenigstens erreichbar bleibt.
+    window.open('/api/v1/files/download/' + encodeURIComponent(hash), '_blank');
+}
