@@ -1,11 +1,13 @@
 -- Sammelbestellungen (R696): gemeinsam bestellen, um den Mengenpreis zu
 -- bekommen. Der Händler braucht keine Wallet – die Hinterlegung läuft zwischen
 -- Teilnehmern und Organisator.
-local render = require("render")
-local rev = render.rev()
+local render = require "render"
 
-render.head("Sammelbestellung")
-ngx.print([[
+return function()
+    ngx.header["Content-Type"] = "text/html"
+    render.header("Sammelbestellung", "groupbuy")
+
+    ngx.print([[
 <div class="top-bar"><h2 style="margin:0;font-size:20px;color:var(--text)">Sammelbestellung</h2></div>
 
 <div class="tab-nav" id="gb-tabs">
@@ -75,5 +77,7 @@ ngx.print([[
 </section>
 ]])
 
-ngx.print([[<script src="/static/groupbuy.js?v=]] .. rev .. [["></script>]])
-render.foot()
+    ngx.print([[<script src="/static/groupbuy.js?v=]] .. require("render").rev() .. [["></script>]])
+
+    render.footer()
+end

@@ -234,14 +234,22 @@ function Invoke-SSHRaw([string]$cmd) {
     $keyOpt  = if ($script:SelectedKeyPath) { @("-i", $script:SelectedKeyPath) } else { @() }
     # Auth-Optionen: bei Passwort-Login ControlMaster nutzen (Passwort nur 1x),
     # bei Key-Auth Passwort komplett deaktivieren (kein Haengen am Prompt).
-    if ($script:UsePassword) {
-        $authOpt = @(
-            "-o", "PasswordAuthentication=yes",
+    # R699: ControlMaster IMMER. Bisher nur bei Passwort-Anmeldung - der
+    # Gedanke war, dass ein Schluessel keine Eingabe braucht. Das gilt aber nur
+    # fuer Schluessel OHNE Passphrase. Mit Passphrase fragte das Skript bei
+    # ueber 20 Einzelverbindungen entsprechend oft. Die Wiederverwendung
+    # schadet im anderen Fall nicht und spart hier jede weitere Eingabe.
+    $authOpt = @()
+    if ($script:UseMux) {
+        $authOpt += @(
             "-o", "ControlMaster=auto",
             "-o", "ControlPath=$script:CtlPath",
             "-o", "ControlPersist=300")
+    }
+    if ($script:UsePassword) {
+        $authOpt += @("-o", "PasswordAuthentication=yes")
     } else {
-        $authOpt = @("-o", "PasswordAuthentication=no")
+        $authOpt += @("-o", "PasswordAuthentication=no")
     }
     $sshArgs = $keyOpt + @(
         "-p", $PiPort,
@@ -254,15 +262,34 @@ function Invoke-SSHRaw([string]$cmd) {
     $errFile = [IO.Path]::GetTempFileName()
     $result  = & ssh @sshArgs 2>$errFile
     $rc      = $LASTEXITCODE
+    # R699: Den Fehlerkanal LESEN, bevor die Datei geloescht wird. Vorher wurde
+    # er ungelesen verworfen - bei einem Fehlschlag stand man ohne jeden Hinweis
+    # da ("Exit 1, Ausgabe: <leer>"), obwohl die Ursache dort drinstand, etwa
+    # "Sorry, try again" bei falschem sudo-Passwort oder "invalid group".
+    $errText = ""
+    if (Test-Path $errFile) {
+        $errText = (Get-Content $errFile -Raw -ErrorAction SilentlyContinue)
+        if ($errText) { $errText = $errText.Trim() }
+    }
     Remove-Item $errFile -Force -ErrorAction SilentlyContinue
     $out = ($result | Where-Object { $_ } | ForEach-Object { $_.Trim() }) -join "`n"
-    return [PSCustomObject]@{ Output = $out; ExitCode = $rc }
+    return [PSCustomObject]@{ Output = $out; ExitCode = $rc; ErrorText = $errText }
 }
 
 function Invoke-SSH([string]$cmd) {
     $r = Invoke-SSHRaw $cmd
     if ($r.ExitCode -ne 0) {
-        Write-Fail "SSH fehlgeschlagen (Exit $($r.ExitCode)):`n  Ausgabe: $($r.Output)"
+        # R699: Befehl UND Fehlermeldung zeigen. Ohne beides ist ein
+        # Fehlschlag nicht zu deuten.
+        $txt = "SSH fehlgeschlagen (Exit $($r.ExitCode)):"
+        $txt += "`n  Befehl:  $cmd"
+        if ($r.Output)    { $txt += "`n  Ausgabe: $($r.Output)" }
+        if ($r.ErrorText) { $txt += "`n  Fehler:  $($r.ErrorText)" }
+        if (-not $r.Output -and -not $r.ErrorText) {
+            $txt += "`n  (keine Ausgabe - haeufigste Ursachen: falsches sudo-Passwort," +
+                    " fehlende Gruppe, oder der Befehl wurde vom sh -c-Wrapper zerlegt)"
+        }
+        Write-Fail $txt
     }
     return $r.Output
 }
@@ -277,20 +304,37 @@ function Connect-SSH {
         # Passwort-Login: erste Verbindung oeffnet ControlMaster, ssh fragt Passwort
         # interaktiv ab (genau einmal, danach laeuft alles ueber den Socket).
         Write-Host "  Passwort fuer ${PiUser}@${PiHost} eingeben:" -ForegroundColor Cyan
-        $authArgs = @(
-            "-o", "PasswordAuthentication=yes",
-            "-o", "ControlMaster=auto",
-            "-o", "ControlPath=$script:CtlPath",
-            "-o", "ControlPersist=300")
+        $authArgs = @("-o", "PasswordAuthentication=yes")
+        if ($script:UseMux) {
+            $authArgs += @(
+                "-o", "ControlMaster=auto",
+                "-o", "ControlPath=$script:CtlPath",
+                "-o", "ControlPersist=300")
+        } else {
+            # R700: Ohne gemeinsame Verbindung fragt Windows bei jedem Schritt
+            # erneut. Darauf hinweisen, statt es stillschweigend geschehen zu
+            # lassen - sonst sucht man den Fehler bei sich.
+            Write-Info "Hinweis: Windows kann Verbindungen nicht buendeln - das Passwort wird mehrfach abgefragt."
+        }
         & ssh @keyArg -p $PiPort -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new @authArgs "${PiUser}@${PiHost}" "echo connected" | Out-Host
         # Verbindung pruefen ueber den Master-Socket
         $test = Invoke-SSH-Safe "echo connected"
         if ($test.Output -match "connected") { Write-Ok "SSH-Verbindung hergestellt (Passwort)"; Add-SSHConfig; return }
     } else {
+        # R699: Auch hier die Verbindung oeffnen UND offen halten. Vorher lief
+        # dieser Test ohne ControlMaster - bei einem Schluessel mit Passphrase
+        # war das eine zusaetzliche Abfrage, bevor es ueberhaupt losging.
+        $muxArgs = @()
+        if ($script:UseMux) {
+            $muxArgs = @("-o", "ControlMaster=auto",
+                         "-o", "ControlPath=$script:CtlPath",
+                         "-o", "ControlPersist=300")
+        }
         $test = & ssh @keyArg -p $PiPort `
             -o ConnectTimeout=10 `
             -o StrictHostKeyChecking=accept-new `
             -o PasswordAuthentication=no `
+            @muxArgs `
             "${PiUser}@${PiHost}" "echo connected"
         if ($test -match "connected") { Write-Ok "SSH-Verbindung hergestellt"; Add-SSHConfig; return }
     }
@@ -522,13 +566,43 @@ $script:SelectedKeyPath = $keyPath
 # UsePassword = true nur wenn KEIN Key gewaehlt UND kein Agent-Key aktiv ist.
 $agentHasKey = $false
 try { $agentHasKey = [bool](& ssh-add -l 2>$null | Where-Object { $_ -match "." }) } catch {}
+# R700: Gemeinsam genutzte Verbindungen (ControlMaster) gibt es NUR auf
+# Unix-Systemen. Das OpenSSH unter Windows kann das nicht - es braucht dafuer
+# Unix-Sockets. Eingeschaltet quittiert es mit "getsockname failed: Not a
+# socket" und die Verbindung scheitert komplett. Genau das hat R699 ausgeloest.
+#
+# Auf Windows ist der richtige Weg gegen die mehrfache Passphrase-Abfrage der
+# ssh-agent - siehe Hinweis weiter unten.
+$script:UseMux = $false
+if ($PSVersionTable.PSVersion.Major -ge 6) {
+    $script:UseMux = -not $IsWindows
+} elseif ($env:OS -ne "Windows_NT") {
+    $script:UseMux = $true
+}
+
+# R699: Der Pfad fuer die wiederverwendete Verbindung wird IMMER gesetzt.
+# Vorher stand er nur im Passwort-Zweig - bei Schluessel-Anmeldung waere die
+# Wiederverwendung dann wirkungslos gewesen, weil ControlPath leer bleibt.
+$script:CtlPath = "$env:TEMP\fundus-ssh-%h-%p-%r"
 if (-not $keyPath -and -not $agentHasKey) {
     $script:UsePassword = $true
-    $script:CtlPath = "$env:TEMP\fundus-ssh-%h-%p-%r"
     Write-Info "Auth-Modus: Passwort-Login"
 } else {
     $script:UsePassword = $false
-    Write-Info "Auth-Modus: SSH-Key"
+    if ($keyPath -and -not $agentHasKey) {
+        # Schluessel ohne Agent: Die Passphrase wird einmal abgefragt und die
+        # Verbindung danach wiederverwendet. Der Hinweis erspart die Frage,
+        # warum ueberhaupt gefragt wird.
+        Write-Info "Auth-Modus: SSH-Key (mit Passphrase)"
+        if (-not $script:UseMux) {
+            Write-Host "  Die Passphrase wird bei jedem Schritt erneut abgefragt (ueber 20x)." -ForegroundColor Yellow
+            Write-Host "  Das laesst sich NUR mit dem Agenten vermeiden, nicht vom Skript aus:" -ForegroundColor Yellow
+            Write-Host "      Start-Service ssh-agent; ssh-add $keyPath" -ForegroundColor Cyan
+            Write-Host "  Danach einmal eingeben - alle weiteren Aufrufe laufen ohne Abfrage." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Info "Auth-Modus: SSH-Key (Agent)"
+    }
 }
 
 Write-Step "SSH-Verbindung herstellen..."
@@ -926,7 +1000,12 @@ Invoke-SSH "sudo chmod o+rX $RemoteDir && sudo chmod -R o+rX $RemoteDir/lua 2>/d
 # Wrapper von Invoke-SSH (führte zu Exit 2). curl -f + || true = idempotent
 # und bricht den Deploy nie ab.
 $fontDir = "$RemoteDir/lua/static/fonts"
-Invoke-SSH "mkdir -p $fontDir"
+# R701: MIT sudo. Der Schritt davor setzt den ganzen Baum auf root:fundus mit
+# g=rX - also nur lesbar. Ein einfaches mkdir scheitert dort mit "Permission
+# denied". Dass es bisher nicht auffiel, lag an mkdir -p: Auf einem BEREITS
+# vorhandenen Ordner meldet es Erfolg, auch ohne Schreibrecht. Auf einem Pi mit
+# vorhandenem Schriftenordner lief es also durch, auf einem neuen nicht.
+Invoke-SSH "sudo mkdir -p $fontDir"
 $fonts = @{
     "inter-regular.woff2"       = "https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMa1ZL7.woff2"
     "inter-bold.woff2"          = "https://fonts.gstatic.com/s/inter/v13/UcCO3FwrK3iLTeHuS_fvQtMwCp50KnMa25L7.woff2"
@@ -937,9 +1016,12 @@ $fonts = @{
 }
 foreach ($f in $fonts.Keys) {
     # Nur laden, wenn noch nicht da (idempotent). Ein einzelner, einfacher Befehl.
-    Invoke-SSH "test -f $fontDir/$f || curl -fsSL '$($fonts[$f])' -o $fontDir/$f || true"
+    # R701: sudo, weil der Ordner root gehoert. Die Adresse bewusst OHNE
+    # Anfuehrungszeichen - der sudo-Wrapper verpackt den Befehl selbst in
+    # sh -c '...', und ein zweites Paar einfacher Anfuehrungszeichen zerlegt ihn.
+    Invoke-SSH "test -f $fontDir/$f || sudo curl -fsSL $($fonts[$f]) -o $fontDir/$f || true"
 }
-Invoke-SSH "chmod -R o+rX $fontDir || true"
+Invoke-SSH "sudo chmod -R o+rX $fontDir || true"
 Write-Ok "Selbst-gehostete Fonts geprueft/geladen"
 
 # data-Verzeichnis MUSS fundus gehoeren (LevelDB schreibt dort) - nach dem

@@ -59,14 +59,24 @@
         const n = anzahl();
         knoten = [];
         for (let i = 0; i < n; i++) {
+            const richtung = Math.random() * Math.PI * 2;
+            const tempo    = 0.55 + Math.random() * 0.85;   // Pixel je Bild
             knoten.push({
                 x: Math.random() * B,
                 y: Math.random() * H,
-                vx: (Math.random() - 0.5) * 0.22,   // sehr langsam: es soll wabern
-                vy: (Math.random() - 0.5) * 0.22,
+                // R702: Deutlich schneller. Vorher rund 2 Pixel je Sekunde – ein
+                // Knoten brauchte für die Bildschirmbreite etwa zehn Minuten,
+                // Verbindungen entstanden und vergingen praktisch nie sichtbar.
+                //
+                // Richtung UND Betrag getrennt würfeln, statt beide Achsen
+                // unabhängig: Bei unabhängigen Achsen liegt der Betrag mancher
+                // Knoten nahe null, die standen dann still. So bewegt sich
+                // jeder Knoten, nur verschieden schnell.
+                vx: Math.cos(richtung) * tempo,
+                vy: Math.sin(richtung) * tempo,
                 r: 1.9 + Math.random() * 2.1,
                 phase: Math.random() * Math.PI * 2,
-                takt: 0.6 + Math.random() * 0.8,
+                takt: 0.9 + Math.random() * 1.1,
             });
         }
     }
@@ -87,7 +97,7 @@
                 const d = Math.sqrt(d2);
                 // Je näher, desto heller – und ein langsames Pulsieren darüber.
                 const nah = 1 - d / ABSTAND;
-                const puls = 0.75 + 0.25 * Math.sin(sek * 0.7 + (i + j) * 0.35);
+                const puls = 0.72 + 0.28 * Math.sin(sek * 1.1 + (i + j) * 0.35);
                 ctx.strokeStyle = 'rgba(' + GRUEN[0] + ',' + GRUEN[1] + ',' + GRUEN[2] +
                                   ',' + (nah * nah * 0.40 * puls).toFixed(3) + ')';
                 ctx.beginPath();
