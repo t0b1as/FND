@@ -727,8 +727,29 @@ function callLog(stufe, zusatz) {
     window.__anrufSpur.push(new Date().toISOString().slice(11, 23) + ' ' + z);
 }
 
+// R681: Schlüssel nachschlagen, falls er fehlt. Aus dem Namensmenü (R665) und
+// aus der Online-Liste entstehen Kontakte OHNE öffentlichen Schlüssel – ein
+// Anruf an so einen Kontakt konnte das Signal nicht verschlüsseln und scheiterte
+// stumm, also ohne Klingeln auf der Gegenseite.
+async function schluesselSichern(kontakt) {
+    if (!kontakt || kontakt.publicKey) return kontakt;
+    const bekannt = (typeof contacts === 'object' && contacts) ? contacts[String(kontakt.fundusID).toLowerCase()] : null;
+    if (bekannt && bekannt.publicKey) { kontakt.publicKey = bekannt.publicKey; return kontakt; }
+    try {
+        const r = await fetch('/api/v1/identity/keydir/lookup?fundus_id=' +
+                              encodeURIComponent(kontakt.fundusID), { credentials: 'same-origin' });
+        const d = await r.json();
+        if (d && d.found && d.x25519) {
+            kontakt.publicKey = d.x25519;
+            callLog('Schlüssel nachgeschlagen', kontakt.fundusID.slice(0, 10));
+        }
+    } catch (e) { callLog('Schlüssel nicht gefunden', e.message || ''); }
+    return kontakt;
+}
+
 async function startCall(mode) {
     callLog('gestartet', mode);
+    await schluesselSichern(activeChat);
     if (!window.isSecureContext) {
         // Ohne HTTPS gibt der Browser weder Kamera noch Mikrofon frei – auf dem
         // Rechner oft übersehen, weil localhost als sicher gilt.
@@ -826,6 +847,9 @@ function showIncomingCall(from, video) {
 }
 
 async function acceptCall(video) {
+    // R681: auch hier – der Anrufer ist womöglich noch kein vollständiger
+    // Kontakt, und ohne Schlüssel käme unsere Antwort nicht an.
+    await schluesselSichern(callPeer);
     if (!pendingOffer) return;
     try {
         localStream = await getMedia(video);
@@ -865,7 +889,7 @@ async function handleSignal(msg) {
             callPeer = { fundusID: from, publicKey: msg.sender_pub_x || '' };
             pendingOffer = JSON.parse(signal.sdp);
             pendingIce = [];
-            callLog('Anruf empfangen', from.slice(0, 12));
+            callLog('Anruf empfangen – es klingelt', from.slice(0, 12));
             showIncomingCall(from, signal.type === 'call_video');
             break;
         case 'answer':
@@ -1986,6 +2010,23 @@ function zuNachricht(id) {
 // Problem, und der Ton lässt sich jederzeit sauber abbrechen.
 let _tonCtx = null, _tonStop = null;
 
+// R681: Browser lassen Ton erst zu, NACHDEM der Nutzer die Seite einmal
+// berührt hat. Bei einem eingehenden Anruf gibt es diese Berührung nicht – der
+// Anrufton wäre also genau dann stumm, wenn man ihn braucht. Deshalb wird der
+// Tonkontext bei der ersten beliebigen Eingabe vorbereitet und wach gehalten.
+(function tonVorbereiten() {
+    const wecken = () => {
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return;
+            if (!_tonCtx) _tonCtx = new AC();
+            if (_tonCtx.state === 'suspended') _tonCtx.resume().catch(() => {});
+        } catch (e) {}
+    };
+    ['pointerdown', 'touchstart', 'keydown', 'click'].forEach((e) =>
+        document.addEventListener(e, wecken, { once: false, passive: true }));
+})();
+
 function tonKontext() {
     if (!_tonCtx) {
         const AC = window.AudioContext || window.webkitAudioContext;
@@ -2028,12 +2069,27 @@ function tonSchleife(muster, pause, lautstaerke) {
     _tonStop = () => { lauft = false; if (timer) clearTimeout(timer); try { gain.disconnect(); } catch (e) {} };
 }
 
-function tonAus() { if (_tonStop) { _tonStop(); _tonStop = null; } }
+function tonAus() {
+    if (_tonStop) { _tonStop(); _tonStop = null; }
+    if (_vibroTimer) { clearInterval(_vibroTimer); _vibroTimer = null; }
+    if (navigator.vibrate) { try { navigator.vibrate(0); } catch (e) {} }
+}
 
 // Wählton beim Anrufer: ruhiges Doppeltuten, wie man es vom Telefon kennt.
 function waehltonAn()  { tonSchleife([[440, 0.9], [0, 0.0]], 3.1, 0.07); }
 // Anrufton beim Angerufenen: deutlicher, zweistufig.
-function anruftonAn()  { tonSchleife([[660, 0.35], [0, 0.12], [880, 0.35]], 1.6, 0.10); }
+let _vibroTimer = null;
+function anruftonAn() {
+    tonSchleife([[660, 0.35], [0, 0.12], [880, 0.35]], 1.6, 0.10);
+    // Vibrieren als zweiter Weg: Es braucht keine Tonfreigabe und wirkt auch,
+    // wenn das Gerät stumm geschaltet ist.
+    if (navigator.vibrate) {
+        clearInterval(_vibroTimer);
+        const muster = () => { try { navigator.vibrate([400, 200, 400, 1200]); } catch (e) {} };
+        muster();
+        _vibroTimer = setInterval(muster, 2200);
+    }
+}
 
 // ── Sprachnachrichten (R666) ─────────────────────────────────────────────
 // Senden-Knopf lange gedrückt halten = aufnehmen, loslassen = verschicken.
@@ -2167,18 +2223,11 @@ function tonAbspielerHtml(url, file) {
     const dauer = (file.name || '').match(/-(\d+)s\./);
     const sek = dauer ? parseInt(dauer[1], 10) : 0;
     const vorab = sek ? zeitText(sek) : '';
-    // R674: Kann dieser Browser das Format überhaupt? Safari auf dem iPhone
-    // spielt kein WebM. Vorher lief in dem Fall die Zeit hoch, ohne dass etwas
-    // zu hören war – schlimmer als eine klare Auskunft.
-    const art = file.mime || '';
-    let hinweis = '';
-    try {
-        const pruef = document.createElement('audio');
-        if (art && pruef.canPlayType && pruef.canPlayType(art) === '') {
-            hinweis = ' <span class="tp-warn" title="' + escapeHtml(art) +
-                      '">Format hier nicht abspielbar</span>';
-        }
-    } catch (e) {}
+    // R682: Der Hinweis "Format hier nicht abspielbar" ist raus. canPlayType
+    // meldet für WebM auf iOS einen leeren Wert, obwohl die Wiedergabe dort
+    // funktioniert – die Auskunft war also schlicht falsch. Eine Warnung, die
+    // bei funktionierenden Dateien erscheint, ist schlimmer als keine.
+    const hinweis = '';
     return '<div class="ton-player" id="' + id + '">' +
            '<button class="tp-knopf" onclick="tonSchalten(\'' + id + '\')" aria-label="Abspielen">▶</button>' +
            '<div class="tp-balken" onclick="tonSpringen(event, \'' + id + '\')">' +

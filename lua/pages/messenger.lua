@@ -167,10 +167,18 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 .msg-sidebar     { width:260px; flex-shrink:0; display:flex; flex-direction:column; gap:8px; overflow-y:auto; }
 .msg-main        { flex:1; display:flex; flex-direction:column; gap:8px; min-width:0; min-height:0; position:relative;
                    padding:0; margin:0; max-width:none; }
+/* R683: min-height statt height. Die feste Höhe von 60px war die Ursache
+   dafür, dass Name und Adresse aus dem Kasten herausliefen und hinter den
+   Anrufknöpfen landeten: Adressfeld, Name und Adresszeile zusammen brauchen
+   mehr als 60px, und bei fester Höhe quillt der Inhalt einfach heraus. */
 .msg-header      { display:flex; justify-content:space-between; align-items:center;
                    padding:0 12px; background:var(--surface); border-radius:12px;
-                   border:1px solid var(--border); height:60px; flex-shrink:0; box-sizing:border-box; }
-.msg-call-buttons { display:flex; gap:8px; }
+                   border:1px solid var(--border); min-height:60px; flex-shrink:0;
+                   box-sizing:border-box; flex-wrap:nowrap; overflow:hidden; }
+/* Der Textblock gibt nach, die Knöpfe nicht – sonst schrumpfen die Knöpfe und
+   der Text schiebt sich darüber. */
+.msg-header > div { min-width:0; overflow:hidden; }
+.msg-call-buttons { display:flex; gap:8px; flex:0 0 auto; }
 .msg-messages    { flex:1; min-height:0; overflow-y:auto; padding:8px; background:var(--bg);
                    border:1px solid var(--border); border-radius:var(--radius);
                    display:flex; flex-direction:column; gap:3px; }
@@ -236,9 +244,11 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 .contact-item .c-name { font-size:14px; font-weight:500; }
 .contact-item .c-sub  { font-size:11px; color:var(--muted); }
 .contact-unread { margin-left:auto; background:#00c853; color:#04120a; font-size:11px; font-weight:600; min-width:18px; height:18px; border-radius:9px; display:flex; align-items:center; justify-content:center; padding:0 5px; }
+/* R683: ebenfalls min-height. Hier steht mehrzeiliger Text (Name und
+   Adresse) – mit fester Höhe läuft er genauso heraus wie in der Kopfzeile. */
 .msg-identity    { background:var(--surface); border:1px solid var(--border);
-                   border-radius:12px; padding:0 12px; height:60px; flex-shrink:0;
-                   box-sizing:border-box; display:flex; align-items:center; }
+                   border-radius:12px; padding:6px 12px; min-height:60px; flex-shrink:0;
+                   box-sizing:border-box; display:flex; align-items:center; overflow:hidden; }
 .msg-idbox       { font-size:12px; line-height:1.5; }
 .msg-idbox .mono { font-family:monospace; color:var(--muted); word-break:break-all; }
 /* Chat-Bereich abgerundeter, Eingabezeile abgesetzt */

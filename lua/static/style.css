@@ -2848,8 +2848,6 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 @media (max-width: 600px) {
   .msg-media-img { max-width: 82vw; max-height: 60vh; }
 }
-/* Hinweis bei nicht abspielbarem Format (R674) */
-.tp-warn { font-size: 10px; color: #ffc107; white-space: nowrap; }
 
 /* ── Glühendes Knotennetz im Hintergrund (R676) ──────────────────────────
    Liegt hinter allem und nimmt keine Klicks entgegen. Fest am Fenster, nicht
@@ -2968,3 +2966,16 @@ button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
   background-color: var(--surface-2) !important;
   backdrop-filter: none; -webkit-backdrop-filter: none;
 }
+
+/* ── Anrufbereich (R683) ─────────────────────────────────────────────────
+   R682 hatte die Anrufknöpfe deckend gemacht, um den durchscheinenden Text zu
+   verbergen. Das war am Symptom vorbei: Der Text lief aus der Kopfzeile heraus,
+   weil die eine feste Höhe hatte. Das ist jetzt behoben, also bleiben die
+   Knöpfe durchsichtig wie alle anderen.
+   Deckend bleibt nur das Fenster für eingehende Anrufe – es liegt über dem
+   Verlauf, dort würde durchscheinender Text wirklich stören. */
+#incoming-call {
+  background-color: var(--surface-2) !important;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.msg-call-buttons { position: relative; z-index: 2; }
