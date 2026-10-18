@@ -662,6 +662,19 @@ func (s *Server) messengerSend(c *gin.Context) {
 				},
 			}
 			_ = s.store.Put(obRec)
+			// R684: Anruf-Signale NICHT einreihen. Ein Anruf, der in einer
+			// Warteschlange liegt, ist wertlos – er müsste jetzt klingeln.
+			// Schlimmer noch: Der Anrufer bekam "ok" zurück, hörte seinen
+			// eigenen Wählton und wartete auf jemanden, der nie etwas
+			// mitbekommt. Lieber ein klarer Fehler.
+			if req.Type == messenger.TypeSignal {
+				s.log.Warn("Anruf nicht zustellbar – Schlüssel des Empfängers unbekannt",
+					zap.String("to", rid[:10]+"…"))
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"error": "Der Empfänger war noch nie online – ein Anruf ist erst " +
+						"möglich, wenn er sich einmal angemeldet hat."})
+				return
+			}
 			s.log.Info("Nachricht in Ausgangs-Warteschlange (Empfänger noch ohne PubKey)", zap.String("to", rid[:10]+"…"))
 			c.JSON(http.StatusOK, gin.H{"ok": true, "queued": true, "note": "Empfänger noch nie online — Nachricht wird zugestellt sobald erreichbar"})
 			return

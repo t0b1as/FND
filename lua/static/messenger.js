@@ -1399,8 +1399,20 @@ function noteTyping() {
 function showTyping(from) {
     if (!activeChat || String(from || '').toLowerCase() !== String(activeChat.fundusID || '').toLowerCase()) return;
     let el = document.getElementById('typing-ind');
-    if (!el) { el = document.createElement('div'); el.id = 'typing-ind'; el.className = 'typing-ind'; el.textContent = 'schreibt …';
-        const h = document.getElementById('chat-header'); if (h) h.appendChild(el); else return; }
+    if (!el) {
+        el = document.createElement('div'); el.id = 'typing-ind';
+        el.className = 'typing-ind'; el.textContent = 'schreibt …';
+        // R684: NICHT mehr in die Kopfzeile. Dort landete der Hinweis ganz
+        // hinten, also hinter den Anrufknöpfen – genau der unlesbare Text, der
+        // zwischen den Knöpfen durchschien. Er gehört über die Schreibzeile,
+        // wo er zum Geschehen passt und niemanden verdeckt.
+        const ziel = document.querySelector('.msg-input-row');
+        if (ziel && ziel.parentNode) ziel.parentNode.insertBefore(el, ziel);
+        else {
+            const h = document.getElementById('chat-header');
+            if (h) h.appendChild(el); else return;
+        }
+    }
     el.style.display = '';
     clearTimeout(_typingTimer); _typingTimer = setTimeout(hideTyping, 6000);
 }

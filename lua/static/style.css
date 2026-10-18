@@ -2341,7 +2341,11 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .msg-row .msg-row-av .msg-av { width:28px; height:28px; font-size:12px; }
 .msg-row.cont { margin-top:-6px; }
 .msg-row .msg-bubble { margin-left:0; }
-.typing-ind { font-size:12px; color:var(--green); margin-left:auto; padding:0 10px; animation:typing-pulse 1.2s ease-in-out infinite; }
+/* R684: Sitzt jetzt über der Schreibzeile, nicht mehr in der Kopfzeile –
+   dort stand er hinter den Anrufknöpfen. Kein margin-left:auto mehr, das war
+   für die Ausrichtung in der Kopfzeile gedacht. */
+.typing-ind { font-size:12px; color:var(--green); padding:2px 12px 4px;
+              animation:typing-pulse 1.2s ease-in-out infinite; }
 @keyframes typing-pulse { 0%,100% { opacity:.55; } 50% { opacity:1; } }
 
 /* ── E-Mail-Benachrichtigungen (R557) ────────────────────────────────── */
