@@ -53,13 +53,18 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { scroll-behavior: smooth; }
+/* R680: Die Seitenfarbe gehört auf html, NICHT auf body. Trägt body sie,
+   wird sie an die Seitenfläche weitergereicht – und ein Element mit negativer
+   Ebene (unser Knotennetz) landet dahinter. Auf dem Rechner ging es gut, auf
+   dem Handy blieb der Hintergrund schwarz. Mit der Farbe auf html malt body
+   gar keine Fläche mehr und die Leinwand liegt verlässlich davor. */
+html { scroll-behavior: smooth; background: var(--bg); }
 
 body {
     font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
     font-size: 15px;
     line-height: 1.65;
-    background: var(--bg);
+    background: transparent;   /* R680: Farbe liegt auf html */
     color: var(--text);
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
@@ -2940,4 +2945,26 @@ button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
     user-select: text !important;
     -webkit-touch-callout: default;
   }
+}
+
+/* ── Nachträge zur Durchsichtigkeit (R680) ───────────────────────────────── */
+/* Kaufen/Shop nutzt die allgemeine Klasse .card – die fehlte in der Liste. */
+.card, .donate-card, .swap-card, .price-card {
+  background-color: rgba(26, 29, 39, .5) !important;
+  backdrop-filter: blur(9px);
+  -webkit-backdrop-filter: blur(9px);
+}
+/* Drive: hier bleiben die Karten DECKEND. Die Formulare sind dicht an dicht
+   und reichen bis an den Rand; durchscheinende Flächen wirken dort unruhig
+   statt luftig. Dazu etwas Innenabstand, der dort bisher fehlte. */
+.drive-tab .set-card {
+  background-color: var(--surface) !important;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+  padding: 4px 16px 16px;
+}
+.drive-tab .set-card .set-body { padding: 0 2px; }
+.drive-tab .set-card + .set-card { margin-top: 14px; }
+.drive-tab input, .drive-tab select, .drive-tab textarea {
+  background-color: var(--surface-2) !important;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
 }
