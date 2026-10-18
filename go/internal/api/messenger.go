@@ -389,6 +389,17 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 					}
 					out["decrypted"] = true
 				}
+			// R690: Anrufsignale an jeder Stufe sichtbar machen. Ich habe vier
+			// Versuche lang geraten, wo es hängt – ohne Spur ist das nicht zu
+			// entscheiden. Die Zeile sagt: Signal da, wie viele Verbindungen
+			// erreicht, und ob eine Push-Anmeldung vorliegt.
+			if payload != nil && payload.Signal != nil && s.log != nil {
+				s.log.Info("Anrufsignal empfangen",
+					zap.String("art", string(payload.Signal.Type)),
+					zap.String("von", msg.SenderID),
+					zap.Int("ws_verbindungen", sess.wsAnzahl()),
+					zap.Bool("push_anmeldung", s.hatPushAnmeldung(sess.identity.FundusID)))
+			}
 				if !sess.broadcastWS(out) {
 					s.log.Warn("WS-Zustellung fehlgeschlagen")
 				}
@@ -928,6 +939,16 @@ func (sess *Session) nachrichtNeu(id string) bool {
 	}
 	sess.gesehen[id] = time.Now()
 	return true
+}
+
+// wsAnzahl: wie viele Browser-Verbindungen diese Sitzung gerade hat (R690).
+func (sess *Session) wsAnzahl() int {
+	if sess == nil {
+		return 0
+	}
+	sess.wsMu.Lock()
+	defer sess.wsMu.Unlock()
+	return len(sess.wsConns)
 }
 
 // signalLokalZustellen reicht ein Anruf-Signal an eine Sitzung weiter, die auf
