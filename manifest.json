@@ -1,8 +1,8 @@
 {
-  "version": "R709",
-  "description": "FUNDUS R709 - write permission share",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R709/FND-R709-update.zip",
-  "node_argon2": "6166130c3c9b1960e68b0efff5388732048cb0e60d2dbd8a70ddb708f34b0733",
-  "published_at": "2026-10-19T05:00:25.9510025Z",
-  "signature": "0x3a434046ae2642900bd3e27ea98f474fe13767621a913e8ab5ccc64690555ad352f88ffa9d8e679c9ab157c00788328de814673d0b339b74549631397e7e7e911c"
+  "version": "R710",
+  "description": "FUNDUS R710 - write permission share",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R710/FND-R710-update.zip",
+  "node_argon2": "b9d5994971b79e03ddb7284e71cc51a166f95eb99bfa2958d3b1385499928127",
+  "published_at": "2026-10-19T07:02:46.6654044Z",
+  "signature": "0x4a9aa956ba50b76e7bcdc6a024a9a26e75cf7e6f97dbc85ae25236b766a69a383658cc1d18fd71e1b05b3785919c885667bcd7852ef319b984f363b0de8170631b"
 }
