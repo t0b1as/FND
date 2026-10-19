@@ -259,6 +259,13 @@ func (sm *ShareManager) publicSharesJSON() []byte {
 			pub = append(pub, pubShare{ID: s.ID, Name: s.Name, Files: s.TotalFiles, Size: s.TotalSizeBytes})
 		}
 	}
+	// R711: Protokollieren, was dieser Node auf eine Abfrage antwortet. Ohne das
+	// lässt sich nicht unterscheiden, ob eine Freigabe gar nicht angekündigt
+	// wird oder ob die Gegenseite sie nicht anzeigt.
+	if sm.log != nil {
+		sm.log.Info("Freigabe-Abfrage beantwortet",
+			zap.Int("eigene", len(sm.shares)), zap.Int("davon_sichtbar", len(pub)))
+	}
 	data, _ := json.Marshal(pub)
 	return data
 }
@@ -472,6 +479,13 @@ func (sm *ShareManager) Delete(shareID string) error {
 	sm.mu.Unlock()
 
 	sm.save()
+	// R711: Sofort neu veröffentlichen. Vorher blieb die gelöschte Freigabe bis
+	// zum nächsten Takt (bis zu 60 s) im Netz angekündigt – andere Nodes
+	// zeigten sie weiter an und liefen beim Anklicken ins Leere.
+	select {
+	case sm.publishNow <- struct{}{}:
+	default: // Kanal schon voll: dann kommt die Veröffentlichung ohnehin gleich
+	}
 	sm.log.Info("Share gelöscht", zap.String("id", shareID))
 	return nil
 }

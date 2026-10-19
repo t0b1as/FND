@@ -750,9 +750,20 @@ func (s *Server) shareDelete(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ShareManager nicht aktiv"})
 		return
 	}
-	if err := mgr.Delete(c.Param("id")); err != nil {
+	// R711: Beide Ausgänge protokollieren. Beim Löschen „passiert nichts" ist
+	// ohne das nicht zu unterscheiden: kommt der Aufruf gar nicht an, trifft er
+	// eine unbekannte Kennung, oder scheitert das Speichern?
+	id := c.Param("id")
+	if err := mgr.Delete(id); err != nil {
+		if s.log != nil {
+			s.log.Warn("Freigabe löschen fehlgeschlagen",
+				zap.String("id", id), zap.Error(err))
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 		return
+	}
+	if s.log != nil {
+		s.log.Info("Freigabe gelöscht", zap.String("id", id))
 	}
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
@@ -787,6 +798,17 @@ func (s *Server) doShareList(c *gin.Context, shareID, path string) {
 	}
 
 	entries, err := mgr.ListDir(shareID, requester, path)
+	if err != nil && s.log != nil {
+		// R711: Bei „Zugriff verweigert" muss erkennbar sein, WER gefragt hat
+		// und welche Regel gegriffen hat.
+		modus := "?"
+		if sh, ok := mgr.Get(shareID); ok {
+			modus = string(sh.ReadAccess.Mode)
+		}
+		s.log.Warn("Freigabe-Zugriff abgewiesen", zap.String("share", shareID),
+			zap.String("anfrager", requester), zap.String("lesemodus", modus),
+			zap.Error(err))
+	}
 	if err != nil {
 		status := http.StatusForbidden
 		if strings.Contains(err.Error(), "nicht gefunden") {
