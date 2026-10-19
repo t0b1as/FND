@@ -150,7 +150,40 @@ ngx.print(string.format([[
       <input type="text" id="share-dir-name" placeholder="]] .. t("files.share_dir_name_ph") .. [[" style="flex:1;min-width:120px">
       <input type="text" id="share-dir-path" placeholder="]] .. t("files.share_dir_path_ph") .. [[" style="flex:2;min-width:180px">
       <button class="btn-sm" type="button" onclick="openDirBrowser()" aria-label="Ordner öffnen">📂 ]] .. t("files.browse_btn") .. [[</button>
+      <button class="btn-sm" type="button" onclick="dirNeuerOrdner()" aria-label="Neuen Ordner anlegen">📁 Neuer Ordner</button>
       <button class="btn-sm btn-prim" onclick="createDirShare()">]] .. t("files.share_dir_btn") .. [[</button>
+    </div>
+    <!-- R708: Lesen und Schreiben getrennt wählbar, jeweils mit der
+         Reichweite. „Heimnetz" ist dabei die engste Stufe: Solche Freigaben
+         werden auch nicht im Netz angekündigt, sonst sähen andere sie in der
+         Liste und kämen nie hinein. -->
+    <div class="inline-form" style="flex-wrap:wrap;gap:10px;margin-top:8px;align-items:center">
+      <label style="font-size:12px;color:var(--muted)">Lesen
+        <select id="share-dir-read" style="margin-left:6px">
+          <option value="lan">nur Heimnetz</option>
+          <option value="public" selected>ganzes Netz</option>
+          <option value="contacts">nur meine Kontakte</option>
+          <option value="specific">nur bestimmte Nodes</option>
+        </select>
+      </label>
+      <label style="font-size:12px;color:var(--muted)">Schreiben
+        <select id="share-dir-write" style="margin-left:6px">
+          <option value="none" selected>niemand</option>
+          <option value="lan">nur Heimnetz</option>
+          <option value="public">ganzes Netz</option>
+          <option value="contacts">nur meine Kontakte</option>
+          <option value="specific">nur bestimmte Nodes</option>
+        </select>
+      </label>
+      <!-- R707: Peer-IDs, NICHT Fundus-Adressen. Die Prüfung vergleicht die
+           Node-Kennung (12D3Koo…), nicht die Kontoadresse (0x…). Mit Adressen
+           hätte die Liste nie gepasst und die Freigabe wäre wirkungslos. -->
+      <input type="text" id="share-dir-wlist" placeholder="Node-Kennungen (12D3Koo…), durch Komma getrennt"
+             style="flex:2;min-width:220px;display:none">
+    </div>
+    <div id="share-dir-whint" class="meta" style="margin-top:4px;font-size:11px;color:#ffc107;display:none">
+      Mit Schreibrecht können andere Dateien in diesen Ordner legen und vorhandene
+      überschreiben. Gib das nur frei, wenn du den Ordner dafür vorgesehen hast.
     </div>
     <div id="share-dir-msg" class="status-line" style="margin-top:6px"></div>
     <div id="share-dir-list" style="margin-top:10px"></div>
@@ -1352,6 +1385,71 @@ function escapeHtmlF(s){
 
 loadDrivesOffer();
 
+// ── Schreibfreigabe (R706) ───────────────────────────────────────────────────
+// Die Regel wird aus der Auswahl gebaut. "list" verlangt Adressen – ohne sie
+// wäre die Freigabe wirkungslos, das wäre schlimmer als eine Fehlermeldung.
+function dirRegel(feldId) {
+  const sel = document.getElementById(feldId);
+  const mode = sel ? sel.value : 'none';
+  if (mode !== 'specific') return { mode: mode };
+  // R707: Feld heißt peer_ids, nicht fundus_ids – und die Kennungen bleiben
+  // unverändert, NICHT kleingeschrieben: Peer-IDs sind Base58 und
+  // unterscheiden Groß- und Kleinschreibung. Kleingeschrieben hätte keine
+  // einzige übereingestimmt.
+  const roh = (document.getElementById('share-dir-wlist') || {}).value || '';
+  const ids = roh.split(',').map(function(x){ return x.trim(); }).filter(Boolean);
+  return { mode: 'specific', peer_ids: ids };
+}
+
+// Auswahl sichtbar machen: Adressfeld und Warnhinweis nur wenn nötig.
+(function dirZugriffBinden(){
+  const rd = document.getElementById('share-dir-read');
+  const wr = document.getElementById('share-dir-write');
+  if (!rd || !wr) return;
+  const auffrischen = function(){
+    const liste = document.getElementById('share-dir-wlist');
+    const hint  = document.getElementById('share-dir-whint');
+    // Adressfeld, sobald EINE der beiden Wahlen bestimmte Nodes verlangt.
+    if (liste) liste.style.display =
+      (rd.value === 'specific' || wr.value === 'specific') ? '' : 'none';
+    // Warnhinweis nur beim Schreiben – Lesen ist nicht gefährlich.
+    if (hint) hint.style.display = (wr.value === 'none') ? 'none' : '';
+  };
+  rd.addEventListener('change', auffrischen);
+  wr.addEventListener('change', auffrischen);
+  auffrischen();
+})();
+
+// ── Neuer Ordner (R706) ──────────────────────────────────────────────────────
+// Legt den Ordner an, den man freigeben will. Bisher musste man ihn vorher über
+// eine Konsole erzeugen – für den häufigsten Fall, einen eigens angelegten
+// Ablageordner, war das ein Bruch im Ablauf.
+async function dirNeuerOrdner() {
+  const pfadFeld = document.getElementById('share-dir-path');
+  const msg = document.getElementById('share-dir-msg');
+  const basis = (pfadFeld.value || '').trim();
+  const name = prompt('Name des neuen Ordners' + (basis ? '\n\nwird angelegt in: ' + basis : ''));
+  if (!name) return;
+  msg.textContent = 'Ordner wird angelegt …'; msg.style.color = 'var(--muted)';
+  try {
+    const r = await fetch('/api/v1/shares/mkdir', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base: basis, name: name })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    pfadFeld.value = d.path || basis;
+    msg.textContent = '\u2713 Ordner angelegt: ' + (d.path || '');
+    msg.style.color = 'var(--grn)';
+    // Namensfeld vorbelegen, falls leer – spart einen Schritt.
+    const nf = document.getElementById('share-dir-name');
+    if (nf && !nf.value.trim()) nf.value = name;
+  } catch (e) {
+    msg.textContent = '\u2717 ' + e.message; msg.style.color = 'var(--red)';
+  }
+}
+
 // ── Lokales Verzeichnis freigeben (ohne Chunking, via ShareManager) ──────────
 async function createDirShare() {
   const name = document.getElementById('share-dir-name').value.trim();
@@ -1365,7 +1463,8 @@ async function createDirShare() {
       body: JSON.stringify({
         name: name,
         dirs: [{ virtual_name: name, local_path: path, flat_listing: true }],
-        read_access: { mode: 'public' }
+        read_access: dirRegel('share-dir-read'),
+        write_access: dirRegel('share-dir-write')
       })
     });
     const d = await r.json();

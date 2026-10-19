@@ -70,6 +70,7 @@ func (s *Server) registerFileRoutes() {
 	{
 		sh.GET("",                s.shareList)          // eigene Shares
 		sh.POST("",               s.shareCreate)        // Share erstellen
+		sh.POST("/mkdir",         s.shareMkdir)         // Ordner für eine Freigabe anlegen (R706)
 		sh.GET("/:id",            s.shareGet)           // Share-Details
 		sh.PUT("/:id",            s.shareUpdate)        // Berechtigungen ändern
 		sh.DELETE("/:id",         s.shareDelete)        // Share löschen
@@ -703,7 +704,8 @@ func (s *Server) shareGet(c *gin.Context) {
 		return
 	}
 	// N-1: lokale Pfade nur für localhost-Zugriff (Owner) zurückgeben
-	requester := c.GetHeader("X-Fundus-Peer-ID")
+	// R707: geprüfte Quelle statt Kopfzeilenfeld
+	requester := s.shareRequester(c)
 	isLocal := requester == "" || requester == "local"
 	if !isLocal {
 		// Öffentliche Ansicht: lokale Pfade ausblenden
@@ -772,7 +774,8 @@ func (s *Server) doShareList(c *gin.Context, shareID, path string) {
 		return
 	}
 	// Requester-PeerID aus Header (gesetzt vom libp2p-Gateway) oder Query
-	requester := c.GetHeader("X-Fundus-Peer-ID")
+	// R707: geprüfte Quelle statt Kopfzeilenfeld
+	requester := s.shareRequester(c)
 	if requester == "" {
 		// Nur von localhost akzeptiert ohne PeerID (Web-UI)
 		host := c.Request.RemoteAddr
@@ -809,7 +812,8 @@ func (s *Server) shareDownload(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ShareManager nicht aktiv"})
 		return
 	}
-	requester := c.GetHeader("X-Fundus-Peer-ID")
+	// R707: geprüfte Quelle statt Kopfzeilenfeld
+	requester := s.shareRequester(c)
 	if requester == "" {
 		host := c.Request.RemoteAddr
 		if !strings.HasPrefix(host, "127.") && !strings.HasPrefix(host, "[::1]") {
@@ -843,10 +847,8 @@ func (s *Server) shareUpload(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ShareManager nicht aktiv"})
 		return
 	}
-	requester := c.GetHeader("X-Fundus-Peer-ID")
-	if requester == "" {
-		requester = "local"
-	}
+	// R707: Kennung aus geprüfter Quelle, nicht aus dem Kopfzeilenfeld.
+	requester := s.shareRequester(c)
 
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -954,7 +956,8 @@ func (s *Server) shareListFlat(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ShareManager nicht aktiv"})
 		return
 	}
-	requester := c.GetHeader("X-Fundus-Peer-ID")
+	// R707: geprüfte Quelle statt Kopfzeilenfeld
+	requester := s.shareRequester(c)
 	if requester == "" {
 		if !strings.HasPrefix(c.Request.RemoteAddr, "127.") && !strings.HasPrefix(c.Request.RemoteAddr, "[::1]") {
 			c.JSON(http.StatusForbidden, gin.H{"error": "peer authentication required"})

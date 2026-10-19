@@ -57,7 +57,24 @@ const (
 	AccessContacts AccessMode = "contacts" // alle Peer-IDs in der Kontaktliste
 	AccessSpecific AccessMode = "specific" // nur explizit genannte Peer-IDs
 	AccessNone     AccessMode = "none"     // kein Zugriff
+	// R708: nur aus dem eigenen Heimnetz. Gedacht für den häufigsten Fall einer
+	// Familienfreigabe: Die Kinder sollen vom Wohnzimmer aus an die Fotos, aber
+	// niemand über das Netz der Nodes. Erkannt wird das an der Kennung "local",
+	// die shareRequester NUR für angemeldete Anfragen aus dem Heimnetz vergibt
+	// (R707) – sie lässt sich nicht von außen behaupten.
+	AccessLAN AccessMode = "lan"
 )
+
+// NetzSichtbar sagt, ob diese Regel überhaupt jemandem außerhalb des eigenen
+// Heimnetzes etwas erlaubt (R708). Eine Heimnetz-Freigabe im Netz anzukündigen
+// wäre irreführend: Andere sähen sie in der Liste und kämen nie hinein.
+func (r AccessRule) NetzSichtbar() bool {
+	switch r.Mode {
+	case AccessNone, AccessLAN:
+		return false
+	}
+	return true
+}
 
 // AccessRule definiert Zugriff für eine Aktion (lesen oder schreiben).
 type AccessRule struct {
@@ -73,6 +90,10 @@ func (r AccessRule) Allows(peerID string, contacts []string) bool {
 		return true
 	case AccessNone:
 		return false
+	case AccessLAN:
+		// Nur der Node-Betreiber selbst bzw. ein angemeldeter Zugriff aus
+		// seinem Heimnetz. Fremde Nodes haben keine solche Kennung.
+		return peerID == "local"
 	case AccessContacts:
 		for _, c := range contacts {
 			if c == peerID {
@@ -217,7 +238,7 @@ func (sm *ShareManager) publicSharesJSON() []byte {
 	}
 	var pub []pubShare
 	for _, s := range sm.shares {
-		if s.ReadAccess.Mode != AccessNone {
+		if s.ReadAccess.NetzSichtbar() {   // R708: Heimnetz-Freigaben nicht ankündigen
 			pub = append(pub, pubShare{ID: s.ID, Name: s.Name, Files: s.TotalFiles, Size: s.TotalSizeBytes})
 		}
 	}
@@ -736,7 +757,13 @@ func (sm *ShareManager) WriteFile(shareID, requesterPeerID, virtualDir, filename
 		return fmt.Errorf("share nicht gefunden")
 	}
 	contacts := sm.GetContacts()
-	if !share.WriteAccess.Allows(requesterPeerID, contacts) {
+	// R707: "local" ist der Besitzer selbst – eine angemeldete Anfrage aus dem
+	// eigenen Heimnetz, von shareRequester so gesetzt (NICHT mehr aus einem
+	// Kopfzeilenfeld, das jeder behaupten könnte). Er darf immer schreiben:
+	// Es ist seine Platte, und eine Regel wie "nur diese drei Nodes" ist als
+	// Einschränkung für FREMDE gedacht, nicht gegen sich selbst.
+	if requesterPeerID != "local" &&
+		!share.WriteAccess.Allows(requesterPeerID, contacts) {
 		return fmt.Errorf("schreibzugriff verweigert")
 	}
 	if size > MaxShareUploadSize {
@@ -885,7 +912,7 @@ func (sm *ShareManager) runDHTPublish(ctx context.Context) {
 		var pub []PublicShare
 		for _, s := range sm.shares {
 			// Nur Shares mit mindestens Read-Zugriff veröffentlichen
-			if s.ReadAccess.Mode != AccessNone {
+			if s.ReadAccess.NetzSichtbar() {   // R708: Heimnetz-Freigaben nicht ankündigen
 				pub = append(pub, PublicShare{
 					ID:          s.ID,
 					Name:        s.Name,
