@@ -1481,11 +1481,18 @@ async function createDirShare() {
 
 async function loadDirShares() {
   try {
-    const r = await fetch('/api/v1/shares');
+    const r = await fetch('/api/v1/shares', { credentials:'same-origin' });
     const d = await r.json();
     const box = document.getElementById('share-dir-list');
     if (!box) return;
-    const shares = d.shares || d || [];
+    // R710: dieselbe Falle wie beim Verzeichnislisten – ohne „shares" landete
+    // das Antwortobjekt in der Liste.
+    if (!r.ok || d.error) {
+      box.innerHTML = '<div class="empty-hint">\u2717 ' +
+        escapeHtmlF(d.error || ('HTTP ' + r.status)) + '</div>';
+      return;
+    }
+    const shares = Array.isArray(d.shares) ? d.shares : [];
     if (!shares.length) { box.innerHTML = ''; return; }
     box.innerHTML = shares.map(function(s){
       const dirs = (s.dirs||[]).map(function(dr){return dr.local_path;}).join(', ');
@@ -1494,7 +1501,10 @@ async function loadDirShares() {
         '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openShare(\''+sid+'\',\''+(s.name||'').replace(/\'/g,"")+'\')" title="'+dirs+'">\ud83d\udcc2 '+(s.name||'')+'</span>'+
         '<button class="btn-sm btn-danger" onclick="deleteDirShare(\''+sid+'\')" title="Freigabe entfernen">\u2717</button></div>';
     }).join('');
-  } catch(e) {}
+  } catch(e) {
+    const box = document.getElementById('share-dir-list');
+    if (box) box.innerHTML = '<div class="empty-hint">\u2717 ' + escapeHtmlF(e.message) + '</div>';
+  }
 }
 
 window._shareNav = null;
@@ -1557,7 +1567,22 @@ async function mirrorShare(shareID, subPath) {
 
 async function deleteDirShare(id) {
   if (!id) return;
-  try { await fetch('/api/v1/shares/' + id, { method:'DELETE' }); loadDirShares(); } catch(e) {}
+  // R710: Vorher wurde JEDER Fehler verschluckt – weder r.ok geprüft noch die
+  // Meldung angezeigt. Ein abgewiesener Aufruf sah deshalb aus, als passiere
+  // gar nichts. Genau so war es gemeldet worden.
+  const msg = document.getElementById('share-dir-msg');
+  try {
+    const r = await fetch('/api/v1/shares/' + encodeURIComponent(id),
+                          { method:'DELETE', credentials:'same-origin' });
+    let d = {};
+    try { d = await r.json(); } catch(e) {}
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    if (msg) { msg.textContent = '\u2713 Freigabe entfernt.'; msg.style.color = 'var(--grn)'; }
+    loadDirShares();
+  } catch(e) {
+    if (msg) { msg.textContent = '\u2717 ' + e.message; msg.style.color = 'var(--red)'; }
+    else alert('\u2717 ' + e.message);
+  }
 }
 
 // loadNetworkShares: entdeckt Verzeichnis-Freigaben anderer Nodes im Netz (via DHT).

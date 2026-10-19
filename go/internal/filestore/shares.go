@@ -85,6 +85,23 @@ type AccessRule struct {
 // Allows prüft ob ein Peer Zugriff hat.
 // contacts: die aktuelle Kontaktliste des Owners (wird von ShareManager befüllt).
 func (r AccessRule) Allows(peerID string, contacts []string) bool {
+	// R710: Der Besitzer darf immer – auch LESEN.
+	//
+	// In R707 hatte ich die Ausnahme nur in WriteFile eingebaut. Dadurch sperrte
+	// sich der Besitzer mit jeder Lesebeschränkung außer "ganzes Netz" aus
+	// seiner EIGENEN Freigabe aus: Beim Anklicken kam "Zugriff verweigert".
+	//
+	// Hier ist die richtige Stelle, weil alle Prüfungen durch diese Funktion
+	// laufen – Lesen, Schreiben, Herunterladen, Größe ermitteln. Eine Ausnahme
+	// an einer Stelle und nicht an den anderen war genau der Fehler.
+	//
+	// Sicher ist das, weil "local" ausschließlich von shareRequester vergeben
+	// wird, und zwar nur für angemeldete Anfragen an DIESEN Node. Ein fremder
+	// Node kann diesen Wert nicht erlangen (R707).
+	if peerID == "local" {
+		return true
+	}
+
 	switch r.Mode {
 	case AccessPublic:
 		return true
@@ -757,13 +774,10 @@ func (sm *ShareManager) WriteFile(shareID, requesterPeerID, virtualDir, filename
 		return fmt.Errorf("share nicht gefunden")
 	}
 	contacts := sm.GetContacts()
-	// R707: "local" ist der Besitzer selbst – eine angemeldete Anfrage aus dem
-	// eigenen Heimnetz, von shareRequester so gesetzt (NICHT mehr aus einem
-	// Kopfzeilenfeld, das jeder behaupten könnte). Er darf immer schreiben:
-	// Es ist seine Platte, und eine Regel wie "nur diese drei Nodes" ist als
-	// Einschränkung für FREMDE gedacht, nicht gegen sich selbst.
-	if requesterPeerID != "local" &&
-		!share.WriteAccess.Allows(requesterPeerID, contacts) {
+	// R710: Die Besitzer-Ausnahme steckt jetzt in Allows selbst – hier reicht
+	// die normale Prüfung. Zwei Stellen mit derselben Regel waren der Grund,
+	// warum sie beim Lesen fehlte.
+	if !share.WriteAccess.Allows(requesterPeerID, contacts) {
 		return fmt.Errorf("schreibzugriff verweigert")
 	}
 	if size > MaxShareUploadSize {
