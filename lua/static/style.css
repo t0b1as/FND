@@ -3142,3 +3142,12 @@ summary:focus-visible,
 .gb-leute summary { cursor: pointer; color: var(--muted); }
 .gb-leute ul { margin: 6px 0 0 18px; color: var(--text-dim); }
 .gb-knoepfe { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+/* ── Zugriffsauswahl im Freigabebereich (R709) ────────────────────────────
+   Die Felder waren so hoch wie die Knöpfe daneben und dadurch unverhältnismäßig
+   – sie stehen in einer Nebenzeile, nicht in der Hauptzeile. */
+#share-dir-read, #share-dir-write {
+  font-size: 12px; padding: 4px 24px 4px 8px; min-height: 30px; height: 30px;
+  line-height: 1.2; border-radius: 6px;
+}
+#share-dir-wlist { font-size: 12px; padding: 4px 8px; min-height: 30px; height: 30px; }

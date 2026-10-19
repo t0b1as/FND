@@ -158,8 +158,17 @@ func (s *Server) shareRequester(c *gin.Context) string {
 			zap.String("behauptet", h), zap.String("von", c.ClientIP()),
 			zap.String("pfad", c.Request.URL.Path))
 	}
-	// Angemeldet und aus dem Heimnetz: Das ist der Betreiber des Node selbst.
-	if isLANRequest(c) && s.sessionFID(c) != "" {
+	// R709: Eine ANGEMELDETE Anfrage genügt – ohne zusätzliche Heimnetz-Bedingung.
+	//
+	// In R707 stand hier "Heimnetz UND angemeldet". Das war falsch: Wer von
+	// unterwegs über die öffentliche Adresse auf den EIGENEN Node geht, ist
+	// nicht im Heimnetz und bekam deshalb eine Abweisung beim Öffnen eines
+	// Verzeichnisses. Der Node gehört ihm trotzdem.
+	//
+	// Die Anmeldung ist hier das richtige Merkmal: Sie weist nach, dass es ein
+	// Nutzer DIESES Node ist. Das spoofbare Kopfzeilenfeld bleibt weiterhin
+	// außen vor – darum ging es in R707, und das bleibt so.
+	if s.sessionFID(c) != "" {
 		// Bewusst "local" und nicht die eigene Node-Kennung: Die vorhandenen
 		// Lesewege prüfen auf genau diesen Wert, um lokale Pfade einzublenden.
 		// Mit der Node-Kennung hätte der Besitzer seine eigene Freigabe wie ein

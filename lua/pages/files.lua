@@ -1506,7 +1506,17 @@ async function renderShareView() {
   try {
     const url = '/api/v1/shares/' + nav.id + '/ls' + (nav.path ? '/' + nav.path : '');
     const r = await fetch(url); const d = await r.json();
-    const items = d.entries || d.items || d || [];
+    // R709: KEINE Ersatzkette auf das ganze Antwortobjekt. Bei leerer Liste
+    // liefert der Node null, bei einem Fehler {error:…} – in beiden Fällen
+    // landete vorher das Objekt selbst in items, und items.forEach schlug fehl.
+    // Genau diese Meldung stand im Fehlerkasten statt des wahren Grundes.
+    if (!r.ok || d.error) {
+      box.innerHTML = '<div class="empty-hint">\u2717 ' +
+        escapeHtmlF(d.error || ('HTTP ' + r.status)) + '</div>';
+      return;
+    }
+    const items = Array.isArray(d.entries) ? d.entries
+                : (Array.isArray(d.items) ? d.items : []);
     const parts = nav.path.split('/').filter(Boolean);
     let crumb = '<span style="cursor:pointer;color:var(--green)" onclick="closeShareView()">\ud83d\udcc2 '+nav.name+'</span>';
     let acc='';
@@ -1590,7 +1600,7 @@ async function renderRemoteShareView() {
     const url = '/api/v1/shares/remote/'+nav.peer+'/'+nav.share+'/ls?path='+encodeURIComponent(nav.path);
     const r = await fetch(url); const d = await r.json();
     if (d.error) { box.innerHTML = '<div class="empty-hint">'+d.error+'</div>'; return; }
-    const items = d.entries || [];
+    const items = Array.isArray(d.entries) ? d.entries : [];   // R709
     const parts = nav.path.split('/').filter(Boolean);
     let crumb = '<span style="cursor:pointer;color:var(--green)" onclick="closeRemoteShare()">\ud83c\udf10 '+nav.name+'</span>';
     let acc='';
