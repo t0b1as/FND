@@ -1539,8 +1539,19 @@ async function renderShareView() {
     let crumb = '<span style="cursor:pointer;color:var(--green)" onclick="closeShareView()">\ud83d\udcc2 '+nav.name+'</span>';
     let acc='';
     parts.forEach(function(p){ acc+=p+'/'; const a=acc; crumb+=' / <span style="cursor:pointer;color:var(--green)" onclick="shareGoto(\''+a.replace(/\'/g,"")+'\')">'+p+'</span>'; });
+    // R721: Hochladen nur anbieten, wenn die Freigabe auch beschreibbar ist.
+    // Ein Knopf, der dann an der Zugriffsregel scheitert, ist schlimmer als
+    // keiner – man sucht den Fehler bei sich.
+    const darfSchreiben = !!(d.can_write || (window._shareWrite && window._shareWrite[nav.id]));
     let html = '<div class="file-row file-head" style="grid-template-columns:1fr auto"><span>'+crumb+'</span>'+
-      '<span><button class="btn-sm" onclick="mirrorShare(\''+nav.id+'\',\''+nav.path.replace(/\'/g,"")+'\')">\u2b07 Spiegeln</button> '+
+      '<span>'+
+      (darfSchreiben
+        ? '<button class="btn-sm btn-prim" onclick="shareUploadDialog(\''+nav.id+'\',\''+
+          nav.path.replace(/'/g,"")+'\')" aria-label="Datei hochladen">\u2b06 Hochladen</button> '
+        : '')+
+      '<button class="btn-sm" onclick="davZugang(\''+nav.id+'\')" '+
+      'title="Als Netzlaufwerk einbinden" aria-label="Netzlaufwerk">\ud83d\uddb4</button> '+
+      '<button class="btn-sm" onclick="mirrorShare(\''+nav.id+'\',\''+nav.path.replace(/\'/g,"")+'\')">\u2b07 Spiegeln</button> '+
       '<button class="btn-sm" onclick="closeShareView()">\u2717</button></span></div>';
     items.forEach(function(it){
       const isDir = it.is_dir || it.IsDir; const nm = it.name || it.Name;
@@ -1553,13 +1564,25 @@ async function renderShareView() {
         // bleibt fürs Herunterladen.
         const url = '/api/v1/shares/'+nav.id+'/dl/'+encodeURIComponent(vp);
         const ansehbar = istAnsehbar(nm);
-        html += '<div class="file-row" style="grid-template-columns:1fr auto auto;gap:10px">'+
+        html += '<div class="file-row" style="grid-template-columns:1fr auto auto auto;gap:8px">'+
           (ansehbar
             ? '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="shareAnsehen(\''+
               url.replace(/'/g,"")+'\',\''+nm.replace(/'/g,"")+'\')">'+shareIcon(nm)+' '+nm+'</span>'
             : '<span class="fname">'+nm+'</span>')+
           '<span class="meta" style="font-size:11px;white-space:nowrap">'+
             (it.size ? fmtSize(it.size) : '')+'</span>'+
+          // R720: Bei Videos eine Abspiel-Verknüpfung anbieten. Der Node liefert
+          // dabei nur die Bytes, dekodiert wird im Abspieler – damit läuft auch
+          // 4K-HEVC, das kein Browser schafft.
+          ((shareDateiArt(nm) === 'video' || shareDateiArt(nm) === 'video-remux')
+            ? '<button class="btn-sm" onclick="window.open(\''+
+              url.replace('/dl/', '/playlist/')+'\')" title="In VLC oder einem anderen '+
+              'Abspieler öffnen" aria-label="Im Abspieler öffnen">\u25b6</button>'
+            : (appFuer(nm)
+              ? '<button class="btn-sm" onclick="inAppOeffnen(\''+
+                url.replace('/dl/', '/playlist/')+'\',\''+nm.replace(/'/g,"")+'\')" '+
+                'title="In der zugehörigen Anwendung öffnen" '+
+                'aria-label="In Anwendung öffnen">\u2197</button>' : ''))+
           '<button class="btn-sm" onclick="window.open(\''+url+'?dl=1\')" aria-label="Herunterladen">\u2193</button></div>';
       }
     });
@@ -1590,6 +1613,23 @@ function shareDateiArt(name){
   return '';
 }
 function istAnsehbar(name){ return shareDateiArt(name) !== ''; }
+
+// ── In der zugehörigen Anwendung öffnen (R721) ───────────────────────────
+// Office kennt eigene Adressschemata: ms-word:ofe|u|<Adresse> öffnet die Datei
+// unmittelbar aus dem Netz, ohne sie vorher herunterzuladen. Dasselbe gibt es
+// für Excel, PowerPoint und Visio.
+const appSchema = {
+  '.docx':'ms-word',  '.doc':'ms-word',  '.rtf':'ms-word',  '.odt':'ms-word',
+  '.xlsx':'ms-excel', '.xls':'ms-excel', '.csv':'ms-excel', '.ods':'ms-excel',
+  '.pptx':'ms-powerpoint', '.ppt':'ms-powerpoint', '.odp':'ms-powerpoint',
+  '.vsdx':'ms-visio',
+};
+function appFuer(name){
+  const n = String(name||'').toLowerCase();
+  const punkt = n.lastIndexOf('.');
+  if (punkt < 0) return '';
+  return appSchema[n.slice(punkt)] || '';
+}
 // Muss der Node die Datei zum Abspielen umpacken?
 function brauchtUmpacken(name){ return shareDateiArt(name) === 'video-remux'; }
 function shareIcon(name){
@@ -1627,8 +1667,8 @@ function shareAnsehen(url, name){
   if (art === 'bild')       inhalt = '<img src="'+quelle+'" alt="'+name+'">';
   else if (art === 'video' || art === 'video-remux')
     inhalt = (art === 'video-remux'
-      ? '<div class="sv-umpack">Wird unterwegs umgepackt \u2013 Springen nur über den Anfang. ' +
-        'Das Bild bleibt dabei unverändert.</div>' : '')+
+      ? '<div class="sv-umpack" id="sv-codec">Wird unterwegs umgepackt \u2013 Springen nur über ' +
+        'den Anfang. Das Bild bleibt dabei unverändert.</div>' : '')+
     '<video src="'+quelle+'" controls autoplay playsinline></video>'+
     '<div class="sv-hinweis" style="display:none">Wiedergabe nicht möglich. ' +
     'Wenn die Datei umgepackt werden muss, braucht der Node daf\u00fcr ffmpeg; ' +
@@ -1655,6 +1695,35 @@ function shareAnsehen(url, name){
     vid.style.display = 'none';
   });
   ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
+  // R719: Beim Umpacken vorher fragen, WAS drinsteckt. Umpacken reicht das
+  // Bild unverändert durch – kann der Browser den Codec nicht dekodieren (bei
+  // HEVC aus 4K-HDR-Dateien die Regel), kommt nur der Ton. Das sieht aus wie
+  // ein Fehler, obwohl alles wie vorgesehen arbeitet. Also sagen wir es.
+  if (art === 'video-remux' && !fremd) {
+    const pUrl = url.replace('/dl/', '/probe/');
+    fetch(pUrl, { credentials: 'same-origin' })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        const el = ov.querySelector('#sv-codec');
+        if (!el || !d || !d.available) return;
+        if (d.browser_video) {
+          el.textContent = 'Wird unterwegs umgepackt (' + (d.video||'?') +
+            ') \u2013 Springen nur über den Anfang.';
+          return;
+        }
+        el.innerHTML = '<strong>Nur Ton:</strong> Das Bild liegt als ' +
+          (d.video || 'unbekanntem Codec').toUpperCase() +
+          ' vor, und das kann dieser Browser nicht dekodieren. Umpacken wechselt nur ' +
+          'das Beh\u00e4ltnis, es wandelt das Bild nicht um \u2013 und 4K umzuwandeln ' +
+          '\u00fcberfordert einen Raspberry Pi.<br><br>' +
+          '<strong>So geht es trotzdem:</strong> Der Knopf \u25b6 in der Dateiliste \u00f6ffnet ' +
+          'die Datei in VLC. Dabei kommen nur die Daten vom Node, dekodiert wird ' +
+          'auf diesem Rechner \u2013 ohne die Datei vorher herunterzuladen.';
+        el.classList.add('sv-warn');
+      })
+      .catch(function(){});
+  }
+
   if (art === 'text') {
     // Textdateien können groß sein – nur den Anfang holen, sonst blockiert
     // eine Protokolldatei mit hunderten Megabyte den Browser.
@@ -1669,6 +1738,119 @@ function shareAnsehen(url, name){
         if (el) el.textContent = '\u2717 ' + e.message;
       });
   }
+}
+
+// ── Als Netzlaufwerk einbinden (R722) ────────────────────────────────────
+// Zeigt Adresse und Zugangskennung zum Eintragen in Windows oder Office.
+// Damit kann Word und Excel auch ZURÜCKSPEICHERN, nicht nur öffnen.
+async function davZugang(shareID){
+  try {
+    const r = await fetch('/api/v1/shares/' + encodeURIComponent(shareID) + '/davinfo',
+                          { credentials: 'same-origin' });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+    const ov = document.createElement('div');
+    ov.className = 'share-view-ov';
+    ov.innerHTML = '<div class="sv-box"><div class="sv-kopf"><strong>Als Netzlaufwerk einbinden</strong>'+
+      '<button class="btn-sm" aria-label="Schlie\u00dfen">\u2717</button></div>'+
+      '<div class="sv-inhalt"><div class="dav-info">'+
+      // R723: Der bequeme Weg zuerst.
+      '<p><button class="btn btn-primary" onclick="window.open(\'/api/v1/shares/'+
+      encodeURIComponent(shareID)+'/davcmd\')">\u2b07 Verbindungsdatei laden</button><br>'+
+      '<span class="meta">Herunterladen, doppelklicken \u2013 fertig. Windows meldet sich '+
+      'eventuell mit einer Sicherheitswarnung, weil es eine Befehlsdatei ist. '+
+      'Sie enth\u00e4lt das Kennwort im Klartext und kann danach gel\u00f6scht werden.</span></p>'+
+      '<label>Netzwerkpfad <span class="meta">(zum Einf\u00fcgen in den Explorer)</span>'+
+      '<input type="text" readonly value="'+escapeHtmlF(d.unc||'')+'"></label>'+
+      '<p class="meta">Ein anklickbarer Link ginge nicht: Browser verweigern '+
+      'Netzwerkpfade aus einer Webseite heraus. Deshalb die Datei oder das Einf\u00fcgen '+
+      'von Hand.</p>'+
+      '<details style="margin:8px 0"><summary class="meta">Von Hand einbinden</summary>'+
+      '<p>Explorer \u2192 Rechtsklick auf \u201eDieser PC\u201c \u2192 '+
+      '\u201eNetzlaufwerk verbinden\u201c \u2192 \u201eVerbindung mit einer Website herstellen\u201c.</p>'+
+      '<label>Adresse<input type="text" readonly value="'+escapeHtmlF(d.url)+'"></label>'+
+      '<label>Benutzer<input type="text" readonly value="'+escapeHtmlF(d.user)+'"></label>'+
+      '<label>Kennwort<input type="text" readonly value="'+escapeHtmlF(d.password)+'"></label>'+
+      '<p class="meta">Unbefristet g\u00fcltig. '+
+      (d.writable
+        ? 'Diese Freigabe ist beschreibbar \u2013 Word und Excel k\u00f6nnen direkt speichern.'
+        : '<strong>Nur lesend:</strong> Speichern ist nicht m\u00f6glich, daf\u00fcr m\u00fcsste '+
+          'die Freigabe Schreibrecht bekommen.')+'</p>'+
+      '</details>'+
+      '<p class="meta">Das Kennwort gilt nur f\u00fcr diese eine Freigabe. '+
+      'Ohne HTTPS \u00fcbertr\u00e4gt Windows es unverschl\u00fcsselt \u2013 im Heimnetz '+
+      'vertretbar, von unterwegs nicht.</p>'+
+      '</div></div></div>';
+    document.body.appendChild(ov);
+    const zu = function(){ ov.remove(); };
+    ov.querySelector('button').onclick = zu;
+    ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
+  } catch(e) { alert('\u2717 ' + e.message); }
+}
+
+// ── Datei in ihrer Anwendung öffnen (R721) ───────────────────────────────
+//
+// Der Weg führt über dieselbe befristete Adresse wie bei VLC: Erst holen wir
+// sie beim Node (das prüft den Zugriff), dann übergeben wir sie an Office.
+//
+// WICHTIG und ehrlich: Das ÖFFNET die Datei. Ob Office auch ZURÜCKSPEICHERN
+// kann, hängt daran, ob der Node WebDAV spricht – tut er noch nicht. Bis dahin
+// bietet Office beim Speichern ein „Speichern unter" an; die geänderte Datei
+// muss dann über den Hochladen-Knopf zurück in die Freigabe.
+async function inAppOeffnen(playlistUrl, name){
+  const schema = appFuer(name);
+  if (!schema) return;
+  try {
+    // Die Abspielliste enthält die signierte Adresse – daraus holen wir sie,
+    // statt ein zweites Verfahren für denselben Zweck zu bauen.
+    // ?url=1 liefert die nackte Adresse statt einer Abspielliste.
+    const r = await fetch(playlistUrl + '?url=1', { credentials: 'same-origin' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const adresse = (await r.text()).trim();
+    if (!/^https?:\/\//.test(adresse)) throw new Error('Keine Adresse erhalten');
+    // ofe = open for edit. Office öffnet damit direkt aus dem Netz.
+    window.location.href = schema + ':ofe|u|' + adresse;
+    setTimeout(function(){
+      alert('Falls sich nichts öffnet, ist die Anwendung nicht installiert ' +
+            'oder das Schema nicht angemeldet.\n\nDie Adresse liegt in der ' +
+            'Zwischenablage – du kannst sie in der Anwendung unter „Öffnen" einfügen.');
+      try { navigator.clipboard.writeText(adresse); } catch(e) {}
+    }, 2500);
+  } catch(e) {
+    alert('\u2717 ' + e.message);
+  }
+}
+
+// ── Hochladen in eine beschreibbare Freigabe (R721) ──────────────────────
+function shareUploadDialog(shareID, unterPfad){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.multiple = true;
+  inp.onchange = async function(){
+    const dateien = Array.from(inp.files || []);
+    if (!dateien.length) return;
+    const box = document.getElementById('share-dir-list');
+    for (const f of dateien) {
+      if (box) box.insertAdjacentHTML('afterbegin',
+        '<div class="empty-hint" id="up-lauf">\u2191 ' + escapeHtmlF(f.name) + ' \u2026</div>');
+      try {
+        const fd = new FormData();
+        fd.append('file', f);
+        // Der Ordner steckt im Pfad; leer bedeutet die Wurzel der Freigabe.
+        const ziel = '/api/v1/shares/' + encodeURIComponent(shareID) + '/ul/' +
+                     encodeURIComponent(unterPfad || '.');
+        const r = await fetch(ziel, { method:'POST', credentials:'same-origin', body: fd });
+        let dd = {};
+        try { dd = await r.json(); } catch(e) {}
+        if (!r.ok) throw new Error(dd.error || ('HTTP ' + r.status));
+      } catch(e) {
+        alert('\u2717 ' + f.name + ': ' + e.message);
+      }
+      const l = document.getElementById('up-lauf');
+      if (l) l.remove();
+    }
+    renderShareView();   // Liste auffrischen
+  };
+  inp.click();
 }
 
 function shareGoto(path){ if(window._shareNav){ window._shareNav.path=path; renderShareView(); } }

@@ -36,6 +36,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -748,6 +749,67 @@ func (sm *ShareManager) ReadRange(shareID, requesterPeerID, virtualPath string,
 		return nil, err
 	}
 	return buf[:n], nil
+}
+
+// ResolveForWrite prüft den SCHREIBzugriff und liefert den Zielpfad (R722).
+//
+// Anders als ResolveForRead muss die Datei NICHT existieren – beim Speichern
+// aus Word entsteht sie ja gerade erst. Geprüft wird deshalb der übergeordnete
+// Ordner: Er muss innerhalb der Freigabe liegen und vorhanden sein.
+func (sm *ShareManager) ResolveForWrite(shareID, requesterPeerID, virtualPath string) (string, error) {
+	share, ok := sm.Get(shareID)
+	if !ok {
+		return "", fmt.Errorf("share nicht gefunden")
+	}
+	if !share.WriteAccess.Allows(requesterPeerID, sm.GetContacts()) {
+		return "", fmt.Errorf("schreibzugriff verweigert")
+	}
+	if strings.TrimSpace(virtualPath) == "" {
+		return "", fmt.Errorf("kein Pfad angegeben")
+	}
+	// Den Pfad über das VERZEICHNIS auflösen und den Dateinamen anhängen. Damit
+	// greift derselbe Ausbruchsschutz wie beim Lesen, auch wenn die Datei noch
+	// nicht existiert.
+	ordner := path.Dir(virtualPath)
+	name := path.Base(virtualPath)
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("ungültiger Dateiname")
+	}
+	if ordner == "." || ordner == "/" {
+		ordner = ""
+	}
+	var basis string
+	if ordner == "" {
+		// Wurzel der Freigabe: erstes flaches Verzeichnis nehmen.
+		for _, d := range share.Dirs {
+			if d.FlatListing {
+				basis = d.LocalPath
+				break
+			}
+		}
+		if basis == "" && len(share.Dirs) > 0 {
+			basis = share.Dirs[0].LocalPath
+		}
+	} else {
+		fp, err := sm.resolveVirtualPath(share, ordner)
+		if err != nil {
+			return "", err
+		}
+		basis = fp
+	}
+	if basis == "" {
+		return "", fmt.Errorf("kein Zielverzeichnis")
+	}
+	st, err := os.Stat(basis)
+	if err != nil || !st.IsDir() {
+		return "", fmt.Errorf("zielverzeichnis fehlt")
+	}
+	ziel := filepath.Join(basis, name)
+	// Letzte Sicherung: Das Ergebnis MUSS unter dem Basisordner liegen.
+	if !strings.HasPrefix(ziel, filepath.Clean(basis)+string(filepath.Separator)) {
+		return "", fmt.Errorf("pfad außerhalb der Freigabe")
+	}
+	return ziel, nil
 }
 
 // ResolveForRead prüft den Lesezugriff und liefert den echten Pfad im

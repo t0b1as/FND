@@ -168,6 +168,12 @@ func (s *Server) shareRequester(c *gin.Context) string {
 	// Die Anmeldung ist hier das richtige Merkmal: Sie weist nach, dass es ein
 	// Nutzer DIESES Node ist. Das spoofbare Kopfzeilenfeld bleibt weiterhin
 	// außen vor – darum ging es in R707, und das bleibt so.
+	// R720: Eine gültige Abspiel-Verknüpfung zählt wie der Besitzer – sie wurde
+	// ihm ja ausgestellt, nachdem sein Zugriff geprüft war, und gilt nur für
+	// diese eine Datei.
+	if s.shareTokenAusAnfrage(c) {
+		return "local"
+	}
 	if s.sessionFID(c) != "" {
 		// Bewusst "local" und nicht die eigene Node-Kennung: Die vorhandenen
 		// Lesewege prüfen auf genau diesen Wert, um lokale Pfade einzublenden.

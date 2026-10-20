@@ -121,6 +121,19 @@ func (s *Server) shareStream(c *gin.Context) {
 			"error": "Keine abspielbare Spur gefunden."})
 		return
 	}
+	// R719: Den Bildcodec MITTEILEN, bevor umgepackt wird.
+	//
+	// Umpacken wechselt nur das Behältnis – das Bild wird unverändert
+	// durchgereicht. Das setzt voraus, dass der Browser diesen Codec selbst
+	// dekodiert. Bei HEVC (H.265), wie in 4K-HDR-Dateien üblich, kann Chrome
+	// das meist NICHT: Dann läuft nur der Ton, und das sieht aus wie ein
+	// Fehler, obwohl alles wie vorgesehen arbeitet.
+	//
+	// Umwandeln wäre die Alternative, scheidet aber praktisch aus: 4K HEVC nach
+	// H.264 zu wandeln schafft kein Raspberry Pi auch nur annähernd in
+	// Echtzeit. Deshalb die ehrliche Auskunft statt eines stummen Bildes.
+	c.Header("X-Video-Codec", p.VCodec)
+	c.Header("X-Audio-Codec", p.ACodec)
 
 	s.ffmpegStreamen(c, pfad, p, t)
 }
@@ -212,3 +225,47 @@ func (s *Server) port() int {
 
 // urlQuery kodiert einen Pfad für die Verwendung als Abfragewert.
 func urlQuery(v string) string { return url.QueryEscape(v) }
+
+// GET /api/v1/shares/:id/probe/*path
+//
+// Was steckt in der Datei, und kann der Browser es abspielen? (R719)
+// Die Oberfläche fragt das VOR dem Öffnen, damit sie bei HEVC gleich sagen
+// kann, dass nur der Ton kommt – statt ein schwarzes Bild zu zeigen.
+func (s *Server) shareProbeFile(c *gin.Context) {
+	mgr := s.shareMgr_
+	if mgr == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "ShareManager nicht aktiv"})
+		return
+	}
+	if !ffmpegAvailable() {
+		c.JSON(http.StatusOK, gin.H{"available": false,
+			"reason": "ffmpeg ist auf diesem Node nicht installiert"})
+		return
+	}
+	pfad, err := mgr.ResolveForRead(c.Param("id"), s.shareRequester(c), c.Param("path"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	p := probeShareFile(c.Request.Context(), pfad)
+	c.JSON(http.StatusOK, gin.H{
+		"available":     true,
+		"video":         p.VCodec,
+		"audio":         p.ACodec,
+		"browser_video": browserKannVideo(p.VCodec),
+	})
+}
+
+// browserKannVideo: Kann ein üblicher Browser diesen Bildcodec dekodieren,
+// wenn er in MP4 verpackt ist?
+//
+// H.264 kann jeder. VP8/VP9/AV1 in WebM ebenfalls, in MP4 je nach Browser.
+// HEVC hängt an Hardware und Plattform und ist deshalb als "nein" eingestuft –
+// lieber eine Warnung zu viel als ein stummes schwarzes Bild.
+func browserKannVideo(codec string) bool {
+	switch strings.ToLower(codec) {
+	case "h264", "avc1", "vp8", "vp9", "av1":
+		return true
+	}
+	return false
+}

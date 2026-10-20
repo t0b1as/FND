@@ -78,7 +78,11 @@ func (s *Server) registerFileRoutes() {
 		sh.GET("/:id/ls",         s.shareListDir)       // Verzeichnis listen
 		sh.GET("/:id/ls/*path",   s.shareListDirPath)   // Unterverzeichnis
 		sh.GET("/:id/dl/*path",   s.shareDownload)
-		sh.GET("/:id/stream/*path", s.shareStream)     // umgepackt streamen (R716)      // Datei herunterladen
+		sh.GET("/:id/stream/*path", s.shareStream)     // umgepackt streamen (R716)
+		sh.GET("/:id/probe/*path",  s.shareProbeFile) // Codecs vorab (R719)
+		sh.GET("/:id/playlist/*path", s.sharePlaylist) // M3U für VLC (R720)
+		sh.GET("/:id/davinfo",      s.shareDavInfo)  // Netzlaufwerk-Zugang (R722)
+		sh.GET("/:id/davcmd",       s.shareDavCmd)   // Verbindungsdatei (R723)      // Datei herunterladen
 		sh.POST("/:id/mirror",    s.shareMirror)        // rekursiv auf lokalen Pfad spiegeln
 		sh.POST("/:id/ul/:dir",   s.shareUpload)        // Datei hochladen
 		sh.GET("/:id/tree",       s.shareTree)          // Verzeichnisbaum (JSON)
@@ -820,11 +824,19 @@ func (s *Server) doShareList(c *gin.Context, shareID, path string) {
 		c.JSON(status, gin.H{"error": err.Error()})
 		return
 	}
+	// R721: Mitteilen, ob in diese Freigabe geschrieben werden darf. Sonst
+	// müsste die Oberfläche raten, und ein Upload-Knopf, der an der
+	// Zugriffsregel scheitert, lässt den Nutzer den Fehler bei sich suchen.
+	darfSchreiben := false
+	if sh, ok := mgr.Get(shareID); ok {
+		darfSchreiben = sh.WriteAccess.Allows(requester, mgr.GetContacts())
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"share_id": shareID,
-		"path":     path,
-		"entries":  entries,
-		"count":    len(entries),
+		"share_id":  shareID,
+		"path":      path,
+		"entries":   entries,
+		"count":     len(entries),
+		"can_write": darfSchreiben,
 	})
 }
 
