@@ -3204,3 +3204,7 @@ summary:focus-visible,
   font-family: ui-monospace, monospace; font-size: 12.5px; line-height: 1.5;
   color: var(--text-dim); max-height: 78vh; overflow: auto;
 }
+/* Hinweis bei nicht abspielbarem Format in der Freigabe (R715) */
+.share-view-ov .sv-hinweis {
+  color: #ffc107; font-size: 13px; line-height: 1.5; padding: 14px; text-align: left;
+}

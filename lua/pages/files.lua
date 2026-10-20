@@ -1553,12 +1553,14 @@ async function renderShareView() {
         // bleibt fürs Herunterladen.
         const url = '/api/v1/shares/'+nav.id+'/dl/'+encodeURIComponent(vp);
         const ansehbar = istAnsehbar(nm);
-        html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
+        html += '<div class="file-row" style="grid-template-columns:1fr auto auto;gap:10px">'+
           (ansehbar
             ? '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="shareAnsehen(\''+
               url.replace(/'/g,"")+'\',\''+nm.replace(/'/g,"")+'\')">'+shareIcon(nm)+' '+nm+'</span>'
             : '<span class="fname">'+nm+'</span>')+
-          '<button class="btn-sm" onclick="window.open(\''+url+'\')" aria-label="Herunterladen">\u2193</button></div>';
+          '<span class="meta" style="font-size:11px;white-space:nowrap">'+
+            (it.size ? fmtSize(it.size) : '')+'</span>'+
+          '<button class="btn-sm" onclick="window.open(\''+url+'?dl=1\')" aria-label="Herunterladen">\u2193</button></div>';
       }
     });
     box.innerHTML = html;
@@ -1572,7 +1574,10 @@ async function renderShareView() {
 function shareDateiArt(name){
   const n = String(name||'').toLowerCase();
   if (/\.(jpe?g|png|gif|webp|bmp|avif|svg)$/.test(n)) return 'bild';
-  if (/\.(mp4|webm|ogv|mov|m4v)$/.test(n))            return 'video';
+  // R715: .mkv dazu. Chromium spielt Matroska ab, wenn der Node es als
+  // video/webm ausweist (WebM ist ein Matroska-Untersatz). Firefox kann es
+  // nicht – deshalb unten ein klarer Hinweis statt eines schwarzen Kastens.
+  if (/\.(mp4|webm|ogv|mov|m4v|mkv)$/.test(n))        return 'video';
   if (/\.(mp3|m4a|aac|wav|flac|ogg|opus)$/.test(n))   return 'ton';
   if (/\.(txt|md|log|csv|json|xml|ya?ml|ini|conf|nfo|srt|sh|lua|js|go|py)$/.test(n)) return 'text';
   if (/\.pdf$/.test(n)) return 'pdf';
@@ -1591,7 +1596,10 @@ function shareAnsehen(url, name){
   ov.className = 'share-view-ov';
   let inhalt;
   if (art === 'bild')       inhalt = '<img src="'+url+'" alt="'+name+'">';
-  else if (art === 'video') inhalt = '<video src="'+url+'" controls autoplay playsinline></video>';
+  else if (art === 'video') inhalt = '<video src="'+url+'" controls autoplay playsinline></video>'+
+    '<div class="sv-hinweis" style="display:none">Dieser Browser kann das Format nicht abspielen. ' +
+    'Chromium-basierte Browser (Chrome, Edge) spielen .mkv ab; Firefox nicht. ' +
+    'Der Pfeil oben lädt die Datei herunter.</div>';
   else if (art === 'ton')   inhalt = '<audio src="'+url+'" controls autoplay></audio>';
   else if (art === 'pdf')   inhalt = '<iframe src="'+url+'" title="'+name+'"></iframe>';
   else                      inhalt = '<pre class="sv-text">lade \u2026</pre>';
@@ -1604,6 +1612,14 @@ function shareAnsehen(url, name){
   const taste = function(e){ if (e.key === 'Escape') zu(); };
   document.addEventListener('keydown', taste);
   ov.querySelector('button').onclick = zu;
+  // R715: Scheitert die Wiedergabe, den Grund SAGEN. Ein schwarzer Kasten
+  // ohne Erklärung ist das Schlimmste, was man hier anbieten kann.
+  const vid = ov.querySelector('video, audio');
+  if (vid) vid.addEventListener('error', function(){
+    const h = ov.querySelector('.sv-hinweis');
+    if (h) h.style.display = 'block';
+    vid.style.display = 'none';
+  });
   ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
   if (art === 'text') {
     // Textdateien können groß sein – nur den Anfang holen, sonst blockiert
@@ -1734,12 +1750,14 @@ async function renderRemoteShareView() {
         // nur eine andere Adresse. Sonst ginge es nur bei den eigenen, und
         // genau die fremden sieht man in der Browser-Ansicht.
         const rurl = '/api/v1/shares/remote/'+nav.peer+'/'+nav.share+'/dl?path='+encodeURIComponent(vp);
-        html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
+        html += '<div class="file-row" style="grid-template-columns:1fr auto auto;gap:10px">'+
           (istAnsehbar(nm)
             ? '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="shareAnsehen(\''+
               rurl.replace(/'/g,"")+'\',\''+nm.replace(/'/g,"")+'\')">'+shareIcon(nm)+' '+nm+'</span>'
             : '<span class="fname">'+nm+'</span>')+
-          '<button class="btn-sm" onclick="window.open(\''+rurl+'\')" aria-label="Herunterladen">\u2193</button></div>';
+          '<span class="meta" style="font-size:11px;white-space:nowrap">'+
+            (it.size ? fmtSize(it.size) : '')+'</span>'+
+          '<button class="btn-sm" onclick="window.open(\''+rurl+'&dl=1\')" aria-label="Herunterladen">\u2193</button></div>';
       }
     });
     box.innerHTML = html;

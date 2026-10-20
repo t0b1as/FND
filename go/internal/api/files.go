@@ -847,17 +847,37 @@ func (s *Server) shareDownload(c *gin.Context) {
 
 	path := c.Param("path")
 	filename := filepath.Base(path)
-	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 
-	// Content-Length für Fortschrittsanzeige im Browser
-	if size, err := mgr.FileSize(c.Param("id"), requester, path); err == nil && size > 0 {
-		c.Header("Content-Length", strconv.FormatInt(size, 10))
+	// R715: Über http.ServeFile ausliefern. Das beherrscht Bereichsabfragen
+	// (Springen im Video, Abspielen ab der ersten Sekunde), setzt den
+	// Inhaltstyp und behandelt bedingte Anfragen – alles, was der bisherige
+	// Weg nicht konnte.
+	fp, err := mgr.ResolveForRead(c.Param("id"), requester, path)
+	if err != nil {
+		status := http.StatusNotFound
+		if strings.Contains(err.Error(), "verweigert") {
+			status = http.StatusForbidden
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
 	}
 
-	if err := mgr.ReadFile(c.Param("id"), requester, path, c.Writer); err != nil {
-		// Header schon gesendet – nur loggen
-		s.log.Warn("Share-Download fehlgeschlagen", zap.String("path", path), zap.Error(err))
+	// Nur auf ausdrücklichen Wunsch als Download anbieten (?dl=1). Sonst
+	// „inline", damit Bilder und Videos im Browser angezeigt werden können –
+	// mit „attachment" bot er stattdessen das Speichern an.
+	art := "inline"
+	if c.Query("dl") != "" {
+		art = "attachment"
 	}
+	c.Header("Content-Disposition", fmt.Sprintf(`%s; filename="%s"`, art, filename))
+
+	// Matroska (.mkv) meldet Go als video/x-matroska; damit spielt kein
+	// Browser etwas ab. Als video/webm ausgewiesen spielt Chromium es,
+	// weil WebM ein Matroska-Untersatz ist und derselbe Zerleger greift.
+	if ct := freigabeMime(fp); ct != "" {
+		c.Header("Content-Type", ct)
+	}
+	http.ServeFile(c.Writer, c.Request, fp)
 }
 
 // shareUpload lädt eine Datei in eine Share hoch.
@@ -1631,6 +1651,47 @@ func mimeFromName(name string) string {
 
 // browserMime: Typen, die der Browser als Video/Audio erkennen soll.
 // video/x-matroska lehnen Browser ab – als video/webm spielen sie MKV direkt.
+// freigabeMime bestimmt den Inhaltstyp einer Datei aus einer Freigabe (R715).
+//
+// mime.TypeByExtension stützt sich auf die mime.types des Systems und liefert
+// für .mkv häufig GAR NICHTS – dann rät der Browser, und ein Video läuft nicht.
+// Deshalb eine eigene Tabelle für die Fälle, die hier zählen; alles andere
+// weiterhin über das System.
+var freigabeTypen = map[string]string{
+	".mkv":  "video/webm", // Matroska: als webm ausgewiesen spielt Chromium es ab
+	".mp4":  "video/mp4",
+	".m4v":  "video/mp4",
+	".webm": "video/webm",
+	".mov":  "video/quicktime",
+	".ogv":  "video/ogg",
+	".mp3":  "audio/mpeg",
+	".m4a":  "audio/mp4",
+	".flac": "audio/flac",
+	".opus": "audio/ogg",
+	".wav":  "audio/wav",
+	".jpg":  "image/jpeg",
+	".jpeg": "image/jpeg",
+	".png":  "image/png",
+	".gif":  "image/gif",
+	".webp": "image/webp",
+	".avif": "image/avif",
+	".pdf":  "application/pdf",
+	".txt":  "text/plain; charset=utf-8",
+	".md":   "text/plain; charset=utf-8",
+	".log":  "text/plain; charset=utf-8",
+	".csv":  "text/plain; charset=utf-8",
+	".srt":  "text/plain; charset=utf-8",
+	".json": "application/json",
+}
+
+func freigabeMime(pfad string) string {
+	ext := strings.ToLower(filepath.Ext(pfad))
+	if t, ok := freigabeTypen[ext]; ok {
+		return t
+	}
+	return browserMime(mime.TypeByExtension(ext))
+}
+
 func browserMime(m string) string {
 	switch strings.ToLower(m) {
 	case "video/x-matroska", "video/mkv":

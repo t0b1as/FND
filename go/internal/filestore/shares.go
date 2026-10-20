@@ -662,6 +662,38 @@ func isFlatPath(vpath string) (localDir, filename string, ok bool) {
 	return rest[:slash], rest[slash+1:], true
 }
 
+// ResolveForRead prüft den Lesezugriff und liefert den echten Pfad im
+// Dateisystem (R715).
+//
+// Damit kann die Schnittstelle die Datei über den HTTP-Weg ausliefern, der
+// Bereichsabfragen, Inhaltstyp und Zwischenspeicherung von sich aus beherrscht.
+// Vorher wurde der Inhalt durchgeschoben – ohne Bereiche, ohne Typ und mit
+// "attachment". Ergebnis: Kein Video lief, bevor die GANZE Datei geladen war,
+// und Springen ging gar nicht.
+//
+// Die Prüfungen bleiben dieselben wie beim bisherigen Weg: erst die
+// Zugriffsregel, dann die Pfadauflösung samt Schutz gegen Ausbrüche.
+func (sm *ShareManager) ResolveForRead(shareID, requesterPeerID, virtualPath string) (string, error) {
+	share, ok := sm.Get(shareID)
+	if !ok {
+		return "", fmt.Errorf("share nicht gefunden")
+	}
+	if !share.ReadAccess.Allows(requesterPeerID, sm.GetContacts()) {
+		return "", fmt.Errorf("lesezugriff verweigert")
+	}
+	fp, err := sm.resolveVirtualPath(share, virtualPath)
+	if err != nil {
+		return "", err
+	}
+	// Nur echte Dateien – ein Verzeichnis auszuliefern ergibt keinen Sinn und
+	// würde beim Ausliefern eine Verzeichnisauflistung erzeugen.
+	st, err := os.Stat(fp)
+	if err != nil || st.IsDir() {
+		return "", fmt.Errorf("datei nicht gefunden")
+	}
+	return fp, nil
+}
+
 func (sm *ShareManager) resolveVirtualPath(share *Share, virtualPath string) (string, error) {
 	// Flat-Pfad direkt auflösen
 	if localDir, filename, ok := isFlatPath(virtualPath); ok {
