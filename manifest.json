@@ -1,8 +1,8 @@
 {
-  "version": "R711",
-  "description": "FUNDUS R711 - write permission share",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R711/FND-R711-update.zip",
-  "node_argon2": "d4ae907d5945a522b327033f9448d7cff39f28ca0fe73788ac11b2172cb0632a",
-  "published_at": "2026-10-19T08:01:47.85384Z",
-  "signature": "0x5f642c3e71396758ac91d5033926a42ff8f29a66cae46409bfd30bd4c94462400d200e40d14456a60c9396483e2106afcc2223cf35a7384866441210d88f84901c"
+  "version": "R712",
+  "description": "FUNDUS R712 - UI improvements and fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R712/FND-R712-update.zip",
+  "node_argon2": "beaebdbd101744300ee8ef6f1e4397da8e67297e74ffaf6966ee0676ed1fc21a",
+  "published_at": "2026-10-20T06:47:47.1598441Z",
+  "signature": "0xda1935ef47d8d7bc4e0a916f508e49b8762d2fa2b40395c907ff5b0a1d65a96454e0527118c2d16336c005aa05be29706acb21885816f6df12302e29052d01921b"
 }
