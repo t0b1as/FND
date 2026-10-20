@@ -1598,7 +1598,11 @@ function shareIcon(name){
 }
 
 function shareAnsehen(url, name){
-  const art = shareDateiArt(name);
+  // R717: let, nicht const. Weiter unten wird art auf 'hinweis' gesetzt, wenn
+  // eine fremde Freigabe nicht umgepackt werden kann – mit const bricht das mit
+  // "Assignment to constant variable" ab, und zwar erst beim Klick, nicht beim
+  // Laden. Genau derselbe Fehler wie in R657.
+  let art = shareDateiArt(name);
   if (!art) { window.open(url); return; }
   const ov = document.createElement('div');
   ov.className = 'share-view-ov';
