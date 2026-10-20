@@ -12,8 +12,11 @@ return function()
   local t = render.header(ro and "nav.shared_label" or "files.title", ro and "shared" or "files")
   if ro then
     ngx.print([==[<script>document.documentElement.classList.add('fm-ro');window.FM_READONLY=true;</script>
-<style>html.fm-ro .files-stats-row, html.fm-ro .file-card:not(.fm-list-card), html.fm-ro .info-notice, html.fm-ro .files-drives-card{display:none!important}
+<style>html.fm-ro .files-stats-row, html.fm-ro .file-card:not(.fm-list-card):not(.fm-share-card), html.fm-ro .info-notice, html.fm-ro .files-drives-card{display:none!important}
 html.fm-ro .fm-list-card .file-card-head{gap:8px;flex-wrap:wrap}
+/* R714: Freigaben SICHTBAR, aber nichts zum Anlegen oder Entfernen. */
+html.fm-ro .fm-share-neu{display:none!important}
+html.fm-ro .fm-share-card .btn-danger{display:none!important}
 /* Filterfeld wie das Texteingabefeld im Messenger */
 #fm-filter{flex:1;min-width:140px;max-width:420px;padding:11px 16px;border-radius:22px;border:1px solid var(--border);
   background:var(--bg,#0e0e1a);color:var(--text);font-size:14px;transition:border-color .18s ease, box-shadow .18s ease}
@@ -142,9 +145,14 @@ ngx.print(string.format([[
 </div>
 
 <!-- ── Lokales Verzeichnis freigeben (ohne Chunking) ────────── -->
-<div class="file-card">
+<!-- R714: Klasse fm-share-card. Die Browser-Ansicht (/shared) blendet alle
+     Karten außer der Dateiliste aus – dadurch fehlten dort ausgerechnet die
+     Freigaben, um die es in dieser Ansicht geht. Sie wird jetzt gezeigt, nur
+     die Teile zum ANLEGEN bleiben verborgen (die Ansicht ist rein lesend). -->
+<div class="file-card fm-share-card">
   <div class="file-card-head"><h3>]] .. t("files.share_dir_title") .. [[</h3></div>
   <div class="file-card-body">
+    <div class="fm-share-neu">
     <p class="meta" style="margin:0 0 8px 0">]] .. t("files.share_dir_hint") .. [[</p>
     <div class="inline-form" style="flex-wrap:wrap;gap:6px">
       <input type="text" id="share-dir-name" placeholder="]] .. t("files.share_dir_name_ph") .. [[" style="flex:1;min-width:120px">
@@ -185,6 +193,7 @@ ngx.print(string.format([[
       überschreiben. Gib das nur frei, wenn du den Ordner dafür vorgesehen hast.
     </div>
     <div id="share-dir-msg" class="status-line" style="margin-top:6px"></div>
+    </div><!-- /fm-share-neu -->
     <div id="share-dir-list" style="margin-top:10px"></div>
     <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
@@ -1539,13 +1548,79 @@ async function renderShareView() {
       if (isDir) {
         html += '<div class="file-row" style="grid-template-columns:1fr"><span class="fname" style="cursor:pointer;color:var(--green)" onclick="shareGoto(\''+vp.replace(/\'/g,"")+'\')">\ud83d\udcc1 '+nm+'</span></div>';
       } else {
-        html += '<div class="file-row" style="grid-template-columns:1fr auto"><span class="fname">'+nm+'</span>'+
-          '<button class="btn-sm" onclick="window.open(\'/api/v1/shares/'+nav.id+'/dl/'+encodeURIComponent(vp)+'\')">\u2193</button></div>';
+        // R714: Bilder, Videos und Textdateien direkt anzeigen statt nur
+        // herunterladen. Der Name ist jetzt anklickbar; der Pfeil daneben
+        // bleibt fürs Herunterladen.
+        const url = '/api/v1/shares/'+nav.id+'/dl/'+encodeURIComponent(vp);
+        const ansehbar = istAnsehbar(nm);
+        html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
+          (ansehbar
+            ? '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="shareAnsehen(\''+
+              url.replace(/'/g,"")+'\',\''+nm.replace(/'/g,"")+'\')">'+shareIcon(nm)+' '+nm+'</span>'
+            : '<span class="fname">'+nm+'</span>')+
+          '<button class="btn-sm" onclick="window.open(\''+url+'\')" aria-label="Herunterladen">\u2193</button></div>';
       }
     });
     box.innerHTML = html;
   } catch(e) { box.innerHTML = '<div class="empty-hint">Fehler: '+e.message+'</div>'; }
 }
+// ── Dateien aus einer Freigabe direkt ansehen (R714) ─────────────────────
+// Die Freigabe liefert echte URLs mit Bereichsabfragen, deshalb genügt ein
+// schlichtes Overlay: <img> und <video> laden selbst, Text wird geholt.
+// Bewusst NICHT FundusMedia: Das arbeitet über Inhalts-Hashes aus dem
+// Chunk-Speicher, eine Freigabe hat aber Pfade. Es hätte nichts gefunden.
+function shareDateiArt(name){
+  const n = String(name||'').toLowerCase();
+  if (/\.(jpe?g|png|gif|webp|bmp|avif|svg)$/.test(n)) return 'bild';
+  if (/\.(mp4|webm|ogv|mov|m4v)$/.test(n))            return 'video';
+  if (/\.(mp3|m4a|aac|wav|flac|ogg|opus)$/.test(n))   return 'ton';
+  if (/\.(txt|md|log|csv|json|xml|ya?ml|ini|conf|nfo|srt|sh|lua|js|go|py)$/.test(n)) return 'text';
+  if (/\.pdf$/.test(n)) return 'pdf';
+  return '';
+}
+function istAnsehbar(name){ return shareDateiArt(name) !== ''; }
+function shareIcon(name){
+  return {bild:'\ud83d\uddbc', video:'\ud83c\udfac', ton:'\ud83c\udfb5',
+          text:'\ud83d\udcc4', pdf:'\ud83d\udcd5'}[shareDateiArt(name)] || '';
+}
+
+function shareAnsehen(url, name){
+  const art = shareDateiArt(name);
+  if (!art) { window.open(url); return; }
+  const ov = document.createElement('div');
+  ov.className = 'share-view-ov';
+  let inhalt;
+  if (art === 'bild')       inhalt = '<img src="'+url+'" alt="'+name+'">';
+  else if (art === 'video') inhalt = '<video src="'+url+'" controls autoplay playsinline></video>';
+  else if (art === 'ton')   inhalt = '<audio src="'+url+'" controls autoplay></audio>';
+  else if (art === 'pdf')   inhalt = '<iframe src="'+url+'" title="'+name+'"></iframe>';
+  else                      inhalt = '<pre class="sv-text">lade \u2026</pre>';
+  ov.innerHTML = '<div class="sv-box"><div class="sv-kopf"><strong>'+name+'</strong>'+
+    '<span><a class="btn-sm" href="'+url+'" download aria-label="Herunterladen">\u2193</a> '+
+    '<button class="btn-sm" aria-label="Schlie\u00dfen">\u2717</button></span></div>'+
+    '<div class="sv-inhalt">'+inhalt+'</div></div>';
+  document.body.appendChild(ov);
+  const zu = function(){ ov.remove(); document.removeEventListener('keydown', taste); };
+  const taste = function(e){ if (e.key === 'Escape') zu(); };
+  document.addEventListener('keydown', taste);
+  ov.querySelector('button').onclick = zu;
+  ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
+  if (art === 'text') {
+    // Textdateien können groß sein – nur den Anfang holen, sonst blockiert
+    // eine Protokolldatei mit hunderten Megabyte den Browser.
+    fetch(url, { headers: { 'Range': 'bytes=0-262143' }, credentials: 'same-origin' })
+      .then(function(r){ return r.text(); })
+      .then(function(txt){
+        const el = ov.querySelector('.sv-text');
+        if (el) el.textContent = txt + (txt.length >= 262000 ? '\n\n\u2026 (gekürzt)' : '');
+      })
+      .catch(function(e){
+        const el = ov.querySelector('.sv-text');
+        if (el) el.textContent = '\u2717 ' + e.message;
+      });
+  }
+}
+
 function shareGoto(path){ if(window._shareNav){ window._shareNav.path=path; renderShareView(); } }
 function closeShareView(){ window._shareNav=null; loadDirShares(); }
 async function mirrorShare(shareID, subPath) {
@@ -1655,8 +1730,16 @@ async function renderRemoteShareView() {
       if (isDir) {
         html += '<div class="file-row" style="grid-template-columns:1fr"><span class="fname" style="cursor:pointer;color:var(--green)" onclick="remoteGoto(\''+vp.replace(/\'/g,"")+'\')">\ud83d\udcc1 '+nm+'</span></div>';
       } else {
-        html += '<div class="file-row" style="grid-template-columns:1fr auto"><span class="fname">'+nm+'</span>'+
-          '<button class="btn-sm" onclick="window.open(\'/api/v1/shares/remote/'+nav.peer+'/'+nav.share+'/dl?path='+encodeURIComponent(vp)+'\')">\u2193</button></div>';
+        // R714: auch bei FREMDEN Freigaben direkt ansehen – dieselbe Funktion,
+        // nur eine andere Adresse. Sonst ginge es nur bei den eigenen, und
+        // genau die fremden sieht man in der Browser-Ansicht.
+        const rurl = '/api/v1/shares/remote/'+nav.peer+'/'+nav.share+'/dl?path='+encodeURIComponent(vp);
+        html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
+          (istAnsehbar(nm)
+            ? '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="shareAnsehen(\''+
+              rurl.replace(/'/g,"")+'\',\''+nm.replace(/'/g,"")+'\')">'+shareIcon(nm)+' '+nm+'</span>'
+            : '<span class="fname">'+nm+'</span>')+
+          '<button class="btn-sm" onclick="window.open(\''+rurl+'\')" aria-label="Herunterladen">\u2193</button></div>';
       }
     });
     box.innerHTML = html;
