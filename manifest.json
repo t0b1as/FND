@@ -1,8 +1,8 @@
 {
-  "version": "R725",
-  "description": "FUNDUS R725 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R725/FND-R725-update.zip",
-  "node_argon2": "94d5b7c1fd6135f7b7476b4dbd1a8c7869a5f3d2560cb5b5c18ba49e95755162",
-  "published_at": "2026-10-20T11:11:37.4941419Z",
-  "signature": "0xb7953fcc1dd01ae163d6eb005ca353fefb518dafbaa946c0d608539abccbcd9d304801d6a39b4079b61dfab3d15ad17e8737a6c30d0f8bc0fc832ee172ebbc071c"
+  "version": "R727",
+  "description": "FUNDUS R727 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R727/FND-R727-update.zip",
+  "node_argon2": "55a666881834ac61552d4fab1604c95fa5fad3c6cae9a3f2fe9b8e1539f84d57",
+  "published_at": "2026-10-20T11:23:46.8492128Z",
+  "signature": "0xedcfd6b932fdf15ea908b65f24aa6a310b60d5054e7cf374417936a906a71b903e07caf4dc51171a41d668d07acd149696f16e40ba2c591c388a48b36a921c4a1c"
 }
