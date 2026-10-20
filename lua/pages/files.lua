@@ -1614,18 +1614,17 @@ function shareAnsehen(url, name){
   // müsste die Datei erst vollständig über das P2P-Netz geholt werden, bevor
   // ffmpeg sie anfassen kann – das wäre kein Streamen mehr. Statt eine Adresse
   // anzufragen, die es nicht gibt, wird das offen gesagt.
+  // R718: Umpacken geht jetzt AUCH bei fremden Freigaben. Möglich wurde das
+  // durch den strömenden Fernweg: ffmpeg holt nur die Abschnitte, die es
+  // gerade braucht, statt die Datei vorher vollständig zu übertragen.
   const fremd = url.indexOf('/shares/remote/') >= 0;
-  if (art === 'video-remux' && fremd) {
-    inhalt = '<div class="sv-hinweis" style="display:block">Dieses Format kann der ' +
-      'Browser nicht abspielen, und Umpacken geht nur bei Freigaben dieses Nodes. ' +
-      'Bei einer fremden Freigabe m\u00fcsste die Datei erst vollst\u00e4ndig \u00fcbertragen ' +
-      'werden. Der Pfeil oben l\u00e4dt sie herunter.</div>';
-    art = 'hinweis';
-  }
   const quelle = (art === 'video-remux')
-    ? url.replace('/dl/', '/stream/')
-    : url;
-  if (art === 'bild')       inhalt = '<img src="'+url+'" alt="'+name+'">';
+    ? (fremd ? url.replace('/dl?path=', '/remux?path=')
+             : url.replace('/dl/', '/stream/'))
+    // R718: Auch die direkt abspielbaren Formate laufen bei fremden Freigaben
+    // über den strömenden Weg – der alte /dl schnitt bei 64 MB ab.
+    : (fremd ? url.replace('/dl?path=', '/stream?path=') : url);
+  if (art === 'bild')       inhalt = '<img src="'+quelle+'" alt="'+name+'">';
   else if (art === 'video' || art === 'video-remux')
     inhalt = (art === 'video-remux'
       ? '<div class="sv-umpack">Wird unterwegs umgepackt \u2013 Springen nur über den Anfang. ' +
@@ -1635,9 +1634,8 @@ function shareAnsehen(url, name){
     'Wenn die Datei umgepackt werden muss, braucht der Node daf\u00fcr ffmpeg; ' +
     'bei exotischen Codecs (etwa HEVC in manchen Browsern) hilft auch das nicht. ' +
     'Der Pfeil oben l\u00e4dt die Datei herunter.</div>';
-  else if (art === 'ton')   inhalt = '<audio src="'+url+'" controls autoplay></audio>';
-  else if (art === 'pdf')   inhalt = '<iframe src="'+url+'" title="'+name+'"></iframe>';
-  else if (art === 'hinweis') { /* Inhalt steht bereits */ }
+  else if (art === 'ton')   inhalt = '<audio src="'+quelle+'" controls autoplay></audio>';
+  else if (art === 'pdf')   inhalt = '<iframe src="'+quelle+'" title="'+name+'"></iframe>';
   else                      inhalt = '<pre class="sv-text">lade \u2026</pre>';
   ov.innerHTML = '<div class="sv-box"><div class="sv-kopf"><strong>'+name+'</strong>'+
     '<span><a class="btn-sm" href="'+url+'" download aria-label="Herunterladen">\u2193</a> '+
@@ -1660,7 +1658,7 @@ function shareAnsehen(url, name){
   if (art === 'text') {
     // Textdateien können groß sein – nur den Anfang holen, sonst blockiert
     // eine Protokolldatei mit hunderten Megabyte den Browser.
-    fetch(url, { headers: { 'Range': 'bytes=0-262143' }, credentials: 'same-origin' })
+    fetch(quelle, { headers: { 'Range': 'bytes=0-262143' }, credentials: 'same-origin' })
       .then(function(r){ return r.text(); })
       .then(function(txt){
         const el = ov.querySelector('.sv-text');

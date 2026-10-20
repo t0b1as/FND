@@ -31,6 +31,7 @@ package api
 // verlustfrei möglich. Umgepackt wird nur, was sonst gar nicht liefe.
 
 import (
+	"net/url"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -121,16 +122,27 @@ func (s *Server) shareStream(c *gin.Context) {
 		return
 	}
 
-	// Eingangsoptionen wie bei den Chunk-Dateien: Zeitstempel erzeugen, wo sie
-	// fehlen, und beim Sprung Bild und Ton am selben Keyframe beginnen lassen.
-	// Ohne -noaccurate_seek startet das kopierte Bild am Keyframe VOR der
-	// Stelle, der gewandelte Ton exakt an der Stelle – der Versatz wäre dann
-	// der Abstand zum Keyframe, oft mehrere Sekunden.
+	s.ffmpegStreamen(c, pfad, p, t)
+}
+
+// ffmpegStreamen packt eine Quelle (Dateipfad ODER Adresse) als fragmentiertes
+// MP4 um und schickt das Ergebnis fortlaufend an den Browser (R718).
+//
+// Als gemeinsame Funktion, weil beide Wege – eigene und fremde Freigabe –
+// genau dasselbe tun und sich nur in der Quelle unterscheiden. Zwei Kopien
+// wären hier besonders gefährlich: Die ffmpeg-Parameter sind heikel (Versatz
+// zwischen Bild und Ton), und eine Korrektur an nur einer Stelle fiele erst
+// beim Ansehen auf.
+func (s *Server) ffmpegStreamen(c *gin.Context, quelle string, p shareProbe, t float64) {
+	// Eingangsoptionen: Zeitstempel erzeugen, wo sie fehlen, und beim Sprung
+	// Bild UND Ton am selben Keyframe beginnen lassen. Ohne -noaccurate_seek
+	// startet das kopierte Bild am Keyframe VOR der Stelle, der gewandelte Ton
+	// exakt an der Stelle – der Versatz wäre der Abstand zum Keyframe.
 	args := []string{"-hide_banner", "-loglevel", "error", "-nostdin", "-fflags", "+genpts"}
 	if t > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(t, 'f', 2, 64), "-noaccurate_seek")
 	}
-	args = append(args, "-i", pfad, "-map", "0:v:0?", "-map", "0:a:0?", "-sn", "-dn")
+	args = append(args, "-i", quelle, "-map", "0:v:0?", "-map", "0:a:0?", "-sn", "-dn")
 	if p.VCodec != "" {
 		args = append(args, "-c:v", "copy")
 		if p.VCodec == "hevc" {
@@ -141,8 +153,6 @@ func (s *Server) shareStream(c *gin.Context) {
 		if p.ACodec == "aac" {
 			args = append(args, "-c:a", "copy")
 		} else {
-			// DTS, AC3, TrueHD und Ähnliches kann kein Browser – nur der Ton
-			// wird gewandelt, das Bild bleibt unangetastet.
 			args = append(args, "-c:a", "aac", "-ac", "2", "-b:a", "160k",
 				"-af", "aresample=async=1:first_pts=0")
 		}
@@ -164,7 +174,7 @@ func (s *Server) shareStream(c *gin.Context) {
 	}
 	if s.log != nil {
 		s.log.Info("Freigabe wird umgepackt",
-			zap.String("datei", filepath.Base(pfad)),
+			zap.String("quelle", filepath.Base(quelle)),
 			zap.String("video", p.VCodec), zap.String("ton", p.ACodec),
 			zap.Float64("ab_sekunde", t))
 	}
@@ -190,3 +200,15 @@ func (s *Server) shareStream(c *gin.Context) {
 		s.log.Debug("ffmpeg-Meldung", zap.String("text", stderr.String()))
 	}
 }
+
+// port liefert den HTTP-Port dieses Node (R718). Gebraucht, damit ffmpeg den
+// ortseigenen Fernstrom als Eingang benutzen kann.
+func (s *Server) port() int {
+	if s.cfg != nil && s.cfg.Port > 0 {
+		return s.cfg.Port
+	}
+	return 3000
+}
+
+// urlQuery kodiert einen Pfad für die Verwendung als Abfragewert.
+func urlQuery(v string) string { return url.QueryEscape(v) }

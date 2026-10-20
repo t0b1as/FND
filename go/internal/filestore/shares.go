@@ -280,9 +280,11 @@ func (sm *ShareManager) Run(ctx context.Context) {
 				return sm.publicSharesJSON()
 			}
 			var r struct {
-				Type  string `json:"type"`  // "ls" | "dl"
-				Share string `json:"share"` // Share-ID
-				Path  string `json:"path"`  // Unterpfad
+				Type   string `json:"type"`  // "ls" | "dl" | "stat" | "range" (R718)
+				Share  string `json:"share"` // Share-ID
+				Path   string `json:"path"`  // Unterpfad
+				Offset int64  `json:"off"`   // R718: Beginn des Abschnitts
+				Length int64  `json:"len"`   // R718: Länge des Abschnitts
 			}
 			if json.Unmarshal(req, &r) != nil {
 				return sm.publicSharesJSON()
@@ -312,6 +314,27 @@ func (sm *ShareManager) Run(ctx context.Context) {
 				}
 				out, _ := json.Marshal(map[string]interface{}{"entries": entries})
 				return out
+			// R718: Größe erfragen – Grundlage für Bereichsabfragen.
+			case "stat":
+				size, err := sm.StatFile(r.Share, peerID, r.Path)
+				if err != nil {
+					out, _ := json.Marshal(map[string]string{"error": err.Error()})
+					return out
+				}
+				out, _ := json.Marshal(map[string]int64{"size": size})
+				return out
+
+			// R718: Genau einen Abschnitt liefern, als ROHE Bytes. Dadurch
+			// bleibt der Speicherbedarf auf beiden Seiten klein und beliebig
+			// große Dateien werden übertragbar.
+			case "range":
+				data, err := sm.ReadRange(r.Share, peerID, r.Path, r.Offset, r.Length)
+				if err != nil {
+					out, _ := json.Marshal(map[string]string{"error": err.Error()})
+					return out
+				}
+				return data
+
 			case "dl":
 				// Datei lesen und zurückgeben (begrenzt auf sinnvolle Größe für
 				// den P2P-Stream; große Dateien blockweise wäre der nächste Schritt).
@@ -323,6 +346,9 @@ func (sm *ShareManager) Run(ctx context.Context) {
 				if err != nil {
 					return []byte(`{"error":"pfad ungültig"}`)
 				}
+				// R718: Dieser Weg bleibt nur für ältere Nodes bestehen, die
+				// "range" noch nicht kennen. Er schneidet bei 64 MB ab – neue
+				// Nodes nutzen deshalb ausschließlich stat + range.
 				data, err := osReadFileLimited(fp, 64*1024*1024)
 				if err != nil {
 					return []byte(`{"error":"lesen fehlgeschlagen"}`)
@@ -660,6 +686,68 @@ func isFlatPath(vpath string) (localDir, filename string, ok bool) {
 		return rest, "", true
 	}
 	return rest[:slash], rest[slash+1:], true
+}
+
+// ── Abschnittsweises Lesen für den Fernzugriff (R718) ─────────────────────
+//
+// Bisher wurde eine Datei aus einer Freigabe über das P2P-Netz als EIN Block
+// übertragen: Der Besitzer las sie vollständig in den Arbeitsspeicher, schickte
+// sie am Stück, die Gegenseite hielt sie wieder vollständig – mit einer harten
+// Grenze von 64 MB, über der stillschweigend abgeschnitten wurde.
+//
+// Damit war bei fremden Freigaben nicht nur Streamen unmöglich, sondern jede
+// größere Datei überhaupt. Auf einem Pi mit 768 MB wäre ein Blocktransfer
+// ohnehin verhängnisvoll, weil beide Seiten die Datei gleichzeitig halten.
+//
+// StatFile und ReadRange sind die Gegenstücke: Größe erfragen, dann gezielt
+// Abschnitte lesen. Beides prüft den Lesezugriff wie jeder andere Weg auch.
+
+// StatFile liefert die Größe einer Datei in einer Freigabe.
+func (sm *ShareManager) StatFile(shareID, requesterPeerID, virtualPath string) (int64, error) {
+	fp, err := sm.ResolveForRead(shareID, requesterPeerID, virtualPath)
+	if err != nil {
+		return 0, err
+	}
+	st, err := os.Stat(fp)
+	if err != nil {
+		return 0, err
+	}
+	return st.Size(), nil
+}
+
+// ReadRange liest genau einen Abschnitt. laenge wird begrenzt, damit eine
+// einzelne Anfrage den Speicher nicht sprengen kann – wer mehr will, fragt
+// mehrmals.
+const MaxShareRange = 4 << 20 // 4 MiB je Anfrage
+
+func (sm *ShareManager) ReadRange(shareID, requesterPeerID, virtualPath string,
+	offset, laenge int64) ([]byte, error) {
+
+	if offset < 0 {
+		return nil, fmt.Errorf("ungültiger Versatz")
+	}
+	if laenge <= 0 || laenge > MaxShareRange {
+		laenge = MaxShareRange
+	}
+	fp, err := sm.ResolveForRead(shareID, requesterPeerID, virtualPath)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(fp)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return nil, err
+	}
+	buf := make([]byte, laenge)
+	n, err := io.ReadFull(f, buf)
+	// Am Dateiende ist ein kurzer Puffer normal, kein Fehler.
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return nil, err
+	}
+	return buf[:n], nil
 }
 
 // ResolveForRead prüft den Lesezugriff und liefert den echten Pfad im
