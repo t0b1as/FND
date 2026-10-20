@@ -1,8 +1,8 @@
 {
-  "version": "R712",
-  "description": "FUNDUS R712 - UI improvements and fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R712/FND-R712-update.zip",
-  "node_argon2": "beaebdbd101744300ee8ef6f1e4397da8e67297e74ffaf6966ee0676ed1fc21a",
-  "published_at": "2026-10-20T06:47:47.1598441Z",
-  "signature": "0xda1935ef47d8d7bc4e0a916f508e49b8762d2fa2b40395c907ff5b0a1d65a96454e0527118c2d16336c005aa05be29706acb21885816f6df12302e29052d01921b"
+  "version": "R713",
+  "description": "FUNDUS R713 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R713/FND-R713-update.zip",
+  "node_argon2": "b18a18d8aa7daff79a1a4ccd955814c988035644970a061db5991e9d4565aa01",
+  "published_at": "2026-10-20T07:10:22.298906Z",
+  "signature": "0x605f1aef636429df5f7d6d0f85c41e4f62c66d397ce7a3de0a3204ce323312ca3b865a7e31ef74e0f76c2222e8b8c631cc84dea60d2042effffaadcfddb8b54e1b"
 }
