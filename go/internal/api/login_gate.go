@@ -84,7 +84,8 @@ func (s *Server) loginGate() gin.HandlerFunc {
 		// Freigabe und EINEN Pfad gebunden, läuft nach zwölf Stunden ab, und
 		// ausgestellt wird sie nur jemandem, der die Datei ohnehin lesen darf.
 		// Mehr als diese eine Datei gibt sie nicht preis.
-		if strings.HasPrefix(pfad, "/api/v1/shares/") && s.shareTokenAusAnfrage(c) {
+		if strings.HasPrefix(pfad, "/api/v1/shares/") &&
+			(s.shareTokenAusAnfrage(c) || s.remoteTokenGueltig(c)) {
 			c.Next()
 			return
 		}

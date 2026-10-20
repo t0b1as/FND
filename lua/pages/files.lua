@@ -1507,7 +1507,11 @@ async function loadDirShares() {
       const sid = s.id || s.share_id;
       return '<div class="file-row" style="grid-template-columns:1fr auto">'+
         '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openShare(\''+sid+'\',\''+(s.name||'').replace(/\'/g,"")+'\')" title="'+dirs+'">\ud83d\udcc2 '+(s.name||'')+'</span>'+
-        '<button class="btn-sm btn-danger" onclick="deleteDirShare(\''+sid+'\')" title="Freigabe entfernen">\u2717</button></div>';
+        // R725: Netzlaufwerk-Zugang schon in der LISTE anbieten – man muss die
+        // Freigabe dafür nicht erst öffnen.
+        '<span><button class="btn-sm" onclick="davZugang(\''+sid+'\')" '+
+        'title="Als Netzlaufwerk einbinden" aria-label="Netzlaufwerk">\ud83d\uddb4</button> '+
+        '<button class="btn-sm btn-danger" onclick="deleteDirShare(\''+sid+'\')" title="Freigabe entfernen">\u2717</button></span></div>';
     }).join('');
   } catch(e) {
     const box = document.getElementById('share-dir-list');
@@ -1966,13 +1970,27 @@ async function renderRemoteShareView() {
         // nur eine andere Adresse. Sonst ginge es nur bei den eigenen, und
         // genau die fremden sieht man in der Browser-Ansicht.
         const rurl = '/api/v1/shares/remote/'+nav.peer+'/'+nav.share+'/dl?path='+encodeURIComponent(vp);
-        html += '<div class="file-row" style="grid-template-columns:1fr auto auto;gap:10px">'+
+        html += '<div class="file-row" style="grid-template-columns:1fr auto auto auto;gap:8px">'+
           (istAnsehbar(nm)
             ? '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="shareAnsehen(\''+
               rurl.replace(/'/g,"")+'\',\''+nm.replace(/'/g,"")+'\')">'+shareIcon(nm)+' '+nm+'</span>'
             : '<span class="fname">'+nm+'</span>')+
           '<span class="meta" style="font-size:11px;white-space:nowrap">'+
             (it.size ? fmtSize(it.size) : '')+'</span>'+
+          // R725: Die Knöpfe fehlten in der NETZansicht – also genau dort, wo
+          // man fremde Freigaben durchsieht. Für sie gibt es eine eigene
+          // Verknüpfung, weil unsere Signatur nicht für fremde Freigabe-IDs
+          // gilt; sie zeigt auf unseren eigenen Fernstrom.
+          ((shareDateiArt(nm) === 'video' || shareDateiArt(nm) === 'video-remux')
+            ? '<button class="btn-sm" onclick="window.open(\''+
+              rurl.replace('/dl?path=', '/playlist?path=')+'\')" '+
+              'title="In VLC oder einem anderen Abspieler öffnen" '+
+              'aria-label="Im Abspieler öffnen">\u25b6</button>'
+            : (appFuer(nm)
+              ? '<button class="btn-sm" onclick="inAppOeffnen(\''+
+                rurl.replace('/dl?path=', '/playlist?path=')+'\',\''+nm.replace(/'/g,"")+'\')" '+
+                'title="In der zugehörigen Anwendung öffnen" '+
+                'aria-label="In Anwendung öffnen">\u2197</button>' : ''))+
           '<button class="btn-sm" onclick="window.open(\''+rurl+'&dl=1\')" aria-label="Herunterladen">\u2193</button></div>';
       }
     });

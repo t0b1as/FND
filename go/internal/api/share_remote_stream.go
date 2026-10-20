@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -253,4 +254,69 @@ func (s *Server) remoteShareRemux(c *gin.Context) {
 			zap.String("video", p.VCodec), zap.String("ton", p.ACodec))
 	}
 	s.ffmpegStreamen(c, quelle, p, t)
+}
+
+// GET /api/v1/shares/remote/:peer/:share/playlist?path=…
+//
+// Abspiel-Verknüpfung für eine FREMDE Freigabe (R725).
+//
+// Die Signatur stammt von DIESEM Node, nicht vom Besitzer – VLC spricht ja uns
+// an, und wir holen die Daten dann über P2P. Sie ist deshalb an
+// "remote:<peer>:<share>" gebunden und nicht an eine fremde Freigabe-ID, die
+// wir gar nicht signieren könnten.
+func (s *Server) remoteSharePlaylist(c *gin.Context) {
+	if s.node == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "P2P nicht aktiv"})
+		return
+	}
+	peer, share, pfad := c.Param("peer"), c.Param("share"), c.Query("path")
+	if pfad == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "path fehlt"})
+		return
+	}
+	// Erreichbarkeit UND Zugriff vorab klären: Eine Verknüpfung auszustellen,
+	// die dann in VLC scheitert, wäre die unangenehmste Variante.
+	if _, err := s.fernGroesse(c.Request.Context(), peer, share, pfad); err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	kennung := "remote:" + peer + ":" + share
+	tok := s.shareTokenBauen(kennung, pfad, time.Now().Add(shareTokenTTL).Unix())
+	if tok == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Verknüpfung konnte nicht signiert werden"})
+		return
+	}
+
+	schema := "http"
+	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
+		schema = "https"
+	}
+	adresse := fmt.Sprintf("%s://%s/api/v1/shares/remote/%s/%s/stream?path=%s&tok=%s",
+		schema, c.Request.Host, url.PathEscape(peer), url.PathEscape(share),
+		url.QueryEscape(pfad), url.QueryEscape(tok))
+
+	if c.Query("url") != "" {
+		c.String(http.StatusOK, "%s", adresse)
+		return
+	}
+	name := filepath.Base(pfad)
+	c.Header("Content-Type", "audio/x-mpegurl")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.m3u"`,
+		strings.TrimSuffix(name, filepath.Ext(name))))
+	c.String(http.StatusOK, "#EXTM3U\n#EXTINF:-1,%s\n%s\n", name, adresse)
+}
+
+// remoteTokenGueltig prüft die Verknüpfung einer fremden Freigabe.
+func (s *Server) remoteTokenGueltig(c *gin.Context) bool {
+	tok := c.Query("tok")
+	if tok == "" {
+		return false
+	}
+	peer, share := c.Param("peer"), c.Param("share")
+	if peer == "" || share == "" {
+		return false
+	}
+	return s.shareTokenGueltig(tok, "remote:"+peer+":"+share, c.Query("path"))
 }
