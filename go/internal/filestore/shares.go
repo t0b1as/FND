@@ -290,6 +290,22 @@ func (sm *ShareManager) Run(ctx context.Context) {
 			switch r.Type {
 			case "ls":
 				entries, err := sm.ListDir(r.Share, peerID, r.Path)
+				// R713: Fernabfragen protokollieren – mit Zahl der Ordner und
+				// Dateien getrennt. Damit ist entscheidbar, ob Verzeichnisse
+				// schon beim Lesen fehlen oder erst beim Darstellen.
+				if sm.log != nil {
+					ordner := 0
+					for _, e := range entries {
+						if e.IsDir {
+							ordner++
+						}
+					}
+					sm.log.Info("Fern-Verzeichnis geliefert",
+						zap.String("share", r.Share), zap.String("pfad", r.Path),
+						zap.Int("ordner", ordner),
+						zap.Int("dateien", len(entries)-ordner),
+						zap.Error(err))
+				}
 				if err != nil {
 					out, _ := json.Marshal(map[string]string{"error": err.Error()})
 					return out

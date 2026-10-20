@@ -1607,7 +1607,24 @@ async function loadNetworkShares(silent) {
           '<span><button class="btn-sm" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" aria-label="Öffnen">↗</button></span></div>';
       });
     });
-    box.innerHTML = html || '<div class="empty-hint">'+(FT.net_shares_none||'Keine Netz-Freigaben')+'</div>';
+    // R713: Den Stand sichtbar machen. Bisher stand entweder eine Liste da oder
+    // „keine gefunden" – ohne Hinweis, ob gar nichts ankam oder ob etwas ankam
+    // und beim Darstellen verlorenging. Für die Fehlersuche ist das der
+    // Unterschied zwischen zwei ganz verschiedenen Ursachen.
+    const gezaehlt = peers.reduce(function(n,p){
+      let l = p.shares;
+      if (typeof l === 'string') { try { l = JSON.parse(l); } catch(e) { l = []; } }
+      return n + (Array.isArray(l) ? l.length : 0);
+    }, 0);
+    const kopf = '<div class="meta" style="font-size:11px;margin-bottom:6px">' +
+      peers.length + ' Node(s) geantwortet, ' + gezaehlt + ' Freigabe(n) gemeldet</div>';
+    box.innerHTML = html
+      ? (kopf + html)
+      : (kopf + '<div class="empty-hint">' +
+         (gezaehlt > 0
+            ? '\u26a0 ' + gezaehlt + ' Freigabe(n) gemeldet, aber keine darstellbar – ' +
+              'bitte melden, das ist ein Fehler hier im Browser.'
+            : (FT.net_shares_none||'Keine Netz-Freigaben')) + '</div>');
   } catch(e) { box.innerHTML = '<div class="empty-hint">Fehler: '+e.message+'</div>'; }
 }
 
