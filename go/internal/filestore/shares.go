@@ -339,12 +339,14 @@ func (sm *ShareManager) runDiscovery(ctx context.Context) {
 			Shares json.RawMessage `json:"shares"`
 		}
 		out := []netShare{}
+		gefragt := 0
 		myID := sm.p2p.ID().String()
 		for _, p := range sm.p2p.Peers() {
 			pid := p.String()
 			if pid == myID {
 				continue
 			}
+			gefragt++
 			sctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			data, err := sm.p2p.SendAndReceive(sctx, pid, SharesProtocol, []byte("q"))
 			cancel()
@@ -354,6 +356,22 @@ func (sm *ShareManager) runDiscovery(ctx context.Context) {
 			out = append(out, netShare{PeerID: pid, Shares: json.RawMessage(data)})
 		}
 		j, _ := json.Marshal(out)
+		// R712: Die FRAGENDE Seite sichtbar machen. Die antwortende ist belegt
+		// („Freigabe-Abfrage beantwortet, davon_sichtbar=1"), hier fehlte das
+		// Gegenstück: Wurde überhaupt gefragt, und was kam zurück?
+		if sm.log != nil {
+			anzahl := 0
+			for _, e := range out {
+				var liste []json.RawMessage
+				if json.Unmarshal(e.Shares, &liste) == nil {
+					anzahl += len(liste)
+				}
+			}
+			sm.log.Info("Netz-Freigaben gesucht",
+				zap.Int("peers_gefragt", gefragt),
+				zap.Int("peers_mit_antwort", len(out)),
+				zap.Int("freigaben_gefunden", anzahl))
+		}
 		sm.discMu.Lock()
 		sm.discovered = j
 		sm.discAt = time.Now()

@@ -150,7 +150,6 @@ ngx.print(string.format([[
       <input type="text" id="share-dir-name" placeholder="]] .. t("files.share_dir_name_ph") .. [[" style="flex:1;min-width:120px">
       <input type="text" id="share-dir-path" placeholder="]] .. t("files.share_dir_path_ph") .. [[" style="flex:2;min-width:180px">
       <button class="btn-sm" type="button" onclick="openDirBrowser()" aria-label="Ordner öffnen">📂 ]] .. t("files.browse_btn") .. [[</button>
-      <button class="btn-sm" type="button" onclick="dirNeuerOrdner()" aria-label="Neuen Ordner anlegen">📁 Neuer Ordner</button>
       <button class="btn-sm btn-prim" onclick="createDirShare()">]] .. t("files.share_dir_btn") .. [[</button>
     </div>
     <!-- R708: Lesen und Schreiben getrennt wählbar, jeweils mit der
@@ -1689,9 +1688,29 @@ async function openDirBrowser(startPath) {
       '<button class="btn-sm" onclick="document.getElementById(\'dir-browser\').remove()" aria-label="Schließen">✕</button></div>'+
       '<div id="db-list" style="overflow-y:auto;flex:1;font-size:13px"></div>'+
       '<div style="margin-top:10px;display:flex;gap:8px">'+
+      '<button class="btn-sm" id="db-mkdir" aria-label="Neuen Ordner anlegen">\ud83d\udcc1 Neuer Ordner</button>'+
       '<button class="btn-sm btn-prim" id="db-pick" style="flex:1">Diesen Ordner freigeben</button></div></div>';
     document.body.appendChild(ov);
     ov.addEventListener('click', function(e){ if(e.target===ov) ov.remove(); });
+    // R712: „Neuer Ordner" gehört hierher statt in die Hauptzeile. Dort musste
+    // man den Pfad vorher von Hand eintragen; hier steht er bereits fest, und
+    // man sieht sofort, wo der Ordner entsteht.
+    const mk = document.getElementById('db-mkdir');
+    if (mk) mk.onclick = async function(){
+      const basis = (document.getElementById('db-path') || {}).textContent || '';
+      const name = prompt('Name des neuen Ordners\n\nwird angelegt in: ' + basis);
+      if (!name) return;
+      try {
+        const r = await fetch('/api/v1/shares/mkdir', {
+          method:'POST', credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ base: basis, name: name })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        loadDirBrowser(d.path || basis);   // gleich hineinwechseln
+      } catch(e) { alert('\u2717 ' + e.message); }
+    };
   }
   loadDirBrowser(startPath || '');
 }

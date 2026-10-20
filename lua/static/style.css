@@ -3151,3 +3151,25 @@ summary:focus-visible,
   line-height: 1.2; border-radius: 6px;
 }
 #share-dir-wlist { font-size: 12px; padding: 4px 8px; min-height: 30px; height: 30px; }
+
+/* ── Menü über der unteren Leiste (R712) ──────────────────────────────────
+   Das Menü reichte bis bottom:0 und lag mit Ebene 200 UNTER der unteren
+   Leiste (Ebene 400). Die letzten Einträge – darunter die Sprachauswahl –
+   waren dadurch verdeckt und nicht anklickbar.
+
+   Zwei Dinge dagegen: Das Menü endet oberhalb der Leiste, und es liegt
+   darüber. Beides ist nötig: Nur höher gelegt, würde es die Leiste
+   überdecken; nur verkürzt, bliebe die Sprachauswahl am Rand klemmen. */
+@media (max-width: 760px) {
+  .drawer {
+    z-index: 500;                 /* über der unteren Leiste */
+    bottom: calc(58px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: 1.25rem;      /* letzter Eintrag nicht am Rand klebend */
+  }
+  .drawer-overlay { z-index: 499; }
+  /* Die Auswahl selbst etwas größer: Sie ist der am schwersten zu treffende
+     Bedienteil im Menü und sitzt ganz unten. */
+  .drawer .lang-switcher {
+    min-height: 44px; width: calc(100% - 2rem); margin: .25rem 1rem;
+  }
+}
