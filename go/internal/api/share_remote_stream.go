@@ -176,17 +176,60 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 		c.Status(http.StatusOK)
 	}
 
-	// Abschnittsweise holen und sofort weiterschreiben.
+	// R730: Abschnitte VORAUSHOLEN, statt einen nach dem anderen.
+	//
+	// Vorher wurde Block für Block geholt und erst danach der nächste
+	// angefragt. Jede Anfrage hat eine Wartezeit über das P2P-Netz, und die
+	// summiert sich: Bei 1 MiB je Block und etwa 50 ms Wartezeit kommt man auf
+	// rund 20 MB/s im besten Fall – zu wenig für einen 4K-Film, weshalb VLC
+	// den Strom abbrach und neu anfragte. Genau das stand im Protokoll: viel
+	// mehr Anfragen als Sprünge.
+	//
+	// Jetzt laufen mehrere Anfragen gleichzeitig, geschrieben wird aber strikt
+	// der Reihe nach – sonst käme die Datei durcheinander.
+	const vorlauf = 4
+	type block struct {
+		daten []byte
+		err   error
+	}
+	kanaele := make([]chan block, 0, vorlauf)
+	holen := func(off, laenge int64) chan block {
+		ch := make(chan block, 1)
+		go func() {
+			data, err := s.fernFrage(c.Request.Context(), peer, map[string]any{
+				"type": "range", "share": share, "path": pfad,
+				"off": off, "len": laenge,
+			})
+			ch <- block{daten: data, err: err}
+		}()
+		return ch
+	}
+
 	pos := von
-	for pos <= bis {
+	naechste := von
+	// Vorlauf füllen
+	for len(kanaele) < vorlauf && naechste <= bis {
 		laenge := fernBlock
-		if rest := bis - pos + 1; rest < laenge {
+		if rest := bis - naechste + 1; rest < laenge {
 			laenge = rest
 		}
-		data, err := s.fernFrage(c.Request.Context(), peer, map[string]any{
-			"type": "range", "share": share, "path": pfad,
-			"off": pos, "len": laenge,
-		})
+		kanaele = append(kanaele, holen(naechste, laenge))
+		naechste += laenge
+	}
+
+	for pos <= bis && len(kanaele) > 0 {
+		erg := <-kanaele[0]
+		kanaele = kanaele[1:]
+		// Nachladen, damit der Vorlauf gefüllt bleibt.
+		if naechste <= bis {
+			laenge := fernBlock
+			if rest := bis - naechste + 1; rest < laenge {
+				laenge = rest
+			}
+			kanaele = append(kanaele, holen(naechste, laenge))
+			naechste += laenge
+		}
+		data, err := erg.daten, erg.err
 		if err != nil {
 			if s.log != nil {
 				s.log.Warn("Fern-Abschnitt nicht erhalten", zap.Int64("ab", pos), zap.Error(err))
