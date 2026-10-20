@@ -127,6 +127,19 @@ func (s *Server) shareDavInfo(c *gin.Context) {
 // Nummer. "DavWWWRoot" ist ein von Windows erfundener Zwischenschritt, der im
 // Pfad stehen MUSS, obwohl es ihn auf dem Server nicht gibt.
 func davUNC(host, share string, https bool) string {
+	// R727: Nur noch ein Aufruf. Beim Verallgemeinern in R726 blieb der alte
+	// Rumpf stehen – seine Variablen benutzte danach niemand mehr, und Go
+	// lehnt unbenutzte lokale Variablen ab.
+	return davUNCPfad(host, "/dav/"+share+"/", https)
+}
+
+// davUNCPfad baut den Netzwerkpfad für einen BELIEBIGEN Pfad (R726).
+//
+// Verallgemeinert aus davUNC, weil es jetzt zwei Fälle gibt: eigene Freigaben
+// unter /dav/<id>/ und fremde unter /dav/r/<peer>/<share>/. Eine zweite Kopie
+// derselben Windows-Eigenheiten wäre genau die Doppelung, die mir hier schon
+// mehrfach auseinandergelaufen ist.
+func davUNCPfad(host, pfad string, https bool) string {
 	rechner := host
 	port := ""
 	if i := strings.LastIndex(host, ":"); i > 0 && !strings.Contains(host[i:], "]") {
@@ -141,7 +154,9 @@ func davUNC(host, share string, https bool) string {
 	} else if port != "" && port != "80" {
 		zusatz = "@" + port
 	}
-	return `\\` + rechner + zusatz + `\DavWWWRoot\dav\` + share
+	// Rückstriche stehen im Rohtext WÖRTLICH: zwei am Anfang, danach je einer.
+	rest := strings.ReplaceAll(strings.Trim(pfad, "/"), "/", `\`)
+	return `\\` + rechner + zusatz + `\DavWWWRoot\` + rest
 }
 
 // GET /api/v1/shares/:id/davcmd – Verbindungsdatei zum Anklicken.

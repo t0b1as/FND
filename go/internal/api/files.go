@@ -97,6 +97,7 @@ func (s *Server) registerFileRoutes() {
 		sh.GET("/remote/:peer/:share/stream", s.remoteShareStreamFile) // strömend, mit Bereichen (R718)
 		sh.GET("/remote/:peer/:share/remux",  s.remoteShareRemux)     // umgepackt (R718)
 		sh.GET("/remote/:peer/:share/playlist", s.remoteSharePlaylist) // Verknüpfung (R725)
+		sh.GET("/remote/:peer/:share/davinfo", s.remoteDavInfo)      // WebDAV über P2P (R726)
 		sh.POST("/remote/:peer/:share/mirror", s.remoteShareMirror) // Remote-Spiegelung
 	}
 }

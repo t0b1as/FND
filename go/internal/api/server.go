@@ -466,6 +466,11 @@ func (s *Server) registerRoutes() {
 	// HTTP-Basisanmeldung geprüft, gegen eine Zugangskennung je Freigabe.
 	r.Any("/dav/:id", s.davHandler)
 	r.Any("/dav/:id/*path", s.davHandler)
+
+	// R726: WebDAV für FREMDE Freigaben, über das P2P-Netz. Eigener Pfad
+	// /dav/r/…, damit er sich nicht mit /dav/<id> überschneidet.
+	r.Any("/dav/r/:peer/:share", s.davRemoteHandler)
+	r.Any("/dav/r/:peer/:share/*path", s.davRemoteHandler)
 	// Remote-Modus: alle Seiten/Links über den Tunnel (Cookie fundus_remote).
 	r.GET("/api/v1/remote/enter/:peerid", s.remoteEnter)
 	r.GET("/api/v1/remote/exit", s.remoteExit)
@@ -482,7 +487,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R725"
+const NodeRevision = "R727"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

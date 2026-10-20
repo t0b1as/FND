@@ -31,6 +31,7 @@ package filestore
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -286,6 +287,8 @@ func (sm *ShareManager) Run(ctx context.Context) {
 				Path   string `json:"path"`  // Unterpfad
 				Offset int64  `json:"off"`   // R718: Beginn des Abschnitts
 				Length int64  `json:"len"`   // R718: Länge des Abschnitts
+				Data   string `json:"data"`  // R726: Nutzdaten (base64) beim Schreiben
+				Dest   string `json:"dest"`  // R726: Zielpfad beim Verschieben
 			}
 			if json.Unmarshal(req, &r) != nil {
 				return sm.publicSharesJSON()
@@ -315,6 +318,43 @@ func (sm *ShareManager) Run(ctx context.Context) {
 				}
 				out, _ := json.Marshal(map[string]interface{}{"entries": entries})
 				return out
+			// R726: Schreibbefehle für WebDAV über P2P. Die Nutzdaten kommen
+			// base64-kodiert mit – das kostet ein Drittel mehr Umfang, hält
+			// aber das vorhandene JSON-Protokoll bei. Ein zweites, rohes
+			// Format nur fürs Schreiben wäre mehr Aufwand als Gewinn, zumal
+			// Office-Dateien klein sind.
+			case "putrange":
+				roh, derr := base64.StdEncoding.DecodeString(r.Data)
+				if derr != nil {
+					return []byte(`{"error":"daten unlesbar"}`)
+				}
+				if err := sm.WriteRange(r.Share, peerID, r.Path, r.Offset, roh); err != nil {
+					out, _ := json.Marshal(map[string]string{"error": err.Error()})
+					return out
+				}
+				return []byte(`{"ok":true}`)
+
+			case "delete":
+				if err := sm.DeletePath(r.Share, peerID, r.Path); err != nil {
+					out, _ := json.Marshal(map[string]string{"error": err.Error()})
+					return out
+				}
+				return []byte(`{"ok":true}`)
+
+			case "mkcol":
+				if err := sm.MkdirPath(r.Share, peerID, r.Path); err != nil {
+					out, _ := json.Marshal(map[string]string{"error": err.Error()})
+					return out
+				}
+				return []byte(`{"ok":true}`)
+
+			case "move":
+				if err := sm.MovePath(r.Share, peerID, r.Path, r.Dest); err != nil {
+					out, _ := json.Marshal(map[string]string{"error": err.Error()})
+					return out
+				}
+				return []byte(`{"ok":true}`)
+
 			// R718: Größe erfragen – Grundlage für Bereichsabfragen.
 			case "stat":
 				size, err := sm.StatFile(r.Share, peerID, r.Path)
@@ -749,6 +789,73 @@ func (sm *ShareManager) ReadRange(shareID, requesterPeerID, virtualPath string,
 		return nil, err
 	}
 	return buf[:n], nil
+}
+
+// WriteRange schreibt einen Abschnitt an eine Stelle der Datei (R726).
+//
+// Für WebDAV über P2P: Der ferne Node schickt die Datei in Abschnitten, und
+// jeder landet an seinem Versatz. Dadurch bleibt der Speicherbedarf klein,
+// auch wenn Office eine große Datei speichert.
+//
+// Erster Abschnitt (offset 0) legt die Datei neu an bzw. kürzt sie – sonst
+// bliebe bei einer kleiner gewordenen Datei der alte Rest stehen und das
+// Ergebnis wäre beschädigt.
+func (sm *ShareManager) WriteRange(shareID, requesterPeerID, virtualPath string,
+	offset int64, data []byte) error {
+
+	if offset < 0 {
+		return fmt.Errorf("ungültiger Versatz")
+	}
+	if int64(len(data)) > MaxShareRange {
+		return fmt.Errorf("abschnitt zu groß")
+	}
+	fp, err := sm.ResolveForWrite(shareID, requesterPeerID, virtualPath)
+	if err != nil {
+		return err
+	}
+	flags := os.O_WRONLY | os.O_CREATE
+	if offset == 0 {
+		flags |= os.O_TRUNC
+	}
+	f, err := os.OpenFile(fp, flags, 0o664)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.WriteAt(data, offset); err != nil {
+		return err
+	}
+	return nil
+}
+
+// DeletePath, MkdirPath und MovePath: die übrigen Schreibbefehle, die ein
+// Dateimanager über WebDAV auslöst (R726).
+func (sm *ShareManager) DeletePath(shareID, requesterPeerID, virtualPath string) error {
+	fp, err := sm.ResolveForWrite(shareID, requesterPeerID, virtualPath)
+	if err != nil {
+		return err
+	}
+	return os.Remove(fp)
+}
+
+func (sm *ShareManager) MkdirPath(shareID, requesterPeerID, virtualPath string) error {
+	fp, err := sm.ResolveForWrite(shareID, requesterPeerID, virtualPath)
+	if err != nil {
+		return err
+	}
+	return os.Mkdir(fp, 0o775)
+}
+
+func (sm *ShareManager) MovePath(shareID, requesterPeerID, von, nach string) error {
+	a, err := sm.ResolveForWrite(shareID, requesterPeerID, von)
+	if err != nil {
+		return err
+	}
+	b, err := sm.ResolveForWrite(shareID, requesterPeerID, nach)
+	if err != nil {
+		return err
+	}
+	return os.Rename(a, b)
 }
 
 // ResolveForWrite prüft den SCHREIBzugriff und liefert den Zielpfad (R722).

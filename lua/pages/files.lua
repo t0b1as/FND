@@ -1747,10 +1747,20 @@ function shareAnsehen(url, name){
 // ── Als Netzlaufwerk einbinden (R722) ────────────────────────────────────
 // Zeigt Adresse und Zugangskennung zum Eintragen in Windows oder Office.
 // Damit kann Word und Excel auch ZURÜCKSPEICHERN, nicht nur öffnen.
+// R726: Fremde Freigabe als Netzlaufwerk – läuft über P2P.
+async function davZugangFern(peer, shareID){
+  return davZugangAnzeigen('/api/v1/shares/remote/' + encodeURIComponent(peer) +
+                           '/' + encodeURIComponent(shareID) + '/davinfo', shareID, true);
+}
+
 async function davZugang(shareID){
+  return davZugangAnzeigen('/api/v1/shares/' + encodeURIComponent(shareID) + '/davinfo',
+                           shareID, false);
+}
+
+async function davZugangAnzeigen(infoUrl, shareID, ueberP2P){
   try {
-    const r = await fetch('/api/v1/shares/' + encodeURIComponent(shareID) + '/davinfo',
-                          { credentials: 'same-origin' });
+    const r = await fetch(infoUrl, { credentials: 'same-origin' });
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
     const ov = document.createElement('div');
@@ -1759,8 +1769,14 @@ async function davZugang(shareID){
       '<button class="btn-sm" aria-label="Schlie\u00dfen">\u2717</button></div>'+
       '<div class="sv-inhalt"><div class="dav-info">'+
       // R723: Der bequeme Weg zuerst.
-      '<p><button class="btn btn-primary" onclick="window.open(\'/api/v1/shares/'+
-      encodeURIComponent(shareID)+'/davcmd\')">\u2b07 Verbindungsdatei laden</button><br>'+
+      (ueberP2P
+        ? '<p class="meta" style="color:#ffc107">Diese Freigabe liegt auf einem anderen '+
+          'Node. Jeder Zugriff l\u00e4uft \u00fcber das P2P-Netz \u2013 das kann sp\u00fcrbar '+
+          'langsamer sein, besonders beim Durchsehen vieler Dateien. Im Protokoll des '+
+          'Node stehen die Zeiten je Befehl.</p>'
+        : '')+
+      '<p>'+(ueberP2P ? '' : '<button class="btn btn-primary" onclick="window.open(\'/api/v1/shares/'+
+      encodeURIComponent(shareID)+'/davcmd\')">\u2b07 Verbindungsdatei laden</button><br>')+
       '<span class="meta">Herunterladen, doppelklicken \u2013 fertig. Windows meldet sich '+
       'eventuell mit einer Sicherheitswarnung, weil es eine Befehlsdatei ist. '+
       'Sie enth\u00e4lt das Kennwort im Klartext und kann danach gel\u00f6scht werden.</span></p>'+
@@ -1915,7 +1931,9 @@ async function loadNetworkShares(silent) {
         const pidShort = pid.slice(0,12);
         html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
           '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" title="Node '+pidShort+'…">🌐 '+(s.name||'?')+' <span class="meta" style="font-size:10px">('+(s.files||0)+' '+(FT.files_word||'Dateien')+')</span></span>'+
-          '<span><button class="btn-sm" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" aria-label="Öffnen">↗</button></span></div>';
+          '<span><button class="btn-sm" onclick="davZugangFern(\''+pid+'\',\''+(s.id||'')+'\')" '+
+          'title="Als Netzlaufwerk einbinden (über P2P)" aria-label="Netzlaufwerk">\ud83d\uddb4</button> '+
+          '<button class="btn-sm" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" aria-label="Öffnen">↗</button></span></div>';
       });
     });
     // R713: Den Stand sichtbar machen. Bisher stand entweder eine Liste da oder
