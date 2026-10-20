@@ -1574,19 +1574,27 @@ async function renderShareView() {
 function shareDateiArt(name){
   const n = String(name||'').toLowerCase();
   if (/\.(jpe?g|png|gif|webp|bmp|avif|svg)$/.test(n)) return 'bild';
-  // R715: .mkv dazu. Chromium spielt Matroska ab, wenn der Node es als
-  // video/webm ausweist (WebM ist ein Matroska-Untersatz). Firefox kann es
-  // nicht – deshalb unten ein klarer Hinweis statt eines schwarzen Kastens.
-  if (/\.(mp4|webm|ogv|mov|m4v|mkv)$/.test(n))        return 'video';
+  // R716: Zwei Arten von Video. Was der Browser selbst abspielt, wird DIREKT
+  // ausgeliefert – dort ist Springen verlustfrei möglich. Alles andere
+  // (Matroska, AVI, TS …) packt der Node unterwegs in MP4 um; dabei wird das
+  // Bild nur durchgereicht, kaum Rechenzeit.
+  //
+  // Meine Annahme aus R715, Chromium spiele .mkv ab, wenn es als video/webm
+  // ausgewiesen wird, war falsch: Chromes Zerleger verlangt auch WebM-Codecs
+  // (VP9, AV1), ein übliches .mkv enthält aber H.264 oder HEVC.
+  if (/\.(mp4|webm|ogv|m4v)$/.test(n))                 return 'video';
+  if (/\.(mkv|avi|ts|m2ts|mts|mov|wmv|flv|vob|mpg|mpeg|divx)$/.test(n)) return 'video-remux';
   if (/\.(mp3|m4a|aac|wav|flac|ogg|opus)$/.test(n))   return 'ton';
   if (/\.(txt|md|log|csv|json|xml|ya?ml|ini|conf|nfo|srt|sh|lua|js|go|py)$/.test(n)) return 'text';
   if (/\.pdf$/.test(n)) return 'pdf';
   return '';
 }
 function istAnsehbar(name){ return shareDateiArt(name) !== ''; }
+// Muss der Node die Datei zum Abspielen umpacken?
+function brauchtUmpacken(name){ return shareDateiArt(name) === 'video-remux'; }
 function shareIcon(name){
-  return {bild:'\ud83d\uddbc', video:'\ud83c\udfac', ton:'\ud83c\udfb5',
-          text:'\ud83d\udcc4', pdf:'\ud83d\udcd5'}[shareDateiArt(name)] || '';
+  return {bild:'\ud83d\uddbc', video:'\ud83c\udfac', 'video-remux':'\ud83c\udfac',
+          ton:'\ud83c\udfb5', text:'\ud83d\udcc4', pdf:'\ud83d\udcd5'}[shareDateiArt(name)] || '';
 }
 
 function shareAnsehen(url, name){
@@ -1595,13 +1603,37 @@ function shareAnsehen(url, name){
   const ov = document.createElement('div');
   ov.className = 'share-view-ov';
   let inhalt;
+  // R716: Beim Umpacken die Stream-Adresse statt der Datei selbst. Sie entsteht
+  // aus der Download-Adresse: /dl/ wird zu /stream/ (eigene Freigabe) bzw. der
+  // Fernweg bekommt /stream statt /dl.
+  // R716: Umpacken gibt es nur für Freigaben DIESES Node. Bei einer fremden
+  // müsste die Datei erst vollständig über das P2P-Netz geholt werden, bevor
+  // ffmpeg sie anfassen kann – das wäre kein Streamen mehr. Statt eine Adresse
+  // anzufragen, die es nicht gibt, wird das offen gesagt.
+  const fremd = url.indexOf('/shares/remote/') >= 0;
+  if (art === 'video-remux' && fremd) {
+    inhalt = '<div class="sv-hinweis" style="display:block">Dieses Format kann der ' +
+      'Browser nicht abspielen, und Umpacken geht nur bei Freigaben dieses Nodes. ' +
+      'Bei einer fremden Freigabe m\u00fcsste die Datei erst vollst\u00e4ndig \u00fcbertragen ' +
+      'werden. Der Pfeil oben l\u00e4dt sie herunter.</div>';
+    art = 'hinweis';
+  }
+  const quelle = (art === 'video-remux')
+    ? url.replace('/dl/', '/stream/')
+    : url;
   if (art === 'bild')       inhalt = '<img src="'+url+'" alt="'+name+'">';
-  else if (art === 'video') inhalt = '<video src="'+url+'" controls autoplay playsinline></video>'+
-    '<div class="sv-hinweis" style="display:none">Dieser Browser kann das Format nicht abspielen. ' +
-    'Chromium-basierte Browser (Chrome, Edge) spielen .mkv ab; Firefox nicht. ' +
-    'Der Pfeil oben lädt die Datei herunter.</div>';
+  else if (art === 'video' || art === 'video-remux')
+    inhalt = (art === 'video-remux'
+      ? '<div class="sv-umpack">Wird unterwegs umgepackt \u2013 Springen nur über den Anfang. ' +
+        'Das Bild bleibt dabei unverändert.</div>' : '')+
+    '<video src="'+quelle+'" controls autoplay playsinline></video>'+
+    '<div class="sv-hinweis" style="display:none">Wiedergabe nicht möglich. ' +
+    'Wenn die Datei umgepackt werden muss, braucht der Node daf\u00fcr ffmpeg; ' +
+    'bei exotischen Codecs (etwa HEVC in manchen Browsern) hilft auch das nicht. ' +
+    'Der Pfeil oben l\u00e4dt die Datei herunter.</div>';
   else if (art === 'ton')   inhalt = '<audio src="'+url+'" controls autoplay></audio>';
   else if (art === 'pdf')   inhalt = '<iframe src="'+url+'" title="'+name+'"></iframe>';
+  else if (art === 'hinweis') { /* Inhalt steht bereits */ }
   else                      inhalt = '<pre class="sv-text">lade \u2026</pre>';
   ov.innerHTML = '<div class="sv-box"><div class="sv-kopf"><strong>'+name+'</strong>'+
     '<span><a class="btn-sm" href="'+url+'" download aria-label="Herunterladen">\u2193</a> '+

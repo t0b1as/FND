@@ -3208,3 +3208,7 @@ summary:focus-visible,
 .share-view-ov .sv-hinweis {
   color: #ffc107; font-size: 13px; line-height: 1.5; padding: 14px; text-align: left;
 }
+/* Hinweis beim Umpacken (R716) */
+.share-view-ov .sv-umpack {
+  color: var(--muted); font-size: 12px; padding: 6px 10px 10px; text-align: left;
+}

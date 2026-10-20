@@ -77,7 +77,8 @@ func (s *Server) registerFileRoutes() {
 
 		sh.GET("/:id/ls",         s.shareListDir)       // Verzeichnis listen
 		sh.GET("/:id/ls/*path",   s.shareListDirPath)   // Unterverzeichnis
-		sh.GET("/:id/dl/*path",   s.shareDownload)      // Datei herunterladen
+		sh.GET("/:id/dl/*path",   s.shareDownload)
+		sh.GET("/:id/stream/*path", s.shareStream)     // umgepackt streamen (R716)      // Datei herunterladen
 		sh.POST("/:id/mirror",    s.shareMirror)        // rekursiv auf lokalen Pfad spiegeln
 		sh.POST("/:id/ul/:dir",   s.shareUpload)        // Datei hochladen
 		sh.GET("/:id/tree",       s.shareTree)          // Verzeichnisbaum (JSON)
