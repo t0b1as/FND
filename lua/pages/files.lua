@@ -1797,6 +1797,11 @@ async function davZugangAnzeigen(infoUrl, shareID, ueberP2P){
         : '<strong>Nur lesend:</strong> Speichern ist nicht m\u00f6glich, daf\u00fcr m\u00fcsste '+
           'die Freigabe Schreibrecht bekommen.')+'</p>'+
       '</details>'+
+      '<p class="meta" style="color:#ffc107">Klappt es nicht, liegt es fast immer '+
+      'an einem von zwei Punkten: Der Windows-Dienst <code>WebClient</code> l\u00e4uft '+
+      'nicht (<code>net start WebClient</code>), oder Windows verweigert die '+
+      'Anmeldung \u00fcber unverschl\u00fcsseltes HTTP \u2013 dann hilft der Zugriff '+
+      '\u00fcber HTTPS. Die Verbindungsdatei nennt beides im Fehlerfall.</p>'+
       '<p class="meta">Das Kennwort gilt nur f\u00fcr diese eine Freigabe. '+
       'Ohne HTTPS \u00fcbertr\u00e4gt Windows es unverschl\u00fcsselt \u2013 im Heimnetz '+
       'vertretbar, von unterwegs nicht.</p>'+
