@@ -147,6 +147,16 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 		}
 	}
 
+	// R729: Protokollieren, WAS der Abspieler anfragt. „Springen geht nicht"
+	// lässt sich ohne das nicht einordnen: Fragt VLC überhaupt einen Bereich
+	// an, oder liefert etwas dazwischen die Kopfzeile nicht durch?
+	if s.log != nil {
+		s.log.Info("Fernstrom angefragt",
+			zap.String("range_kopfzeile", c.GetHeader("Range")),
+			zap.Bool("teilweise", teilweise),
+			zap.Int64("von", von), zap.Int64("bis", bis), zap.Int64("gesamt", gesamt))
+	}
+
 	art := "inline"
 	if c.Query("dl") != "" {
 		art = "attachment"

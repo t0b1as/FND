@@ -316,6 +316,16 @@ func (s *Server) davHandler(c *gin.Context) {
 		return
 	}
 	share := c.Param("id")
+	// R729: JEDE Anfrage protokollieren, noch vor der Anmeldung. Bei „ließ sich
+	// nicht verbinden" ist die erste Frage, ob überhaupt etwas ankommt – in
+	// R728 fehlte die Weiterleitung im Webserver, und genau das war unsichtbar.
+	if s.log != nil {
+		_, _, hatAuth := c.Request.BasicAuth()
+		s.log.Info("WebDAV-Anfrage", zap.String("methode", c.Request.Method),
+			zap.String("pfad", c.Request.URL.Path),
+			zap.Bool("mit_anmeldung", hatAuth),
+			zap.String("von", c.ClientIP()))
+	}
 	if !s.davAuth(c, share) {
 		return
 	}

@@ -1641,7 +1641,22 @@ function shareIcon(name){
           ton:'\ud83c\udfb5', text:'\ud83d\udcc4', pdf:'\ud83d\udcd5'}[shareDateiArt(name)] || '';
 }
 
+// R729: Bei Formaten, die der Browser nicht abspielt, führt der Klick auf den
+// Namen direkt zur Abspiel-Verknüpfung. Der Umweg über ein Fenster, das dann
+// nur Ton liefert oder einen Hinweis zeigt, hilft niemandem – gewollt ist der
+// Film, und der läuft im Abspieler.
 function shareAnsehen(url, name){
+  if (shareDateiArt(name) === 'video-remux') {
+    const pl = url.indexOf('/shares/remote/') >= 0
+      ? url.replace('/dl?path=', '/playlist?path=')
+      : url.replace('/dl/', '/playlist/');
+    window.open(pl);
+    return;
+  }
+  return shareAnsehenFenster(url, name);
+}
+
+function shareAnsehenFenster(url, name){
   // R717: let, nicht const. Weiter unten wird art auf 'hinweis' gesetzt, wenn
   // eine fremde Freigabe nicht umgepackt werden kann – mit const bricht das mit
   // "Assignment to constant variable" ab, und zwar erst beim Klick, nicht beim

@@ -92,6 +92,13 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 		return
 	}
 	peer, share := c.Param("peer"), c.Param("share")
+	if s.log != nil {
+		_, _, hatAuth := c.Request.BasicAuth()
+		s.log.Info("WebDAV-Anfrage (fern)", zap.String("methode", c.Request.Method),
+			zap.String("pfad", c.Request.URL.Path),
+			zap.Bool("mit_anmeldung", hatAuth),
+			zap.String("von", c.ClientIP()))
+	}
 	if !s.davFernAuth(c, peer, share) {
 		return
 	}
