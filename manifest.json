@@ -1,8 +1,8 @@
 {
-  "version": "R741",
-  "description": "FUNDUS R741 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R741/FND-R741-update.zip",
-  "node_argon2": "f196e997d2ae1e92ff0e9e2e3ce0d73b0df298bdad5c8268cbea8b27b1e7e12c",
-  "published_at": "2026-10-21T15:59:43.638315Z",
-  "signature": "0xa17e6b443ebe69095cf2a07d514a8acd1fbe9d05129278cb38fd6bbd441b40f77b88964e44943dc6ebab396709d073cd4de95adad598ead590c73926b0c6bf5f1b"
+  "version": "R743",
+  "description": "FUNDUS R743 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R743/FND-R743-update.zip",
+  "node_argon2": "21f905985c8ce35339eef34a400d97886de5ce4f3c456a9814a2730cc6aed7e0",
+  "published_at": "2026-10-21T16:18:01.4190727Z",
+  "signature": "0x2679b049dbdab1cbe9a7c01385e81c08b0664024b427ddaf1db61c862c6e063510e29d27a6016e33aee83b80d57340e29d2dc5f3c472aa59c2036178c651d12a1c"
 }
