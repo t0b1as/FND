@@ -54,7 +54,15 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 step "Systempakete"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq unzip curl logrotate ca-certificates gnupg openssl exfatprogs ntfs-3g ffmpeg iw >/dev/null
+# R735: samba und davfs2 kommen dazu. Damit lässt sich eine FREMDE Freigabe als
+# Windows-Laufwerk bereitstellen: davfs2 hängt den eigenen WebDAV-Zugang des
+# Node als lokales Verzeichnis ein, Samba exportiert dieses Verzeichnis. Windows
+# spricht dann ganz normales SMB mit dem Pi im eigenen Netz und merkt nichts
+# davon, dass die Daten über P2P von einem anderen Node kommen.
+#
+# Beides ist klein und ohne Dienste im Hintergrund, solange nichts eingerichtet
+# wurde: smbd läuft erst nach einer Freigabe, davfs2 ist nur ein Programm.
+apt-get install -y -qq unzip curl logrotate ca-certificates gnupg openssl exfatprogs ntfs-3g ffmpeg iw samba davfs2 >/dev/null
 ok "Basis-Pakete"
 
 # ── 2. Webserver mit Lua (OpenResty bevorzugt, sonst nginx + Lua-Modul) ──────

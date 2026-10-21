@@ -79,7 +79,10 @@ func (s *Server) fernOp(ctx context.Context, peer string, req map[string]any) ([
 	dauer := time.Since(start)
 	if s.log != nil {
 		art, _ := req["type"].(string)
-		s.log.Info("WebDAV über P2P",
+		// R737: Debug. Je Befehl eine Zeile – beim Durchsehen eines Ordners
+		// sind das dutzende. Die Dauer bleibt für die Fehlersuche wertvoll,
+		// aber nicht im Normalbetrieb.
+		s.log.Debug("WebDAV über P2P",
 			zap.String("befehl", art),
 			zap.Duration("dauer", dauer),
 			zap.Int("bytes", len(resp)),

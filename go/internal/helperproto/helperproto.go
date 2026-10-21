@@ -69,6 +69,17 @@ const (
 	// (systemctl restart). Wird z.B. genutzt, um eine ausstehende Chain-
 	// Verschiebung anzuwenden, die beim Start ausgeführt wird.
 	ActionRestartNode Action = "restart_node"
+
+	// R736: SMB-Brücke für eine FERNE Freigabe.
+	//
+	// Der Node darf das nicht selbst: Einhängen und Samba einrichten verlangt
+	// root, und genau dafür gibt es diesen Helfer. Der Node reicht nur Name und
+	// Zugangskennung weiter; WO eingehängt wird und WIE die Samba-Datei heißt,
+	// bestimmt allein der Helfer – sonst ließen sich darüber beliebige Pfade
+	// beschreiben.
+	ActionSmbBridgeAdd    Action = "smb_bridge_add"
+	ActionSmbBridgeRemove Action = "smb_bridge_remove"
+	ActionSmbBridgeList   Action = "smb_bridge_list"
 )
 
 // Request ist die vom Node gesendete Anfrage (JSON, eine Zeile).
@@ -79,6 +90,12 @@ type Request struct {
 	// Feld je nach Action. Nicht benötigte Felder bleiben leer und werden ignoriert.
 	UUID     string `json:"uuid,omitempty"`     // mount/unmount: Filesystem-UUID
 	SSID     string `json:"ssid,omitempty"`     // connect_wifi: Netzname
+	// R736: SMB-Brücke. Name wird vom Helfer bereinigt, DavURL muss auf den
+	// eigenen Node zeigen (der Helfer prüft das).
+	Name     string `json:"name,omitempty"`
+	DavURL   string `json:"dav_url,omitempty"`
+	DavToken string `json:"dav_token,omitempty"`
+	SmbPass  string `json:"smb_pass,omitempty"`
 	Password string `json:"password,omitempty"` // connect_wifi: WLAN-Passwort (nie geloggt)
 	Manifest string `json:"manifest,omitempty"` // apply_update: komplettes signiertes Manifest (JSON)
 }
@@ -94,6 +111,16 @@ type Response struct {
 	BlockDevices []BlockDevice `json:"block_devices,omitempty"` // list_block_devices
 	WifiNetworks []WifiNetwork `json:"wifi_networks,omitempty"` // list_wifi
 	WifiStatus   *WifiState    `json:"wifi_status,omitempty"`   // wifi_status
+	// R736: SMB-Brücke
+	Mountpoint string     `json:"mountpoint,omitempty"`
+	Shares     []SmbShare `json:"shares,omitempty"`
+}
+
+// SmbShare beschreibt eine eingerichtete SMB-Brücke (R736).
+type SmbShare struct {
+	Name       string `json:"name"`
+	Mountpoint string `json:"mountpoint"`
+	Mounted    bool   `json:"mounted"`
 }
 
 // BlockDevice beschreibt ein anschließbares Speichergerät.

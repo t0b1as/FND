@@ -264,10 +264,10 @@ func (sm *ShareManager) publicSharesJSON() []byte {
 	// R711: Protokollieren, was dieser Node auf eine Abfrage antwortet. Ohne das
 	// lässt sich nicht unterscheiden, ob eine Freigabe gar nicht angekündigt
 	// wird oder ob die Gegenseite sie nicht anzeigt.
-	if sm.log != nil {
-		sm.log.Info("Freigabe-Abfrage beantwortet",
-			zap.Int("eigene", len(sm.shares)), zap.Int("davon_sichtbar", len(pub)))
-	}
+	// R737: auf Debug herabgestuft. Diese Zeile feuerte zweimal alle zehn
+	// Sekunden je Nachbar und hat das Protokoll zugeschüttet – sie hat ihren
+	// Zweck erfüllt (bewies, dass angekündigt wird) und wird nur noch bei
+	// eingeschalteter Fehlersuche gebraucht.
 	data, _ := json.Marshal(pub)
 	return data
 }
@@ -275,14 +275,21 @@ func (sm *ShareManager) publicSharesJSON() []byte {
 func (sm *ShareManager) Run(ctx context.Context) {
 	// Direktes Abfrage-Protokoll registrieren: Peers können unsere öffentlichen
 	// Freigaben direkt erfragen (zuverlässiger als DHT im kleinen LAN-Netz).
+	//
+	// R739: WIEDERHERGESTELLT. Beim Entfernen einer Protokollzeile in R738 hat
+	// mein Werkzeug den umschließenden Block falsch abgegrenzt und diesen
+	// gesamten Beantworter mitgerissen. Ohne ihn beantwortet der Node keine
+	// einzige Freigabe-Anfrage mehr – weder Auflisten noch Lesen noch
+	// Schreiben. Der Übersetzer hat es nur deshalb gemeldet, weil dadurch ein
+	// Import ungenutzt wurde.
 	if sm.p2p != nil {
 		sm.p2p.RegisterProtocol(SharesProtocol, func(peerID string, req []byte) []byte {
-			// Request-Typen: leer/"q" = Share-Liste; JSON {type,share,path} = ls/dl.
-			if len(req) == 0 || string(req) == "q" {
+			// Die schlichte Abfrage "q" liefert die öffentliche Liste.
+			if len(req) <= 2 || req[0] != '{' {
 				return sm.publicSharesJSON()
 			}
 			var r struct {
-				Type   string `json:"type"`  // "ls" | "dl" | "stat" | "range" (R718)
+				Type   string `json:"type"`  // "ls" | "dl" | "stat" | "range" | "putrange" | "delete" | "mkcol" | "move"
 				Share  string `json:"share"` // Share-ID
 				Path   string `json:"path"`  // Unterpfad
 				Offset int64  `json:"off"`   // R718: Beginn des Abschnitts
@@ -291,38 +298,43 @@ func (sm *ShareManager) Run(ctx context.Context) {
 				Dest   string `json:"dest"`  // R726: Zielpfad beim Verschieben
 			}
 			if json.Unmarshal(req, &r) != nil {
-				return sm.publicSharesJSON()
+				return []byte(`{"error":"unlesbare Anfrage"}`)
 			}
+
 			switch r.Type {
 			case "ls":
 				entries, err := sm.ListDir(r.Share, peerID, r.Path)
-				// R713: Fernabfragen protokollieren – mit Zahl der Ordner und
-				// Dateien getrennt. Damit ist entscheidbar, ob Verzeichnisse
-				// schon beim Lesen fehlen oder erst beim Darstellen.
-				if sm.log != nil {
-					ordner := 0
-					for _, e := range entries {
-						if e.IsDir {
-							ordner++
-						}
-					}
-					sm.log.Info("Fern-Verzeichnis geliefert",
-						zap.String("share", r.Share), zap.String("pfad", r.Path),
-						zap.Int("ordner", ordner),
-						zap.Int("dateien", len(entries)-ordner),
-						zap.Error(err))
-				}
 				if err != nil {
 					out, _ := json.Marshal(map[string]string{"error": err.Error()})
 					return out
 				}
-				out, _ := json.Marshal(map[string]interface{}{"entries": entries})
+				out, _ := json.Marshal(map[string]any{"entries": entries})
 				return out
+
+			// R718: Größe erfragen – Grundlage für Bereichsabfragen.
+			case "stat":
+				size, err := sm.StatFile(r.Share, peerID, r.Path)
+				if err != nil {
+					out, _ := json.Marshal(map[string]string{"error": err.Error()})
+					return out
+				}
+				out, _ := json.Marshal(map[string]int64{"size": size})
+				return out
+
+			// R718: Genau einen Abschnitt liefern, als ROHE Bytes. Dadurch
+			// bleibt der Speicherbedarf auf beiden Seiten klein und beliebig
+			// große Dateien werden übertragbar.
+			case "range":
+				data, err := sm.ReadRange(r.Share, peerID, r.Path, r.Offset, r.Length)
+				if err != nil {
+					out, _ := json.Marshal(map[string]string{"error": err.Error()})
+					return out
+				}
+				return data
+
 			// R726: Schreibbefehle für WebDAV über P2P. Die Nutzdaten kommen
 			// base64-kodiert mit – das kostet ein Drittel mehr Umfang, hält
-			// aber das vorhandene JSON-Protokoll bei. Ein zweites, rohes
-			// Format nur fürs Schreiben wäre mehr Aufwand als Gewinn, zumal
-			// Office-Dateien klein sind.
+			// aber das vorhandene JSON-Protokoll bei.
 			case "putrange":
 				roh, derr := base64.StdEncoding.DecodeString(r.Data)
 				if derr != nil {
@@ -355,50 +367,28 @@ func (sm *ShareManager) Run(ctx context.Context) {
 				}
 				return []byte(`{"ok":true}`)
 
-			// R718: Größe erfragen – Grundlage für Bereichsabfragen.
-			case "stat":
-				size, err := sm.StatFile(r.Share, peerID, r.Path)
+			// Alter Weg: ganze Datei am Stück. Bleibt nur für ältere Nodes
+			// bestehen, die "range" noch nicht kennen – er schneidet bei 64 MB
+			// ab (R718).
+			case "dl":
+				fp, err := sm.ResolveForRead(r.Share, peerID, r.Path)
 				if err != nil {
 					out, _ := json.Marshal(map[string]string{"error": err.Error()})
 					return out
 				}
-				out, _ := json.Marshal(map[string]int64{"size": size})
-				return out
-
-			// R718: Genau einen Abschnitt liefern, als ROHE Bytes. Dadurch
-			// bleibt der Speicherbedarf auf beiden Seiten klein und beliebig
-			// große Dateien werden übertragbar.
-			case "range":
-				data, err := sm.ReadRange(r.Share, peerID, r.Path, r.Offset, r.Length)
+				data, err := osReadFileLimited(fp, 64*1024*1024)
 				if err != nil {
 					out, _ := json.Marshal(map[string]string{"error": err.Error()})
 					return out
 				}
 				return data
 
-			case "dl":
-				// Datei lesen und zurückgeben (begrenzt auf sinnvolle Größe für
-				// den P2P-Stream; große Dateien blockweise wäre der nächste Schritt).
-				share, ok := sm.Get(r.Share)
-				if !ok {
-					return []byte(`{"error":"share nicht gefunden"}`)
-				}
-				fp, err := sm.resolveVirtualPath(share, r.Path)
-				if err != nil {
-					return []byte(`{"error":"pfad ungültig"}`)
-				}
-				// R718: Dieser Weg bleibt nur für ältere Nodes bestehen, die
-				// "range" noch nicht kennen. Er schneidet bei 64 MB ab – neue
-				// Nodes nutzen deshalb ausschließlich stat + range.
-				data, err := osReadFileLimited(fp, 64*1024*1024)
-				if err != nil {
-					return []byte(`{"error":"lesen fehlgeschlagen"}`)
-				}
-				return data // rohe Dateidaten
+			default:
+				return sm.publicSharesJSON()
 			}
-			return sm.publicSharesJSON()
 		})
 	}
+
 	// Shares periodisch in DHT veröffentlichen
 	go sm.runDHTPublish(ctx)
 	// Statistiken asynchron aktualisieren
@@ -442,6 +432,7 @@ func (sm *ShareManager) runDiscovery(ctx context.Context) {
 		// R712: Die FRAGENDE Seite sichtbar machen. Die antwortende ist belegt
 		// („Freigabe-Abfrage beantwortet, davon_sichtbar=1"), hier fehlte das
 		// Gegenstück: Wurde überhaupt gefragt, und was kam zurück?
+		// R737: ebenfalls Debug – lief alle zehn Sekunden.
 		if sm.log != nil {
 			anzahl := 0
 			for _, e := range out {
@@ -450,7 +441,7 @@ func (sm *ShareManager) runDiscovery(ctx context.Context) {
 					anzahl += len(liste)
 				}
 			}
-			sm.log.Info("Netz-Freigaben gesucht",
+			sm.log.Debug("Netz-Freigaben gesucht",
 				zap.Int("peers_gefragt", gefragt),
 				zap.Int("peers_mit_antwort", len(out)),
 				zap.Int("freigaben_gefunden", anzahl))
@@ -1130,6 +1121,36 @@ func (sm *ShareManager) WriteFile(shareID, requesterPeerID, virtualDir, filename
 			}
 			targetDir = &share.Dirs[i]
 			break
+		}
+	}
+	// R737: Wurzel der Freigabe zulassen.
+	//
+	// Bisher musste hier der VIRTUELLE NAME eines gemappten Verzeichnisses
+	// stehen. Der Hochladen-Knopf aus R721 schickte aber "." für die Wurzel
+	// bzw. den Unterpfad – beides passte nie, und jeder Upload scheiterte mit
+	// "Zielverzeichnis nicht gefunden". Der Fehler war mir beim Einbauen nicht
+	// aufgefallen, weil ich die Signatur für einen Pfad gehalten habe.
+	//
+	// Leer und "." bedeuten jetzt: das erste beschreibbare Verzeichnis der
+	// Freigabe. Bei den über die Oberfläche angelegten Freigaben gibt es genau
+	// eines, also ist das eindeutig.
+	if targetDir == nil && (virtualDir == "" || virtualDir == ".") {
+		for i := range share.Dirs {
+			if !share.Dirs[i].ReadOnly {
+				targetDir = &share.Dirs[i]
+				break
+			}
+		}
+	}
+	// Unterpfad: als Pfad unterhalb der Freigabe auflösen. Damit landet eine
+	// Datei auch dort, wo man sie im Dateimanager gerade ansieht.
+	if targetDir == nil {
+		if fp, err := sm.resolveVirtualPath(share, virtualDir); err == nil {
+			if st, serr := os.Stat(fp); serr == nil && st.IsDir() {
+				// Eine Kopie, damit die Freigabe selbst unverändert bleibt.
+				md := MappedDir{VirtualName: virtualDir, LocalPath: fp}
+				targetDir = &md
+			}
 		}
 	}
 	if targetDir == nil {

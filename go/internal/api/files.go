@@ -105,6 +105,10 @@ func (s *Server) registerFileRoutes() {
 		sh.GET("/remote/:peer/:share/remux",  s.remoteShareRemux)     // umgepackt (R718)
 		sh.GET("/remote/:peer/:share/playlist", s.remoteSharePlaylist) // Verknüpfung (R725)
 		sh.GET("/remote/:peer/:share/davinfo", s.remoteDavInfo)      // WebDAV über P2P (R726)
+		// R736: SMB-Brücke, vom Helfer ausgeführt statt als Skript ausgegeben.
+		sh.POST("/remote/:peer/:share/smb",   s.remoteSmbBridge)
+		sh.DELETE("/remote/:peer/:share/smb", s.remoteSmbBridge)
+		sh.GET("/smb",                        s.smbBridgeList)
 		sh.POST("/remote/:peer/:share/mirror", s.remoteShareMirror) // Remote-Spiegelung
 	}
 }

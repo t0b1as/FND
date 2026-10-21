@@ -1785,7 +1785,15 @@ async function davZugangAnzeigen(infoUrl, shareID, ueberP2P){
       '<div class="sv-inhalt"><div class="dav-info">'+
       // R723: Der bequeme Weg zuerst.
       (ueberP2P
-        ? '<p class="meta" style="color:#ffc107">Diese Freigabe liegt auf einem anderen '+
+        ? '<p><button class="btn btn-primary" id="smb-ein">'+
+          '\ud83d\uddb4 Als Windows-Laufwerk bereitstellen</button> '+
+          '<button class="btn-sm" id="smb-aus">entfernen</button><br>'+
+          '<span class="meta">Der empfohlene Weg. Der Pi h\u00e4ngt die ferne Freigabe '+
+          'lokal ein und gibt sie im Heimnetz als gew\u00f6hnliche Windows-Freigabe frei. '+
+          'Windows spricht dann normales SMB mit dem Pi und merkt nichts vom P2P-Netz '+
+          'dahinter \u2013 das umgeht alle WebDAV-Eigenheiten von Windows.</span><br>'+
+          '<span class="meta" id="smb-msg"></span></p>'+
+          '<p class="meta" style="color:#ffc107">Der direkte Weg unten l\u00e4uft dagegen '+
           'Node. Jeder Zugriff l\u00e4uft \u00fcber das P2P-Netz \u2013 das kann sp\u00fcrbar '+
           'langsamer sein, besonders beim Durchsehen vieler Dateien. Im Protokoll des '+
           'Node stehen die Zeiten je Befehl.</p>'
@@ -1823,7 +1831,43 @@ async function davZugangAnzeigen(infoUrl, shareID, ueberP2P){
       '</div></div></div>';
     document.body.appendChild(ov);
     const zu = function(){ ov.remove(); };
-    ov.querySelector('button').onclick = zu;
+    ov.querySelector('.sv-kopf button').onclick = zu;
+
+    // R736: Einrichten und Entfernen durch den Helfer – kein Skript mehr.
+    const msg = ov.querySelector('#smb-msg');
+    const sagen = function(txt, farbe){
+      if (msg) { msg.textContent = txt; msg.style.color = farbe || 'var(--muted)'; }
+    };
+    const smbRuf = async function(methode, koerper){
+      const url = infoUrl.replace('/davinfo', '/smb');
+      const r = await fetch(url, {
+        method: methode, credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: koerper ? JSON.stringify(koerper) : undefined
+      });
+      let d = {}; try { d = await r.json(); } catch(e) {}
+      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+      return d;
+    };
+    const ein = ov.querySelector('#smb-ein');
+    if (ein) ein.onclick = async function(){
+      // Das Kennwort gilt für den Windows-Zugriff, nicht für Fundus.
+      const pw = prompt('Kennwort f\u00fcr den Windows-Zugriff festlegen\n\n' +
+                        'Benutzername ist immer: fundussmb');
+      if (pw === null) return;
+      sagen('\u2026 wird eingerichtet, das dauert einen Moment');
+      try {
+        const d = await smbRuf('POST', { name: shareID, smb_pass: pw });
+        sagen('\u2713 Bereit. In Windows verbinden mit \\\\<Pi-Adresse>\\' +
+              (d.name || '') + '  (Benutzer: fundussmb)', 'var(--grn)');
+      } catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
+    };
+    const aus = ov.querySelector('#smb-aus');
+    if (aus) aus.onclick = async function(){
+      sagen('\u2026 wird entfernt');
+      try { await smbRuf('DELETE'); sagen('\u2713 Entfernt.', 'var(--grn)'); }
+      catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
+    };
     ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
   } catch(e) { alert('\u2717 ' + e.message); }
 }
