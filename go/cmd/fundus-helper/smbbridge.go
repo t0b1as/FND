@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/fundus/node/internal/helperproto"
@@ -120,6 +121,20 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 
 	// Einhängen. use_locks=0, weil unser WebDAV Sperren zwar bestätigt, aber
 	// nicht durchsetzt – davfs2 würde sonst darauf bauen.
+	// R748: Zurückgebliebene Kennungsdatei entfernen.
+	//
+	// davfs2 legt unter /var/run/mount.davfs/<pfad>.pid eine Datei an und
+	// verweigert das Einhängen, solange sie existiert – auch wenn der zugehörige
+	// Vorgang längst beendet ist. Nach einem abgebrochenen Versuch bleibt sie
+	// liegen, und von da an scheitert JEDES weitere Einhängen mit einer
+	// Meldung, die nach einem belegten Verzeichnis aussieht.
+	//
+	// Entfernt wird sie nur, wenn wirklich kein Vorgang mehr läuft. Liefe noch
+	// einer, würde das Löschen ein laufendes Einhängen zerstören.
+	if err := davPidAufraeumen(mnt); err != nil {
+		return helperproto.Response{OK: false, Error: err.Error()}
+	}
+
 	if !istEingehaengt(mnt) {
 		cmd := exec.Command("mount", "-t", "davfs", "-o",
 			"uid=root,gid=root,file_mode=0664,dir_mode=0775,use_locks=0",
@@ -171,6 +186,10 @@ func handleSmbBridgeRemove(req helperproto.Request) helperproto.Response {
 			}
 		}
 	}
+	// R748: Auch hier die Kennungsdatei wegräumen, sonst blockiert sie das
+	// nächste Einrichten – genau das war der Fall, in dem „Entfernen" nichts
+	// gebracht hat.
+	_ = davPidAufraeumen(mnt)
 	_ = os.Remove(mnt) // nur wenn leer; schlägt sonst still fehl
 	logf("SMB-Brücke entfernt: %s", name)
 	return helperproto.Response{OK: true}
@@ -339,4 +358,39 @@ func letzteZeilen(s string, n int) string {
 		z = z[len(z)-n:]
 	}
 	return strings.Join(z, " | ")
+}
+
+// davPidAufraeumen entfernt eine verwaiste davfs2-Kennungsdatei (R748).
+//
+// Der Dateiname entsteht aus dem Einhängepunkt, wobei Schrägstriche zu
+// Bindestrichen werden: /srv/fundus/NZB → srv-fundus-NZB.pid
+func davPidAufraeumen(mnt string) error {
+	name := strings.TrimPrefix(mnt, "/")
+	name = strings.ReplaceAll(name, "/", "-") + ".pid"
+	pfad := filepath.Join("/var/run/mount.davfs", name)
+
+	roh, err := os.ReadFile(pfad)
+	if err != nil {
+		return nil // keine Datei, nichts zu tun
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(string(roh)))
+	if pid > 0 {
+		// Läuft der Vorgang noch? /proc/<pid> ist die verlässliche Auskunft;
+		// ein Signal 0 wäre auch möglich, sagt aber bei fremden Besitzern
+		// weniger eindeutig.
+		if _, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); err == nil {
+			// Noch aktiv – aber ist es wirklich ein davfs2-Vorgang für DIESEN
+			// Punkt? Wenn ja, nicht anfassen.
+			if cmd, cerr := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid)); cerr == nil &&
+				strings.Contains(string(cmd), "davfs") {
+				return fmt.Errorf("es läuft noch ein Einhängevorgang (PID %d) für %s – "+
+					"bitte kurz warten oder 'sudo umount %s'", pid, mnt, mnt)
+			}
+		}
+	}
+	if err := os.Remove(pfad); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("verwaiste Kennungsdatei %s ließ sich nicht entfernen: %v", pfad, err)
+	}
+	logf("verwaiste davfs2-Kennungsdatei entfernt: %s", pfad)
+	return nil
 }
