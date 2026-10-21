@@ -205,6 +205,7 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 		return ch
 	}
 
+	beginn := time.Now()
 	pos := von
 	naechste := von
 	// Vorlauf füllen
@@ -252,6 +253,26 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 		}
 		c.Writer.Flush()
 		pos += int64(len(data))
+	}
+
+	// R731: Was kam tatsächlich durch, und wie schnell? „Springen geht nicht"
+	// und „der Strom bricht ab" sehen gleich aus; der Durchsatz unterscheidet
+	// sie. Unter etwa 10 MB/s kann ein 4K-Film nicht flüssig laufen, dann
+	// bricht der Abspieler ab und fragt neu – genau das Muster aus dem
+	// Protokoll mit mehr Anfragen als Sprüngen.
+	if s.log != nil {
+		gel := pos - von
+		dauer := time.Since(beginn)
+		var mbs float64
+		if dauer > 0 {
+			mbs = float64(gel) / dauer.Seconds() / (1 << 20)
+		}
+		s.log.Info("Fernstrom beendet",
+			zap.Int64("geliefert_bytes", gel),
+			zap.Int64("angefordert_bytes", bis-von+1),
+			zap.Duration("dauer", dauer),
+			zap.Float64("mb_pro_sekunde", mbs),
+			zap.Bool("vollstaendig", pos > bis))
 	}
 }
 
