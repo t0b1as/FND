@@ -247,14 +247,19 @@ func (s *Server) davAuth(c *gin.Context, share string) bool {
 	if s.sessionFID(c) != "" {
 		return true
 	}
-	_, pass, ok := c.Request.BasicAuth()
-	if ok && s.davTokenGueltig(share, pass) {
+	erwartet := s.davToken(share)
+	if _, pass, ok := c.Request.BasicAuth(); ok && s.davTokenGueltig(share, pass) {
+		return true
+	}
+	// R732: Digest zusätzlich. Windows gibt über unverschlüsseltes HTTP KEINE
+	// Basisanmeldung heraus – nachgewiesen im Protokoll: OPTIONS ohne
+	// Anmeldung, 401, dann Stille. Mit Digest klappt es auch ohne HTTPS.
+	if digestPruefen(c, erwartet) {
 		return true
 	}
 	// Ohne gültige Anmeldung MUSS die Aufforderung kommen, sonst fragt weder
 	// Office noch der Explorer nach Zugangsdaten – sie brechen stumm ab.
-	c.Header("WWW-Authenticate", `Basic realm="Fundus-Freigabe"`)
-	c.AbortWithStatus(http.StatusUnauthorized)
+	davAnmeldungVerlangen(c)
 	return false
 }
 

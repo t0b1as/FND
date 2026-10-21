@@ -55,12 +55,15 @@ func (s *Server) davFernAuth(c *gin.Context, peer, share string) bool {
 	if s.sessionFID(c) != "" {
 		return true
 	}
-	_, pass, ok := c.Request.BasicAuth()
-	if ok && s.shareTokenGueltig(pass, "dav-remote:"+peer+":"+share, "") {
+	if _, pass, ok := c.Request.BasicAuth(); ok &&
+		s.shareTokenGueltig(pass, "dav-remote:"+peer+":"+share, "") {
 		return true
 	}
-	c.Header("WWW-Authenticate", `Basic realm="Fundus-Netzfreigabe"`)
-	c.AbortWithStatus(http.StatusUnauthorized)
+	// R732: Digest, damit Windows über HTTP überhaupt Zugangsdaten herausgibt.
+	if digestPruefen(c, s.fernDavToken(peer, share)) {
+		return true
+	}
+	davAnmeldungVerlangen(c)
 	return false
 }
 
