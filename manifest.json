@@ -1,8 +1,8 @@
 {
-  "version": "R746",
-  "description": "FUNDUS R746 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R746/FND-R746-update.zip",
-  "node_argon2": "adc3744c8ec4478fcd1a4c42f22f4c698d6ffd647d01accff6f51761db9f00b1",
-  "published_at": "2026-10-21T17:56:56.4161528Z",
-  "signature": "0x2130e4bc91e49c2cb506e484169435f6bff22c08a6f708cbe7a8af18793ea15e4a414a343566f64a1088c4e05a4ab1a9f6b223d4dc5de678048bbbd3a49a9b8b1c"
+  "version": "R747",
+  "description": "FUNDUS R747 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R747/FND-R747-update.zip",
+  "node_argon2": "06bb28b81f16408cebb2923e260809e421b96d36f2814bcaebbea41653e4a1fa",
+  "published_at": "2026-10-21T18:10:03.7842878Z",
+  "signature": "0x14b895bee2c491e2558630b5990b4bc80212952207aa51d7908795c6943d6d6777c7a741e25124555ca5ec73c046ca967aa82528d90fd368343cae878b1d2ec31c"
 }
