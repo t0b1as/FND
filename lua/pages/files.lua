@@ -1829,7 +1829,7 @@ async function smbBruecke(peer, shareID, anzeigeName){
       const adr = d.unc || '';
       msg.innerHTML = '\u2713 Bereit. In Windows verbinden mit:<br>'+
         '<input type="text" readonly value="'+escapeHtmlF(adr)+'" '+
-        'style="width:100%;margin-top:4px;font-family:ui-monospace,monospace;font-size:12px;'+
+        'style="width:100%%;margin-top:4px;font-family:ui-monospace,monospace;font-size:12px;'+
         'padding:6px 8px;border-radius:6px;border:1px solid var(--border);'+
         'background:var(--surface-2);color:var(--text)">'+
         (d.smb_user ? '<br>Benutzer: <strong>'+escapeHtmlF(d.smb_user)+'</strong>'
