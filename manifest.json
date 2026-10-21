@@ -1,8 +1,8 @@
 {
-  "version": "R745",
-  "description": "FUNDUS R745 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R745/FND-R745-update.zip",
-  "node_argon2": "82eb7328b29b0b065496a98738578ff6864b6e89cd86b2082c21f50cdd648612",
-  "published_at": "2026-10-21T17:22:51.0066665Z",
-  "signature": "0x01f36ea374d255bebac5e08cda4b238191d4fa7e9d8759829db5fb32c550f9f253ffc2cdf1f93cf4d28bfa7cf426e558adc7d8534a53f2bbdc905b419967d3761b"
+  "version": "R746",
+  "description": "FUNDUS R746 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R746/FND-R746-update.zip",
+  "node_argon2": "adc3744c8ec4478fcd1a4c42f22f4c698d6ffd647d01accff6f51761db9f00b1",
+  "published_at": "2026-10-21T17:56:56.4161528Z",
+  "signature": "0x2130e4bc91e49c2cb506e484169435f6bff22c08a6f708cbe7a8af18793ea15e4a414a343566f64a1088c4e05a4ab1a9f6b223d4dc5de678048bbbd3a49a9b8b1c"
 }
