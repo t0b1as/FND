@@ -55,6 +55,7 @@ func (s *Server) remoteSmbBridge(c *gin.Context) {
 	var req struct {
 		Name    string `json:"name"`
 		SmbPass string `json:"smb_pass"`
+		Guest   bool   `json:"guest"` // R746: ohne Benutzer/Kennwort
 	}
 	_ = c.ShouldBindJSON(&req)
 	name := strings.TrimSpace(req.Name)
@@ -94,16 +95,35 @@ func (s *Server) remoteSmbBridge(c *gin.Context) {
 		DavURL:   davURL,
 		DavToken: s.fernDavToken(peer, share),
 		SmbPass:  req.SmbPass,
+		Guest:    req.Guest,
 	})
 	if err != nil || resp == nil || !resp.OK {
 		c.JSON(http.StatusBadGateway, gin.H{"error": helperFehler(err, resp)})
 		return
 	}
+	// R746: Die fertige Adresse ausgeben, nicht "<Pi-Adresse>".
+	//
+	// Der Rechnername aus der Anfrage ist genau der, über den der Nutzer
+	// gerade zugreift – also einer, der erreichbar ist. Ihn selbst
+	// nachschlagen zu lassen wäre unnötige Handarbeit.
+	rechner := c.Request.Host
+	if i := strings.LastIndex(rechner, ":"); i > 0 && !strings.Contains(rechner[i:], "]") {
+		rechner = rechner[:i]
+	}
+	freigabe := dateiName(name)
+	pfad := `\\` + rechner + `\` + freigabe
 	c.JSON(http.StatusOK, gin.H{
 		"ok":         true,
-		"name":       dateiName(name),
+		"name":       freigabe,
 		"mountpoint": resp.Mountpoint,
-		"smb_user":   "fundussmb",
+		"unc":        pfad,
+		"gast":       req.Guest,
+		"smb_user": func() string {
+			if req.Guest {
+				return ""
+			}
+			return "fundussmb"
+		}(),
 	})
 }
 

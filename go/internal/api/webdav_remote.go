@@ -195,6 +195,17 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 				davEintrag(basis+davPfad(virt), path.Base(virt), false, groesse, time.Now()))
 		}
 
+		// R746: Wie viele Einträge gehen tatsächlich raus? Der eingehängte
+		// Ordner ist leer, das Einhängen klappt aber – die Frage ist also, ob
+		// schon die Gegenstelle nichts liefert oder ob es beim Verpacken ins
+		// XML verlorengeht.
+		if s.log != nil {
+			s.log.Info("WebDAV fern: PROPFIND beantwortet",
+				zap.String("pfad", virt), zap.String("tiefe", tiefe),
+				zap.Bool("als_ordner", istOrdner),
+				zap.Int("eintraege_von_gegenstelle", len(lr.Entries)),
+				zap.Int("antworten_im_xml", len(ms.Responses)))
+		}
 		raw, merr := xml.Marshal(&ms)
 		if merr != nil {
 			c.AbortWithStatus(http.StatusInternalServerError)

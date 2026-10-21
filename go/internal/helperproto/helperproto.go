@@ -96,6 +96,7 @@ type Request struct {
 	DavURL   string `json:"dav_url,omitempty"`
 	DavToken string `json:"dav_token,omitempty"`
 	SmbPass  string `json:"smb_pass,omitempty"`
+	Guest    bool   `json:"guest,omitempty"`   // R746: SMB ohne Anmeldung
 	Password string `json:"password,omitempty"` // connect_wifi: WLAN-Passwort (nie geloggt)
 	Manifest string `json:"manifest,omitempty"` // apply_update: komplettes signiertes Manifest (JSON)
 }

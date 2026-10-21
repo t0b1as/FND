@@ -1781,9 +1781,17 @@ async function smbBruecke(peer, shareID, anzeigeName){
     '</strong> lokal ein und gibt sie im Heimnetz als gew\u00f6hnliche '+
     'Windows-Freigabe frei. Windows spricht dann normales SMB mit dem Pi und '+
     'merkt nichts vom P2P-Netz dahinter.</p>'+
+    '<p><label style="font-size:12px;color:var(--muted)">Zugriff '+
+    '<select id="smb-zugriff" style="margin-left:6px">'+
+    '<option value="gast">ohne Anmeldung (Heimnetz)</option>'+
+    '<option value="pw">mit Benutzer und Kennwort</option>'+
+    '</select></label></p>'+
     '<p><button class="btn btn-primary" id="smb-ein">Einrichten</button> '+
     '<button class="btn-sm" id="smb-aus">Entfernen</button></p>'+
     '<p class="meta" id="smb-msg"></p>'+
+    '<p class="meta" style="color:#ffc107">Ohne Anmeldung kann <strong>jedes</strong> '+
+    'Ger\u00e4t im Netz lesen und schreiben, auch ein fremdes im WLAN. Im eigenen '+
+    'Heimnetz meist in Ordnung, in einem geteilten nicht.</p>'+
     '<p class="meta">Die Daten laufen \u00fcber das P2P-Netz \u2013 erwarte nicht '+
     'die Geschwindigkeit einer lokalen Platte.</p>'+
     '</div></div></div>';
@@ -1805,15 +1813,28 @@ async function smbBruecke(peer, shareID, anzeigeName){
     return d;
   };
   ov.querySelector('#smb-ein').onclick = async function(){
-    // Das Kennwort gilt für den Windows-Zugriff, nicht für Fundus.
-    const pw = prompt('Kennwort f\u00fcr den Windows-Zugriff festlegen\n\n' +
-                      'Benutzername ist immer: fundussmb');
-    if (pw === null) return;
+    const gast = (ov.querySelector('#smb-zugriff') || {}).value !== 'pw';
+    let pw = '';
+    if (!gast) {
+      // Das Kennwort gilt für den Windows-Zugriff, nicht für Fundus.
+      pw = prompt('Kennwort f\u00fcr den Windows-Zugriff festlegen\n\n' +
+                  'Benutzername ist immer: fundussmb');
+      if (pw === null) return;
+    }
     sagen('\u2026 wird eingerichtet, das dauert einen Moment');
     try {
-      const d = await ruf('POST', { name: anzeigeName || shareID, smb_pass: pw });
-      sagen('\u2713 Bereit. In Windows verbinden mit \\\\<Pi-Adresse>\\' +
-            (d.name || '') + '  (Benutzer: fundussmb)', 'var(--grn)');
+      const d = await ruf('POST', { name: anzeigeName || shareID, smb_pass: pw, guest: gast });
+      // R746: Die fertige Adresse zeigen, nicht "<Pi-Adresse>". Der Node kennt
+      // den Rechnernamen, über den gerade zugegriffen wird.
+      const adr = d.unc || '';
+      msg.innerHTML = '\u2713 Bereit. In Windows verbinden mit:<br>'+
+        '<input type="text" readonly value="'+escapeHtmlF(adr)+'" '+
+        'style="width:100%;margin-top:4px;font-family:ui-monospace,monospace;font-size:12px;'+
+        'padding:6px 8px;border-radius:6px;border:1px solid var(--border);'+
+        'background:var(--surface-2);color:var(--text)">'+
+        (d.smb_user ? '<br>Benutzer: <strong>'+escapeHtmlF(d.smb_user)+'</strong>'
+                    : '<br>Ohne Anmeldung \u2013 jeder im Netz kann lesen und schreiben.');
+      msg.style.color = 'var(--grn)';
     } catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
   };
   ov.querySelector('#smb-aus').onclick = async function(){

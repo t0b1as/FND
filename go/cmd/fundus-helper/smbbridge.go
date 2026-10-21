@@ -130,11 +130,11 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		}
 	}
 
-	if err := sambaFreigabeSchreiben(name, mnt); err != nil {
+	if err := sambaFreigabeSchreiben(name, mnt, req.Guest); err != nil {
 		_ = exec.Command("umount", mnt).Run()
 		return helperproto.Response{OK: false, Error: "Samba: " + err.Error()}
 	}
-	if req.SmbPass != "" {
+	if !req.Guest && req.SmbPass != "" {
 		if err := sambaBenutzerSetzen(req.SmbPass); err != nil {
 			return helperproto.Response{OK: false, Error: "Samba-Benutzer: " + err.Error()}
 		}
@@ -224,19 +224,30 @@ func davSecretSetzen(url, token string) error {
 	return os.Rename(tmp, davSecrets)
 }
 
-func sambaFreigabeSchreiben(name, mnt string) error {
+func sambaFreigabeSchreiben(name, mnt string, gast bool) error {
 	if err := os.MkdirAll(smbConfDir, 0o755); err != nil {
 		return err
 	}
 	conf := filepath.Join(smbConfDir, "fundus-"+name+".conf")
+	// R746: Gastzugang auf Wunsch – im Heimnetz oft das Angemessene.
+	//
+	// "map to guest = Bad User" gehört dazu: Ohne das weist Windows einen
+	// unbekannten Benutzernamen ab, statt ihn als Gast zu behandeln. Windows
+	// schickt nämlich immer einen Namen mit, auch wenn man keinen eingibt.
+	//
+	// Der Hinweis darf nicht fehlen: Damit kann JEDER im Netz lesen UND
+	// schreiben, auch ein fremdes Gerät im WLAN.
+	zugriff := "   guest ok = no\n   valid users = " + smbBenutzer
+	if gast {
+		zugriff = "   guest ok = yes\n   guest only = yes\n   force user = root"
+	}
 	inhalt := fmt.Sprintf(`[%s]
    path = %s
    browseable = yes
    read only = no
-   guest ok = no
-   valid users = %s
+%s
    socket options = TCP_NODELAY
-`, name, mnt, smbBenutzer)
+`, name, mnt, zugriff)
 	if err := os.WriteFile(conf, []byte(inhalt), 0o644); err != nil {
 		return err
 	}
@@ -245,6 +256,15 @@ func sambaFreigabeSchreiben(name, mnt string) error {
 	haupt, err := os.ReadFile(smbConfMain)
 	if err != nil {
 		return err
+	}
+	// R746: Gastzugang verlangt diese globale Einstellung – ohne sie weist
+	// Samba einen unbekannten Benutzernamen ab, statt ihn als Gast zu nehmen.
+	if gast && !strings.Contains(string(haupt), "map to guest") {
+		if f, ferr := os.OpenFile(smbConfMain, os.O_APPEND|os.O_WRONLY, 0o644); ferr == nil {
+			_, _ = f.WriteString("\n[global]\n   map to guest = Bad User\n")
+			f.Close()
+			haupt, _ = os.ReadFile(smbConfMain)
+		}
 	}
 	zeile := "include = " + conf
 	if strings.Contains(string(haupt), zeile) {
