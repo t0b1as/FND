@@ -295,6 +295,18 @@ type davMultistatus struct {
 	Responses []davResponse `xml:"D:response"`
 }
 
+// davHref hängt bei Verzeichnissen den abschließenden Schrägstrich an (R749).
+//
+// WebDAV unterscheidet Sammlungen von Dateien auch an der Adresse. Fehlt er,
+// behandeln Klienten einen Ordner als Datei oder verwerfen den Eintrag.
+func davHref(basis string, name string, istOrdner bool) string {
+	h := basis + davPfad(name)
+	if istOrdner {
+		h += "/"
+	}
+	return h
+}
+
 func davEintrag(href, name string, istOrdner bool, groesse int64, zeit time.Time) davResponse {
 	var r davResponse
 	r.Href = href
@@ -375,7 +387,7 @@ func (s *Server) davHandler(c *gin.Context) {
 				}
 				for _, e := range eintraege {
 					ms.Responses = append(ms.Responses,
-						davEintrag(basis+davPfad(e.Name), e.Name, e.IsDir, e.Size, e.ModTime))
+						davEintrag(davHref(basis, e.Name, e.IsDir), e.Name, e.IsDir, e.Size, e.ModTime))
 				}
 			}
 		} else if eintraege, err := mgr.ListDir(share, anfrager, virt); err == nil {
@@ -385,7 +397,8 @@ func (s *Server) davHandler(c *gin.Context) {
 			if tiefe != "0" {
 				for _, e := range eintraege {
 					ms.Responses = append(ms.Responses,
-						davEintrag(basis+davPfad(virt)+"/"+davPfad(e.Name), e.Name, e.IsDir, e.Size, e.ModTime))
+						davEintrag(davHref(basis+davPfad(virt)+"/", e.Name, e.IsDir),
+							e.Name, e.IsDir, e.Size, e.ModTime))
 				}
 			}
 		} else {

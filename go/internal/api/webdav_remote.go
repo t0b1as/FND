@@ -160,8 +160,19 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 					vor = basis + davPfad(virt) + "/"
 				}
 				for _, e := range lr.Entries {
+					// R749: Verzeichnisse MÜSSEN mit Schrägstrich enden.
+					//
+					// WebDAV unterscheidet Sammlungen von Dateien auch an der
+					// Adresse. Ohne den Schrägstrich behandeln Klienten einen
+					// Ordner als Datei oder verwerfen den Eintrag – bei davfs2
+					// blieb der eingehängte Ordner dadurch leer, obwohl alle
+					// 16 Einträge im XML standen.
+					href := vor + davPfad(e.Name)
+					if e.IsDir {
+						href += "/"
+					}
 					ms.Responses = append(ms.Responses,
-						davEintrag(vor+davPfad(e.Name), e.Name, e.IsDir, e.Size, e.ModTime))
+						davEintrag(href, e.Name, e.IsDir, e.Size, e.ModTime))
 				}
 			}
 		} else {
