@@ -205,8 +205,37 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 		return ch
 	}
 
+	// R734: Bei HEAD nur die Kopfzeilen. Der Abspieler will hier bloß Größe und
+	// Bereichsfähigkeit wissen; würde der Inhalt folgen, wartete er auf 15 GB,
+	// die er gar nicht angefordert hat.
+	if c.Request.Method == http.MethodHead {
+		return
+	}
+
+	// R733: Die Messung per defer. Vorher stand sie am Ende der Funktion –
+	// VLC bricht die Verbindung aber praktisch immer vorzeitig ab (Sprung,
+	// Pufferwechsel, Fenster zu), und dann springt der Code mit return daran
+	// vorbei. Deshalb kam NIE eine Zeile, obwohl Ströme liefen. Genau diese
+	// Lücke hat zwei Releases lang eine Antwort verhindert.
 	beginn := time.Now()
 	pos := von
+	defer func() {
+		if s.log == nil {
+			return
+		}
+		gel := pos - von
+		dauer := time.Since(beginn)
+		var mbs float64
+		if dauer > 0 {
+			mbs = float64(gel) / dauer.Seconds() / (1 << 20)
+		}
+		s.log.Info("Fernstrom beendet",
+			zap.Int64("geliefert_bytes", gel),
+			zap.Int64("angefordert_bytes", bis-von+1),
+			zap.Duration("dauer", dauer),
+			zap.Float64("mb_pro_sekunde", mbs),
+			zap.Bool("vollstaendig", pos > bis))
+	}()
 	naechste := von
 	// Vorlauf füllen
 	for len(kanaele) < vorlauf && naechste <= bis {
@@ -255,25 +284,7 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 		pos += int64(len(data))
 	}
 
-	// R731: Was kam tatsächlich durch, und wie schnell? „Springen geht nicht"
-	// und „der Strom bricht ab" sehen gleich aus; der Durchsatz unterscheidet
-	// sie. Unter etwa 10 MB/s kann ein 4K-Film nicht flüssig laufen, dann
-	// bricht der Abspieler ab und fragt neu – genau das Muster aus dem
-	// Protokoll mit mehr Anfragen als Sprüngen.
-	if s.log != nil {
-		gel := pos - von
-		dauer := time.Since(beginn)
-		var mbs float64
-		if dauer > 0 {
-			mbs = float64(gel) / dauer.Seconds() / (1 << 20)
-		}
-		s.log.Info("Fernstrom beendet",
-			zap.Int64("geliefert_bytes", gel),
-			zap.Int64("angefordert_bytes", bis-von+1),
-			zap.Duration("dauer", dauer),
-			zap.Float64("mb_pro_sekunde", mbs),
-			zap.Bool("vollstaendig", pos > bis))
-	}
+
 }
 
 // GET /api/v1/shares/remote/:peer/:share/remux?path=…&t=Sekunde

@@ -78,7 +78,12 @@ func (s *Server) registerFileRoutes() {
 		sh.GET("/:id/ls",         s.shareListDir)       // Verzeichnis listen
 		sh.GET("/:id/ls/*path",   s.shareListDirPath)   // Unterverzeichnis
 		sh.GET("/:id/dl/*path",   s.shareDownload)
+		// R734: HEAD ebenfalls. Abspieler fragen damit ZUERST Größe und
+		// Bereichsfähigkeit ab. Lief das in einen 404, hielt VLC den Strom für
+		// nicht spulbar – abspielen ging über GET trotzdem, springen nicht.
+		sh.HEAD("/:id/dl/*path",  s.shareDownload)
 		sh.GET("/:id/stream/*path", s.shareStream)     // umgepackt streamen (R716)
+		sh.HEAD("/:id/stream/*path", s.shareStream)    // R734
 		sh.GET("/:id/probe/*path",  s.shareProbeFile) // Codecs vorab (R719)
 		sh.GET("/:id/playlist/*path", s.sharePlaylist) // M3U für VLC (R720)
 		sh.GET("/:id/davinfo",      s.shareDavInfo)  // Netzlaufwerk-Zugang (R722)
@@ -94,7 +99,9 @@ func (s *Server) registerFileRoutes() {
 		sh.GET("/remote/:peer/ping",          s.remoteSharePing)  // Erreichbarkeit
 		sh.GET("/remote/:peer/:share/ls",     s.remoteShareLs)    // Remote-Verzeichnis
 		sh.GET("/remote/:peer/:share/dl",     s.remoteShareDl)    // Remote-Download
+		sh.HEAD("/remote/:peer/:share/dl",    s.remoteShareDl)    // R734
 		sh.GET("/remote/:peer/:share/stream", s.remoteShareStreamFile) // strömend, mit Bereichen (R718)
+		sh.HEAD("/remote/:peer/:share/stream", s.remoteShareStreamFile) // R734
 		sh.GET("/remote/:peer/:share/remux",  s.remoteShareRemux)     // umgepackt (R718)
 		sh.GET("/remote/:peer/:share/playlist", s.remoteSharePlaylist) // Verknüpfung (R725)
 		sh.GET("/remote/:peer/:share/davinfo", s.remoteDavInfo)      // WebDAV über P2P (R726)

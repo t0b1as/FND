@@ -111,6 +111,21 @@ func (s *Server) shareStream(c *gin.Context) {
 		return
 	}
 
+	// R734: Bei HEAD nur Auskunft geben, KEIN ffmpeg starten. Sonst erzeugt
+	// jede Vorab-Abfrage eines Abspielers einen Umpack-Lauf, der sofort wieder
+	// verworfen wird – auf einem Pi ist das spürbar.
+	//
+	// Ein umgepackter Strom entsteht fortlaufend, seine Länge steht also nicht
+	// vorher fest. Deshalb hier bewusst KEIN Content-Length und KEIN
+	// Accept-Ranges: Beides zu behaupten und dann nicht zu liefern wäre
+	// schlimmer als die ehrliche Auskunft, dass nicht gespult werden kann.
+	if c.Request.Method == http.MethodHead {
+		c.Header("Content-Type", "video/mp4")
+		c.Header("Accept-Ranges", "none")
+		c.Status(http.StatusOK)
+		return
+	}
+
 	t, _ := strconv.ParseFloat(c.Query("t"), 64)
 	if t < 0 {
 		t = 0
