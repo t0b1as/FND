@@ -190,6 +190,11 @@ func handleSmbBridgeRemove(req helperproto.Request) helperproto.Response {
 	// nächste Einrichten – genau das war der Fall, in dem „Entfernen" nichts
 	// gebracht hat.
 	_ = davPidAufraeumen(mnt)
+	// R752: Und den Zwischenspeicher. davfs2 merkt sich Verzeichnislisten;
+	// eine einmal leer gesehene Liste bleibt leer, auch nachdem der Server
+	// längst richtig antwortet. Genau das hat uns nach der XML-Korrektur einen
+	// weiteren Durchgang gekostet.
+	_ = davCacheAufraeumen(name)
 	_ = os.Remove(mnt) // nur wenn leer; schlägt sonst still fehl
 	logf("SMB-Brücke entfernt: %s", name)
 	return helperproto.Response{OK: true}
@@ -256,9 +261,15 @@ func sambaFreigabeSchreiben(name, mnt string, gast bool) error {
 	//
 	// Der Hinweis darf nicht fehlen: Damit kann JEDER im Netz lesen UND
 	// schreiben, auch ein fremdes Gerät im WLAN.
+	// R753: "guest only" und "force user" widersprechen sich – das erste
+	// verlangt das Gastkonto, das zweite root. Samba verträgt die Kombination
+	// nicht, und Windows meldet dann "Falscher Parameter".
+	//
+	// Richtig ist: Gastzugang erlauben und über force user festlegen, mit
+	// welchen Rechten gearbeitet wird. Die Einhängung gehört root, also root.
 	zugriff := "   guest ok = no\n   valid users = " + smbBenutzer
 	if gast {
-		zugriff = "   guest ok = yes\n   guest only = yes\n   force user = root"
+		zugriff = "   guest ok = yes\n   force user = root"
 	}
 	inhalt := fmt.Sprintf(`[%s]
    path = %s
@@ -279,23 +290,22 @@ func sambaFreigabeSchreiben(name, mnt string, gast bool) error {
 	// R746: Gastzugang verlangt diese globale Einstellung – ohne sie weist
 	// Samba einen unbekannten Benutzernamen ab, statt ihn als Gast zu nehmen.
 	if gast && !strings.Contains(string(haupt), "map to guest") {
-		if f, ferr := os.OpenFile(smbConfMain, os.O_APPEND|os.O_WRONLY, 0o644); ferr == nil {
-			_, _ = f.WriteString("\n[global]\n   map to guest = Bad User\n")
-			f.Close()
-			haupt, _ = os.ReadFile(smbConfMain)
-		}
+		// R753: ebenfalls in den vorhandenen [global]-Abschnitt, statt einen
+		// zweiten ans Ende zu hängen.
+		_ = includeInGlobal("   map to guest = Bad User")
+		haupt, _ = os.ReadFile(smbConfMain)
 	}
 	zeile := "include = " + conf
 	if strings.Contains(string(haupt), zeile) {
 		return nil
 	}
-	f, err := os.OpenFile(smbConfMain, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.WriteString("\n" + zeile + "\n")
-	return err
+	// R753: In den [global]-Abschnitt einfügen, NICHT ans Dateiende.
+	//
+	// Angehängt landet die Zeile innerhalb des letzten Abschnitts – bei einer
+	// Standard-smb.conf ist das [print$], also die Druckertreiber. testparm
+	// zeigte genau das: "include" mitten in [print$]. Dass die Freigabe
+	// trotzdem auftauchte, machte es nur schwerer zu sehen.
+	return includeInGlobal(zeile)
 }
 
 func includeZeileEntfernen(conf string) error {
@@ -393,4 +403,63 @@ func davPidAufraeumen(mnt string) error {
 	}
 	logf("verwaiste davfs2-Kennungsdatei entfernt: %s", pfad)
 	return nil
+}
+
+// davCacheAufraeumen entfernt den Zwischenspeicher einer Einhängung (R752).
+//
+// davfs2 legt unter /var/cache/davfs2/ je Einhängung ein Verzeichnis an, dessen
+// Name den Pfad enthält. Es zu löschen erzwingt ein frisches Einlesen.
+//
+// Streng begrenzt: NUR unterhalb von /var/cache/davfs2, und nur Einträge, deren
+// Name den Freigabenamen enthält. Ohne diese Schranken wäre das hier eine
+// Funktion, die als root beliebige Verzeichnisse löscht.
+func davCacheAufraeumen(name string) error {
+	if name == "" || strings.ContainsAny(name, `/\.`) {
+		return fmt.Errorf("ungültiger Name")
+	}
+	const basis = "/var/cache/davfs2"
+	eintraege, err := os.ReadDir(basis)
+	if err != nil {
+		return nil // kein Zwischenspeicher vorhanden
+	}
+	for _, e := range eintraege {
+		if !e.IsDir() || !strings.Contains(e.Name(), name) {
+			continue
+		}
+		pfad := filepath.Join(basis, e.Name())
+		// Letzte Sicherung: Das Ergebnis MUSS unterhalb der Basis liegen.
+		if !strings.HasPrefix(pfad, basis+string(filepath.Separator)) {
+			continue
+		}
+		if err := os.RemoveAll(pfad); err == nil {
+			logf("davfs2-Zwischenspeicher geleert: %s", pfad)
+		}
+	}
+	return nil
+}
+
+// includeInGlobal fügt eine Zeile in den [global]-Abschnitt ein (R753).
+//
+// In einer smb.conf gilt eine Zeile immer für den Abschnitt, in dem sie steht.
+// Ans Dateiende angehängt gehört sie zum LETZTEN Abschnitt – bei der
+// Standarddatei sind das die Druckertreiber.
+func includeInGlobal(zeile string) error {
+	roh, err := os.ReadFile(smbConfMain)
+	if err != nil {
+		return err
+	}
+	zeilen := strings.Split(string(roh), "\n")
+	for i, z := range zeilen {
+		if strings.EqualFold(strings.TrimSpace(z), "[global]") {
+			// Direkt hinter die Abschnittsüberschrift.
+			neu := append([]string{}, zeilen[:i+1]...)
+			neu = append(neu, zeile)
+			neu = append(neu, zeilen[i+1:]...)
+			return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
+		}
+	}
+	// Kein [global] vorhanden: einen anlegen, aber am ANFANG der Datei, damit
+	// die Zeile nicht wieder in einem fremden Abschnitt landet.
+	neu := append([]string{"[global]", zeile, ""}, zeilen...)
+	return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
 }
