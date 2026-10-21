@@ -165,8 +165,29 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 				}
 			}
 		} else {
+			// R744: WARUM wurde das nicht als Verzeichnis erkannt?
+			//
+			// Genau hier entsteht der 404, den davfs2 beim Einhängen meldet –
+			// und davfs2 verrät nur die nackte Zahl. Ohne diese Zeile lässt
+			// sich nicht unterscheiden, ob die Gegenstelle nicht antwortet, den
+			// Zugriff verweigert oder etwas anderes zurückgibt als erwartet.
+			if s.log != nil {
+				kurz := string(resp)
+				if len(kurz) > 200 {
+					kurz = kurz[:200]
+				}
+				s.log.Warn("WebDAV fern: kein Verzeichnis",
+					zap.String("share", share), zap.String("pfad", virt),
+					zap.Error(err),
+					zap.String("fehler_der_gegenstelle", lr.Error),
+					zap.String("antwort", kurz))
+			}
 			groesse, gerr := s.fernGroesse(ctx, peer, share, virt)
 			if gerr != nil {
+				if s.log != nil {
+					s.log.Warn("WebDAV fern: auch keine Datei",
+						zap.String("pfad", virt), zap.Error(gerr))
+				}
 				c.AbortWithStatus(http.StatusNotFound)
 				return
 			}
