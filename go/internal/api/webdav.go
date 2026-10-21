@@ -33,13 +33,13 @@ package api
 // damit zurecht; es will die Sperre bestätigt bekommen, mehr nicht.
 
 import (
-	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -265,40 +265,40 @@ func (s *Server) davAuth(c *gin.Context, share string) bool {
 
 // ── XML-Gerüst für PROPFIND ────────────────────────────────────────────────
 
-type davProp struct {
-	XMLName      xml.Name `xml:"D:prop"`
-	ResourceType struct {
-		Collection *struct{} `xml:"D:collection,omitempty"`
-	} `xml:"D:resourcetype"`
-	ContentLength int64  `xml:"D:getcontentlength,omitempty"`
-	LastModified  string `xml:"D:getlastmodified,omitempty"`
-	CreationDate  string `xml:"D:creationdate,omitempty"`
-	DisplayName   string `xml:"D:displayname,omitempty"`
-	ContentType   string `xml:"D:getcontenttype,omitempty"`
+// ── PROPFIND-Antwort von Hand bauen (R750) ────────────────────────────────
+//
+// Vorher über Go-Strukturen mit Namen wie `xml:"D:prop"`. Das ist ein
+// verbreiteter Behelf, aber Go kennt keine Namensraum-Präfixe – der Doppelpunkt
+// steht nur zufällig an der richtigen Stelle, und was dabei herauskommt, lässt
+// sich von hier aus nicht prüfen, weil kein Go-Übersetzer zur Verfügung steht.
+//
+// Nachdem die Einträge nachweislich ankommen (16 von der Gegenstelle, 17
+// Antworten gezählt) und davfs2 trotzdem nichts anzeigt, bleibt das XML als
+// Verdächtiger. Von Hand gebaut ist es nachlesbar und hier überprüfbar – das
+// ist mehr wert als die elegantere Lösung.
+type davEintragDaten struct {
+	Href      string
+	Name      string
+	IstOrdner bool
+	Groesse   int64
+	Zeit      time.Time
 }
 
-type davPropstat struct {
-	XMLName xml.Name `xml:"D:propstat"`
-	Prop    davProp  `xml:"D:prop"`
-	Status  string   `xml:"D:status"`
-}
-
-type davResponse struct {
-	XMLName  xml.Name    `xml:"D:response"`
-	Href     string      `xml:"D:href"`
-	Propstat davPropstat `xml:"D:propstat"`
-}
-
-type davMultistatus struct {
-	XMLName   xml.Name      `xml:"D:multistatus"`
-	XMLNS     string        `xml:"xmlns:D,attr"`
-	Responses []davResponse `xml:"D:response"`
+// davXMLEscape maskiert die fünf Zeichen, die in XML-Text nicht roh stehen
+// dürfen. Dateinamen enthalten durchaus & und einfache Anführungszeichen.
+func davXMLEscape(s string) string {
+	r := strings.NewReplacer(
+		"&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&apos;")
+	return r.Replace(s)
 }
 
 // davHref hängt bei Verzeichnissen den abschließenden Schrägstrich an (R749).
 //
 // WebDAV unterscheidet Sammlungen von Dateien auch an der Adresse. Fehlt er,
 // behandeln Klienten einen Ordner als Datei oder verwerfen den Eintrag.
+//
+// R751: War in R750 mit dem ersetzten Block verlorengegangen – ich habe einen
+// Bereich ausgetauscht, ohne zu prüfen, was sonst noch darin stand.
 func davHref(basis string, name string, istOrdner bool) string {
 	h := basis + davPfad(name)
 	if istOrdner {
@@ -307,23 +307,48 @@ func davHref(basis string, name string, istOrdner bool) string {
 	return h
 }
 
-func davEintrag(href, name string, istOrdner bool, groesse int64, zeit time.Time) davResponse {
-	var r davResponse
-	r.Href = href
-	r.Propstat.Status = "HTTP/1.1 200 OK"
-	r.Propstat.Prop.DisplayName = name
-	r.Propstat.Prop.LastModified = zeit.UTC().Format(http.TimeFormat)
-	r.Propstat.Prop.CreationDate = zeit.UTC().Format(time.RFC3339)
-	if istOrdner {
-		r.Propstat.Prop.ResourceType.Collection = &struct{}{}
-	} else {
-		r.Propstat.Prop.ContentLength = groesse
-		if ct := freigabeMime(name); ct != "" {
-			r.Propstat.Prop.ContentType = ct
-		}
-	}
-	return r
+// davEintrag beschreibt eine Datei oder einen Ordner.
+func davEintrag(href, name string, istOrdner bool, groesse int64, zeit time.Time) davEintragDaten {
+	return davEintragDaten{Href: href, Name: name, IstOrdner: istOrdner,
+		Groesse: groesse, Zeit: zeit}
 }
+
+// davMultistatusXML baut die vollständige Antwort.
+func davMultistatusXML(eintraege []davEintragDaten) []byte {
+	var b strings.Builder
+	b.WriteString(`<?xml version="1.0" encoding="utf-8"?>` + "\n")
+	b.WriteString(`<D:multistatus xmlns:D="DAV:">` + "\n")
+	for _, e := range eintraege {
+		b.WriteString("<D:response>\n")
+		b.WriteString("<D:href>" + davXMLEscape(e.Href) + "</D:href>\n")
+		b.WriteString("<D:propstat>\n<D:prop>\n")
+		b.WriteString("<D:displayname>" + davXMLEscape(e.Name) + "</D:displayname>\n")
+		if e.IstOrdner {
+			b.WriteString("<D:resourcetype><D:collection/></D:resourcetype>\n")
+		} else {
+			b.WriteString("<D:resourcetype/>\n")
+			// Auch bei 0 Byte angeben – manche Klienten verlangen das Feld.
+			b.WriteString("<D:getcontentlength>" +
+				strconv.FormatInt(e.Groesse, 10) + "</D:getcontentlength>\n")
+			if ct := freigabeMime(e.Name); ct != "" {
+				b.WriteString("<D:getcontenttype>" + davXMLEscape(ct) + "</D:getcontenttype>\n")
+			}
+		}
+		z := e.Zeit
+		if z.IsZero() {
+			z = time.Now()
+		}
+		b.WriteString("<D:getlastmodified>" + z.UTC().Format(http.TimeFormat) +
+			"</D:getlastmodified>\n")
+		b.WriteString("<D:creationdate>" + z.UTC().Format(time.RFC3339) +
+			"</D:creationdate>\n")
+		b.WriteString("</D:prop>\n<D:status>HTTP/1.1 200 OK</D:status>\n</D:propstat>\n")
+		b.WriteString("</D:response>\n")
+	}
+	b.WriteString("</D:multistatus>\n")
+	return []byte(b.String())
+}
+
 
 // davHandler bedient alle WebDAV-Befehle unter /dav/:id/*path.
 func (s *Server) davHandler(c *gin.Context) {
@@ -374,11 +399,11 @@ func (s *Server) davHandler(c *gin.Context) {
 		if tiefe == "" {
 			tiefe = "1"
 		}
-		ms := davMultistatus{XMLNS: "DAV:"}
+		var ms []davEintragDaten   // R750: einfache Liste statt XML-Strukturen
 
 		if virt == "" {
 			// Wurzel der Freigabe
-			ms.Responses = append(ms.Responses, davEintrag(basis, sh.Name, true, 0, sh.UpdatedAt))
+			ms = append(ms, davEintrag(basis, sh.Name, true, 0, sh.UpdatedAt))
 			if tiefe != "0" {
 				eintraege, err := mgr.ListDir(share, anfrager, "")
 				if err != nil {
@@ -386,17 +411,17 @@ func (s *Server) davHandler(c *gin.Context) {
 					return
 				}
 				for _, e := range eintraege {
-					ms.Responses = append(ms.Responses,
+					ms = append(ms,
 						davEintrag(davHref(basis, e.Name, e.IsDir), e.Name, e.IsDir, e.Size, e.ModTime))
 				}
 			}
 		} else if eintraege, err := mgr.ListDir(share, anfrager, virt); err == nil {
 			// Unterordner
-			ms.Responses = append(ms.Responses,
+			ms = append(ms,
 				davEintrag(basis+davPfad(virt)+"/", path.Base(virt), true, 0, time.Now()))
 			if tiefe != "0" {
 				for _, e := range eintraege {
-					ms.Responses = append(ms.Responses,
+					ms = append(ms,
 						davEintrag(davHref(basis+davPfad(virt)+"/", e.Name, e.IsDir),
 							e.Name, e.IsDir, e.Size, e.ModTime))
 				}
@@ -409,19 +434,18 @@ func (s *Server) davHandler(c *gin.Context) {
 				return
 			}
 			st, _ := os.Stat(fp)
-			ms.Responses = append(ms.Responses,
+			ms = append(ms,
 				davEintrag(basis+davPfad(virt), path.Base(virt), false, st.Size(), st.ModTime()))
 		}
 
-		raw, err := xml.Marshal(&ms)
-		if err != nil {
-			c.AbortWithStatus(http.StatusInternalServerError)
-			return
-		}
+		// R750: Von Hand gebaut, kein xml.Marshal mehr – siehe webdav.go.
+		raw := davMultistatusXML(ms)
 		c.Header("Content-Type", `application/xml; charset="utf-8"`)
+		c.Header("Content-Length", strconv.Itoa(len(raw)))
 		c.Status(http.StatusMultiStatus)
-		_, _ = c.Writer.Write([]byte(xml.Header))
-		_, _ = c.Writer.Write(raw)
+		if _, werr := c.Writer.Write(raw); werr != nil && s.log != nil {
+			s.log.Warn("PROPFIND-Antwort nicht zustellbar", zap.Error(werr))
+		}
 
 	case "GET", "HEAD":
 		fp, err := mgr.ResolveForRead(share, anfrager, virt)
@@ -530,7 +554,7 @@ func (s *Server) davHandler(c *gin.Context) {
 			`<D:locktype><D:write/></D:locktype><D:lockscope><D:exclusive/></D:lockscope>`+
 			`<D:depth>0</D:depth><D:timeout>Second-3600</D:timeout>`+
 			`<D:locktoken><D:href>%s</D:href></D:locktoken>`+
-			`</D:activelock></D:lockdiscovery></D:prop>`, xml.Header, marke)
+			`</D:activelock></D:lockdiscovery></D:prop>`, `<?xml version="1.0" encoding="utf-8"?>`+"\n", marke)
 
 	case "UNLOCK":
 		c.Status(http.StatusNoContent)
@@ -542,7 +566,7 @@ func (s *Server) davHandler(c *gin.Context) {
 		c.Status(http.StatusMultiStatus)
 		fmt.Fprintf(c.Writer, `%s<D:multistatus xmlns:D="DAV:"><D:response><D:href>%s</D:href>`+
 			`<D:propstat><D:status>HTTP/1.1 200 OK</D:status></D:propstat>`+
-			`</D:response></D:multistatus>`, xml.Header, basis+davPfad(virt))
+			`</D:response></D:multistatus>`, `<?xml version="1.0" encoding="utf-8"?>`+"\n", basis+davPfad(virt))
 
 	default:
 		c.AbortWithStatus(http.StatusMethodNotAllowed)

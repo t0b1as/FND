@@ -33,11 +33,11 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -125,7 +125,7 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 		if tiefe == "" {
 			tiefe = "1"
 		}
-		ms := davMultistatus{XMLNS: "DAV:"}
+		var ms []davEintragDaten   // R750: einfache Liste statt XML-Strukturen
 
 		// Erst als Verzeichnis versuchen. Klappt das nicht, ist es eine Datei –
 		// dann die Größe erfragen. Zwei Anfragen im schlechtesten Fall, aber
@@ -153,7 +153,7 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 			if virt != "" {
 				name = path.Base(virt)
 			}
-			ms.Responses = append(ms.Responses, davEintrag(selbst, name, true, 0, time.Now()))
+			ms = append(ms, davEintrag(selbst, name, true, 0, time.Now()))
 			if tiefe != "0" {
 				vor := basis
 				if virt != "" {
@@ -171,7 +171,7 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 					if e.IsDir {
 						href += "/"
 					}
-					ms.Responses = append(ms.Responses,
+					ms = append(ms,
 						davEintrag(href, e.Name, e.IsDir, e.Size, e.ModTime))
 				}
 			}
@@ -202,7 +202,7 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 				c.AbortWithStatus(http.StatusNotFound)
 				return
 			}
-			ms.Responses = append(ms.Responses,
+			ms = append(ms,
 				davEintrag(basis+davPfad(virt), path.Base(virt), false, groesse, time.Now()))
 		}
 
@@ -215,17 +215,16 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 				zap.String("pfad", virt), zap.String("tiefe", tiefe),
 				zap.Bool("als_ordner", istOrdner),
 				zap.Int("eintraege_von_gegenstelle", len(lr.Entries)),
-				zap.Int("antworten_im_xml", len(ms.Responses)))
+				zap.Int("antworten_im_xml", len(ms)))
 		}
-		raw, merr := xml.Marshal(&ms)
-		if merr != nil {
-			c.AbortWithStatus(http.StatusInternalServerError)
-			return
-		}
+		// R750: Von Hand gebaut, kein xml.Marshal mehr – siehe webdav.go.
+		raw := davMultistatusXML(ms)
 		c.Header("Content-Type", `application/xml; charset="utf-8"`)
+		c.Header("Content-Length", strconv.Itoa(len(raw)))
 		c.Status(http.StatusMultiStatus)
-		_, _ = c.Writer.Write([]byte(xml.Header))
-		_, _ = c.Writer.Write(raw)
+		if _, werr := c.Writer.Write(raw); werr != nil && s.log != nil {
+			s.log.Warn("PROPFIND-Antwort nicht zustellbar", zap.Error(werr))
+		}
 
 	case "GET", "HEAD":
 		// Über den strömenden Weg aus R718 – der beherrscht Bereiche schon.
@@ -313,7 +312,7 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 			`<D:locktype><D:write/></D:locktype><D:lockscope><D:exclusive/></D:lockscope>`+
 			`<D:depth>0</D:depth><D:timeout>Second-3600</D:timeout>`+
 			`<D:locktoken><D:href>%s</D:href></D:locktoken>`+
-			`</D:activelock></D:lockdiscovery></D:prop>`, xml.Header, marke)
+			`</D:activelock></D:lockdiscovery></D:prop>`, `<?xml version="1.0" encoding="utf-8"?>`+"\n", marke)
 
 	case "UNLOCK":
 		c.Status(http.StatusNoContent)
@@ -323,7 +322,7 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 		c.Status(http.StatusMultiStatus)
 		fmt.Fprintf(c.Writer, `%s<D:multistatus xmlns:D="DAV:"><D:response><D:href>%s</D:href>`+
 			`<D:propstat><D:status>HTTP/1.1 200 OK</D:status></D:propstat>`+
-			`</D:response></D:multistatus>`, xml.Header, basis+davPfad(virt))
+			`</D:response></D:multistatus>`, `<?xml version="1.0" encoding="utf-8"?>`+"\n", basis+davPfad(virt))
 
 	default:
 		c.AbortWithStatus(http.StatusMethodNotAllowed)
