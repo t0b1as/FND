@@ -86,7 +86,7 @@ func (s *Server) remoteSmbBridge(c *gin.Context) {
 		return
 	}
 
-	davURL := fmt.Sprintf("http://127.0.0.1:%d/dav/r/%s/%s/", s.port(), peer, share)
+	davURL := fmt.Sprintf("http://127.0.0.1:%d/davr/%s/%s/", s.port(), peer, share)
 	resp, err := helperproto.Do(helperproto.Request{
 		Version:  helperproto.ProtocolVersion,
 		Action:   helperproto.ActionSmbBridgeAdd,

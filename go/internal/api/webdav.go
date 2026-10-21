@@ -136,7 +136,7 @@ func davUNC(host, share string, https bool) string {
 // davUNCPfad baut den Netzwerkpfad für einen BELIEBIGEN Pfad (R726).
 //
 // Verallgemeinert aus davUNC, weil es jetzt zwei Fälle gibt: eigene Freigaben
-// unter /dav/<id>/ und fremde unter /dav/r/<peer>/<share>/. Eine zweite Kopie
+// unter /dav/<id>/ und fremde unter /davr/<peer>/<share>/. Eine zweite Kopie
 // derselben Windows-Eigenheiten wäre genau die Doppelung, die mir hier schon
 // mehrfach auseinandergelaufen ist.
 func davUNCPfad(host, pfad string, https bool) string {

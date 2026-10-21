@@ -91,7 +91,7 @@ func (s *Server) fernOp(ctx context.Context, peer string, req map[string]any) ([
 	return resp, dauer, err
 }
 
-// davRemoteHandler bedient /dav/r/:peer/:share/*path.
+// davRemoteHandler bedient /davr/:peer/:share/*path (R741).
 func (s *Server) davRemoteHandler(c *gin.Context) {
 	if s.node == nil {
 		c.AbortWithStatus(http.StatusServiceUnavailable)
@@ -109,7 +109,7 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 		return
 	}
 	virt := strings.TrimPrefix(c.Param("path"), "/")
-	basis := "/dav/r/" + peer + "/" + share + "/"
+	basis := "/davr/" + peer + "/" + share + "/"
 	ctx := c.Request.Context()
 
 	switch c.Request.Method {
@@ -303,7 +303,7 @@ func (s *Server) remoteDavInfo(c *gin.Context) {
 	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
 		schema = "https"
 	}
-	pfad := "/dav/r/" + peer + "/" + share + "/"
+	pfad := "/davr/" + peer + "/" + share + "/"
 	c.JSON(http.StatusOK, gin.H{
 		"url":         fmt.Sprintf("%s://%s%s", schema, c.Request.Host, pfad),
 		"unc":         davUNCPfad(c.Request.Host, pfad, schema == "https"),

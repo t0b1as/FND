@@ -469,8 +469,17 @@ func (s *Server) registerRoutes() {
 
 	// R726: WebDAV für FREMDE Freigaben, über das P2P-Netz. Eigener Pfad
 	// /dav/r/…, damit er sich nicht mit /dav/<id> überschneidet.
-	r.Any("/dav/r/:peer/:share", s.davRemoteHandler)
-	r.Any("/dav/r/:peer/:share/*path", s.davRemoteHandler)
+	// R741: EIGENER Pfad /davr/, nicht /dav/r/.
+	//
+	// Verschachtelt kollidierten die Routen: /dav/:id/*path fängt auch
+	// /dav/r/<peer>/<share>/ ab, mit der Freigabe-Kennung "r". Die gibt es
+	// nicht, also kam 404 – und davfs2 meldete nur "Mounting failed. 404 Not
+	// Found", ohne Hinweis auf die Ursache.
+	//
+	// Eine Route mit festem Bestandteil neben einer mit Platzhalter an
+	// derselben Stelle ist immer eine Falle. Getrennte Präfixe sind eindeutig.
+	r.Any("/davr/:peer/:share", s.davRemoteHandler)
+	r.Any("/davr/:peer/:share/*path", s.davRemoteHandler)
 	// Remote-Modus: alle Seiten/Links über den Tunnel (Cookie fundus_remote).
 	r.GET("/api/v1/remote/enter/:peerid", s.remoteEnter)
 	r.GET("/api/v1/remote/exit", s.remoteExit)
@@ -487,7 +496,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R739"
+const NodeRevision = "R741"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

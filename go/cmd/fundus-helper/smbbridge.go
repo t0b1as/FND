@@ -79,12 +79,30 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		return helperproto.Response{OK: false, Error: "ungültige Zugangskennung"}
 	}
 
-	for _, p := range []string{"mount.davfs", "smbd"} {
-		if _, err := exec.LookPath(p); err != nil {
-			if _, err2 := os.Stat("/usr/sbin/" + p); err2 != nil {
-				return helperproto.Response{OK: false,
-					Error: p + " fehlt – bitte samba und davfs2 nachinstallieren"}
-			}
+	// R740: Fehlende Pakete selbst nachinstallieren.
+	//
+	// Das Deploy-Skript prüft sie, das Update über GitHub aber NICHT – es
+	// verschiebt nur Dateien und startet neu. Auf einem so aktualisierten Node
+	// wäre die Brücke sonst dauerhaft unbenutzbar, mit einer Fehlermeldung, die
+	// zu einer Handarbeit auffordert.
+	//
+	// Installiert wird nur hier, also wenn der Betreiber die Funktion
+	// ausdrücklich anfordert – nicht ungefragt im Hintergrund.
+	if fehlend := fehlendePakete(); len(fehlend) > 0 {
+		logf("SMB-Brücke: installiere fehlende Pakete: %s", strings.Join(fehlend, " "))
+		args := append([]string{"install", "-y", "-qq"}, fehlend...)
+		cmd := exec.Command("apt-get", args...)
+		// Ohne diese Vorgabe bleibt davfs2 bei seiner Rückfrage stehen und der
+		// Aufruf läuft in die Zeitüberschreitung.
+		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return helperproto.Response{OK: false, Error: "Pakete fehlen (" +
+				strings.Join(fehlend, ", ") + ") und ließen sich nicht installieren: " +
+				strings.TrimSpace(letzteZeilen(string(out), 3))}
+		}
+		if fehlend2 := fehlendePakete(); len(fehlend2) > 0 {
+			return helperproto.Response{OK: false,
+				Error: "Pakete weiterhin nicht vorhanden: " + strings.Join(fehlend2, ", ")}
 		}
 	}
 
@@ -272,4 +290,33 @@ func sambaBenutzerSetzen(pass string) error {
 		return fmt.Errorf("smbpasswd: %s", strings.TrimSpace(string(out)))
 	}
 	return exec.Command("smbpasswd", "-e", smbBenutzer).Run()
+}
+
+// fehlendePakete prüft, welche der benötigten Programme fehlen (R740).
+func fehlendePakete() []string {
+	var fehlend []string
+	// Programm → Paketname. Beide liegen in /usr/sbin, das im PATH eines
+	// Dienstes nicht immer steht – deshalb zusätzlich direkt nachsehen.
+	for prog, paket := range map[string]string{"mount.davfs": "davfs2", "smbd": "samba"} {
+		if _, err := exec.LookPath(prog); err == nil {
+			continue
+		}
+		if _, err := os.Stat("/usr/sbin/" + prog); err == nil {
+			continue
+		}
+		if _, err := os.Stat("/sbin/" + prog); err == nil {
+			continue
+		}
+		fehlend = append(fehlend, paket)
+	}
+	return fehlend
+}
+
+// letzteZeilen kürzt eine Ausgabe auf die letzten n Zeilen.
+func letzteZeilen(s string, n int) string {
+	z := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(z) > n {
+		z = z[len(z)-n:]
+	}
+	return strings.Join(z, " | ")
 }
