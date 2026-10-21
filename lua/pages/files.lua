@@ -1509,8 +1509,7 @@ async function loadDirShares() {
         '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openShare(\''+sid+'\',\''+(s.name||'').replace(/\'/g,"")+'\')" title="'+dirs+'">\ud83d\udcc2 '+(s.name||'')+'</span>'+
         // R725: Netzlaufwerk-Zugang schon in der LISTE anbieten – man muss die
         // Freigabe dafür nicht erst öffnen.
-        '<span><button class="btn-sm" onclick="davZugang(\''+sid+'\')" '+
-        'title="Als Netzlaufwerk einbinden" aria-label="Netzlaufwerk">\ud83d\uddb4</button> '+
+        '<span>'+
         '<button class="btn-sm btn-danger" onclick="deleteDirShare(\''+sid+'\')" title="Freigabe entfernen">\u2717</button></span></div>';
     }).join('');
   } catch(e) {
@@ -1553,8 +1552,6 @@ async function renderShareView() {
         ? '<button class="btn-sm btn-prim" onclick="shareUploadDialog(\''+nav.id+'\',\''+
           nav.path.replace(/'/g,"")+'\')" aria-label="Datei hochladen">\u2b06 Hochladen</button> '
         : '')+
-      '<button class="btn-sm" onclick="davZugang(\''+nav.id+'\')" '+
-      'title="Als Netzlaufwerk einbinden" aria-label="Netzlaufwerk">\ud83d\uddb4</button> '+
       '<button class="btn-sm" onclick="mirrorShare(\''+nav.id+'\',\''+nav.path.replace(/\'/g,"")+'\')">\u2b07 Spiegeln</button> '+
       '<button class="btn-sm" onclick="closeShareView()">\u2717</button></span></div>';
     items.forEach(function(it){
@@ -1759,118 +1756,86 @@ function shareAnsehenFenster(url, name){
   }
 }
 
-// ── Als Netzlaufwerk einbinden (R722) ────────────────────────────────────
-// Zeigt Adresse und Zugangskennung zum Eintragen in Windows oder Office.
-// Damit kann Word und Excel auch ZURÜCKSPEICHERN, nicht nur öffnen.
-// R726: Fremde Freigabe als Netzlaufwerk – läuft über P2P.
-async function davZugangFern(peer, shareID){
-  return davZugangAnzeigen('/api/v1/shares/remote/' + encodeURIComponent(peer) +
-                           '/' + encodeURIComponent(shareID) + '/davinfo', shareID, true);
-}
+// ── Als Windows-Laufwerk bereitstellen (R743) ────────────────────────────
+//
+// R742 hatte ich zu viel entfernt: Gemeint war nur die WebDAV-Oberfläche mit
+// Adresse, Benutzer und Kennwort zum Eintragen – die hat nie funktioniert, weil
+// Windows über HTTP keine Anmeldung herausgibt.
+//
+// Die SMB-Brücke ist etwas anderes: Hier macht der Pi die Arbeit und Windows
+// sieht nur eine gewöhnliche Dateifreigabe. Der Knopf kommt deshalb zurück,
+// ohne die Zugangsdaten-Anzeige.
+//
+// WebDAV bleibt im Node bestehen – die Brücke benutzt es intern, nur eben
+// rechnerintern über 127.0.0.1, wo Windows nicht mitredet.
+async function smbBruecke(peer, shareID, anzeigeName){
+  const basis = '/api/v1/shares/remote/' + encodeURIComponent(peer) +
+                '/' + encodeURIComponent(shareID) + '/smb';
+  const ov = document.createElement('div');
+  ov.className = 'share-view-ov';
+  ov.innerHTML = '<div class="sv-box"><div class="sv-kopf">'+
+    '<strong>Als Windows-Laufwerk bereitstellen</strong>'+
+    '<button class="btn-sm" aria-label="Schlie\u00dfen">\u2717</button></div>'+
+    '<div class="sv-inhalt"><div class="dav-info">'+
+    '<p>Der Pi h\u00e4ngt die Freigabe <strong>'+escapeHtmlF(anzeigeName||shareID)+
+    '</strong> lokal ein und gibt sie im Heimnetz als gew\u00f6hnliche '+
+    'Windows-Freigabe frei. Windows spricht dann normales SMB mit dem Pi und '+
+    'merkt nichts vom P2P-Netz dahinter.</p>'+
+    '<p><button class="btn btn-primary" id="smb-ein">Einrichten</button> '+
+    '<button class="btn-sm" id="smb-aus">Entfernen</button></p>'+
+    '<p class="meta" id="smb-msg"></p>'+
+    '<p class="meta">Die Daten laufen \u00fcber das P2P-Netz \u2013 erwarte nicht '+
+    'die Geschwindigkeit einer lokalen Platte.</p>'+
+    '</div></div></div>';
+  document.body.appendChild(ov);
+  const zu = function(){ ov.remove(); };
+  ov.querySelector('.sv-kopf button').onclick = zu;
+  ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
 
-async function davZugang(shareID){
-  return davZugangAnzeigen('/api/v1/shares/' + encodeURIComponent(shareID) + '/davinfo',
-                           shareID, false);
-}
-
-async function davZugangAnzeigen(infoUrl, shareID, ueberP2P){
-  try {
-    const r = await fetch(infoUrl, { credentials: 'same-origin' });
-    const d = await r.json();
+  const msg = ov.querySelector('#smb-msg');
+  const sagen = function(t, farbe){ if (msg) { msg.textContent = t; msg.style.color = farbe || 'var(--muted)'; } };
+  const ruf = async function(methode, koerper){
+    const r = await fetch(basis, {
+      method: methode, credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: koerper ? JSON.stringify(koerper) : undefined
+    });
+    let d = {}; try { d = await r.json(); } catch(e) {}
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-    const ov = document.createElement('div');
-    ov.className = 'share-view-ov';
-    ov.innerHTML = '<div class="sv-box"><div class="sv-kopf"><strong>Als Netzlaufwerk einbinden</strong>'+
-      '<button class="btn-sm" aria-label="Schlie\u00dfen">\u2717</button></div>'+
-      '<div class="sv-inhalt"><div class="dav-info">'+
-      // R723: Der bequeme Weg zuerst.
-      (ueberP2P
-        ? '<p><button class="btn btn-primary" id="smb-ein">'+
-          '\ud83d\uddb4 Als Windows-Laufwerk bereitstellen</button> '+
-          '<button class="btn-sm" id="smb-aus">entfernen</button><br>'+
-          '<span class="meta">Der empfohlene Weg. Der Pi h\u00e4ngt die ferne Freigabe '+
-          'lokal ein und gibt sie im Heimnetz als gew\u00f6hnliche Windows-Freigabe frei. '+
-          'Windows spricht dann normales SMB mit dem Pi und merkt nichts vom P2P-Netz '+
-          'dahinter \u2013 das umgeht alle WebDAV-Eigenheiten von Windows.</span><br>'+
-          '<span class="meta" id="smb-msg"></span></p>'+
-          '<p class="meta" style="color:#ffc107">Der direkte Weg unten l\u00e4uft dagegen '+
-          'Node. Jeder Zugriff l\u00e4uft \u00fcber das P2P-Netz \u2013 das kann sp\u00fcrbar '+
-          'langsamer sein, besonders beim Durchsehen vieler Dateien. Im Protokoll des '+
-          'Node stehen die Zeiten je Befehl.</p>'
-        : '')+
-      '<p>'+(ueberP2P ? '' : '<button class="btn btn-primary" onclick="window.open(\'/api/v1/shares/'+
-      encodeURIComponent(shareID)+'/davcmd\')">\u2b07 Verbindungsdatei laden</button><br>')+
-      '<span class="meta">Herunterladen, doppelklicken \u2013 fertig. Windows meldet sich '+
-      'eventuell mit einer Sicherheitswarnung, weil es eine Befehlsdatei ist. '+
-      'Sie enth\u00e4lt das Kennwort im Klartext und kann danach gel\u00f6scht werden.</span></p>'+
-      '<label>Netzwerkpfad <span class="meta">(zum Einf\u00fcgen in den Explorer)</span>'+
-      '<input type="text" readonly value="'+escapeHtmlF(d.unc||'')+'"></label>'+
-      '<p class="meta">Ein anklickbarer Link ginge nicht: Browser verweigern '+
-      'Netzwerkpfade aus einer Webseite heraus. Deshalb die Datei oder das Einf\u00fcgen '+
-      'von Hand.</p>'+
-      '<details style="margin:8px 0"><summary class="meta">Von Hand einbinden</summary>'+
-      '<p>Explorer \u2192 Rechtsklick auf \u201eDieser PC\u201c \u2192 '+
-      '\u201eNetzlaufwerk verbinden\u201c \u2192 \u201eVerbindung mit einer Website herstellen\u201c.</p>'+
-      '<label>Adresse<input type="text" readonly value="'+escapeHtmlF(d.url)+'"></label>'+
-      '<label>Benutzer<input type="text" readonly value="'+escapeHtmlF(d.user)+'"></label>'+
-      '<label>Kennwort<input type="text" readonly value="'+escapeHtmlF(d.password)+'"></label>'+
-      '<p class="meta">Unbefristet g\u00fcltig. '+
-      (d.writable
-        ? 'Diese Freigabe ist beschreibbar \u2013 Word und Excel k\u00f6nnen direkt speichern.'
-        : '<strong>Nur lesend:</strong> Speichern ist nicht m\u00f6glich, daf\u00fcr m\u00fcsste '+
-          'die Freigabe Schreibrecht bekommen.')+'</p>'+
-      '</details>'+
-      '<p class="meta" style="color:#ffc107">Klappt es nicht, liegt es fast immer '+
-      'an einem von zwei Punkten: Der Windows-Dienst <code>WebClient</code> l\u00e4uft '+
-      'nicht (<code>net start WebClient</code>), oder Windows verweigert die '+
-      'Anmeldung \u00fcber unverschl\u00fcsseltes HTTP \u2013 dann hilft der Zugriff '+
-      '\u00fcber HTTPS. Die Verbindungsdatei nennt beides im Fehlerfall.</p>'+
-      '<p class="meta">Das Kennwort gilt nur f\u00fcr diese eine Freigabe. '+
-      'Ohne HTTPS \u00fcbertr\u00e4gt Windows es unverschl\u00fcsselt \u2013 im Heimnetz '+
-      'vertretbar, von unterwegs nicht.</p>'+
-      '</div></div></div>';
-    document.body.appendChild(ov);
-    const zu = function(){ ov.remove(); };
-    ov.querySelector('.sv-kopf button').onclick = zu;
-
-    // R736: Einrichten und Entfernen durch den Helfer – kein Skript mehr.
-    const msg = ov.querySelector('#smb-msg');
-    const sagen = function(txt, farbe){
-      if (msg) { msg.textContent = txt; msg.style.color = farbe || 'var(--muted)'; }
-    };
-    const smbRuf = async function(methode, koerper){
-      const url = infoUrl.replace('/davinfo', '/smb');
-      const r = await fetch(url, {
-        method: methode, credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: koerper ? JSON.stringify(koerper) : undefined
-      });
-      let d = {}; try { d = await r.json(); } catch(e) {}
-      if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-      return d;
-    };
-    const ein = ov.querySelector('#smb-ein');
-    if (ein) ein.onclick = async function(){
-      // Das Kennwort gilt für den Windows-Zugriff, nicht für Fundus.
-      const pw = prompt('Kennwort f\u00fcr den Windows-Zugriff festlegen\n\n' +
-                        'Benutzername ist immer: fundussmb');
-      if (pw === null) return;
-      sagen('\u2026 wird eingerichtet, das dauert einen Moment');
-      try {
-        const d = await smbRuf('POST', { name: shareID, smb_pass: pw });
-        sagen('\u2713 Bereit. In Windows verbinden mit \\\\<Pi-Adresse>\\' +
-              (d.name || '') + '  (Benutzer: fundussmb)', 'var(--grn)');
-      } catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
-    };
-    const aus = ov.querySelector('#smb-aus');
-    if (aus) aus.onclick = async function(){
-      sagen('\u2026 wird entfernt');
-      try { await smbRuf('DELETE'); sagen('\u2713 Entfernt.', 'var(--grn)'); }
-      catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
-    };
-    ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
-  } catch(e) { alert('\u2717 ' + e.message); }
+    return d;
+  };
+  ov.querySelector('#smb-ein').onclick = async function(){
+    // Das Kennwort gilt für den Windows-Zugriff, nicht für Fundus.
+    const pw = prompt('Kennwort f\u00fcr den Windows-Zugriff festlegen\n\n' +
+                      'Benutzername ist immer: fundussmb');
+    if (pw === null) return;
+    sagen('\u2026 wird eingerichtet, das dauert einen Moment');
+    try {
+      const d = await ruf('POST', { name: anzeigeName || shareID, smb_pass: pw });
+      sagen('\u2713 Bereit. In Windows verbinden mit \\\\<Pi-Adresse>\\' +
+            (d.name || '') + '  (Benutzer: fundussmb)', 'var(--grn)');
+    } catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
+  };
+  ov.querySelector('#smb-aus').onclick = async function(){
+    sagen('\u2026 wird entfernt');
+    try { await ruf('DELETE'); sagen('\u2713 Entfernt.', 'var(--grn)'); }
+    catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
+  };
 }
+
+// R742: Netzlaufwerk-Dialog (WebDAV-Zugangsdaten) entfernt.
+//
+// WebDAV hat trotz vier Anläufen (R722 bis R741) nie funktioniert: Windows
+// gibt über HTTP keine Basisanmeldung heraus, Digest half ebenfalls nicht,
+// und zuletzt blieb ein 404, dessen Ursache ich nicht gefunden habe.
+//
+// Die Schnittstellen im Node bleiben bestehen (sie stören nicht und sind
+// erprobt genug, um später darauf aufzusetzen), aber in der Oberfläche wird
+// nichts mehr angeboten, was nachweislich nicht geht. Ein Knopf, der stets
+// scheitert, ist schlimmer als keiner.
+//
+// Die SMB-Brücke hing daran mit: davfs2 hätte denselben Weg benutzt.
+// Für lokale Ordner bleibt Samba von Hand der verlässliche Weg.
 
 // ── Datei in ihrer Anwendung öffnen (R721) ───────────────────────────────
 //
@@ -1995,8 +1960,8 @@ async function loadNetworkShares(silent) {
         const pidShort = pid.slice(0,12);
         html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
           '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" title="Node '+pidShort+'…">🌐 '+(s.name||'?')+' <span class="meta" style="font-size:10px">('+(s.files||0)+' '+(FT.files_word||'Dateien')+')</span></span>'+
-          '<span><button class="btn-sm" onclick="davZugangFern(\''+pid+'\',\''+(s.id||'')+'\')" '+
-          'title="Als Netzlaufwerk einbinden (über P2P)" aria-label="Netzlaufwerk">\ud83d\uddb4</button> '+
+          '<span><button class="btn-sm" onclick="smbBruecke(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" '+
+          'title="Als Windows-Laufwerk bereitstellen" aria-label="Windows-Laufwerk">\ud83d\uddb4</button> '+
           '<button class="btn-sm" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" aria-label="Öffnen">↗</button></span></div>';
       });
     });
