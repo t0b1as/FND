@@ -464,22 +464,30 @@ func (s *Server) registerRoutes() {
 	// Die Anmeldesperre (R659) verlangt dort eine Sitzung, und weder Office
 	// noch der Windows-Explorer schicken eine mit. Hier wird stattdessen mit
 	// HTTP-Basisanmeldung geprüft, gegen eine Zugangskennung je Freigabe.
-	r.Any("/dav/:id", s.davHandler)
-	r.Any("/dav/:id/*path", s.davHandler)
-
-	// R726: WebDAV für FREMDE Freigaben, über das P2P-Netz. Eigener Pfad
-	// /dav/r/…, damit er sich nicht mit /dav/<id> überschneidet.
-	// R741: EIGENER Pfad /davr/, nicht /dav/r/.
+	// WebDAV-Routen (R745).
 	//
-	// Verschachtelt kollidierten die Routen: /dav/:id/*path fängt auch
-	// /dav/r/<peer>/<share>/ ab, mit der Freigabe-Kennung "r". Die gibt es
-	// nicht, also kam 404 – und davfs2 meldete nur "Mounting failed. 404 Not
-	// Found", ohne Hinweis auf die Ursache.
+	// NICHT r.Any: Das erfasst nur die üblichen HTTP-Methoden (GET, POST, PUT,
+	// PATCH, HEAD, OPTIONS, DELETE, CONNECT, TRACE). PROPFIND, MKCOL, LOCK,
+	// UNLOCK, PROPPATCH und MOVE sind WebDAV-Erweiterungen und standen nicht
+	// darauf – sie liefen in die 404-Antwort des Routers, OHNE den Handler
+	// überhaupt zu erreichen.
 	//
-	// Eine Route mit festem Bestandteil neben einer mit Platzhalter an
-	// derselben Stelle ist immer eine Falle. Getrennte Präfixe sind eindeutig.
-	r.Any("/davr/:peer/:share", s.davRemoteHandler)
-	r.Any("/davr/:peer/:share/*path", s.davRemoteHandler)
+	// Genau das war der 404 beim Einhängen: OPTIONS kam durch (übliche
+	// Methode), das darauf folgende PROPFIND nicht. Im Protokoll war es daran
+	// zu erkennen, dass die Antwort nach 24 MIKROsekunden kam und keine
+	// Handler-Zeile dazu existierte.
+	//
+	// gin.Handle nimmt beliebige Methodennamen, deshalb hier einzeln.
+	davMethoden := []string{
+		"OPTIONS", "GET", "HEAD", "PUT", "DELETE",
+		"PROPFIND", "PROPPATCH", "MKCOL", "MOVE", "COPY", "LOCK", "UNLOCK",
+	}
+	for _, m := range davMethoden {
+		r.Handle(m, "/dav/:id", s.davHandler)
+		r.Handle(m, "/dav/:id/*path", s.davHandler)
+		r.Handle(m, "/davr/:peer/:share", s.davRemoteHandler)
+		r.Handle(m, "/davr/:peer/:share/*path", s.davRemoteHandler)
+	}
 	// Remote-Modus: alle Seiten/Links über den Tunnel (Cookie fundus_remote).
 	r.GET("/api/v1/remote/enter/:peerid", s.remoteEnter)
 	r.GET("/api/v1/remote/exit", s.remoteExit)
@@ -496,7 +504,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R744"
+const NodeRevision = "R745"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
