@@ -1,8 +1,8 @@
 {
-  "version": "R734",
-  "description": "FUNDUS R734 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R734/FND-R734-update.zip",
-  "node_argon2": "ba6a5abf440b5af5f7a946da55ec31b5f3b3400c2e59492187e07ee9b3177d72",
-  "published_at": "2026-10-21T02:17:20.7979373Z",
-  "signature": "0x8de151994c5b1b662e9a11c94674867fca4a3471274d8c0fd0fab05475c08d9718e2e5e79c3f2f875b7f6646169c6a5bf4bfac88182f97bd400d623dd96262d91b"
+  "version": "R739",
+  "description": "FUNDUS R739 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R739/FND-R739-update.zip",
+  "node_argon2": "f8b40d2d825ff7709177960a80b3d5297632952bd69c679cbbc17d59c0febe12",
+  "published_at": "2026-10-21T15:24:29.6655236Z",
+  "signature": "0x158848bda8ec6768b3f96c4976215fd859260a22c1321f337cb8cfd6d7664e25106c1cf0dadbe37d4120aa6549ff8ce71c3e95807a4d279aa87045db571354c21b"
 }
