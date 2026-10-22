@@ -145,6 +145,23 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		}
 	}
 
+	// R754: NACHSEHEN, ob die Einhängung trägt.
+	//
+	// Bisher galt ein fehlerfreies mount als Erfolg. Ein leerer Ordner sieht
+	// aber genauso aus wie eine gescheiterte Einhängung, und beides führt zu
+	// einer leeren Windows-Freigabe. Die Zahl im Protokoll unterscheidet sie.
+	if eintraege, lerr := os.ReadDir(mnt); lerr != nil {
+		logf("WARNUNG: Einhängepunkt %s nicht lesbar: %v", mnt, lerr)
+	} else {
+		logf("Einhängung %s: %d Einträge sichtbar, eingehängt=%v",
+			mnt, len(eintraege), istEingehaengt(mnt))
+		if len(eintraege) == 0 {
+			logf("WARNUNG: Der eingehängte Ordner ist LEER. Entweder liefert die " +
+				"ferne Freigabe nichts, oder davfs2 verwirft die Antwort " +
+				"(Zwischenspeicher: /var/cache/davfs2).")
+		}
+	}
+
 	if err := sambaFreigabeSchreiben(name, mnt, req.Guest); err != nil {
 		_ = exec.Command("umount", mnt).Run()
 		return helperproto.Response{OK: false, Error: "Samba: " + err.Error()}
@@ -174,8 +191,16 @@ func handleSmbBridgeRemove(req helperproto.Request) helperproto.Response {
 	// Reihenfolge zählt: erst Samba die Freigabe nehmen, dann aushängen. Sonst
 	// hält smbd den Einhängepunkt offen und umount scheitert.
 	_ = os.Remove(conf)
-	_ = includeZeileEntfernen(conf)
-	_, _ = exec.Command("systemctl", "reload-or-restart", "smbd").CombinedOutput()
+	// R754: ALLE Verweise auf diese Freigabe aus der Hauptdatei nehmen, nicht
+	// nur den exakt passenden. Durch die falsche Einfügestelle aus R746 können
+	// Zeilen an verschiedenen Orten stehen, auch in fremden Abschnitten – die
+	// blieben sonst liegen und machten die Konfiguration unbrauchbar.
+	_ = includeZeilenEntfernen("fundus-" + name + ".conf")
+	// Neu starten, nicht nur neu laden: Nach einer vorher fehlerhaften
+	// Konfiguration lädt smbd sie teils gar nicht erst neu ein.
+	if out, err := exec.Command("systemctl", "restart", "smbd").CombinedOutput(); err != nil {
+		logf("smbd-Neustart beim Entfernen: %s", strings.TrimSpace(string(out)))
+	}
 
 	if istEingehaengt(mnt) {
 		if out, err := exec.Command("umount", mnt).CombinedOutput(); err != nil {
@@ -306,6 +331,29 @@ func sambaFreigabeSchreiben(name, mnt string, gast bool) error {
 	// zeigte genau das: "include" mitten in [print$]. Dass die Freigabe
 	// trotzdem auftauchte, machte es nur schwerer zu sehen.
 	return includeInGlobal(zeile)
+}
+
+// includeZeilenEntfernen nimmt jede Zeile heraus, die auf diese Datei verweist
+// (R754) – unabhängig von Einrückung und Abschnitt.
+func includeZeilenEntfernen(dateiname string) error {
+	roh, err := os.ReadFile(smbConfMain)
+	if err != nil {
+		return err
+	}
+	var neu []string
+	entfernt := 0
+	for _, z := range strings.Split(string(roh), "\n") {
+		if strings.Contains(z, dateiname) && strings.Contains(z, "include") {
+			entfernt++
+			continue
+		}
+		neu = append(neu, z)
+	}
+	if entfernt == 0 {
+		return nil
+	}
+	logf("%d Verweis(e) auf %s aus smb.conf entfernt", entfernt, dateiname)
+	return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
 }
 
 func includeZeileEntfernen(conf string) error {
