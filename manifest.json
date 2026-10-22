@@ -1,8 +1,8 @@
 {
-  "version": "R772",
-  "description": "FUNDUS R772 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R772/FND-R772-update.zip",
-  "node_argon2": "f2a02acdc2760d7ed8d574720d41411fffc419c0b49d3f9f03fd7d174fb79750",
-  "published_at": "2026-10-22T09:03:11.9454426Z",
-  "signature": "0xd96a0eb0b7924750fcbb202248112254b3791b07b8dd9e998a71f418caa6fb5a6b96be76d817a12cbc9508d47ba6444cb03b26c2fc164babda81c557837f5bb31b"
+  "version": "R774",
+  "description": "FUNDUS R774 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R774/FND-R774-update.zip",
+  "node_argon2": "5dfea2906521e9c9c749fd26292d226884f6a7ec23461eb4b45ddaf2c22a8f87",
+  "published_at": "2026-10-22T12:10:03.289425Z",
+  "signature": "0x52a5cde454ebeecf398dea1951831d84a8408413765f25482524c7ae0f40ee893795b29b7ed04e3f2047c1e9e74ab7a09d8172d72f38ce0cd7df93e0afa141851b"
 }
