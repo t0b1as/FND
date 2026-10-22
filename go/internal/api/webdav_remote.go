@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"strconv"
 	"strings"
@@ -228,7 +229,18 @@ func (s *Server) davRemoteHandler(c *gin.Context) {
 
 	case "GET", "HEAD":
 		// Über den strömenden Weg aus R718 – der beherrscht Bereiche schon.
-		c.Request.URL.RawQuery = "path=" + strings.ReplaceAll(virt, " ", "%20")
+		// R758: Richtig kodieren, nicht nur Leerzeichen ersetzen.
+		//
+		// Vorher wurden ausschließlich Leerzeichen maskiert. Ein "+" im
+		// Dateinamen wird in einer Abfrage aber als LEERZEICHEN gelesen – aus
+		// "…mkv.vol217+30" wurde "…mkv.vol217 30", und die Datei war nicht
+		// auffindbar. Ein "&" hätte den Pfad sogar abgeschnitten, ein "#" den
+		// Rest verworfen.
+		//
+		// Genau das war das "Dateien werden gelistet, lassen sich aber nicht
+		// öffnen": Das Auflisten geht über PROPFIND mit dem Pfad in der
+		// Adresse, das Öffnen über diese Abfrage.
+		c.Request.URL.RawQuery = "path=" + url.QueryEscape(virt)
 		s.remoteShareStreamFile(c)
 
 	case "PUT":

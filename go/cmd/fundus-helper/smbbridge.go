@@ -355,12 +355,25 @@ func sambaFreigabeSchreiben(name, mnt string, gast bool) error {
 	}
 	// R746: Gastzugang verlangt diese globale Einstellung – ohne sie weist
 	// Samba einen unbekannten Benutzernamen ab, statt ihn als Gast zu nehmen.
-	if gast && !strings.Contains(string(haupt), "map to guest") {
-		// R753: ebenfalls in den vorhandenen [global]-Abschnitt, statt einen
-		// zweiten ans Ende zu hängen.
-		_ = globalZeile("   map to guest = Bad User", false)
-		haupt, _ = os.ReadFile(smbConfMain)
+	// R758: Diese Einstellung mit der Betriebsart MITFÜHREN, nicht nur setzen.
+	//
+	// Sie bleibt sonst dauerhaft stehen: Wer einmal eine Gastfreigabe
+	// eingerichtet hat, bekommt danach auch bei "mit Benutzer und Kennwort"
+	// noch Gastzugriff, weil ein unbekannter Benutzername weiterhin auf den
+	// Gast abgebildet wird. Die Freigabe sieht dann geschützt aus, ist es aber
+	// nicht – genau das war zu beobachten: Anzeigen ging ohne Anmeldung,
+	// obwohl mit Anmeldung angelegt.
+	//
+	// Entfernt wird sie nur, wenn KEINE andere Gastfreigabe mehr existiert –
+	// sonst nähme man der anderen den Zugang.
+	if gast {
+		if !strings.Contains(string(haupt), "map to guest") {
+			_ = globalZeile("   map to guest = Bad User", false)
+		}
+	} else if !andereGastFreigabe(name) {
+		_ = globalZeilenEntfernen("map to guest")
 	}
+	haupt, _ = os.ReadFile(smbConfMain)
 	zeile := "include = " + conf
 	if strings.Contains(string(haupt), zeile) {
 		return nil
@@ -674,4 +687,51 @@ WantedBy=multi-user.target
 	}
 	logf("systemd-Einheit angelegt: %s", pfad)
 	return nil
+}
+
+// andereGastFreigabe prüft, ob außer dieser noch eine Gastfreigabe besteht
+// (R758). Sonst würde das Entfernen von "map to guest" der anderen den
+// Zugang nehmen.
+func andereGastFreigabe(ausser string) bool {
+	eintraege, err := os.ReadDir(smbConfDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range eintraege {
+		n := e.Name()
+		if !strings.HasPrefix(n, "fundus-") || !strings.HasSuffix(n, ".conf") {
+			continue
+		}
+		if n == "fundus-"+ausser+".conf" {
+			continue
+		}
+		roh, rerr := os.ReadFile(filepath.Join(smbConfDir, n))
+		if rerr == nil && strings.Contains(string(roh), "guest ok = yes") {
+			return true
+		}
+	}
+	return false
+}
+
+// globalZeilenEntfernen nimmt jede Zeile mit diesem Schlüssel aus der
+// Hauptdatei (R758).
+func globalZeilenEntfernen(schluessel string) error {
+	roh, err := os.ReadFile(smbConfMain)
+	if err != nil {
+		return err
+	}
+	var neu []string
+	entfernt := 0
+	for _, z := range strings.Split(string(roh), "\n") {
+		if strings.Contains(z, schluessel) && strings.Contains(z, "=") {
+			entfernt++
+			continue
+		}
+		neu = append(neu, z)
+	}
+	if entfernt == 0 {
+		return nil
+	}
+	logf("%d Zeile(n) mit %q aus smb.conf entfernt", entfernt, schluessel)
+	return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
 }
