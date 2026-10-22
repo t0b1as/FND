@@ -1,8 +1,8 @@
 {
-  "version": "R764",
-  "description": "FUNDUS R764 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R764/FND-R764-update.zip",
-  "node_argon2": "190f03f44c81d8567fee58b1fca95bd4e7a0a439b1b473ae24649899c4736e9f",
-  "published_at": "2026-10-22T06:04:37.3020995Z",
-  "signature": "0x9175af5fe625cf375b4a5538c8a01fc693383d21a40a8f091213cfeebe330277109757a717e414050380c1ad48413e89f3d9b5208516feea8d79a3e9483e232d1b"
+  "version": "R767",
+  "description": "FUNDUS R767 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R767/FND-R767-update.zip",
+  "node_argon2": "02ba87e08cf3b8e08489fd5801201d2272cb2f41f928030fbff3cfc3d43d14fe",
+  "published_at": "2026-10-22T06:52:47.8816474Z",
+  "signature": "0x8554c12f9f97ae13917cf8b08ea15ae284ffe3913b35686f2627bfe87ed1851e43037de96159061d4fb52c656cb3a491412f5d3df3b55ab2b3eb27752d4d2b261b"
 }
