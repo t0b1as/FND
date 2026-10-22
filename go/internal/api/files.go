@@ -1531,6 +1531,26 @@ func (s *Server) remoteShareDl(c *gin.Context) {
 	reqData, _ := json.Marshal(req)
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
+	// R774: Vorher die Größe erfragen und zu große Dateien ABLEHNEN, statt sie
+	// abgeschnitten auszuliefern.
+	//
+	// Dieser Weg schickt die Datei als EINE P2P-Nachricht, und die ist auf
+	// 32 MB begrenzt (maxResp in p2p/node.go). Darüber kam sie stillschweigend
+	// gekürzt an – die Datei sah einfach kaputt aus, ohne jeden Hinweis. Genau
+	// das war der gemeldete Fehler: 32 MB von einer großen Datei.
+	//
+	// Eine klare Absage ist besser als stille Beschädigung. Die Oberfläche
+	// benutzt seit R774 ohnehin den strömenden Weg, der keine Grenze kennt.
+	if groesse, gerr := s.fernGroesse(ctx, peer, c.Param("share"), path); gerr == nil &&
+		groesse > 24*1024*1024 {
+		c.JSON(http.StatusRequestEntityTooLarge, gin.H{
+			"error": "Datei zu groß für diesen Weg (Grenze 32 MB je P2P-Nachricht)",
+			"size":  groesse,
+			"hint":  "Bitte /stream statt /dl verwenden – dieser Weg hat keine Grenze.",
+		})
+		return
+	}
+
 	resp, err := s.node.SendAndReceive(ctx, peer, filestore.SharesProtocol, reqData)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "Node nicht erreichbar: " + err.Error()})

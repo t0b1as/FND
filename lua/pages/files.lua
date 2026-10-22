@@ -1575,15 +1575,12 @@ async function renderShareView() {
           // R720: Bei Videos eine Abspiel-Verknüpfung anbieten. Der Node liefert
           // dabei nur die Bytes, dekodiert wird im Abspieler – damit läuft auch
           // 4K-HEVC, das kein Browser schafft.
-          ((shareDateiArt(nm) === 'video' || shareDateiArt(nm) === 'video-remux')
-            ? '<button class="btn-sm" onclick="window.open(\''+
-              url.replace('/dl/', '/playlist/')+'\')" title="In VLC oder einem anderen '+
-              'Abspieler öffnen" aria-label="Im Abspieler öffnen">\u25b6</button>'
-            : (appFuer(nm)
-              ? '<button class="btn-sm" onclick="inAppOeffnen(\''+
-                url.replace('/dl/', '/playlist/')+'\',\''+nm.replace(/'/g,"")+'\')" '+
-                'title="In der zugehörigen Anwendung öffnen" '+
-                'aria-label="In Anwendung öffnen">\u2197</button>' : ''))+
+          // R773: Abspiel-Knopf entfallen; Office-Formate bleiben.
+          (appFuer(nm)
+            ? '<button class="btn-sm" onclick="inAppOeffnen(\''+
+              url.replace('/dl/', '/playlist/')+'\',\''+nm.replace(/'/g,"")+'\')" '+
+              'title="In der zugehörigen Anwendung öffnen" '+
+              'aria-label="In Anwendung öffnen">\u2197</button>' : '')+
           '<button class="btn-sm" onclick="window.open(\''+url+'?dl=1\')" aria-label="Herunterladen">\u2193</button></div>';
       }
     });
@@ -1606,8 +1603,14 @@ function shareDateiArt(name){
   // Meine Annahme aus R715, Chromium spiele .mkv ab, wenn es als video/webm
   // ausgewiesen wird, war falsch: Chromes Zerleger verlangt auch WebM-Codecs
   // (VP9, AV1), ein übliches .mkv enthält aber H.264 oder HEVC.
+  // R773: NUR noch, was der Browser von sich aus abspielt.
+  //
+  // Matroska, AVI, TS und Ähnliches sind raus. Das Umpacken über ffmpeg und
+  // der Umweg über einen Abspieler haben sich nicht bewährt: Bei 4K-HEVC kam
+  // nur Ton, und über P2P setzt die Platte der Gegenseite die Grenze
+  // (gemessen 3 bis 5 MB/s). Eine Anzeige, die meist nicht funktioniert, ist
+  // schlechter als gar keine – solche Dateien werden jetzt heruntergeladen.
   if (/\.(mp4|webm|ogv|m4v)$/.test(n))                 return 'video';
-  if (/\.(mkv|avi|ts|m2ts|mts|mov|wmv|flv|vob|mpg|mpeg|divx)$/.test(n)) return 'video-remux';
   if (/\.(mp3|m4a|aac|wav|flac|ogg|opus)$/.test(n))   return 'ton';
   if (/\.(txt|md|log|csv|json|xml|ya?ml|ini|conf|nfo|srt|sh|lua|js|go|py)$/.test(n)) return 'text';
   if (/\.pdf$/.test(n)) return 'pdf';
@@ -1632,24 +1635,14 @@ function appFuer(name){
   return appSchema[n.slice(punkt)] || '';
 }
 // Muss der Node die Datei zum Abspielen umpacken?
-function brauchtUmpacken(name){ return shareDateiArt(name) === 'video-remux'; }
 function shareIcon(name){
-  return {bild:'\ud83d\uddbc', video:'\ud83c\udfac', 'video-remux':'\ud83c\udfac',
+  return {bild:'\ud83d\uddbc', video:'\ud83c\udfac',
           ton:'\ud83c\udfb5', text:'\ud83d\udcc4', pdf:'\ud83d\udcd5'}[shareDateiArt(name)] || '';
 }
 
-// R729: Bei Formaten, die der Browser nicht abspielt, führt der Klick auf den
-// Namen direkt zur Abspiel-Verknüpfung. Der Umweg über ein Fenster, das dann
-// nur Ton liefert oder einen Hinweis zeigt, hilft niemandem – gewollt ist der
-// Film, und der läuft im Abspieler.
+// R773: Der Umweg über eine Abspiel-Verknüpfung ist entfallen. Formate, die
+// der Browser nicht beherrscht, werden heruntergeladen statt angezeigt.
 function shareAnsehen(url, name){
-  if (shareDateiArt(name) === 'video-remux') {
-    const pl = url.indexOf('/shares/remote/') >= 0
-      ? url.replace('/dl?path=', '/playlist?path=')
-      : url.replace('/dl/', '/playlist/');
-    window.open(pl);
-    return;
-  }
   return shareAnsehenFenster(url, name);
 }
 
@@ -1674,18 +1667,13 @@ function shareAnsehenFenster(url, name){
   // durch den strömenden Fernweg: ffmpeg holt nur die Abschnitte, die es
   // gerade braucht, statt die Datei vorher vollständig zu übertragen.
   const fremd = url.indexOf('/shares/remote/') >= 0;
-  const quelle = (art === 'video-remux')
-    ? (fremd ? url.replace('/dl?path=', '/remux?path=')
-             : url.replace('/dl/', '/stream/'))
-    // R718: Auch die direkt abspielbaren Formate laufen bei fremden Freigaben
-    // über den strömenden Weg – der alte /dl schnitt bei 64 MB ab.
-    : (fremd ? url.replace('/dl?path=', '/stream?path=') : url);
+  // R773: Kein Umpacken mehr. Bei fremden Freigaben bleibt der strömende Weg,
+  // weil der alte /dl bei 64 MB abschnitt (R718) – das gilt unabhängig vom
+  // Format und auch für Bilder und PDF.
+  const quelle = fremd ? url.replace('/dl?path=', '/stream?path=') : url;
   if (art === 'bild')       inhalt = '<img src="'+quelle+'" alt="'+name+'">';
-  else if (art === 'video' || art === 'video-remux')
-    inhalt = (art === 'video-remux'
-      ? '<div class="sv-umpack" id="sv-codec">Wird unterwegs umgepackt \u2013 Springen nur über ' +
-        'den Anfang. Das Bild bleibt dabei unverändert.</div>' : '')+
-    '<video src="'+quelle+'" controls autoplay playsinline></video>'+
+  else if (art === 'video')
+    inhalt = '<video src="'+quelle+'" controls autoplay playsinline></video>'+
     '<div class="sv-hinweis" style="display:none">Wiedergabe nicht möglich. ' +
     'Wenn die Datei umgepackt werden muss, braucht der Node daf\u00fcr ffmpeg; ' +
     'bei exotischen Codecs (etwa HEVC in manchen Browsern) hilft auch das nicht. ' +
@@ -1711,35 +1699,7 @@ function shareAnsehenFenster(url, name){
     vid.style.display = 'none';
   });
   ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
-  // R719: Beim Umpacken vorher fragen, WAS drinsteckt. Umpacken reicht das
-  // Bild unverändert durch – kann der Browser den Codec nicht dekodieren (bei
-  // HEVC aus 4K-HDR-Dateien die Regel), kommt nur der Ton. Das sieht aus wie
-  // ein Fehler, obwohl alles wie vorgesehen arbeitet. Also sagen wir es.
-  if (art === 'video-remux' && !fremd) {
-    const pUrl = url.replace('/dl/', '/probe/');
-    fetch(pUrl, { credentials: 'same-origin' })
-      .then(function(r){ return r.json(); })
-      .then(function(d){
-        const el = ov.querySelector('#sv-codec');
-        if (!el || !d || !d.available) return;
-        if (d.browser_video) {
-          el.textContent = 'Wird unterwegs umgepackt (' + (d.video||'?') +
-            ') \u2013 Springen nur über den Anfang.';
-          return;
-        }
-        el.innerHTML = '<strong>Nur Ton:</strong> Das Bild liegt als ' +
-          (d.video || 'unbekanntem Codec').toUpperCase() +
-          ' vor, und das kann dieser Browser nicht dekodieren. Umpacken wechselt nur ' +
-          'das Beh\u00e4ltnis, es wandelt das Bild nicht um \u2013 und 4K umzuwandeln ' +
-          '\u00fcberfordert einen Raspberry Pi.<br><br>' +
-          '<strong>So geht es trotzdem:</strong> Der Knopf \u25b6 in der Dateiliste \u00f6ffnet ' +
-          'die Datei in VLC. Dabei kommen nur die Daten vom Node, dekodiert wird ' +
-          'auf diesem Rechner \u2013 ohne die Datei vorher herunterzuladen.';
-        el.classList.add('sv-warn');
-      })
-      .catch(function(){});
-  }
-
+  // R773: Die Codec-Vorabfrage ist entfallen – sie diente nur dem Umpacken.
   if (art === 'text') {
     // Textdateien können groß sein – nur den Anfang holen, sonst blockiert
     // eine Protokolldatei mit hunderten Megabyte den Browser.
@@ -1756,93 +1716,17 @@ function shareAnsehenFenster(url, name){
   }
 }
 
-// ── Als Windows-Laufwerk bereitstellen (R743) ────────────────────────────
+// R773: SMB-Brücke aus der Oberfläche entfernt.
 //
-// R742 hatte ich zu viel entfernt: Gemeint war nur die WebDAV-Oberfläche mit
-// Adresse, Benutzer und Kennwort zum Eintragen – die hat nie funktioniert, weil
-// Windows über HTTP keine Anmeldung herausgibt.
+// Die Kette Windows → Samba → rclone → WebDAV → P2P hat am Ende funktioniert,
+// aber der Weg dorthin ging über ein Dutzend Einzelursachen, und das Ergebnis
+// blieb zäh: Die Platte der Gegenseite liefert 3 bis 5 MB/s, daran ändert kein
+// Protokoll etwas. Für Dokumente war es brauchbar, für Filme nie.
 //
-// Die SMB-Brücke ist etwas anderes: Hier macht der Pi die Arbeit und Windows
-// sieht nur eine gewöhnliche Dateifreigabe. Der Knopf kommt deshalb zurück,
-// ohne die Zugangsdaten-Anzeige.
-//
-// WebDAV bleibt im Node bestehen – die Brücke benutzt es intern, nur eben
-// rechnerintern über 127.0.0.1, wo Windows nicht mitredet.
-async function smbBruecke(peer, shareID, anzeigeName){
-  const basis = '/api/v1/shares/remote/' + encodeURIComponent(peer) +
-                '/' + encodeURIComponent(shareID) + '/smb';
-  const ov = document.createElement('div');
-  ov.className = 'share-view-ov';
-  ov.innerHTML = '<div class="sv-box"><div class="sv-kopf">'+
-    '<strong>Als Windows-Laufwerk bereitstellen</strong>'+
-    '<button class="btn-sm" aria-label="Schlie\u00dfen">\u2717</button></div>'+
-    '<div class="sv-inhalt"><div class="dav-info">'+
-    '<p>Der Pi h\u00e4ngt die Freigabe <strong>'+escapeHtmlF(anzeigeName||shareID)+
-    '</strong> lokal ein und gibt sie im Heimnetz als gew\u00f6hnliche '+
-    'Windows-Freigabe frei. Windows spricht dann normales SMB mit dem Pi und '+
-    'merkt nichts vom P2P-Netz dahinter.</p>'+
-    '<p><label style="font-size:12px;color:var(--muted)">Zugriff '+
-    '<select id="smb-zugriff" style="margin-left:6px">'+
-    '<option value="gast">ohne Anmeldung (Heimnetz)</option>'+
-    '<option value="pw">mit Benutzer und Kennwort</option>'+
-    '</select></label></p>'+
-    '<p><button class="btn btn-primary" id="smb-ein">Einrichten</button> '+
-    '<button class="btn-sm" id="smb-aus">Entfernen</button></p>'+
-    '<p class="meta" id="smb-msg"></p>'+
-    '<p class="meta" style="color:#ffc107">Ohne Anmeldung kann <strong>jedes</strong> '+
-    'Ger\u00e4t im Netz lesen und schreiben, auch ein fremdes im WLAN. Im eigenen '+
-    'Heimnetz meist in Ordnung, in einem geteilten nicht.</p>'+
-    '<p class="meta">Die Daten laufen \u00fcber das P2P-Netz \u2013 erwarte nicht '+
-    'die Geschwindigkeit einer lokalen Platte.</p>'+
-    '</div></div></div>';
-  document.body.appendChild(ov);
-  const zu = function(){ ov.remove(); };
-  ov.querySelector('.sv-kopf button').onclick = zu;
-  ov.addEventListener('click', function(e){ if (e.target === ov) zu(); });
-
-  const msg = ov.querySelector('#smb-msg');
-  const sagen = function(t, farbe){ if (msg) { msg.textContent = t; msg.style.color = farbe || 'var(--muted)'; } };
-  const ruf = async function(methode, koerper){
-    const r = await fetch(basis, {
-      method: methode, credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: koerper ? JSON.stringify(koerper) : undefined
-    });
-    let d = {}; try { d = await r.json(); } catch(e) {}
-    if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
-    return d;
-  };
-  ov.querySelector('#smb-ein').onclick = async function(){
-    const gast = (ov.querySelector('#smb-zugriff') || {}).value !== 'pw';
-    let pw = '';
-    if (!gast) {
-      // Das Kennwort gilt für den Windows-Zugriff, nicht für Fundus.
-      pw = prompt('Kennwort f\u00fcr den Windows-Zugriff festlegen\n\n' +
-                  'Benutzername ist immer: fundussmb');
-      if (pw === null) return;
-    }
-    sagen('\u2026 wird eingerichtet, das dauert einen Moment');
-    try {
-      const d = await ruf('POST', { name: anzeigeName || shareID, smb_pass: pw, guest: gast });
-      // R746: Die fertige Adresse zeigen, nicht "<Pi-Adresse>". Der Node kennt
-      // den Rechnernamen, über den gerade zugegriffen wird.
-      const adr = d.unc || '';
-      msg.innerHTML = '\u2713 Bereit. In Windows verbinden mit:<br>'+
-        '<input type="text" readonly value="'+escapeHtmlF(adr)+'" '+
-        'style="width:100%%;margin-top:4px;font-family:ui-monospace,monospace;font-size:12px;'+
-        'padding:6px 8px;border-radius:6px;border:1px solid var(--border);'+
-        'background:var(--surface-2);color:var(--text)">'+
-        (d.smb_user ? '<br>Benutzer: <strong>'+escapeHtmlF(d.smb_user)+'</strong>'
-                    : '<br>Ohne Anmeldung \u2013 jeder im Netz kann lesen und schreiben.');
-      msg.style.color = 'var(--grn)';
-    } catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
-  };
-  ov.querySelector('#smb-aus').onclick = async function(){
-    sagen('\u2026 wird entfernt');
-    try { await ruf('DELETE'); sagen('\u2713 Entfernt.', 'var(--grn)'); }
-    catch(e) { sagen('\u2717 ' + e.message, 'var(--red)'); }
-  };
-}
+// Die Schnittstellen und der Helfer bleiben bestehen – sie stören nicht, sind
+// erprobt, und ein Rückbau im Go-Teil hat mir in R738 schon einmal den halben
+// Protokoll-Beantworter gekostet. In der Oberfläche wird nichts mehr
+// angeboten.
 
 // R742: Netzlaufwerk-Dialog (WebDAV-Zugangsdaten) entfernt.
 //
@@ -1981,8 +1865,8 @@ async function loadNetworkShares(silent) {
         const pidShort = pid.slice(0,12);
         html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
           '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" title="Node '+pidShort+'…">🌐 '+(s.name||'?')+' <span class="meta" style="font-size:10px">('+(s.files||0)+' '+(FT.files_word||'Dateien')+')</span></span>'+
-          '<span><button class="btn-sm" onclick="smbBruecke(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" '+
-          'title="Als Windows-Laufwerk bereitstellen" aria-label="Windows-Laufwerk">\ud83d\uddb4</button> '+
+          '<span>'+
+
           '<button class="btn-sm" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" aria-label="Öffnen">↗</button></span></div>';
       });
     });
@@ -2049,17 +1933,23 @@ async function renderRemoteShareView() {
           // man fremde Freigaben durchsieht. Für sie gibt es eine eigene
           // Verknüpfung, weil unsere Signatur nicht für fremde Freigabe-IDs
           // gilt; sie zeigt auf unseren eigenen Fernstrom.
-          ((shareDateiArt(nm) === 'video' || shareDateiArt(nm) === 'video-remux')
-            ? '<button class="btn-sm" onclick="window.open(\''+
-              rurl.replace('/dl?path=', '/playlist?path=')+'\')" '+
-              'title="In VLC oder einem anderen Abspieler öffnen" '+
-              'aria-label="Im Abspieler öffnen">\u25b6</button>'
-            : (appFuer(nm)
-              ? '<button class="btn-sm" onclick="inAppOeffnen(\''+
-                rurl.replace('/dl?path=', '/playlist?path=')+'\',\''+nm.replace(/'/g,"")+'\')" '+
-                'title="In der zugehörigen Anwendung öffnen" '+
-                'aria-label="In Anwendung öffnen">\u2197</button>' : ''))+
-          '<button class="btn-sm" onclick="window.open(\''+rurl+'&dl=1\')" aria-label="Herunterladen">\u2193</button></div>';
+          // R773: wie oben – kein Abspieler mehr, Office bleibt.
+          (appFuer(nm)
+            ? '<button class="btn-sm" onclick="inAppOeffnen(\''+
+              rurl.replace('/dl?path=', '/playlist?path=')+'\',\''+nm.replace(/'/g,"")+'\')" '+
+              'title="In der zugehörigen Anwendung öffnen" '+
+              'aria-label="In Anwendung öffnen">\u2197</button>' : '')+
+          // R774: Download über den STRÖMENDEN Weg, nicht über /dl.
+          //
+          // /dl schickt die ganze Datei als EINE P2P-Nachricht, und die ist auf
+          // 32 MB begrenzt (maxResp in p2p/node.go). Alles darüber kam
+          // abgeschnitten an – ohne Fehlermeldung, die Datei sah nur kaputt
+          // aus. Genau das war zu beobachten: 32 MB von einer großen Datei.
+          //
+          // /stream holt abschnittsweise (R718) und kennt keine Obergrenze.
+          '<button class="btn-sm" onclick="window.open(\''+
+          rurl.replace('/dl?path=', '/stream?path=')+'&dl=1\')" '+
+          'aria-label="Herunterladen">\u2193</button></div>';
       }
     });
     box.innerHTML = html;
