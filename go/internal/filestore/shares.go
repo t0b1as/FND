@@ -325,7 +325,25 @@ func (sm *ShareManager) Run(ctx context.Context) {
 			// bleibt der Speicherbedarf auf beiden Seiten klein und beliebig
 			// große Dateien werden übertragbar.
 			case "range":
+				// R769: Messen, wie lange das LESEN auf dieser Seite dauert.
+				//
+				// Gemessen auf der Gegenseite: 1,5 bis 3,4 Sekunden für 4 MiB,
+				// und vier gleichzeitige Anfragen bringen nur den doppelten
+				// statt den vierfachen Durchsatz. Es gibt also einen
+				// gemeinsamen Engpass – entweder hier beim Lesen von der
+				// Platte oder auf der Leitung dazwischen.
+				//
+				// Nur melden, wenn es lange dauert; sonst wäre es bei jedem
+				// Abspielen eine Zeile je Block.
+				leseStart := time.Now()
 				data, err := sm.ReadRange(r.Share, peerID, r.Path, r.Offset, r.Length)
+				if dauer := time.Since(leseStart); dauer > 300*time.Millisecond && sm.log != nil {
+					sm.log.Info("Freigabe: langsames Lesen",
+						zap.Duration("dauer", dauer),
+						zap.Int64("bytes", r.Length),
+						zap.Float64("mb_pro_sekunde",
+							float64(len(data))/dauer.Seconds()/(1<<20)))
+				}
 				if err != nil {
 					out, _ := json.Marshal(map[string]string{"error": err.Error()})
 					return out

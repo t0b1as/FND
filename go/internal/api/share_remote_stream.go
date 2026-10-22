@@ -210,7 +210,17 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 	//
 	// Jetzt laufen mehrere Anfragen gleichzeitig, geschrieben wird aber strikt
 	// der Reihe nach – sonst käme die Datei durcheinander.
-	const vorlauf = 4
+	// R769: Vorlauf von 4 auf 8.
+	//
+	// Gemessen: vier gleichzeitige Anfragen ergaben 3,3 MB/s, eine einzelne
+	// etwa 1,5 – die Parallelität bringt also etwas, aber nicht das Vierfache.
+	// Ein Teil der Zeit ist gemeinsam belegt (Leitung oder Platte), ein Teil
+	// ist reine Wartezeit, und NUR gegen den zweiten Teil hilft mehr Vorlauf.
+	//
+	// Acht Blöcke zu 4 MiB sind 32 MiB unterwegs. Das ist die Grenze dessen,
+	// was ich einem Pi mit 768 MB zumuten will, zumal mehrere Ströme
+	// gleichzeitig laufen können.
+	const vorlauf = 8
 	type block struct {
 		daten []byte
 		err   error
@@ -284,9 +294,35 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 			zap.Int64("hoechstens_gleichzeitig", atomic.LoadInt64(&gleichzeitigMax)))
 	}()
 	naechste := von
+	// R770: ANSTEIGENDE Blockgröße.
+	//
+	// Abspielen und Springen stellen entgegengesetzte Anforderungen, und das
+	// habe ich in R768 übersehen:
+	//
+	//   Abspielen braucht DURCHSATZ            → große Blöcke sind gut
+	//   Springen braucht das erste Byte SCHNELL → große Blöcke sind schlecht
+	//
+	// Mit 1 MiB kam der erste Abschnitt nach 0,42 s, mit 4 MiB nach 1,5 bis
+	// 3,4 s. Die Umstellung in R768 hat also das Abspielen verbessert und das
+	// Springen verschlechtert – gemeldet als "Springen dauert elendig lange".
+	//
+	// Deshalb klein anfangen und verdoppeln: Der erste Block ist 256 KiB und
+	// damit in Bruchteilen einer Sekunde da, danach wächst es bis 4 MiB. Jeder
+	// Sprung beginnt einen neuen Strom und damit das Ansteigen von vorn –
+	// genau dann, wenn wieder das erste Byte zählt.
+	const ersterBlock int64 = 256 << 10
+	blockGroesse := ersterBlock
+	naechsteGroesse := func() int64 {
+		g := blockGroesse
+		if blockGroesse < fernBlock {
+			blockGroesse *= 2
+		}
+		return g
+	}
+
 	// Vorlauf füllen
 	for len(kanaele) < vorlauf && naechste <= bis {
-		laenge := fernBlock
+		laenge := naechsteGroesse()
 		if rest := bis - naechste + 1; rest < laenge {
 			laenge = rest
 		}
@@ -299,7 +335,7 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 		kanaele = kanaele[1:]
 		// Nachladen, damit der Vorlauf gefüllt bleibt.
 		if naechste <= bis {
-			laenge := fernBlock
+			laenge := naechsteGroesse()
 			if rest := bis - naechste + 1; rest < laenge {
 				laenge = rest
 			}
