@@ -1,8 +1,8 @@
 {
-  "version": "R754",
-  "description": "FUNDUS R754 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R754/FND-R754-update.zip",
-  "node_argon2": "87b027be22aa281bcbb5d71af1de35b97f445b88e4a7dfd341883cb50968b978",
-  "published_at": "2026-10-22T04:09:34.0623696Z",
-  "signature": "0xe5a6f55af98e91dcbe76f15c5692227b1ab67f3827fce90a06854f307d7d01b842fede099cc89ae7fb846fd695b02d242749038626b43bc6c9ea18794d87acdd1c"
+  "version": "R755",
+  "description": "FUNDUS R755 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R755/FND-R755-update.zip",
+  "node_argon2": "9fc8635d2e337e816eab108ed12d31a7b35d66e44b7803316a224f4572076c23",
+  "published_at": "2026-10-22T04:20:27.3109327Z",
+  "signature": "0x81ee78dbeca98b27bb37c81e765fa7a8ffe73fe80c25fecc1a1640bff5b23df17d590500185f7804c04de0f14a1d88e27cc54bf0e728cb99192b04e017ac69ae1c"
 }
