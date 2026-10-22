@@ -22,6 +22,7 @@ package main
 // Laufwerk-Einhängen, wo der Mountpunkt auch nie vom Aufrufer kommt.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -96,8 +97,22 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 	// ausdrücklich anfordert – nicht ungefragt im Hintergrund.
 	if fehlend := fehlendePakete(); len(fehlend) > 0 {
 		logf("SMB-Brücke: installiere fehlende Pakete: %s", strings.Join(fehlend, " "))
-		args := append([]string{"install", "-y", "-qq"}, fehlend...)
-		cmd := exec.Command("apt-get", args...)
+		// R765: Mit Zeitbegrenzung und ohne Warten auf die Paketsperre.
+		//
+		// Ohne beides konnte dieser Aufruf ewig hängen – etwa wenn gerade
+		// unattended-upgrades läuft und dpkg gesperrt hat. Der Node brach nach
+		// fünf Minuten ab, der Helfer wartete weiter, und in der Oberfläche
+		// stand endlos "wird eingerichtet".
+		//
+		// DPkg::Lock::Timeout=120: lieber nach zwei Minuten mit einer
+		// verständlichen Meldung scheitern als schweigend hängen.
+		ctx, abbr := context.WithTimeout(context.Background(), 8*time.Minute)
+		defer abbr()
+		args := append([]string{"-o", "DPkg::Lock::Timeout=120",
+			"install", "-y", "-qq"}, fehlend...)
+		logf("installiere Pakete: %s (kann auf einem Pi einige Minuten dauern)",
+			strings.Join(fehlend, " "))
+		cmd := exec.CommandContext(ctx, "apt-get", args...)
 		// Ohne diese Vorgabe bleibt davfs2 bei seiner Rückfrage stehen und der
 		// Aufruf läuft in die Zeitüberschreitung.
 		cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive")
@@ -112,6 +127,7 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		}
 	}
 
+	logf("SMB-Brücke %s: Schritt 1/6 – Einhängepunkt vorbereiten", name)
 	mnt := filepath.Join(smbBasis, name)
 	if err := einhaengepunktVorbereiten(mnt); err != nil {
 		return helperproto.Response{OK: false, Error: "Einhängepunkt: " + err.Error()}
@@ -120,6 +136,7 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 	// Zugangsdaten für davfs2. Die Datei enthält Kennungen im Klartext und
 	// bekommt deshalb 0600; die alte Zeile für dieselbe Adresse fliegt raus,
 	// damit sich keine Altlasten ansammeln.
+	logf("SMB-Brücke %s: Schritt 2/6 – Zugangsdaten ablegen", name)
 	if err := davSecretSetzen(req.DavURL, req.DavToken); err != nil {
 		return helperproto.Response{OK: false, Error: "Zugangsdatei: " + err.Error()}
 	}
@@ -136,6 +153,7 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 
 	// R755: Ohne user_allow_other in /etc/fuse.conf lehnt FUSE die Option
 	// allow_other ab, und das Einhängen scheitert ganz.
+	logf("SMB-Brücke %s: Schritt 3/6 – FUSE-Einstellungen", name)
 	if err := fuseAllowOtherSichern(); err != nil {
 		return helperproto.Response{OK: false, Error: err.Error()}
 	}
@@ -171,6 +189,7 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 	//
 	// Eine eigene Einheit gehört niemandes Prozessgruppe an, übersteht jeden
 	// Neustart und kommt nach einem Systemstart von selbst wieder.
+	logf("SMB-Brücke %s: Schritt 4/6 – einhängen", name)
 	if !istEingehaengt(mnt) {
 		// R762: rclone bevorzugen – es reicht Lesevorgänge durch, davfs2 lädt
 		// erst die ganze Datei. Nur wenn rclone fehlt, der alte Weg.
@@ -193,7 +212,7 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 			}
 			einheit = davEinheitName(mnt)
 		}
-		if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
+		if out, err := lauf(30*time.Second, "systemctl", "daemon-reload"); err != nil {
 			return helperproto.Response{OK: false,
 				Error: "daemon-reload: " + strings.TrimSpace(string(out))}
 		}
@@ -203,13 +222,12 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		// nie ausgewertet: Sie läuft dann bis zum nächsten Systemstart und ist
 		// danach weg. Genau das Muster, das wir mehrfach gesehen haben – der
 		// Ordner war nach einem Neustart wieder leer.
-		if out, err := exec.Command("systemctl", "enable", einheit).CombinedOutput(); err != nil {
+		if out, err := lauf(30*time.Second, "systemctl", "enable", einheit); err != nil {
 			logf("enable %s: %s", einheit, strings.TrimSpace(string(out)))
 		}
-		if out, err := exec.Command("systemctl", "start", einheit).CombinedOutput(); err != nil {
+		if out, err := lauf(90*time.Second, "systemctl", "start", einheit); err != nil {
 			// Die Einheit nennt den Grund genauer als systemctl selbst.
-			detail, _ := exec.Command("systemctl", "status", einheit, "--no-pager",
-				"-n", "10").CombinedOutput()
+			detail, _ := lauf(15*time.Second, "systemctl", "status", einheit, "--no-pager", "-n", "10")
 			return helperproto.Response{OK: false, Error: "Einhängen fehlgeschlagen: " +
 				strings.TrimSpace(string(out)) + " | " +
 				letzteZeilen(string(detail), 4)}
@@ -223,8 +241,7 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		// dass etwas eingehängt ist, läuft Samba sonst auf ein leeres
 		// Verzeichnis – und das sieht für den Nutzer wie ein Samba-Fehler aus.
 		if !istEingehaengt(mnt) {
-			detail, _ := exec.Command("systemctl", "status", einheit,
-				"--no-pager", "-n", "15").CombinedOutput()
+			detail, _ := lauf(15*time.Second, "systemctl", "status", einheit, "--no-pager", "-n", "15")
 			return helperproto.Response{OK: false,
 				Error: "Einhängen gemeldet, aber nichts eingehängt: " +
 					letzteZeilen(string(detail), 5)}
@@ -248,8 +265,9 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		}
 	}
 
+	logf("SMB-Brücke %s: Schritt 5/6 – Samba-Freigabe", name)
 	if err := sambaFreigabeSchreiben(name, mnt, req.Guest); err != nil {
-		_ = exec.Command("umount", mnt).Run()
+		_, _ = lauf(20*time.Second, "umount", mnt)
 		return helperproto.Response{OK: false, Error: "Samba: " + err.Error()}
 	}
 	if !req.Guest && req.SmbPass != "" {
@@ -257,7 +275,8 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 			return helperproto.Response{OK: false, Error: "Samba-Benutzer: " + err.Error()}
 		}
 	}
-	if out, err := exec.Command("systemctl", "reload-or-restart", "smbd").CombinedOutput(); err != nil {
+	logf("SMB-Brücke %s: Schritt 6/6 – smbd neu laden", name)
+	if out, err := lauf(60*time.Second, "systemctl", "reload-or-restart", "smbd"); err != nil {
 		return helperproto.Response{OK: false,
 			Error: "smbd neu laden: " + strings.TrimSpace(string(out))}
 	}
@@ -284,7 +303,7 @@ func handleSmbBridgeRemove(req helperproto.Request) helperproto.Response {
 	_ = includeZeilenEntfernen("fundus-" + name + ".conf")
 	// Neu starten, nicht nur neu laden: Nach einer vorher fehlerhaften
 	// Konfiguration lädt smbd sie teils gar nicht erst neu ein.
-	if out, err := exec.Command("systemctl", "restart", "smbd").CombinedOutput(); err != nil {
+	if out, err := lauf(60*time.Second, "systemctl", "restart", "smbd"); err != nil {
 		logf("smbd-Neustart beim Entfernen: %s", strings.TrimSpace(string(out)))
 	}
 
@@ -295,16 +314,25 @@ func handleSmbBridgeRemove(req helperproto.Request) helperproto.Response {
 		"fundus-rclone-" + name + ".service",
 		davEinheitName(mnt),
 	} {
-		_, _ = exec.Command("systemctl", "disable", einheit).CombinedOutput()
-		_, _ = exec.Command("systemctl", "stop", einheit).CombinedOutput()
+		_, _ = lauf(30*time.Second, "systemctl", "disable", einheit)
+		_, _ = lauf(60*time.Second, "systemctl", "stop", einheit)
 		_ = os.Remove(filepath.Join("/etc/systemd/system", einheit))
 	}
 	_ = os.Remove("/etc/fundus/rclone-" + name + ".conf")
-	_, _ = exec.Command("systemctl", "daemon-reload").CombinedOutput()
+	_, _ = lauf(30*time.Second, "systemctl", "daemon-reload")
+	// R766: Zuerst VERZÖGERT aushängen. Das löst die Einhängung sofort aus dem
+	// Verzeichnisbaum und wartet nicht darauf, dass die Gegenstelle antwortet –
+	// bei einer hängenden Verbindung ist das der Unterschied zwischen "sofort
+	// erledigt" und "blockiert, bis die Frist abläuft".
 	if istEingehaengt(mnt) {
-		if out, err := exec.Command("umount", mnt).CombinedOutput(); err != nil {
+		if _, err := lauf(20*time.Second, "umount", "-l", mnt); err == nil {
+			logf("verzögert ausgehängt: %s", mnt)
+		}
+	}
+	if istEingehaengt(mnt) {
+		if out, err := lauf(20*time.Second, "umount", mnt); err != nil {
 			// Zweiter Versuch: verzögert aushängen, falls noch jemand liest.
-			if out2, err2 := exec.Command("umount", "-l", mnt).CombinedOutput(); err2 != nil {
+			if out2, err2 := lauf(20*time.Second, "umount", "-l", mnt); err2 != nil {
 				return helperproto.Response{OK: false, Error: "Aushängen: " +
 					strings.TrimSpace(string(out)) + " / " + strings.TrimSpace(string(out2))}
 			}
@@ -351,7 +379,9 @@ func handleSmbBridgeList() helperproto.Response {
 // ── Hilfen ────────────────────────────────────────────────────────────────
 
 func istEingehaengt(pfad string) bool {
-	return exec.Command("mountpoint", "-q", pfad).Run() == nil
+	// R766: Auch das kann auf einer hängenden Einhängung blockieren.
+	_, err := lauf(10*time.Second, "mountpoint", "-q", pfad)
+	return err == nil
 }
 
 func davSecretSetzen(url, token string) error {
@@ -486,20 +516,26 @@ func includeZeileEntfernen(conf string) error {
 }
 
 func sambaBenutzerSetzen(pass string) error {
-	if exec.Command("id", "-u", smbBenutzer).Run() != nil {
-		if out, err := exec.Command("useradd", "-M", "-s", "/usr/sbin/nologin",
-			smbBenutzer).CombinedOutput(); err != nil {
-			return fmt.Errorf("useradd: %s", strings.TrimSpace(string(out)))
+	if _, err := lauf(10*time.Second, "id", "-u", smbBenutzer); err != nil {
+		if out, err := lauf(30*time.Second, "useradd", "-M", "-s",
+			"/usr/sbin/nologin", smbBenutzer); err != nil {
+			return fmt.Errorf("useradd: %s", out)
 		}
 	}
 	// Das Kennwort geht über die Standardeingabe, nicht als Befehlsargument:
 	// Argumente stehen in der Prozessliste und wären für jeden sichtbar.
-	cmd := exec.Command("smbpasswd", "-s", "-a", smbBenutzer)
+	// R766: Eigene Frist, weil dieser Aufruf eine Standardeingabe braucht und
+	// deshalb nicht über lauf() geht. smbpasswd kann auf eine Rückfrage warten,
+	// wenn "-s" einmal nicht greift.
+	sctx, sabbr := context.WithTimeout(context.Background(), 30*time.Second)
+	defer sabbr()
+	cmd := exec.CommandContext(sctx, "smbpasswd", "-s", "-a", smbBenutzer)
 	cmd.Stdin = strings.NewReader(pass + "\n" + pass + "\n")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("smbpasswd: %s", strings.TrimSpace(string(out)))
 	}
-	return exec.Command("smbpasswd", "-e", smbBenutzer).Run()
+	_, err := lauf(20*time.Second, "smbpasswd", "-e", smbBenutzer)
+	return err
 }
 
 // fehlendePakete prüft, welche der benötigten Programme fehlen (R740).
@@ -729,6 +765,26 @@ func davEinheitName(mnt string) string {
 	return b.String() + ".mount"
 }
 
+// lauf führt einen Befehl mit Zeitbegrenzung aus (R766).
+//
+// KEIN Aufruf darf unbegrenzt warten. Genau daran hing das Entfernen: Ein
+// "umount" auf eine nicht mehr antwortende Einhängung kehrt nie zurück, und
+// alles dahinter – Samba neu starten, aufräumen – kam nie dran. Nach außen sah
+// das aus wie "der Helfer hängt".
+//
+// Die Frist ist großzügig bemessen; sie soll Hängenbleiben verhindern, nicht
+// langsame Vorgänge abwürgen.
+func lauf(frist time.Duration, name string, args ...string) (string, error) {
+	ctx, abbr := context.WithTimeout(context.Background(), frist)
+	defer abbr()
+	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		return strings.TrimSpace(string(out)),
+			fmt.Errorf("%s hat nach %s nicht geantwortet", name, frist)
+	}
+	return strings.TrimSpace(string(out)), err
+}
+
 // rcloneVorhanden sagt, ob rclone benutzbar ist (R762).
 func rcloneVorhanden() bool {
 	if _, err := exec.LookPath("rclone"); err == nil {
@@ -744,11 +800,11 @@ func rcloneVorhanden() bool {
 // es zu benutzen. Das ist keine Verschlüsselung, nur eine Umkodierung, deshalb
 // bekommt die Datei trotzdem 0600.
 func rcloneKonfigSchreiben(name, davURL, token string) (string, error) {
-	out, err := exec.Command("rclone", "obscure", token).Output()
+	out, err := lauf(20*time.Second, "rclone", "obscure", token)
 	if err != nil {
 		return "", fmt.Errorf("rclone obscure: %v", err)
 	}
-	verschleiert := strings.TrimSpace(string(out))
+	verschleiert := out
 
 	dir := "/etc/fundus"
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -948,7 +1004,7 @@ func einhaengepunktVorbereiten(mnt string) error {
 		logf("Einhängepunkt %s nicht abfragbar (%v) – hänge aus", mnt, err)
 		for _, args := range [][]string{{"umount", mnt}, {"umount", "-l", mnt},
 			{"fusermount", "-u", mnt}, {"fusermount", "-uz", mnt}} {
-			if out, uerr := exec.Command(args[0], args[1:]...).CombinedOutput(); uerr == nil {
+			if out, uerr := lauf(20*time.Second, args[0], args[1:]...); uerr == nil {
 				logf("ausgehängt mit %v", args)
 				break
 			} else {

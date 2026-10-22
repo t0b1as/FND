@@ -151,6 +151,21 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 	// lässt sich ohne das nicht einordnen: Fragt VLC überhaupt einen Bereich
 	// an, oder liefert etwas dazwischen die Kopfzeile nicht durch?
 
+	// R767: Sprünge protokollieren, fortlaufendes Lesen nicht.
+	//
+	// In R738 hatte ich die Zeile ganz entfernt, weil sie bei jedem Abspielen
+	// dutzende Male feuerte. Das war zu grob: Ein SPRUNG ist etwas anderes als
+	// fortlaufendes Lesen, und genau darum geht es jetzt ("kurze Sprünge gehen,
+	// große nicht"). Ein Strom, der nicht bei 0 beginnt, ist ein Sprung – und
+	// davon gibt es wenige.
+	if teilweise && von > 0 && s.log != nil {
+		s.log.Info("Fernstrom: Sprung",
+			zap.Int64("ab_byte", von),
+			zap.Int64("gesamt", gesamt),
+			zap.Float64("anteil_prozent", float64(von)/float64(gesamt)*100),
+			zap.String("range_kopfzeile", c.GetHeader("Range")))
+	}
+
 	art := "inline"
 	if c.Query("dl") != "" {
 		art = "attachment"
@@ -269,7 +284,17 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 			return
 		}
 		if len(data) == 0 {
+			if s.log != nil {
+				s.log.Warn("Fernstrom: leerer Abschnitt – Gegenstelle liefert nichts",
+					zap.Int64("ab_byte", pos), zap.Int64("gesamt", gesamt))
+			}
 			return // Dateiende früher als erwartet
+		}
+		if pos == von && von > 0 && s.log != nil {
+			// Der erste Abschnitt nach einem Sprung entscheidet, ob er trägt.
+			s.log.Info("Fernstrom: erster Abschnitt nach Sprung geliefert",
+				zap.Int64("ab_byte", von), zap.Int("bytes", len(data)),
+				zap.Duration("nach", time.Since(beginn)))
 		}
 		if _, werr := c.Writer.Write(data); werr != nil {
 			return // Browser hat abgebrochen (Sprung, Fenster zu)
