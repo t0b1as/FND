@@ -716,6 +716,22 @@ func (s *Server) driveChangeStatus(c *gin.Context, aktion string, fn func(*drive
 	case "cancelled":
 		s.driveNotify(r, "zurückgezogen")
 	}
+	// R780: Erledigtes SOFORT entfernen, nicht erst beim nächsten Durchlauf.
+	//
+	// Die Benachrichtigung geht vorher raus – sie trägt die Daten bereits in
+	// sich, und die Antwort unten ebenfalls. Danach hat der Eintrag keinen
+	// Zweck mehr.
+	//
+	// Nur eigene Einträge: Ein Löschvermerk für ein fremdes Gesuch würde beim
+	// Abgleich ohnehin verworfen (dieselbe Regel wie im Aufräumdurchlauf).
+	if r.Status == "done" || r.Status == "cancelled" {
+		if rec.OwnerID == "" || rec.OwnerID == me {
+			if err := s.store.Delete(storage.RecordRide, rec.ID); err == nil && s.log != nil {
+				s.log.Info("Fahrt nach Abschluss entfernt",
+					zap.String("id", rec.ID), zap.String("status", r.Status))
+			}
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
 }
 
@@ -1093,7 +1109,18 @@ func (s *Server) schaetzePreis(start DriveStop, km float64) (float64, string, in
 // Sie sind dann erledigt; was bleiben muss – die Bewertung und, bei Zahlung
 // über die Chain, der Zahlungsvorgang selbst – liegt ohnehin woanders.
 
-const driveKeepDone = 24 * time.Hour
+// R780: Keine Aufbewahrung mehr.
+//
+// Erledigte und zurückgezogene Fahrten standen 24 Stunden in der Liste herum.
+// Sie sind für niemanden mehr von Nutzen: Der Kunde hat seine Fahrt, der
+// Fahrer auch, und in der Übersicht verdecken sie die offenen Gesuche.
+//
+// Null bedeutet: beim nächsten Durchlauf weg. Der Durchlauf bleibt bestehen,
+// weil er auch Altbestände erwischt und Fahrten, deren Statuswechsel auf einem
+// anderen Node stattfand.
+// Typisiert, nicht blank 0: driveKeepDone.String() unten braucht eine
+// time.Duration – eine untypisierte Konstante hat keine Methoden.
+const driveKeepDone time.Duration = 0
 
 func (s *Server) driveCleanupLoop() {
 	defer func() {
