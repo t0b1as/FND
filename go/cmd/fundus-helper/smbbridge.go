@@ -109,7 +109,7 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 	}
 
 	mnt := filepath.Join(smbBasis, name)
-	if err := os.MkdirAll(mnt, 0o775); err != nil {
+	if err := einhaengepunktVorbereiten(mnt); err != nil {
 		return helperproto.Response{OK: false, Error: "Einhängepunkt: " + err.Error()}
 	}
 
@@ -734,4 +734,52 @@ func globalZeilenEntfernen(schluessel string) error {
 	}
 	logf("%d Zeile(n) mit %q aus smb.conf entfernt", entfernt, schluessel)
 	return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
+}
+
+// einhaengepunktVorbereiten sorgt für ein benutzbares Verzeichnis (R759).
+//
+// "mkdir …: file exists" von MkdirAll sieht nach einem harmlosen schon-da aus,
+// ist es aber NICHT: MkdirAll gibt bei einem vorhandenen Verzeichnis nichts
+// zurück. Die Meldung kommt nur, wenn der Pfad existiert, sich aber nicht
+// abfragen lässt – und das ist das Kennzeichen einer ABGERISSENEN
+// FUSE-Einhängung ("Transport endpoint is not connected").
+//
+// Dann hilft kein Anlegen, sondern nur Aushängen. Danach ist das Verzeichnis
+// wieder ein gewöhnliches und wird weiterverwendet, statt einen neuen Namen zu
+// erfinden.
+func einhaengepunktVorbereiten(mnt string) error {
+	if st, err := os.Stat(mnt); err == nil && !st.IsDir() {
+		// Zweite Quelle von "file exists": An der Stelle liegt eine DATEI.
+		// Nicht stillschweigend löschen – hier unter /srv/fundus gehört nichts
+		// hin, was wir nicht selbst angelegt haben, aber wegwerfen tut man
+		// fremde Daten nicht.
+		return fmt.Errorf("%s ist eine Datei, kein Verzeichnis – bitte "+
+			"wegräumen oder einen anderen Freigabenamen wählen", mnt)
+	}
+	if _, err := os.Stat(mnt); err != nil {
+		if os.IsNotExist(err) {
+			return os.MkdirAll(mnt, 0o775)
+		}
+		// Vorhanden, aber nicht abfragbar → abgerissene Einhängung lösen.
+		logf("Einhängepunkt %s nicht abfragbar (%v) – hänge aus", mnt, err)
+		for _, args := range [][]string{{"umount", mnt}, {"umount", "-l", mnt},
+			{"fusermount", "-u", mnt}, {"fusermount", "-uz", mnt}} {
+			if out, uerr := exec.Command(args[0], args[1:]...).CombinedOutput(); uerr == nil {
+				logf("ausgehängt mit %v", args)
+				break
+			} else {
+				logf("%v: %s", args, strings.TrimSpace(string(out)))
+			}
+		}
+		// Kennungsdatei und Zwischenspeicher gehören mit weg, sonst scheitert
+		// das folgende Einhängen daran (R748, R752).
+		_ = davPidAufraeumen(mnt)
+		if _, err2 := os.Stat(mnt); err2 != nil && !os.IsNotExist(err2) {
+			return fmt.Errorf("%s bleibt unbenutzbar: %v – bitte einmal "+
+				"'sudo umount -l %s' ausführen", mnt, err2, mnt)
+		}
+		return os.MkdirAll(mnt, 0o775)
+	}
+	// Vorhanden und abfragbar: nichts zu tun, wird weiterverwendet.
+	return nil
 }
