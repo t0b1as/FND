@@ -1660,7 +1660,9 @@ func mimeFromName(name string) string {
 	}
 	switch filepath.Ext(n) {
 	case ".mkv":
-		return "video/webm" // Matroska ≈ WebM: Chrome/Edge spielen H.264/VP9-MKV so direkt
+		// R771: siehe freigabeTypen – als webm ausgewiesen findet VLC die
+		// Sprungtabelle nicht.
+		return "video/x-matroska"
 	case ".mov":
 		return "video/quicktime"
 	case ".m4v", ".mp4":
@@ -1678,7 +1680,10 @@ func mimeFromName(name string) string {
 }
 
 // browserMime: Typen, die der Browser als Video/Audio erkennen soll.
-// video/x-matroska lehnen Browser ab – als video/webm spielen sie MKV direkt.
+//
+// R771: Der frühere Hinweis, Browser spielten MKV als video/webm direkt, war
+// falsch – siehe R716. Für Browser gibt es das Umpacken, und an den Abspieler
+// geht der Typ ehrlich als Matroska.
 // freigabeMime bestimmt den Inhaltstyp einer Datei aus einer Freigabe (R715).
 //
 // mime.TypeByExtension stützt sich auf die mime.types des Systems und liefert
@@ -1686,7 +1691,19 @@ func mimeFromName(name string) string {
 // Deshalb eine eigene Tabelle für die Fälle, die hier zählen; alles andere
 // weiterhin über das System.
 var freigabeTypen = map[string]string{
-	".mkv":  "video/webm", // Matroska: als webm ausgewiesen spielt Chromium es ab
+	// R771: Matroska ehrlich als Matroska melden.
+	//
+	// Stand hier bis eben als video/webm. Das war in R715 dafür gedacht,
+	// Chromium zum Abspielen zu bewegen – und hat sich in R716 als FALSCH
+	// erwiesen: Chrome spielt Matroska auch so nicht, weil sein Zerleger
+	// WebM-Codecs verlangt. Deshalb gibt es seitdem das Umpacken.
+	//
+	// Die Falschauskunft blieb trotzdem stehen, und sie schadet: VLC wählt
+	// seinen Zerleger nach dem Inhaltstyp. Ein WebM-Zerleger sucht die
+	// Sprungtabelle an anderer Stelle als ein Matroska-Zerleger – und findet
+	// sie nicht. Dann bleibt nur Vorwärtslesen, und genau so fühlte es sich
+	// an ("als ob VLC bis zur Zielstelle herunterlädt").
+	".mkv":  "video/x-matroska",
 	".mp4":  "video/mp4",
 	".m4v":  "video/mp4",
 	".webm": "video/webm",
