@@ -29,6 +29,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/fundus/node/internal/helperproto"
 )
@@ -141,24 +142,42 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		return helperproto.Response{OK: false, Error: err.Error()}
 	}
 
+	// R756: Einhängen über eine systemd-Einheit statt als Kindprozess.
+	//
+	// DAS war die eigentliche Ursache des leeren Ordners. mount.davfs läuft als
+	// Hintergrundvorgang weiter und landete in der Prozessgruppe des Helfers.
+	// Beim Neustart des Helfer-Dienstes – und der passiert bei JEDEM Update –
+	// beendet systemd die ganze Gruppe. Im Protokoll stand das längst:
+	//
+	//   mount.davfs: pid 40635, got signal 15
+	//   mount.davfs: unmounting /srv/fundus/NZB
+	//
+	// und zwar genau beim Stoppen des Dienstes. Die Einhängung bestand also nur
+	// bis zum nächsten Neustart, danach lieferte Samba ein leeres Verzeichnis.
+	//
+	// Eine eigene Einheit gehört niemandes Prozessgruppe an, übersteht jeden
+	// Neustart und kommt nach einem Systemstart von selbst wieder.
 	if !istEingehaengt(mnt) {
-		cmd := exec.Command("mount", "-t", "davfs", "-o",
-			// R755: allow_other ist ENTSCHEIDEND.
-			//
-			// FUSE-Einhängungen sind standardmäßig nur für den einhängenden
-			// Vorgang sichtbar – jeder andere Prozess, auch root, sieht ein
-			// LEERES Verzeichnis. Genau das war der Fall: Der Helfer zählte 17
-			// Einträge, Samba lieferte nichts, und beide laufen als root.
-			//
-			// Von außen sieht das aus wie ein Samba-Problem, ist aber eine
-			// Eigenheit von FUSE. Die Option verlangt zusätzlich
-			// user_allow_other in /etc/fuse.conf – darum kümmert sich
-			// fuseAllowOtherSichern() unten.
-			"uid=root,gid=root,file_mode=0664,dir_mode=0775,use_locks=0,allow_other",
-			req.DavURL, mnt)
-		if out, err := cmd.CombinedOutput(); err != nil {
+		if err := davEinheitSchreiben(name, mnt, req.DavURL); err != nil {
+			return helperproto.Response{OK: false, Error: err.Error()}
+		}
+		einheit := davEinheitName(mnt)
+		if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
 			return helperproto.Response{OK: false,
-				Error: "Einhängen fehlgeschlagen: " + strings.TrimSpace(string(out))}
+				Error: "daemon-reload: " + strings.TrimSpace(string(out))}
+		}
+		if out, err := exec.Command("systemctl", "start", einheit).CombinedOutput(); err != nil {
+			// Die Einheit nennt den Grund genauer als systemctl selbst.
+			detail, _ := exec.Command("systemctl", "status", einheit, "--no-pager",
+				"-n", "10").CombinedOutput()
+			return helperproto.Response{OK: false, Error: "Einhängen fehlgeschlagen: " +
+				strings.TrimSpace(string(out)) + " | " +
+				letzteZeilen(string(detail), 4)}
+		}
+		// Nach dem Start kurz nachsehen: systemd meldet Erfolg, sobald mount
+		// zurückkehrt, der Einhängepunkt ist einen Augenblick später bereit.
+		for i := 0; i < 20 && !istEingehaengt(mnt); i++ {
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -219,6 +238,11 @@ func handleSmbBridgeRemove(req helperproto.Request) helperproto.Response {
 		logf("smbd-Neustart beim Entfernen: %s", strings.TrimSpace(string(out)))
 	}
 
+	// R756: Erst die Einheit stoppen, dann notfalls von Hand aushängen.
+	einheit := davEinheitName(mnt)
+	_, _ = exec.Command("systemctl", "stop", einheit).CombinedOutput()
+	_ = os.Remove(filepath.Join("/etc/systemd/system", einheit))
+	_, _ = exec.Command("systemctl", "daemon-reload").CombinedOutput()
 	if istEingehaengt(mnt) {
 		if out, err := exec.Command("umount", mnt).CombinedOutput(); err != nil {
 			// Zweiter Versuch: verzögert aushängen, falls noch jemand liest.
@@ -568,5 +592,64 @@ func fuseAllowOtherSichern() error {
 		return fmt.Errorf("%s nicht schreibbar: %v", pfad, werr)
 	}
 	logf("user_allow_other in %s eingetragen", pfad)
+	return nil
+}
+
+// davEinheitName bildet den systemd-Einheitennamen aus dem Pfad (R756).
+//
+// systemd leitet ihn fest aus dem Einhängepunkt ab: /srv/fundus/NZB wird zu
+// srv-fundus-NZB.mount. Ein anderer Name würde nicht angenommen.
+func davEinheitName(mnt string) string {
+	// R756: Bindestriche müssen als \x2d maskiert werden – sie sind bei systemd
+	// das Trennzeichen für Pfadebenen. Ohne das passt der Name bei einer
+	// Freigabe wie "My-Passport" nicht zum Pfad, und systemd weist sie ab.
+	// Gegen `systemd-escape --suffix=mount --path` geprüft.
+	n := strings.TrimPrefix(strings.TrimSuffix(mnt, "/"), "/")
+	var b strings.Builder
+	for i := 0; i < len(n); i++ {
+		c := n[i]
+		switch {
+		case c == '/':
+			b.WriteByte('-')
+		case c == '-':
+			b.WriteString(`\x2d`)
+		case c == '.' && i == 0:
+			b.WriteString(`\x2e`) // führender Punkt ebenfalls
+		case (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '.':
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, `\x%02x`, c)
+		}
+	}
+	return b.String() + ".mount"
+}
+
+// davEinheitSchreiben legt die systemd-Mount-Einheit an (R756).
+func davEinheitSchreiben(name, mnt, davURL string) error {
+	inhalt := fmt.Sprintf(`[Unit]
+Description=Fundus-Freigabe %s (WebDAV über P2P)
+# Der Node muss laufen: Er bedient die WebDAV-Adresse, die hier eingehängt wird.
+After=network-online.target fundus-node.service
+Wants=network-online.target
+
+[Mount]
+What=%s
+Where=%s
+Type=davfs
+# allow_other: sonst sieht NUR der einhängende Vorgang den Inhalt, und Samba
+# lieferte ein leeres Verzeichnis (R755).
+# use_locks=0: unser WebDAV bestätigt Sperren, setzt sie aber nicht durch.
+Options=uid=root,gid=root,file_mode=0664,dir_mode=0775,use_locks=0,allow_other,_netdev
+TimeoutSec=60
+
+[Install]
+WantedBy=multi-user.target
+`, name, davURL, mnt)
+	pfad := filepath.Join("/etc/systemd/system", davEinheitName(mnt))
+	if err := os.WriteFile(pfad, []byte(inhalt), 0o644); err != nil {
+		return fmt.Errorf("Einheit %s nicht schreibbar: %v", pfad, err)
+	}
+	logf("systemd-Einheit angelegt: %s", pfad)
 	return nil
 }
