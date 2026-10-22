@@ -1,8 +1,8 @@
 {
-  "version": "R779",
-  "description": "FUNDUS R779 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R779/FND-R779-update.zip",
-  "node_argon2": "92be706b2bd620d6c749f4291085f6acfb34c8172bcabe01554ca0846819361f",
-  "published_at": "2026-10-22T13:37:18.4976516Z",
-  "signature": "0xdac26ee99a0029a25babe1b3af323f0cd66ab0c7b408385e12b4920db7c0827f5e12a57a23ef643253a735a4f1bcd902e28df8f35f2359b3e06f80c8d27831f91c"
+  "version": "R780",
+  "description": "FUNDUS R780 - fileshare",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R780/FND-R780-update.zip",
+  "node_argon2": "d1991a7f8e347c50a3db7186f41f81f79a7a24ed4ec12f406be543f8a830f7ff",
+  "published_at": "2026-10-22T13:55:56.2886468Z",
+  "signature": "0x5423eb8f30c7bcf98204e71b19620fdba30add5e1007558d10467e593279ab3e789743ff25359230d192afca8d63f440e7bdac48f07d5ce650097b8e26fffb341c"
 }
