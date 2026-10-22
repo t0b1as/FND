@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -37,7 +38,20 @@ import (
 // fernBlock: Größe eines über P2P geholten Abschnitts. 1 MiB ist ein
 // Kompromiss: groß genug, dass der Netzaufwand je Block nicht ins Gewicht
 // fällt, klein genug für einen Pi mit wenig Speicher.
-const fernBlock int64 = 1 << 20
+// R768: 4 MiB statt 1 MiB.
+//
+// Gemessen: 0,42 Sekunden für einen 1-MiB-Block. Davon ist fast alles
+// Wartezeit – Stromaufbau über libp2p, Hin- und Rückweg, Lesen auf der
+// Gegenseite. Die Übertragung selbst fällt kaum ins Gewicht.
+//
+// Bei gleicher Wartezeit liefert ein viermal größerer Block die vierfache
+// Menge. 4 MiB ist dabei die Obergrenze einer einzelnen Anfrage
+// (MaxShareRange), also das Maximum ohne Protokolländerung.
+//
+// Mit vier gleichzeitigen Anfragen sind damit 16 MiB unterwegs. Auf einem Pi
+// mit 768 MB ist das vertretbar, weil jeder Block nach dem Schreiben sofort
+// freigegeben wird.
+const fernBlock int64 = 4 << 20
 
 // fernFrage stellt eine Anfrage an den Besitzer-Node.
 func (s *Server) fernFrage(ctx context.Context, peer string, req any) ([]byte, error) {
@@ -202,13 +216,28 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 		err   error
 	}
 	kanaele := make([]chan block, 0, vorlauf)
+	// R768: Mitzählen, wie lange ein Block WIRKLICH braucht und wie viele
+	// gleichzeitig unterwegs sind. Das Modell sagt 9,5 MB/s voraus, gemessen
+	// wurden 2,0 – einer der beiden Werte stimmt nicht, und raten hilft nicht.
+	var blockAnz int64
+	var blockNanos int64
+	var gleichzeitigMax int64
+	var gleichzeitig int64
 	holen := func(off, laenge int64) chan block {
 		ch := make(chan block, 1)
+		atomic.AddInt64(&gleichzeitig, 1)
+		if g := atomic.LoadInt64(&gleichzeitig); g > atomic.LoadInt64(&gleichzeitigMax) {
+			atomic.StoreInt64(&gleichzeitigMax, g)
+		}
 		go func() {
+			start := time.Now()
 			data, err := s.fernFrage(c.Request.Context(), peer, map[string]any{
 				"type": "range", "share": share, "path": pfad,
 				"off": off, "len": laenge,
 			})
+			atomic.AddInt64(&blockNanos, int64(time.Since(start)))
+			atomic.AddInt64(&blockAnz, 1)
+			atomic.AddInt64(&gleichzeitig, -1)
 			ch <- block{daten: data, err: err}
 		}()
 		return ch
@@ -243,7 +272,16 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 			zap.Int64("angefordert_bytes", bis-von+1),
 			zap.Duration("dauer", dauer),
 			zap.Float64("mb_pro_sekunde", mbs),
-			zap.Bool("vollstaendig", pos > bis))
+			zap.Bool("vollstaendig", pos > bis),
+			zap.Int64("bloecke", atomic.LoadInt64(&blockAnz)),
+			zap.Float64("ms_je_block", func() float64 {
+				n := atomic.LoadInt64(&blockAnz)
+				if n == 0 {
+					return 0
+				}
+				return float64(atomic.LoadInt64(&blockNanos)) / float64(n) / 1e6
+			}()),
+			zap.Int64("hoechstens_gleichzeitig", atomic.LoadInt64(&gleichzeitigMax)))
 	}()
 	naechste := von
 	// Vorlauf füllen
