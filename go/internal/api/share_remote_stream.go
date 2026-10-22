@@ -393,59 +393,8 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 
 }
 
-// GET /api/v1/shares/remote/:peer/:share/remux?path=…&t=Sekunde
-//
-// Umpacken einer FREMDEN Freigabe (R718).
-//
-// Das geht erst jetzt, und zwar wegen des strömenden Weges oben: ffmpeg
-// bekommt als Eingang die ORTSEIGENE Adresse des Fernstroms. Dadurch holt es
-// nur die Abschnitte, die es gerade braucht, statt dass die Datei vorher
-// vollständig übertragen werden müsste. Genau so arbeitet das Umpacken der
-// Chunk-Dateien schon lange (media_stream.go).
-//
-// Der Film wird dabei weiterhin NICHT umgewandelt – nur das Behältnis wechselt,
-// und der Ton falls nötig. Die Last liegt beim fragenden Node; der Besitzer
-// liefert bloß Bytes.
-func (s *Server) remoteShareRemux(c *gin.Context) {
-	if s.node == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "P2P nicht aktiv"})
-		return
-	}
-	if !ffmpegAvailable() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "Umpacken nicht möglich: ffmpeg ist auf diesem Node nicht installiert."})
-		return
-	}
-	peer, share, pfad := c.Param("peer"), c.Param("share"), c.Query("path")
-	if pfad == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "path fehlt"})
-		return
-	}
-	// Erreichbarkeit und Zugriff vorab klären – sonst scheitert erst ffmpeg,
-	// und der Browser bekäme einen abgebrochenen Strom statt einer Auskunft.
-	if _, err := s.fernGroesse(c.Request.Context(), peer, share, pfad); err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
-		return
-	}
-
-	quelle := fmt.Sprintf("http://127.0.0.1:%d/api/v1/shares/remote/%s/%s/stream?path=%s",
-		s.port(), peer, share, urlQuery(pfad))
-
-	t, _ := strconv.ParseFloat(c.Query("t"), 64)
-	if t < 0 {
-		t = 0
-	}
-	p := probeShareFile(c.Request.Context(), quelle)
-	if p.VCodec == "" && p.ACodec == "" {
-		c.JSON(http.StatusUnsupportedMediaType, gin.H{"error": "Keine abspielbare Spur gefunden."})
-		return
-	}
-	if s.log != nil {
-		s.log.Info("Fremde Freigabe wird umgepackt", zap.String("peer", peer),
-			zap.String("video", p.VCodec), zap.String("ton", p.ACodec))
-	}
-	s.ffmpegStreamen(c, quelle, p, t)
-}
+// R777: remoteShareRemux entfernt – das Umpacken ist seit R773 aus der
+// Oberfläche verschwunden, und ohne Aufrufer ist es nur noch Angriffsfläche.
 
 // GET /api/v1/shares/remote/:peer/:share/playlist?path=…
 //

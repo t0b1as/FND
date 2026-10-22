@@ -464,30 +464,11 @@ func (s *Server) registerRoutes() {
 	// Die Anmeldesperre (R659) verlangt dort eine Sitzung, und weder Office
 	// noch der Windows-Explorer schicken eine mit. Hier wird stattdessen mit
 	// HTTP-Basisanmeldung geprüft, gegen eine Zugangskennung je Freigabe.
-	// WebDAV-Routen (R745).
-	//
-	// NICHT r.Any: Das erfasst nur die üblichen HTTP-Methoden (GET, POST, PUT,
-	// PATCH, HEAD, OPTIONS, DELETE, CONNECT, TRACE). PROPFIND, MKCOL, LOCK,
-	// UNLOCK, PROPPATCH und MOVE sind WebDAV-Erweiterungen und standen nicht
-	// darauf – sie liefen in die 404-Antwort des Routers, OHNE den Handler
-	// überhaupt zu erreichen.
-	//
-	// Genau das war der 404 beim Einhängen: OPTIONS kam durch (übliche
-	// Methode), das darauf folgende PROPFIND nicht. Im Protokoll war es daran
-	// zu erkennen, dass die Antwort nach 24 MIKROsekunden kam und keine
-	// Handler-Zeile dazu existierte.
-	//
-	// gin.Handle nimmt beliebige Methodennamen, deshalb hier einzeln.
-	davMethoden := []string{
-		"OPTIONS", "GET", "HEAD", "PUT", "DELETE",
-		"PROPFIND", "PROPPATCH", "MKCOL", "MOVE", "COPY", "LOCK", "UNLOCK",
-	}
-	for _, m := range davMethoden {
-		r.Handle(m, "/dav/:id", s.davHandler)
-		r.Handle(m, "/dav/:id/*path", s.davHandler)
-		r.Handle(m, "/davr/:peer/:share", s.davRemoteHandler)
-		r.Handle(m, "/davr/:peer/:share/*path", s.davRemoteHandler)
-	}
+	// R777: WebDAV-Routen entfernt. Die Oberfläche bot sie seit R773 nicht mehr
+	// an, und unbenutzte Endpunkte sind Angriffsfläche ohne Gegenwert. Die
+	// Erkenntnisse bleiben in der Versionsgeschichte: r.Any erfasst PROPFIND
+	// nicht (R745), FUSE braucht allow_other (R755), und mount.davfs stirbt
+	// mit der Prozessgruppe des Aufrufers (R756).
 	// Remote-Modus: alle Seiten/Links über den Tunnel (Cookie fundus_remote).
 	r.GET("/api/v1/remote/enter/:peerid", s.remoteEnter)
 	r.GET("/api/v1/remote/exit", s.remoteExit)
@@ -504,7 +485,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R774"
+const NodeRevision = "R779"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

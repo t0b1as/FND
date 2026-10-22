@@ -220,12 +220,7 @@ func dispatch(req helperproto.Request) helperproto.Response {
 		return handleApplyUpdate(req.Manifest)
 	case helperproto.ActionRestartNode:
 		return handleRestartNode()
-	case helperproto.ActionSmbBridgeAdd:
-		return handleSmbBridgeAdd(req)
-	case helperproto.ActionSmbBridgeRemove:
-		return handleSmbBridgeRemove(req)
-	case helperproto.ActionSmbBridgeList:
-		return handleSmbBridgeList()
+
 	default:
 		return helperproto.Response{OK: false, Error: "unbekannte Aktion"}
 	}

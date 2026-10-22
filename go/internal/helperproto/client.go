@@ -35,16 +35,6 @@ func Do(req Request) (*Response, error) {
 	switch req.Action {
 	case ActionApplyUpdate:
 		deadline = 20 * time.Minute
-	case ActionSmbBridgeAdd, ActionSmbBridgeRemove:
-		// R759: Diese Vorgänge dauern. Einrichten installiert notfalls Pakete,
-		// hängt über WebDAV ein und startet smbd neu; Entfernen hält smbd an,
-		// hängt aus und startet ihn wieder. Ein Aushängen kann zudem hängen,
-		// wenn die Gegenstelle nicht antwortet.
-		//
-		// Mit einer Minute brach der Aufruf mittendrin ab ("i/o timeout"),
-		// obwohl der Helfer weiterarbeitete – der Nutzer sah einen Fehler, wo
-		// es noch lief.
-		deadline = 5 * time.Minute
 	}
 	_ = conn.SetDeadline(time.Now().Add(deadline))
 

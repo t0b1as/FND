@@ -3230,3 +3230,38 @@ summary:focus-visible,
   padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border);
   background: var(--surface-2); color: var(--text);
 }
+
+/* ── Download-Fortschritt (R777) ──────────────────────────────────────────
+   Unten rechts gestapelt, damit mehrere gleichzeitig sichtbar bleiben und
+   nichts Wichtiges verdecken. */
+.dl-liste {
+  position: fixed; right: 14px; z-index: 9500;
+  bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-direction: column; gap: 8px; max-width: min(420px, 92vw);
+}
+.dl-eintrag {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 9px 11px; box-shadow: 0 4px 16px rgba(0,0,0,.35);
+}
+.dl-kopf { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.dl-name {
+  font-size: 12.5px; color: var(--text); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.dl-bar {
+  height: 5px; background: var(--surface-2); border-radius: 3px;
+  overflow: hidden; margin: 7px 0 5px;
+}
+.dl-fuell {
+  height: 100%; width: 0; background: var(--grn); border-radius: 3px;
+  transition: width .2s linear;
+}
+.dl-info { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dl-eintrag.fertig .dl-info { color: var(--grn); }
+.dl-eintrag.fehler .dl-fuell { background: var(--red); }
+.dl-eintrag.fehler .dl-info { color: var(--red); }
+@media (prefers-reduced-motion: reduce) { .dl-fuell { transition: none; } }
+/* Auf schmalen Geräten über der unteren Leiste bleiben. */
+@media (max-width: 760px) {
+  .dl-liste { bottom: calc(66px + env(safe-area-inset-bottom, 0px)); left: 14px; right: 14px; max-width: none; }
+}

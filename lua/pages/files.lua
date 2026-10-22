@@ -1507,6 +1507,13 @@ async function loadDirShares() {
       const sid = s.id || s.share_id;
       return '<div class="file-row" style="grid-template-columns:1fr auto">'+
         '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openShare(\''+sid+'\',\''+(s.name||'').replace(/\'/g,"")+'\')" title="'+dirs+'">\ud83d\udcc2 '+(s.name||'')+'</span>'+
+        // R777: Umfang anzeigen. Die Zahlen liegen in der Antwort bereits vor
+        // (total_size_bytes, total_files) und wurden nur nie dargestellt.
+        // "85 GB in 3677 Dateien" sagt mehr als eine nackte Anzahl.
+        '<span class="meta" style="font-size:11px;white-space:nowrap">'+
+        (s.total_size_bytes ? fmtSize(s.total_size_bytes) : '')+
+        (s.total_files ? ' \u00b7 '+s.total_files+' '+(FT.files_word||'Dateien') : '')+
+        '</span>'+
         // R725: Netzlaufwerk-Zugang schon in der LISTE anbieten – man muss die
         // Freigabe dafür nicht erst öffnen.
         '<span>'+
@@ -1581,7 +1588,7 @@ async function renderShareView() {
               url.replace('/dl/', '/playlist/')+'\',\''+nm.replace(/'/g,"")+'\')" '+
               'title="In der zugehörigen Anwendung öffnen" '+
               'aria-label="In Anwendung öffnen">\u2197</button>' : '')+
-          '<button class="btn-sm" onclick="window.open(\''+url+'?dl=1\')" aria-label="Herunterladen">\u2193</button></div>';
+          '<button class="btn-sm" onclick="dateiHolenMitFortschritt(\''+url+'?dl=1\',\''+nm.replace(/'/g,"")+'\','+(it.size||0)+')" aria-label="Herunterladen">\u2193</button></div>';
       }
     });
     box.innerHTML = html;
@@ -1592,6 +1599,139 @@ async function renderShareView() {
 // schlichtes Overlay: <img> und <video> laden selbst, Text wird geholt.
 // Bewusst NICHT FundusMedia: Das arbeitet über Inhalts-Hashes aus dem
 // Chunk-Speicher, eine Freigabe hat aber Pfade. Es hätte nichts gefunden.
+// R775: Herunterladen OHNE leeres Fenster.
+//
+// window.open() öffnet erst einen leeren Tab, der dann den Download auslöst und
+// sich schließt – je nach Browser bleibt er auch offen stehen. Ein unsichtbarer
+// Verweis mit download-Kennzeichen erledigt dasselbe, ohne dass ein Fenster
+// erscheint.
+function dateiHolen(url, name){
+  const a = document.createElement('a');
+  a.href = url;
+  if (name) a.download = name;   // Dateiname vorschlagen
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){ a.remove(); }, 1000);
+}
+
+// ── Download mit Fortschritt und Durchsatz (R777) ────────────────────────
+//
+// Statt den Browser laden zu lassen, holen wir selbst und zeigen Fortschritt
+// und MB/s. Das ist gerade nach der 32-MB-Falle aus R774 wichtig: Man sieht,
+// dass eine Datei VOLLSTÄNDIG ankommt, statt es zu hoffen.
+//
+// Mehrere gleichzeitig sind ausdrücklich vorgesehen – jeder Download bekommt
+// eine eigene Zeile und kann einzeln abgebrochen werden.
+//
+// Der Haken, den man kennen muss: Die Datei entsteht dabei im Arbeitsspeicher
+// des Browsers, weil wir sie erst am Ende als Ganzes übergeben können. Für
+// sehr große Dateien ist das zu viel, deshalb gibt es ab 2 GB den direkten
+// Weg ohne Anzeige.
+const DL_GRENZE = 2 * 1024 * 1024 * 1024;
+
+function dlBereich(){
+  let b = document.getElementById('dl-liste');
+  if (!b) {
+    b = document.createElement('div');
+    b.id = 'dl-liste';
+    b.className = 'dl-liste';
+    document.body.appendChild(b);
+  }
+  return b;
+}
+
+let dlNr = 0;
+async function dateiHolenMitFortschritt(url, name, groesse){
+  // Sehr große Dateien: direkt, ohne Zwischenspeicher im Browser.
+  if (groesse && groesse > DL_GRENZE) { dateiHolen(url, name); return; }
+
+  const id = 'dl' + (++dlNr);
+  const zeile = document.createElement('div');
+  zeile.className = 'dl-eintrag';
+  zeile.innerHTML =
+    '<div class="dl-kopf"><span class="dl-name"></span>'+
+    '<button class="btn-sm dl-ab" aria-label="Abbrechen">\u2717</button></div>'+
+    '<div class="dl-bar"><div class="dl-fuell"></div></div>'+
+    '<div class="dl-info">\u2026</div>';
+  zeile.querySelector('.dl-name').textContent = name || 'Download';
+  dlBereich().appendChild(zeile);
+  const fuell = zeile.querySelector('.dl-fuell');
+  const info  = zeile.querySelector('.dl-info');
+
+  const abbr = new AbortController();
+  zeile.querySelector('.dl-ab').onclick = function(){ abbr.abort(); };
+
+  const start = Date.now();
+  try {
+    const r = await fetch(url, { credentials: 'same-origin', signal: abbr.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    // Gesamtlänge: aus der Kopfzeile, sonst die übergebene Größe.
+    const gesamt = parseInt(r.headers.get('Content-Length') || '0', 10) || groesse || 0;
+    const leser = r.body && r.body.getReader ? r.body.getReader() : null;
+    if (!leser) { dateiHolen(url, name); zeile.remove(); return; }
+
+    const teile = [];
+    let geladen = 0, letzteAnzeige = 0;
+    for (;;) {
+      const { done, value } = await leser.read();
+      if (done) break;
+      teile.push(value);
+      geladen += value.length;
+      // Höchstens fünfmal je Sekunde neu zeichnen – sonst bremst die Anzeige
+      // den Download spürbar aus.
+      const jetzt = Date.now();
+      if (jetzt - letzteAnzeige > 200) {
+        letzteAnzeige = jetzt;
+        const sek = (jetzt - start) / 1000;
+        const mbs = sek > 0 ? (geladen / sek / (1024*1024)) : 0;
+        if (gesamt > 0) {
+          const p = Math.min(100, geladen / gesamt * 100);
+          fuell.style.width = p.toFixed(1) + '%%';
+          const rest = mbs > 0 ? (gesamt - geladen) / (mbs * 1024*1024) : 0;
+          info.textContent = fmtSize(geladen) + ' / ' + fmtSize(gesamt) +
+            '  \u00b7  ' + mbs.toFixed(1) + ' MB/s' +
+            (rest > 1 ? '  \u00b7  noch ' + dlRestzeit(rest) : '');
+        } else {
+          // Ohne bekannte Gesamtlänge kein Balken, nur Menge und Tempo.
+          fuell.style.width = '100%%';
+          info.textContent = fmtSize(geladen) + '  \u00b7  ' + mbs.toFixed(1) + ' MB/s';
+        }
+      }
+    }
+    // Vollständigkeit prüfen – das ist der eigentliche Gewinn gegenüber dem
+    // Browser-Download: Eine zu kurze Datei fällt sofort auf.
+    if (gesamt > 0 && geladen !== gesamt) {
+      throw new Error('unvollständig: ' + fmtSize(geladen) + ' von ' + fmtSize(gesamt));
+    }
+    const blob = new Blob(teile);
+    const burl = URL.createObjectURL(blob);
+    dateiHolen(burl, name);
+    setTimeout(function(){ URL.revokeObjectURL(burl); }, 60000);
+    fuell.style.width = '100%%';
+    const sek = (Date.now() - start) / 1000;
+    info.textContent = '\u2713 ' + fmtSize(geladen) + ' in ' + sek.toFixed(1) + ' s  \u00b7  ' +
+      (geladen / sek / (1024*1024)).toFixed(1) + ' MB/s';
+    zeile.classList.add('fertig');
+    setTimeout(function(){ zeile.remove(); }, 8000);
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      info.textContent = 'abgebrochen';
+    } else {
+      info.textContent = '\u2717 ' + e.message;
+      zeile.classList.add('fehler');
+    }
+    zeile.classList.add('fertig');
+    setTimeout(function(){ zeile.remove(); }, 12000);
+  }
+}
+
+function dlRestzeit(sek){
+  if (sek < 90) return Math.round(sek) + ' s';
+  if (sek < 5400) return Math.round(sek/60) + ' min';
+  return (sek/3600).toFixed(1) + ' h';
+}
+
 function shareDateiArt(name){
   const n = String(name||'').toLowerCase();
   if (/\.(jpe?g|png|gif|webp|bmp|avif|svg)$/.test(n)) return 'bild';
@@ -1652,7 +1792,8 @@ function shareAnsehenFenster(url, name){
   // "Assignment to constant variable" ab, und zwar erst beim Klick, nicht beim
   // Laden. Genau derselbe Fehler wie in R657.
   let art = shareDateiArt(name);
-  if (!art) { window.open(url); return; }
+  // R775: Kein Fenster, direkt holen – das war der leere Tab vor dem Download.
+  if (!art) { dateiHolen(url, name); return; }
   const ov = document.createElement('div');
   ov.className = 'share-view-ov';
   let inhalt;
@@ -1864,7 +2005,7 @@ async function loadNetworkShares(silent) {
         const pid = (p.peer_id||'');
         const pidShort = pid.slice(0,12);
         html += '<div class="file-row" style="grid-template-columns:1fr auto">'+
-          '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" title="Node '+pidShort+'…">🌐 '+(s.name||'?')+' <span class="meta" style="font-size:10px">('+(s.files||0)+' '+(FT.files_word||'Dateien')+')</span></span>'+
+          '<span class="fname" style="cursor:pointer;color:var(--green)" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" title="Node '+pidShort+'…">🌐 '+(s.name||'?')+' <span class="meta" style="font-size:10px">('+(s.size_bytes ? fmtSize(s.size_bytes)+', ' : '')+(s.files||0)+' '+(FT.files_word||'Dateien')+')</span></span>'+
           '<span>'+
 
           '<button class="btn-sm" onclick="openRemoteShare(\''+pid+'\',\''+(s.id||'')+'\',\''+(s.name||'?').replace(/'/g,"")+'\')" aria-label="Öffnen">↗</button></span></div>';
@@ -1947,8 +2088,8 @@ async function renderRemoteShareView() {
           // aus. Genau das war zu beobachten: 32 MB von einer großen Datei.
           //
           // /stream holt abschnittsweise (R718) und kennt keine Obergrenze.
-          '<button class="btn-sm" onclick="window.open(\''+
-          rurl.replace('/dl?path=', '/stream?path=')+'&dl=1\')" '+
+          '<button class="btn-sm" onclick="dateiHolenMitFortschritt(\''+
+          rurl.replace('/dl?path=', '/stream?path=')+'&dl=1\',\''+nm.replace(/'/g,"")+'\','+(it.size||0)+')" '+
           'aria-label="Herunterladen">\u2193</button></div>';
       }
     });

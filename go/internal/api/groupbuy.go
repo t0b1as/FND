@@ -439,9 +439,26 @@ func (s *Server) gbApply(g *groupBuy, fid, aktion string, body map[string]any) (
 		if g.Status != "offen" {
 			return "Nach der Bestellung beim Händler ist kein Austritt mehr möglich.", false
 		}
-		// R697: Hinweis auf die Erstattung. Austreten entfernt nur den Eintrag;
-		// das Geld holt sich der Teilnehmer über die Hinterlegung selbst zurück
-		// (Storno), weil nur er dafür unterschreiben kann.
+		// R697: Austreten entfernt nur den Eintrag; das Geld holt sich der
+		// Teilnehmer über die Hinterlegung selbst zurück (Storno), weil nur er
+		// dafür unterschreiben kann.
+		//
+		// R776: ABER NICHT, solange eine Hinterlegung offen ist.
+		//
+		// Der Eintrag trägt die einzige Spur zur Hinterlegung (EscrowID). Wird
+		// er gelöscht, bevor storniert wurde, weiß niemand mehr, welche
+		// Hinterlegung zu dieser Bestellung gehörte – das Geld bliebe liegen.
+		//
+		// Die Reihenfolge (erst stornieren, dann austreten) stand bisher nur in
+		// einem Kommentar. Auf eine Reihenfolge zu vertrauen, die man nirgends
+		// erzwingt, ist bei Geld die falsche Entscheidung.
+		for _, t := range g.Teilnehmer {
+			if strings.EqualFold(t.FID, fid) && t.EscrowID != "" {
+				return "Bitte zuerst die Hinterlegung stornieren – sonst geht " +
+					"die Zuordnung zu deinem hinterlegten Betrag verloren. " +
+					"Danach ist der Austritt möglich.", false
+			}
+		}
 		out := g.Teilnehmer[:0]
 		gefunden := false
 		for _, t := range g.Teilnehmer {

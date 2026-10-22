@@ -75,9 +75,25 @@ return function()
         el.textContent = (d.rides || []).filter(function(x){ return x.status === 'open'; }).length;
       }).catch(function(){ el.textContent = '–'; });
   }
+  // R775: Sammelbestellungs-Kachel. Das Feld gibt es seit R696, gefüllt wurde
+  // es nie – deshalb stand dort immer nur der Strich.
+  //
+  // Gezählt werden die OFFENEN Bestellungen: Eine abgesagte oder gelieferte
+  // ist für jemanden auf der Startseite ohne Belang, und eine Zahl, die auch
+  // Abgeschlossenes mitzählt, wäre irreführend.
+  function gbZahl(){
+    var el = document.getElementById('tile-gb-count'); if (!el) return;
+    fetch('/api/v1/groupbuy', {credentials:'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d) { el.textContent = '–'; return; }
+        var liste = d.bestellungen || [];
+        el.textContent = liste.filter(function(x){ return x.status === 'offen'; }).length;
+      }).catch(function(){ el.textContent = '–'; });
+  }
   // R640: driveZahl() lief sofort – das Skript steht aber VOR den Kacheln,
   // das Feld gab es da noch nicht und die Funktion brach still ab.
-  function allesSetzen(){ setzen(); driveZahl(); }
+  function allesSetzen(){ setzen(); driveZahl(); gbZahl(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', allesSetzen);
   else allesSetzen();
   setTimeout(allesSetzen, 1200);
