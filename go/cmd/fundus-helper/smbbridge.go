@@ -358,7 +358,7 @@ func sambaFreigabeSchreiben(name, mnt string, gast bool) error {
 	if gast && !strings.Contains(string(haupt), "map to guest") {
 		// R753: ebenfalls in den vorhandenen [global]-Abschnitt, statt einen
 		// zweiten ans Ende zu hängen.
-		_ = includeInGlobal("   map to guest = Bad User")
+		_ = globalZeile("   map to guest = Bad User", false)
 		haupt, _ = os.ReadFile(smbConfMain)
 	}
 	zeile := "include = " + conf
@@ -371,7 +371,7 @@ func sambaFreigabeSchreiben(name, mnt string, gast bool) error {
 	// Standard-smb.conf ist das [print$], also die Druckertreiber. testparm
 	// zeigte genau das: "include" mitten in [print$]. Dass die Freigabe
 	// trotzdem auftauchte, machte es nur schwerer zu sehen.
-	return includeInGlobal(zeile)
+	return globalZeile(zeile, true)
 }
 
 // includeZeilenEntfernen nimmt jede Zeile heraus, die auf diese Datei verweist
@@ -527,31 +527,53 @@ func davCacheAufraeumen(name string) error {
 	return nil
 }
 
-// includeInGlobal fügt eine Zeile in den [global]-Abschnitt ein (R753).
+// globalZeile fügt eine Zeile in den [global]-Abschnitt ein (R757).
 //
-// In einer smb.conf gilt eine Zeile immer für den Abschnitt, in dem sie steht.
-// Ans Dateiende angehängt gehört sie zum LETZTEN Abschnitt – bei der
-// Standarddatei sind das die Druckertreiber.
-func includeInGlobal(zeile string) error {
+// Die Reihenfolge ist entscheidend, und daran bin ich in R753 gescheitert:
+// Eine include-Zeile zieht eine Datei mit einem eigenen [NZB]-Abschnitt herein.
+// Alles, was IM TEXT danach steht, gehört damit zu diesem Abschnitt – auch wenn
+// es optisch noch unter [global] aussieht. testparm sagte das deutlich:
+//
+//   Global parameter map to guest found in service section!
+//
+// Deshalb: gewöhnliche Einstellungen direkt hinter [global], include-Zeilen ans
+// ENDE des Abschnitts, also unmittelbar vor die nächste Überschrift.
+func globalZeile(zeile string, ansEnde bool) error {
 	roh, err := os.ReadFile(smbConfMain)
 	if err != nil {
 		return err
 	}
 	zeilen := strings.Split(string(roh), "\n")
+	globalAb := -1
 	for i, z := range zeilen {
 		if strings.EqualFold(strings.TrimSpace(z), "[global]") {
-			// Direkt hinter die Abschnittsüberschrift.
-			neu := append([]string{}, zeilen[:i+1]...)
-			neu = append(neu, zeile)
-			neu = append(neu, zeilen[i+1:]...)
-			return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
+			globalAb = i
+			break
 		}
 	}
-	// Kein [global] vorhanden: einen anlegen, aber am ANFANG der Datei, damit
-	// die Zeile nicht wieder in einem fremden Abschnitt landet.
-	neu := append([]string{"[global]", zeile, ""}, zeilen...)
+	if globalAb < 0 {
+		// Keinen [global] gefunden: einen am Dateianfang anlegen.
+		neu := append([]string{"[global]", zeile, ""}, zeilen...)
+		return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
+	}
+	pos := globalAb + 1
+	if ansEnde {
+		// Bis zur nächsten Abschnittsüberschrift vorrücken.
+		pos = len(zeilen)
+		for i := globalAb + 1; i < len(zeilen); i++ {
+			t := strings.TrimSpace(zeilen[i])
+			if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+				pos = i
+				break
+			}
+		}
+	}
+	neu := append([]string{}, zeilen[:pos]...)
+	neu = append(neu, zeile)
+	neu = append(neu, zeilen[pos:]...)
 	return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
 }
+
 
 // fuseAllowOtherSichern trägt user_allow_other in /etc/fuse.conf ein (R755).
 //
