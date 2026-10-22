@@ -62,7 +62,7 @@ apt-get update -qq
 #
 # Beides ist klein und ohne Dienste im Hintergrund, solange nichts eingerichtet
 # wurde: smbd läuft erst nach einer Freigabe, davfs2 ist nur ein Programm.
-apt-get install -y -qq unzip curl logrotate ca-certificates gnupg openssl exfatprogs ntfs-3g ffmpeg iw samba davfs2 >/dev/null
+apt-get install -y -qq unzip curl logrotate ca-certificates gnupg openssl exfatprogs ntfs-3g ffmpeg iw samba davfs2 rclone >/dev/null
 ok "Basis-Pakete"
 
 # ── 2. Webserver mit Lua (OpenResty bevorzugt, sonst nginx + Lua-Modul) ──────

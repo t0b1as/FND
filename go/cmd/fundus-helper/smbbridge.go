@@ -35,6 +35,10 @@ import (
 )
 
 const (
+	// R763: Zwischenspeicher fürs Schreiben – unter /var/cache, damit er bei
+	// Platzmangel als Erstes auffällt und sich gefahrlos leeren lässt.
+	rcloneCacheDir = "/var/cache/fundus-rclone"
+
 	smbBasis    = "/srv/fundus"
 	smbConfDir  = "/etc/samba/smb.conf.d"
 	smbConfMain = "/etc/samba/smb.conf"
@@ -120,6 +124,16 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		return helperproto.Response{OK: false, Error: "Zugangsdatei: " + err.Error()}
 	}
 
+	// R761: davfs2 für diesen Einhängepunkt zähmen.
+	//
+	// Gemessen: 1518 PROPFIND-Anfragen in drei Minuten, also acht pro Sekunde.
+	// Jede geht über das P2P-Netz zum Besitzer-Node, und der Explorer wartet
+	// darauf – deshalb hängt er. Die Voreinstellungen von davfs2 sind für einen
+	// Server im selben Haus gedacht, nicht für eine Strecke mit Wartezeit.
+	if err := davfsEinstellungen(mnt); err != nil {
+		logf("davfs2-Einstellungen: %v", err) // nicht abbrechen, nur melden
+	}
+
 	// R755: Ohne user_allow_other in /etc/fuse.conf lehnt FUSE die Option
 	// allow_other ab, und das Einhängen scheitert ganz.
 	if err := fuseAllowOtherSichern(); err != nil {
@@ -158,13 +172,39 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 	// Eine eigene Einheit gehört niemandes Prozessgruppe an, übersteht jeden
 	// Neustart und kommt nach einem Systemstart von selbst wieder.
 	if !istEingehaengt(mnt) {
-		if err := davEinheitSchreiben(name, mnt, req.DavURL); err != nil {
-			return helperproto.Response{OK: false, Error: err.Error()}
+		// R762: rclone bevorzugen – es reicht Lesevorgänge durch, davfs2 lädt
+		// erst die ganze Datei. Nur wenn rclone fehlt, der alte Weg.
+		var einheit string
+		if rcloneVorhanden() {
+			konf, kerr := rcloneKonfigSchreiben(name, req.DavURL, req.DavToken)
+			if kerr != nil {
+				return helperproto.Response{OK: false, Error: kerr.Error()}
+			}
+			e, eerr := rcloneEinheitSchreiben(name, mnt, konf)
+			if eerr != nil {
+				return helperproto.Response{OK: false, Error: eerr.Error()}
+			}
+			einheit = e
+		} else {
+			logf("rclone nicht vorhanden – weiche auf davfs2 aus " +
+				"(große Dateien werden dann vollständig geladen, bevor sie starten)")
+			if err := davEinheitSchreiben(name, mnt, req.DavURL); err != nil {
+				return helperproto.Response{OK: false, Error: err.Error()}
+			}
+			einheit = davEinheitName(mnt)
 		}
-		einheit := davEinheitName(mnt)
 		if out, err := exec.Command("systemctl", "daemon-reload").CombinedOutput(); err != nil {
 			return helperproto.Response{OK: false,
 				Error: "daemon-reload: " + strings.TrimSpace(string(out))}
+		}
+		// R760: enable, nicht nur start.
+		//
+		// Die Einheit trägt einen [Install]-Abschnitt, aber ohne enable wird er
+		// nie ausgewertet: Sie läuft dann bis zum nächsten Systemstart und ist
+		// danach weg. Genau das Muster, das wir mehrfach gesehen haben – der
+		// Ordner war nach einem Neustart wieder leer.
+		if out, err := exec.Command("systemctl", "enable", einheit).CombinedOutput(); err != nil {
+			logf("enable %s: %s", einheit, strings.TrimSpace(string(out)))
 		}
 		if out, err := exec.Command("systemctl", "start", einheit).CombinedOutput(); err != nil {
 			// Die Einheit nennt den Grund genauer als systemctl selbst.
@@ -178,6 +218,16 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		// zurückkehrt, der Einhängepunkt ist einen Augenblick später bereit.
 		for i := 0; i < 20 && !istEingehaengt(mnt); i++ {
 			time.Sleep(100 * time.Millisecond)
+		}
+		// R760: Nicht auf gut Glück weitermachen. Meldet systemd Erfolg, ohne
+		// dass etwas eingehängt ist, läuft Samba sonst auf ein leeres
+		// Verzeichnis – und das sieht für den Nutzer wie ein Samba-Fehler aus.
+		if !istEingehaengt(mnt) {
+			detail, _ := exec.Command("systemctl", "status", einheit,
+				"--no-pager", "-n", "15").CombinedOutput()
+			return helperproto.Response{OK: false,
+				Error: "Einhängen gemeldet, aber nichts eingehängt: " +
+					letzteZeilen(string(detail), 5)}
 		}
 	}
 
@@ -239,9 +289,17 @@ func handleSmbBridgeRemove(req helperproto.Request) helperproto.Response {
 	}
 
 	// R756: Erst die Einheit stoppen, dann notfalls von Hand aushängen.
-	einheit := davEinheitName(mnt)
-	_, _ = exec.Command("systemctl", "stop", einheit).CombinedOutput()
-	_ = os.Remove(filepath.Join("/etc/systemd/system", einheit))
+	// R762: Beide möglichen Einheiten abräumen – welche benutzt wurde, hängt
+	// davon ab, ob rclone zur Zeit des Einrichtens vorhanden war.
+	for _, einheit := range []string{
+		"fundus-rclone-" + name + ".service",
+		davEinheitName(mnt),
+	} {
+		_, _ = exec.Command("systemctl", "disable", einheit).CombinedOutput()
+		_, _ = exec.Command("systemctl", "stop", einheit).CombinedOutput()
+		_ = os.Remove(filepath.Join("/etc/systemd/system", einheit))
+	}
+	_ = os.Remove("/etc/fundus/rclone-" + name + ".conf")
 	_, _ = exec.Command("systemctl", "daemon-reload").CombinedOutput()
 	if istEingehaengt(mnt) {
 		if out, err := exec.Command("umount", mnt).CombinedOutput(); err != nil {
@@ -261,6 +319,7 @@ func handleSmbBridgeRemove(req helperproto.Request) helperproto.Response {
 	// längst richtig antwortet. Genau das hat uns nach der XML-Korrektur einen
 	// weiteren Durchgang gekostet.
 	_ = davCacheAufraeumen(name)
+	_ = davfsEinstellungenEntfernen(mnt)
 	_ = os.Remove(mnt) // nur wenn leer; schlägt sonst still fehl
 	logf("SMB-Brücke entfernt: %s", name)
 	return helperproto.Response{OK: true}
@@ -448,7 +507,17 @@ func fehlendePakete() []string {
 	var fehlend []string
 	// Programm → Paketname. Beide liegen in /usr/sbin, das im PATH eines
 	// Dienstes nicht immer steht – deshalb zusätzlich direkt nachsehen.
-	for prog, paket := range map[string]string{"mount.davfs": "davfs2", "smbd": "samba"} {
+	// R764: rclone gehört dazu.
+	//
+	// Es stand nur im Deploy-Skript und im Installationsskript – wer über
+	// GitHub aktualisiert, bekam es nicht. Der Helfer wäre dann still auf
+	// davfs2 ausgewichen, also wieder ohne Durchreichen beim Lesen. Das hätte
+	// niemand bemerkt außer an der Langsamkeit.
+	for prog, paket := range map[string]string{
+		"mount.davfs": "davfs2",
+		"smbd":        "samba",
+		"rclone":      "rclone",
+	} {
 		if _, err := exec.LookPath(prog); err == nil {
 			continue
 		}
@@ -660,6 +729,121 @@ func davEinheitName(mnt string) string {
 	return b.String() + ".mount"
 }
 
+// rcloneVorhanden sagt, ob rclone benutzbar ist (R762).
+func rcloneVorhanden() bool {
+	if _, err := exec.LookPath("rclone"); err == nil {
+		return true
+	}
+	_, err := os.Stat("/usr/bin/rclone")
+	return err == nil
+}
+
+// rcloneKonfigSchreiben legt die Gegenstelle für rclone an (R762).
+//
+// Das Kennwort muss "verschleiert" abgelegt werden – rclone weigert sich sonst,
+// es zu benutzen. Das ist keine Verschlüsselung, nur eine Umkodierung, deshalb
+// bekommt die Datei trotzdem 0600.
+func rcloneKonfigSchreiben(name, davURL, token string) (string, error) {
+	out, err := exec.Command("rclone", "obscure", token).Output()
+	if err != nil {
+		return "", fmt.Errorf("rclone obscure: %v", err)
+	}
+	verschleiert := strings.TrimSpace(string(out))
+
+	dir := "/etc/fundus"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	pfad := filepath.Join(dir, "rclone-"+name+".conf")
+	inhalt := fmt.Sprintf(`[fnd]
+type = webdav
+url = %s
+vendor = other
+user = fundus
+pass = %s
+`, davURL, verschleiert)
+	if err := os.WriteFile(pfad, []byte(inhalt), 0o600); err != nil {
+		return "", err
+	}
+	return pfad, nil
+}
+
+// rcloneEinheitSchreiben legt eine systemd-Dienst-Einheit für rclone an (R762).
+//
+// ── Warum rclone statt davfs2 ──────────────────────────────────────────────
+//
+// davfs2 lädt eine Datei IMMER vollständig in seinen Zwischenspeicher, bevor es
+// das erste Byte herausgibt. Bei einem 15-GB-Film wartet der Explorer, bis
+// alles übertragen ist. Das ist seine Bauweise, keine Einstellung ändert daran
+// etwas.
+//
+// rclone reicht sequenzielle Lesevorgänge unmittelbar durch und nutzt
+// Bereichsabfragen – genau das, was unser Strom seit R718 kann.
+//
+// ── Warum ein Dienst und keine .mount-Einheit ──────────────────────────────
+//
+// rclone ist kein mount-Helfer, den der Kern aufrufen kann; es ist ein
+// langlaufendes Programm. Deshalb Type=notify: systemd erfährt dadurch, WANN
+// die Einhängung bereit ist, statt zu raten.
+//
+// ── Lesen und Schreiben sind NICHT gleich ──────────────────────────────────
+//
+// --vfs-cache-mode writes: LESEN bleibt durchgereicht, nur Geschriebenes wird
+// zwischengespeichert. Ohne diesen Zwischenspeicher erlaubt rclone nur
+// fortlaufendes Schreiben am Stück – Office springt aber in der Datei umher
+// und öffnet sie mehrfach, könnte also nicht speichern.
+//
+// Der Preis: Eine geschriebene Datei landet erst vollständig auf der Platte des
+// Pi. Beim Lesen ist das gelöst, beim Schreiben nicht, und es ist auch nicht
+// lösbar – es ist die Wahl zwischen Durchreichen UND kaputtem Office oder
+// Zwischenspeicher UND Platzbedarf.
+//
+// Deshalb wenigstens begrenzt: --vfs-cache-max-size 4G sorgt dafür, dass eine
+// zu große Datei sauber SCHEITERT, statt die Platte vollzuschreiben und den
+// ganzen Node lahmzulegen. Für Dokumente und Bilder reicht das weit; wer einen
+// Film ablegen will, nimmt den Hochladen-Knopf in Fundus, der schiebt
+// abschnittsweise hoch.
+//
+// --vfs-write-back 5s: nach dem Schließen kurz sammeln. Office speichert in
+// mehreren Schritten; ohne diese Pause löste jeder eine eigene Übertragung aus.
+func rcloneEinheitSchreiben(name, mnt, konf string) (string, error) {
+	einheit := "fundus-rclone-" + name + ".service"
+	inhalt := fmt.Sprintf(`[Unit]
+Description=Fundus-Freigabe %s (rclone, streamend)
+After=network-online.target fundus-node.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStartPre=/bin/mkdir -p %s
+ExecStart=/usr/bin/rclone mount fnd: %s \
+  --config %s \
+  --allow-other \
+  --vfs-cache-mode writes \
+  --cache-dir %s \
+  --vfs-cache-max-size 4G \
+  --vfs-cache-max-age 1h \
+  --vfs-write-back 5s \
+  --dir-cache-time 5m \
+  --vfs-read-chunk-size 8M \
+  --vfs-read-chunk-size-limit 128M \
+  --uid 0 --gid 0 --umask 002 \
+  --log-level INFO
+ExecStop=/bin/fusermount -uz %s
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+`, name, mnt, mnt, konf, rcloneCacheDir, mnt)
+	pfad := filepath.Join("/etc/systemd/system", einheit)
+	if err := os.WriteFile(pfad, []byte(inhalt), 0o644); err != nil {
+		return "", err
+	}
+	logf("rclone-Einheit angelegt: %s", pfad)
+	return einheit, nil
+}
+
 // davEinheitSchreiben legt die systemd-Mount-Einheit an (R756).
 func davEinheitSchreiben(name, mnt, davURL string) error {
 	inhalt := fmt.Sprintf(`[Unit]
@@ -782,4 +966,88 @@ func einhaengepunktVorbereiten(mnt string) error {
 	}
 	// Vorhanden und abfragbar: nichts zu tun, wird weiterverwendet.
 	return nil
+}
+
+// davfsEinstellungen legt einen Abschnitt für diesen Einhängepunkt in
+// /etc/davfs2/davfs2.conf an (R761).
+//
+// Die Werte sind auf eine Strecke mit Wartezeit abgestimmt:
+//
+//   dir_refresh   Verzeichnisliste 5 Minuten gültig statt 60 Sekunden. Das
+//                 drosselt das PROPFIND-Gewitter am stärksten.
+//   file_refresh  Dateieigenschaften ebenso.
+//   delay_upload  Schreibvorgänge nicht sofort hochschieben, sondern sammeln.
+//   gui_optimize  Sendet Verzeichnislisten früher an den Dateimanager, statt
+//                 erst alles zu sammeln – dafür ist die Option gedacht.
+//
+// Bewusst NICHT angerührt: cache_size. Große Dateien lädt davfs2 vollständig
+// in den Zwischenspeicher, bevor es sie herausgibt; das ist seine Bauweise und
+// lässt sich durch keine Einstellung abstellen.
+func davfsEinstellungen(mnt string) error {
+	const pfad = "/etc/davfs2/davfs2.conf"
+	roh, err := os.ReadFile(pfad)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	marke := "[" + mnt + "]"
+	if strings.Contains(string(roh), marke) {
+		return nil // schon vorhanden
+	}
+	abschnitt := marke + `
+  dir_refresh    300
+  file_refresh   300
+  delay_upload   10
+  gui_optimize   1
+`
+	inhalt := string(roh)
+	if inhalt != "" && !strings.HasSuffix(inhalt, "\n") {
+		inhalt += "\n"
+	}
+	inhalt += "\n# Fundus (R761): Einstellungen für eine Freigabe über das P2P-Netz.\n"
+	inhalt += abschnitt
+	if werr := os.WriteFile(pfad, []byte(inhalt), 0o644); werr != nil {
+		return werr
+	}
+	logf("davfs2-Einstellungen für %s eingetragen", mnt)
+	return nil
+}
+
+// davfsEinstellungenEntfernen nimmt den Abschnitt wieder heraus (R761).
+//
+// Der Abschnitt reicht von seiner Überschrift bis zur nächsten Überschrift oder
+// zum Dateiende – nur die eigenen Zeilen, nicht die fremder Einhängungen.
+func davfsEinstellungenEntfernen(mnt string) error {
+	const pfad = "/etc/davfs2/davfs2.conf"
+	roh, err := os.ReadFile(pfad)
+	if err != nil {
+		return nil
+	}
+	marke := "[" + mnt + "]"
+	zeilen := strings.Split(string(roh), "\n")
+	var neu []string
+	drin := false
+	entfernt := 0
+	for _, z := range zeilen {
+		t := strings.TrimSpace(z)
+		if t == marke {
+			drin = true
+			entfernt++
+			continue
+		}
+		if drin {
+			// Nächste Überschrift beendet den Abschnitt.
+			if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+				drin = false
+			} else {
+				entfernt++
+				continue
+			}
+		}
+		neu = append(neu, z)
+	}
+	if entfernt == 0 {
+		return nil
+	}
+	logf("%d Zeile(n) der davfs2-Einstellungen für %s entfernt", entfernt, mnt)
+	return os.WriteFile(pfad, []byte(strings.Join(neu, "\n")), 0o644)
 }

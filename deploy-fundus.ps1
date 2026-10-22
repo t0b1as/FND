@@ -656,7 +656,7 @@ if (-not $SkipSetup) {
     #   ein, samba gibt dieses Verzeichnis im Heimnetz frei. Windows spricht dann
     #   normales SMB mit dem Pi und merkt nichts vom P2P-Netz dahinter.
     #   Beide Dienste laufen erst, wenn eine Bruecke eingerichtet wurde.
-    $basePkgs = @("unzip","curl","logrotate","ca-certificates","gnupg","exfatprogs","ntfs-3g","ffmpeg","iw","samba","davfs2")
+    $basePkgs = @("unzip","curl","logrotate","ca-certificates","gnupg","exfatprogs","ntfs-3g","ffmpeg","iw","samba","davfs2","rclone")
     $toInstall = @()
     foreach ($pkg in $basePkgs) {
         $chk = Invoke-SSH-Safe "dpkg -l $pkg 2>/dev/null | grep -q '^ii' && echo ok || echo missing"
