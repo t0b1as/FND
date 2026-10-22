@@ -788,11 +788,19 @@ func (sm *ShareManager) ReadRange(shareID, requesterPeerID, virtualPath string,
 		return nil, err
 	}
 	defer f.Close()
-	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, err
-	}
+	// R772: ReadAt statt Seek+Read.
+	//
+	// Spart einen Systemaufruf je Anfrage und ist bei gleichzeitigen Zugriffen
+	// sauberer: ReadAt verändert die Leseposition der Datei nicht, Seek schon.
+	// Bei mehreren Anfragen auf dieselbe Datei kann das sonst durcheinander
+	// geraten.
+	//
+	// Ein Hinweis ans Betriebssystem zum Vorauslesen (fadvise) wäre hier der
+	// stärkste Hebel, verlangt aber ein zusätzliches Paket. Das lässt sich in
+	// dieser Umgebung nicht hinzufügen, deshalb bleibt es bei ReadAt – und
+	// beim Zurücknehmen der Parallelität, die der Platte am meisten schadet.
 	buf := make([]byte, laenge)
-	n, err := io.ReadFull(f, buf)
+	n, err := f.ReadAt(buf, offset)
 	// Am Dateiende ist ein kurzer Puffer normal, kein Fehler.
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return nil, err

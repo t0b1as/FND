@@ -220,7 +220,20 @@ func (s *Server) remoteShareStreamFile(c *gin.Context) {
 	// Acht Blöcke zu 4 MiB sind 32 MiB unterwegs. Das ist die Grenze dessen,
 	// was ich einem Pi mit 768 MB zumuten will, zumal mehrere Ströme
 	// gleichzeitig laufen können.
-	const vorlauf = 8
+	// R772: Vorlauf von 8 auf 3 ZURÜCK.
+	//
+	// Gemessen auf der Gegenseite: Das Lesen von der Platte dauert 0,6 bis 1,0
+	// Sekunden für 4 MiB, also 3 bis 5 MB/s. Der Engpass ist die Platte, nicht
+	// das Netz – und damit war meine Richtung in R769 falsch.
+	//
+	// Acht gleichzeitige Anfragen holen Abschnitte an acht verschiedenen
+	// Stellen. Bei einer drehenden Platte springt der Kopf dabei ständig, und
+	// das ist LANGSAMER als fortlaufendes Lesen. Mehr Parallelität hilft nur
+	// gegen Wartezeit auf der Leitung; gegen eine langsame Platte schadet sie.
+	//
+	// Drei ist der Kompromiss: genug, um die Netzwartezeit zu überdecken, wenig
+	// genug, dass die Platte weitgehend der Reihe nach liest.
+	const vorlauf = 3
 	type block struct {
 		daten []byte
 		err   error
