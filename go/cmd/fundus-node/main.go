@@ -337,7 +337,22 @@ func main() {
 	//  Dezentrales Filesharing (optional)
 	// -------------------------------------------------------------------------
 	var fs *filestore.FileStore
-	if cfg.StorageOfferGB > 0 {
+	// R784: Der Dateispeicher startet IMMER – auch ohne Speicherangebot.
+	//
+	// Bisher hing er an StorageOfferGB > 0. Das verknüpft zwei Dinge, die
+	// nichts miteinander zu tun haben:
+	//
+	//   Angebot  = wie viel Platz ich ANDEREN zur Verfügung stelle
+	//   Speicher = ob ich MEINE eigenen Dateien lesen und freigeben kann
+	//
+	// Auf einem Pi mit kleiner Karte war das Angebot null, und damit fiel der
+	// Zugriff auf die eigenen Dateien und sämtliche Netzfreigaben aus – im
+	// Browser sichtbar nur als 503. Genau das habe ich in R782 und R783 an
+	// zwei falschen Stellen zu beheben versucht.
+	//
+	// Ohne Angebot bedeutet jetzt: keine Reservierung, nichts für andere
+	// speichern, alles Eigene normal nutzbar.
+	{
 		// Storage-Verzeichnis anlegen bevor wir den Speicher prüfen
 		// (statfs schlägt sonst auf nicht-existentem Pfad fehl).
 		// R783: KEIN log.Fatal mehr. Beides beendete bisher den GANZEN Node –
@@ -416,8 +431,11 @@ func main() {
 				zap.String("dir",    cfg.StorageDir),
 			)
 		}
-	} else {
-		log.Info("Filesharing deaktiviert (FUNDUS_STORAGE_OFFER_GB=0)")
+	}
+	// R784: Der frühere else-Zweig („Filesharing deaktiviert") ist entfallen –
+	// es gibt keinen Fall mehr, in dem der Dateispeicher gar nicht startet.
+	if cfg.StorageOfferGB == 0 {
+		log.Info("Kein Speicherangebot an andere – eigene Dateien und Freigaben laufen normal")
 	}
 
 	// -------------------------------------------------------------------------

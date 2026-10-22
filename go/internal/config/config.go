@@ -276,15 +276,28 @@ func Load(log *zap.Logger) *Config {
 				// anderen anbietet, hat nichts damit zu tun, ob man seine
 				// eigenen Dateien lesen kann. Deshalb das kleinstmögliche
 				// Angebot und ein Hinweis, statt alles stillzulegen.
-				alloc := allocGB
-				if alloc < 1 {
-					alloc = 1
+				// R784: Die Regel alloc ≥ 5 × offer MUSS eingehalten werden.
+				//
+				// In R783 hatte ich offer=1 mit alloc=3 gesetzt. Die Prüfung in
+				// validate.go lehnt das ab, der Start bricht ab – und der Node
+				// lief in eine Neustartschleife, alle elf Sekunden. Aus einem
+				// abgeschalteten Dateispeicher wurde so ein toter Node.
+				//
+				// Passt das Mindestangebot nicht in den freien Platz, wird eben
+				// NICHTS angeboten. Der Dateispeicher läuft trotzdem (siehe
+				// main.go): eigene Dateien und Freigaben hängen nicht daran.
+				if freeGB >= 6 {
+					cfg.StorageOfferGB = 1
+					cfg.StorageAllocGB = 5 // genau 5 × 1
+					log.Warn("Wenig freier Speicher – Angebot auf 1 GB begrenzt",
+						zap.Int64("free_gb", freeGB))
+				} else {
+					cfg.StorageOfferGB = 0
+					cfg.StorageAllocGB = 0
+					log.Warn("Zu wenig Platz für ein Speicherangebot – es wird "+
+						"nichts angeboten; eigene Dateien und Freigaben laufen normal",
+						zap.Int64("free_gb", freeGB))
 				}
-				log.Warn("Wenig freier Speicher – Filesharing läuft mit "+
-					"Mindestangebot weiter (eigene Dateien und Freigaben bleiben nutzbar)",
-					zap.Int64("free_gb", freeGB), zap.Int64("alloc_gb", alloc))
-				cfg.StorageOfferGB = 1
-				cfg.StorageAllocGB = alloc
 			} else {
 				cfg.StorageOfferGB = offerGB
 				cfg.StorageAllocGB = allocGB
