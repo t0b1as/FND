@@ -119,6 +119,12 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 		return helperproto.Response{OK: false, Error: "Zugangsdatei: " + err.Error()}
 	}
 
+	// R755: Ohne user_allow_other in /etc/fuse.conf lehnt FUSE die Option
+	// allow_other ab, und das Einhängen scheitert ganz.
+	if err := fuseAllowOtherSichern(); err != nil {
+		return helperproto.Response{OK: false, Error: err.Error()}
+	}
+
 	// Einhängen. use_locks=0, weil unser WebDAV Sperren zwar bestätigt, aber
 	// nicht durchsetzt – davfs2 würde sonst darauf bauen.
 	// R748: Zurückgebliebene Kennungsdatei entfernen.
@@ -137,7 +143,18 @@ func handleSmbBridgeAdd(req helperproto.Request) helperproto.Response {
 
 	if !istEingehaengt(mnt) {
 		cmd := exec.Command("mount", "-t", "davfs", "-o",
-			"uid=root,gid=root,file_mode=0664,dir_mode=0775,use_locks=0",
+			// R755: allow_other ist ENTSCHEIDEND.
+			//
+			// FUSE-Einhängungen sind standardmäßig nur für den einhängenden
+			// Vorgang sichtbar – jeder andere Prozess, auch root, sieht ein
+			// LEERES Verzeichnis. Genau das war der Fall: Der Helfer zählte 17
+			// Einträge, Samba lieferte nichts, und beide laufen als root.
+			//
+			// Von außen sieht das aus wie ein Samba-Problem, ist aber eine
+			// Eigenheit von FUSE. Die Option verlangt zusätzlich
+			// user_allow_other in /etc/fuse.conf – darum kümmert sich
+			// fuseAllowOtherSichern() unten.
+			"uid=root,gid=root,file_mode=0664,dir_mode=0775,use_locks=0,allow_other",
 			req.DavURL, mnt)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return helperproto.Response{OK: false,
@@ -510,4 +527,46 @@ func includeInGlobal(zeile string) error {
 	// die Zeile nicht wieder in einem fremden Abschnitt landet.
 	neu := append([]string{"[global]", zeile, ""}, zeilen...)
 	return os.WriteFile(smbConfMain, []byte(strings.Join(neu, "\n")), 0o644)
+}
+
+// fuseAllowOtherSichern trägt user_allow_other in /etc/fuse.conf ein (R755).
+//
+// Ohne diese Zeile weist FUSE die Mount-Option allow_other ab. Sie erlaubt es,
+// dass auch andere Benutzer als der einhängende auf eine FUSE-Einhängung
+// zugreifen – hier nötig, damit Samba den Inhalt überhaupt sieht.
+//
+// Das ist eine systemweite Einstellung. Sie betrifft nur Einhängungen, die
+// allow_other AUSDRÜCKLICH anfordern, öffnet also nichts Bestehendes.
+func fuseAllowOtherSichern() error {
+	const pfad = "/etc/fuse.conf"
+	roh, err := os.ReadFile(pfad)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("%s nicht lesbar: %v", pfad, err)
+	}
+	for _, z := range strings.Split(string(roh), "\n") {
+		t := strings.TrimSpace(z)
+		if t == "user_allow_other" {
+			return nil // schon da
+		}
+		// Auskommentiert? Dann die Kommentarzeichen entfernen statt eine
+		// zweite Zeile anzulegen – die Datei bleibt so nachvollziehbar.
+		if strings.HasPrefix(t, "#") && strings.Contains(t, "user_allow_other") {
+			neu := strings.Replace(string(roh), z, "user_allow_other", 1)
+			if werr := os.WriteFile(pfad, []byte(neu), 0o644); werr != nil {
+				return fmt.Errorf("%s nicht schreibbar: %v", pfad, werr)
+			}
+			logf("user_allow_other in %s aktiviert (war auskommentiert)", pfad)
+			return nil
+		}
+	}
+	inhalt := string(roh)
+	if inhalt != "" && !strings.HasSuffix(inhalt, "\n") {
+		inhalt += "\n"
+	}
+	inhalt += "user_allow_other\n"
+	if werr := os.WriteFile(pfad, []byte(inhalt), 0o644); werr != nil {
+		return fmt.Errorf("%s nicht schreibbar: %v", pfad, werr)
+	}
+	logf("user_allow_other in %s eingetragen", pfad)
+	return nil
 }
