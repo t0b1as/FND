@@ -2207,6 +2207,40 @@ async function loadDirBrowser(path) {
 
 
 loadFiles();
+// R782: Beim Laden prüfen, ob der Dateispeicher überhaupt läuft.
+//
+// Lief er nicht, bekam man auf jede Datei eine nackte 503 in der
+// Browserkonsole – ohne Hinweis in der Oberfläche. Der Node kennt den Grund,
+// er stand nur nirgends.
+(async function speicherPruefen(){
+  try {
+    // /files/stats meldet enabled:false, ohne eine 503 zu erzeugen – das ist
+    // der saubere Weg zu fragen, ob der Speicher läuft.
+    const r = await fetch('/api/v1/files/stats', { credentials: 'same-origin' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.enabled !== false) return;
+    // Grund holen: den nennt der Download-Weg in seiner Fehlermeldung.
+    let grund = '';
+    try {
+      const g = await fetch('/api/v1/files/download/' + '0'.repeat(64),
+                            { credentials: 'same-origin' });
+      if (g.status === 503) { const gd = await g.json(); grund = gd.error || ''; }
+    } catch(e) {}
+    const box = document.querySelector('.file-card-body') || document.body;
+    const hin = document.createElement('div');
+    hin.className = 'info-notice';
+    hin.style.cssText = 'border-left:3px solid #ffc107;padding:10px 12px;margin:10px 0;'+
+      'background:rgba(255,193,7,.08);border-radius:6px;color:var(--text);font-size:13px';
+    hin.innerHTML = '<strong>Dateispeicher nicht aktiv.</strong><br>'+
+      escapeHtmlF(grund || 'Grund unbekannt') +
+      '<br><span class="meta">Dateien und Netzfreigaben bleiben bis dahin leer. '+
+      'Der genaue Grund steht im Protokoll des Node: '+
+      '<code>journalctl -u fundus-node | grep -i Dateispeicher</code></span>';
+    box.insertBefore(hin, box.firstChild);
+  } catch(e) { /* kein Netz – dann meldet sich die Seite ohnehin anders */ }
+})();
+
 if (!window.FM_READONLY) loadDirShares();
 </script>
 ]],

@@ -307,8 +307,28 @@ type FileStore struct {
 
 // New erstellt einen FileStore.
 func New(cfg Config, p2p P2PAdapter, log *zap.Logger) (*FileStore, error) {
+	// R782: Lässt sich das eingestellte Verzeichnis nicht anlegen – etwa weil
+	// die externe Platte nicht eingehängt ist –, auf ein Verzeichnis neben den
+	// übrigen Node-Daten ausweichen, statt das Filesharing abzuschalten.
+	//
+	// Auf einem frisch aufgesetzten Pi ist genau das der Normalfall, und der
+	// Nutzer sah bisher nur ein nacktes 503 ohne jeden Hinweis.
+	if err := os.MkdirAll(cfg.DataDir, 0750); err != nil {
+		ersatz := filepath.Join(cfg.KeyDir, "storage")
+		if cfg.KeyDir == "" || ersatz == cfg.DataDir {
+			return nil, fmt.Errorf("filestore: verzeichnis erstellen %s: %w", cfg.DataDir, err)
+		}
+		if err2 := os.MkdirAll(ersatz, 0750); err2 != nil {
+			return nil, fmt.Errorf("filestore: weder %s noch %s nutzbar: %v / %v",
+				cfg.DataDir, ersatz, err, err2)
+		}
+		log.Warn("Speicherverzeichnis nicht nutzbar – weiche aus",
+			zap.String("eingestellt", cfg.DataDir),
+			zap.String("ersatz", ersatz), zap.Error(err))
+		cfg.DataDir = ersatz
+	}
 	chunkDir := filepath.Join(cfg.DataDir, "chunks")
-	tmpDir   := filepath.Join(cfg.DataDir, "tmp")
+	tmpDir := filepath.Join(cfg.DataDir, "tmp")
 	for _, d := range []string{chunkDir, tmpDir} {
 		if err := os.MkdirAll(d, 0750); err != nil {
 			return nil, fmt.Errorf("filestore: verzeichnis erstellen %s: %w", d, err)
@@ -320,15 +340,52 @@ func New(cfg Config, p2p P2PAdapter, log *zap.Logger) (*FileStore, error) {
 	// Verhindert dass der Node Speicher verspricht den er nicht hat.
 	allocFile := filepath.Join(cfg.DataDir, "storage.alloc")
 	if cfg.AllocGB > 0 {
+		// R782: Eine gescheiterte Reservierung darf das Filesharing NICHT
+		// abschalten.
+		//
+		// Bisher führte zu wenig Platz dazu, dass der ganze Dateispeicher
+		// ausfiel – also auch das Lesen EIGENER Dateien und die Netzfreigaben.
+		// Auf einem frisch aufgesetzten Node mit kleiner Karte war damit alles
+		// tot, und im Browser erschien nur ein nacktes 503.
+		//
+		// Die Reservierung sichert nur zu, dass wir FREMDEN Speicher
+		// versprechen können. Reicht der Platz nicht, verspricht man eben
+		// weniger – das ist die richtige Reaktion, nicht Totalausfall.
 		if err := preallocateDisk(allocFile, cfg.AllocGB); err != nil {
-			return nil, fmt.Errorf("filestore: disk-allokation %d GB: %w", cfg.AllocGB, err)
+			frei, _ := diskStatfs(cfg.DataDir)
+			// 80 % des freien Platzes, der Rest bleibt für Betrieb und Protokolle.
+			moeglich := int64(float64(frei) * 0.8 / (1024 * 1024 * 1024))
+			if moeglich >= 1 && moeglich < cfg.AllocGB {
+				log.Warn("Disk-Allokation verkleinert – nicht genug Platz",
+					zap.Int64("gewuenscht_gb", cfg.AllocGB),
+					zap.Int64("moeglich_gb", moeglich), zap.Error(err))
+				cfg.AllocGB = moeglich
+				// Das Angebot an andere muss im selben Verhältnis sinken
+				// (sonst verspricht der Node mehr, als er reserviert hat).
+				if cfg.OfferGB > moeglich/5 {
+					cfg.OfferGB = moeglich / 5
+				}
+				err = preallocateDisk(allocFile, cfg.AllocGB)
+			}
+			if err != nil {
+				// Auch das reichte nicht: OHNE Reservierung weitermachen. Der
+				// Node speichert dann nichts für andere, aber die eigenen
+				// Dateien und die Freigaben funktionieren.
+				log.Warn("Ohne Disk-Allokation gestartet – es wird kein Speicher "+
+					"für andere angeboten; eigene Dateien und Freigaben laufen normal",
+					zap.Error(err))
+				_ = os.Remove(allocFile)
+				cfg.AllocGB, cfg.OfferGB = 0, 0
+			}
 		}
-		log.Info("Disk-Allokation erfolgreich",
-			zap.Int64("allocGB",  cfg.AllocGB),
-			zap.Int64("offerGB",  cfg.OfferGB),
-			zap.Int64("ratio",    cfg.AllocGB/max64(cfg.OfferGB, 1)),
-			zap.String("file",    allocFile),
-		)
+		if cfg.AllocGB > 0 {
+			log.Info("Disk-Allokation erfolgreich",
+				zap.Int64("allocGB", cfg.AllocGB),
+				zap.Int64("offerGB", cfg.OfferGB),
+				zap.Int64("ratio", cfg.AllocGB/max64(cfg.OfferGB, 1)),
+				zap.String("file", allocFile),
+			)
+		}
 	}
 
 	fs := &FileStore{

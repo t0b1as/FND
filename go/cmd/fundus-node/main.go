@@ -340,17 +340,37 @@ func main() {
 	if cfg.StorageOfferGB > 0 {
 		// Storage-Verzeichnis anlegen bevor wir den Speicher prüfen
 		// (statfs schlägt sonst auf nicht-existentem Pfad fehl).
+		// R783: KEIN log.Fatal mehr. Beides beendete bisher den GANZEN Node –
+		// wegen einer Nebensache. Ein Node ohne Dateispeicher ist immer noch
+		// ein Node: Chain, Marktplatz, Messenger und Fahrten laufen weiter.
+		//
+		// Statt abzubrechen: ausweichen, verkleinern, und im Zweifel ohne
+		// Angebot starten. Der Dateispeicher selbst regelt das seit R782.
 		if err := os.MkdirAll(cfg.StorageDir, 0750); err != nil {
-			log.Fatal("Storage-Verzeichnis konnte nicht angelegt werden",
-				zap.String("dir", cfg.StorageDir), zap.Error(err))
+			ersatz := filepath.Join(cfg.DataDir, "storage")
+			log.Warn("Storage-Verzeichnis nicht anlegbar – weiche aus",
+				zap.String("dir", cfg.StorageDir), zap.String("ersatz", ersatz),
+				zap.Error(err))
+			if err2 := os.MkdirAll(ersatz, 0750); err2 != nil {
+				log.Error("Auch das Ersatzverzeichnis nicht anlegbar – Filesharing aus",
+					zap.Error(err2))
+				cfg.StorageOfferGB = 0
+			} else {
+				cfg.StorageDir = ersatz
+			}
 		}
-		// Prüfen ob genug Speicher vorhanden ist bevor wir ihn versprechen
-		if err := filestore.CheckDiskSpace(cfg.StorageDir, cfg.StorageOfferGB); err != nil {
-			log.Error("Nicht genug Speicher für Filesharing-Angebot",
-				zap.Int64("offerGB", cfg.StorageOfferGB),
-				zap.Error(err),
-			)
-			log.Fatal("Speicherfehler – FUNDUS_STORAGE_OFFER_GB reduzieren oder Speicher freimachen")
+		// Reicht der Platz nicht fürs Angebot, wird das Angebot kleiner – der
+		// Node startet trotzdem.
+		if cfg.StorageOfferGB > 0 {
+			if err := filestore.CheckDiskSpace(cfg.StorageDir, cfg.StorageOfferGB); err != nil {
+				log.Warn("Nicht genug Speicher für das eingestellte Angebot – "+
+					"senke auf 1 GB; eigene Dateien und Freigaben bleiben nutzbar",
+					zap.Int64("offerGB", cfg.StorageOfferGB), zap.Error(err))
+				cfg.StorageOfferGB = 1
+				if cfg.StorageAllocGB > 5 {
+					cfg.StorageAllocGB = 5
+				}
+			}
 		}
 		fsCfg := filestore.Config{
 			DataDir: cfg.StorageDir,

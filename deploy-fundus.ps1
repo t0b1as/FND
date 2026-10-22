@@ -651,12 +651,7 @@ if (-not $SkipSetup) {
     # ── Basis-Pakete (immer aus Debian-Repo verfuegbar) ──────────────────────
     Write-Step "Basis-Pakete pruefen..."
     # ffmpeg: Videos im Dateimanager umverpacken (MKV/TS/… mit AC3-Ton), ohne Neukodierung
-    # samba + davfs2 (R736): eine FERNE Freigabe als Windows-Laufwerk anbieten.
-    #   davfs2 haengt den eigenen WebDAV-Zugang des Node als lokales Verzeichnis
-    #   ein, samba gibt dieses Verzeichnis im Heimnetz frei. Windows spricht dann
-    #   normales SMB mit dem Pi und merkt nichts vom P2P-Netz dahinter.
-    #   Beide Dienste laufen erst, wenn eine Bruecke eingerichtet wurde.
-    $basePkgs = @("unzip","curl","logrotate","ca-certificates","gnupg","exfatprogs","ntfs-3g","ffmpeg","iw","samba","davfs2","rclone")
+    $basePkgs = @("unzip","curl","logrotate","ca-certificates","gnupg","exfatprogs","ntfs-3g","ffmpeg","iw")
     $toInstall = @()
     foreach ($pkg in $basePkgs) {
         $chk = Invoke-SSH-Safe "dpkg -l $pkg 2>/dev/null | grep -q '^ii' && echo ok || echo missing"
@@ -665,9 +660,8 @@ if (-not $SkipSetup) {
     if ($toInstall.Count -gt 0) {
         $pkgList = $toInstall -join " "
         Write-Info "Installiere: $pkgList"
-        # DEBIAN_FRONTEND: davfs2 stellt bei der Installation eine Rueckfrage
-        # (duerfen normale Benutzer mounten?). Ohne diese Vorgabe bliebe das
-        # Deploy an der Stelle stehen, ohne dass man sieht warum.
+        # DEBIAN_FRONTEND bleibt: Auch andere Pakete koennen Rueckfragen
+        # stellen, und das Deploy bliebe dann wortlos stehen (R736).
         Invoke-SSH "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y $pkgList 2>&1 | tail -5"
         $failed = @()
         foreach ($pkg in $toInstall) {

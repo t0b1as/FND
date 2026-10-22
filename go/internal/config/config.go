@@ -265,10 +265,26 @@ func Load(log *zap.Logger) *Config {
 			allocGB := freeGB / 2  // hoechstens halbe Platte reservieren
 			offerGB := allocGB / 5 // 1/5 davon dem Netz anbieten (Rest = Spiegel)
 			if offerGB < 1 {
-				// Zu wenig Platz fuer sinnvolles Angebot -> Filesharing aus
-				log.Warn("Zu wenig freier Speicher fuer Filesharing, deaktiviert",
-					zap.Int64("free_gb", freeGB))
-				cfg.StorageOfferGB = 0
+				// R783: NICHT mehr abschalten.
+				//
+				// Bisher: weniger als 10 GB frei → offerGB < 1 → Filesharing
+				// komplett aus. Damit fiel auch der Zugriff auf die EIGENEN
+				// Dateien weg und die Netzfreigaben verschwanden – im Browser
+				// sichtbar nur als nackte 503.
+				//
+				// Das ist die falsche Verknüpfung: Wie viel Speicher man
+				// anderen anbietet, hat nichts damit zu tun, ob man seine
+				// eigenen Dateien lesen kann. Deshalb das kleinstmögliche
+				// Angebot und ein Hinweis, statt alles stillzulegen.
+				alloc := allocGB
+				if alloc < 1 {
+					alloc = 1
+				}
+				log.Warn("Wenig freier Speicher – Filesharing läuft mit "+
+					"Mindestangebot weiter (eigene Dateien und Freigaben bleiben nutzbar)",
+					zap.Int64("free_gb", freeGB), zap.Int64("alloc_gb", alloc))
+				cfg.StorageOfferGB = 1
+				cfg.StorageAllocGB = alloc
 			} else {
 				cfg.StorageOfferGB = offerGB
 				cfg.StorageAllocGB = allocGB
