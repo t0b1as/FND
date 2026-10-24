@@ -1338,9 +1338,11 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
 //   empfangen = zwei graue Häkchen (✓✓)
 //   gelesen   = zwei blaue Häkchen (✓✓, eingefärbt)
 function renderTicks(deliveredAt, readAt) {
-    if (readAt)      return '<span class="tick tick-read">✓✓</span>';
-    if (deliveredAt) return '<span class="tick tick-delivered">✓✓</span>';
-    return '<span class="tick tick-sent">✓</span>';
+    // R804: angekommen EIN Häkchen (dunkelgrün), gelesen ZWEI (dunkelblau).
+    // Gesendet bleibt ein blasses Häkchen – unterwegs, noch nicht bestätigt.
+    if (readAt)      return '<span class="tick tick-read" title="Gelesen">✓✓</span>';
+    if (deliveredAt) return '<span class="tick tick-delivered" title="Angekommen">✓</span>';
+    return '<span class="tick tick-sent" title="Gesendet">✓</span>';
 }
 
 // updateTickTitle setzt einen Tooltip mit den Zeitstempeln für empfangen/gelesen.

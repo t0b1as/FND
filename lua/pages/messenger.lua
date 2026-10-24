@@ -232,10 +232,17 @@ const MSGT = ]] .. (require("cjson.safe").encode({
                    vertical-align:baseline; }
 .msg-sender      { display:block; font-size:11px; font-weight:600; opacity:0.75; margin-bottom:1px; }
 .msg-ticks       { margin-left:3px; cursor:default; }
-.tick            { font-size:10px; letter-spacing:-1px; }
-.tick-sent       { opacity:0.6; }
-.tick-delivered  { opacity:0.6; }
-.tick-read       { color:#0288d1; opacity:1; }
+/* R804: Häkchen gut erkennbar. Vorher 10px, 60 % deckend, und "gelesen" in
+   #0288d1 – das erreichte auf der dunkleren Seite der grünen Blase nur
+   1,7:1 Kontrast (für Symbole sind mindestens 3:1 nötig). Gesendet und
+   angekommen sahen außerdem gleich aus.
+   Jetzt: angekommen = ein Häkchen dunkelgrün (4,5–6:1),
+          gelesen    = zwei Häkchen dunkelblau (5,5–7,4:1).
+   Unterscheidbar an Farbe UND Anzahl – auch bei Farbfehlsichtigkeit. */
+.tick            { font-size:12.5px; font-weight:700; letter-spacing:-2px; }
+.tick-sent       { color:#004d26; opacity:0.4; }   /* unterwegs: blass */
+.tick-delivered  { color:#004d26; opacity:1; }
+.tick-read       { color:#0b2a8a; opacity:1; }
 .msg-system      { text-align:center; color:var(--muted); font-size:12px; padding:6px; }
 
 /* Kontaktliste */

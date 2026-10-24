@@ -3061,6 +3061,13 @@ button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
    1. KONTRAST in der eigenen (grünen) Blase: Uhrzeit, Haken und der
       Bearbeitet-Vermerk lagen bei 2,35 – gefordert sind 4,5. Auf dem grünen
       Grund braucht es helle statt gedämpfter Farben. */
+/* R805: KORREKTUR der Messung von R694. Gemessen wurde damals gegen die
+   halbdurchsichtige Grundfarbe der Blase (ein dunkles Grün) – sichtbar ist
+   aber der Farbverlauf darüber, #00e676 bis #00c853, also HELLES Grün. Weiß
+   darauf erreichte zusammen mit der 50-%-Deckkraft aus .msg-time nur
+   1,2:1, voll deckend auch nur 2,2:1.
+   Dunkelgrün #00401f: 5,4 bis 7,2:1 über den ganzen Verlauf. Volle
+   Deckkraft, sonst hebt die Grundregel den Kontrast wieder auf. */
 .msg-bubble.outgoing .msg-time,
 .msg-bubble.outgoing .bubble-time,
 .msg-bubble.outgoing .msg-status,
@@ -3068,7 +3075,8 @@ button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
 .msg-bubble.outgoing .tp-zeit,
 .msg-bubble.outgoing .zitat,
 .msg-bubble.outgoing .zitat-link {
-  color: rgba(255, 255, 255, .92) !important;
+  color: #00401f !important;
+  opacity: 1 !important;
 }
 .msg-bubble.outgoing .msg-edited { font-style: italic; }
 
