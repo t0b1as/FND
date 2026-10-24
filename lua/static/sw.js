@@ -76,11 +76,24 @@ self.addEventListener('push', (event) => {
   // Nicht stören, wenn der Messenger auf DIESEM Gerät gerade offen und im
   // Blick ist (R596). Auf allen anderen Geräten erscheint die Meldung.
   event.waitUntil((async () => {
+    // R808: NIE ohne Anzeige beenden – höchstens LEISE anzeigen.
+    //
+    // Safari verlangt, dass jede Push-Meldung sichtbar angezeigt wird. Wer das
+    // wiederholt nicht tut, dem entzieht Safari die Push-Berechtigung. Mit
+    // mehreren Nodes, die dieselbe Meldung schicken (R796), und den Kopien, die
+    // R799 still verwarf, geschah das schon beim ersten Ereignis – Push auf dem
+    // iPhone war damit tot, bevor es richtig anfing. Chrome zeigt in so einem
+    // Fall ersatzweise "Website im Hintergrund aktualisiert".
+    //
+    // Jetzt wird immer angezeigt. Duplikate und Nachrichten bei offenem Chat
+    // ersetzen die vorhandene Meldung lautlos (gleiches Etikett, kein erneutes
+    // Klingeln) – sichtbar für das Betriebssystem, unauffällig für den Menschen.
+    let leise = false;
     try {
       const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       const aktiv = wins.some((c) => c.focused && (c.visibilityState === 'visible') &&
         new URL(c.url).pathname.indexOf('/messenger') === 0);
-      if (aktiv && (d.tag === 'msg')) return;   // Chat offen: nur Nachrichten unterdrücken
+      if (aktiv && (d.tag === 'msg')) leise = true;   // Chat offen: nicht stören
     } catch (e) {}
 
     // R799: GLEICHE Meldung binnen 30 Sekunden nur einmal.
@@ -102,11 +115,11 @@ self.addEventListener('push', (event) => {
         const jetzt = Date.now();
         if (offen.some((n) => n.data && n.data.kennung === kennung &&
                               jetzt - (n.data.zeit || 0) < 30000)) {
-          return;   // dieselbe Meldung ist eben erst erschienen
+          leise = true;   // dieselbe Meldung ist eben erst erschienen
         }
       } catch (e) {}
     }
-    return self.registration.showNotification(title, {
+    const zeigen = self.registration.showNotification(title, {
       body: d.body || '',
       // PNG statt SVG (R595): Android stellt SVG in Benachrichtigungen NICHT dar –
       // dort erschien bisher ein leeres Symbol. Das Abzeichen ist einfarbig,
@@ -114,13 +127,20 @@ self.addEventListener('push', (event) => {
       icon: '/static/icon-192.png',
       badge: '/static/badge-96.png',
       tag: d.tag || undefined,         // gleiche Art ersetzt die vorige statt zu stapeln
-      renotify: !!d.tag,
+      renotify: !!d.tag && !leise,     // leise: ersetzen ohne erneutes Klingeln
+      silent: leise,
       // Kurze Vibration und sichtbarer Zeitstempel – auf dem Sperrbildschirm
       // erscheint die Meldung dadurch wie die einer App.
-      vibrate: [60, 40, 60],
+      vibrate: leise ? undefined : [60, 40, 60],
       timestamp: Date.now(),
       data: { url: d.url || '/', kennung: kennung, zeit: Date.now() },
     });
+    await zeigen;
+    // Bei offenem Chat gleich wieder entfernen: Angezeigt wurde sie – das
+    // zählt für Safari –, aber sie soll nicht neben dem Gespräch liegen bleiben.
+    if (leise && d.tag === 'msg') {
+      try { (await self.registration.getNotifications({ tag: 'msg' })).forEach((n) => n.close()); } catch (e) {}
+    }
   })());
 });
 

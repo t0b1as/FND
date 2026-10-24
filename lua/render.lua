@@ -336,7 +336,11 @@ window.addEventListener("resize",function(){
 // statische Assets — Live-Daten gehen immer ans Netz.
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", function(){
-    navigator.serviceWorker.register("/sw.js").catch(function(){});
+    // R808: Den Fehler MERKEN statt verschlucken. Häufigster Fall: Aufruf über
+    // die IP-Adresse eines Pis mit selbstsigniertem Zertifikat – dann
+    // registriert kein Browser einen Service Worker, und ohne den gibt es
+    // keine Push-Meldungen. Die Wallet zeigt den Grund jetzt an.
+    navigator.serviceWorker.register("/sw.js").catch(function(e){ window.SW_FEHLER = (e && e.message) || "unbekannt"; });
   });
 }
 </script>

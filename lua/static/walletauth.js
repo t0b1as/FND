@@ -646,6 +646,17 @@
       alert('Die Kamera braucht eine sichere Verbindung (https). Bitte die Adresse einfügen.');
       return;
     }
+    // R807: Offene Wallet- und Marktplatz-Fenster vorübergehend ausblenden.
+    // Sie lagen über dem Kamerabild; auf dem iPhone sah man fast nichts.
+    // Nach dem Scannen erscheinen sie wieder – mit der Adresse im Feld.
+    const verdeckt = Array.from(document.querySelectorAll('.wallet-overlay, .mp-overlay'))
+      .filter(function (e) { return getComputedStyle(e).display !== 'none'; });
+    verdeckt.forEach(function (e) { e.dataset.scanVorher = e.style.visibility || ''; e.style.visibility = 'hidden'; });
+    // Eine offene Tastatur verkleinert auf dem iPhone den sichtbaren Bereich.
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    function wiederZeigen() {
+      verdeckt.forEach(function (e) { e.style.visibility = e.dataset.scanVorher || ''; delete e.dataset.scanVorher; });
+    }
     const wrap = document.createElement('div'); wrap.className = 'scan-overlay';
     // playsinline und muted: ohne beides spielt Safari auf dem iPhone das Bild
     // nicht im Fenster ab, sondern versucht den Vollbildmodus – oder gar nicht.
@@ -659,7 +670,7 @@
     let stream = null, stop = false;
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    function close(){ stop = true; if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); wrap.remove(); }
+    function close(){ stop = true; if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); wrap.remove(); wiederZeigen(); }
     function treffer(text){ if (stop) return; close(); onResult(text); }
     wrap.querySelector('.scan-close').onclick = close;
     navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' },
@@ -742,7 +753,21 @@
     const st = ov.querySelector('#push-state'), tg = ov.querySelector('#push-toggle'), ts = ov.querySelector('#push-test'), out = ov.querySelector('#push-out');
     if (hint) { st.textContent = hint; tg.style.display = 'none'; return; }
     let reg = null, sub = null;
-    try { reg = await navigator.serviceWorker.ready; sub = await reg.pushManager.getSubscription(); } catch(e){}
+    // R808: Nicht endlos warten. serviceWorker.ready kommt NIE, wenn die
+    // Registrierung scheiterte – die Seite stand dann mit "…" da.
+    try {
+      reg = await Promise.race([navigator.serviceWorker.ready,
+        new Promise(function (_, f) { setTimeout(function () { f(new Error('zeit')); }, 4000); })]);
+      sub = await reg.pushManager.getSubscription();
+    } catch(e){}
+    if (!reg) {
+      const zert = /certificate|SSL|zertifikat/i.test(window.SW_FEHLER || '') || location.hostname.match(/^\d+\.\d+\.\d+\.\d+$/);
+      st.innerHTML = zert
+        ? 'Benachrichtigungen brauchen ein <strong>gültiges Zertifikat</strong>. Über die IP-Adresse eines Pis gibt es nur ein selbstsigniertes, und dann lässt der Browser sie nicht zu.<br><br>Bitte Fundus über die öffentliche Adresse öffnen, etwa <strong>https://fnd.resolve.bar</strong>, und hier erneut einschalten.'
+        : 'Benachrichtigungen konnten nicht vorbereitet werden' + (window.SW_FEHLER ? ': ' + window.SW_FEHLER : '.') ;
+      tg.style.display = 'none';
+      return;
+    }
     async function refresh(){
       let on = false;
       if (sub) {
