@@ -1,8 +1,8 @@
 {
-  "version": "R785",
-  "description": "FUNDUS R785 - fileshare",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R785/FND-R785-update.zip",
-  "node_argon2": "55a9c5e0528d84ba645fa84b037d63e7dea68b1703faca39d7b25439a5b84dd5",
-  "published_at": "2026-10-22T16:25:21.6314932Z",
-  "signature": "0xb531cb2f4fc6d140431f1ed68d06c8bc68319d6e597dbabb97e5d87e487951d448d7d10cff8332ba42abaaeb425ec50d822b873fe2c63d28ca91db51393dc2e01b"
+  "version": "R789",
+  "description": "FUNDUS R789 - drive and market notifications",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R789/FND-R789-update.zip",
+  "node_argon2": "5769fb9469a1c71596ad8a73fd2d82d7bcf4028266fc48b126f2bfc1a99a9a63",
+  "published_at": "2026-10-24T04:13:04.6207814Z",
+  "signature": "0xdf0b9aedc06e233cd31487657106a88877c9698748174c0b15bf781bbd1ee19e13c03aad4af421d03ded50a3eae5b7dcf76cdd85d151661cdcb09b630abb68811c"
 }
