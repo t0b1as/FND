@@ -1652,7 +1652,14 @@ func (s *Server) registerListingSoldProtocol() {
 // Überweisungsprüfung benutzt.
 func (s *Server) verkaufMelden(daten map[string]any, listingID string, n, rest int) {
 	defer func() { _ = recover() }()
-	fid, _ := daten["contact_fundus_id"].(string)
+	// R795: creator_fid ZUERST. Das ist die signierte Fundus-ID des
+	// Verkäufers und bei jedem Angebot gesetzt. Vorher wurde über die Wallet
+	// gesucht – das Schlüsselverzeichnis ist aber nach Fundus-ID geführt, die
+	// Suche ging ins Leere, und es kam keine Push-Meldung.
+	fid, _ := daten["creator_fid"].(string)
+	if fid == "" {
+		fid, _ = daten["contact_fundus_id"].(string)
+	}
 	if fid == "" {
 		if w, _ := daten["seller_wallet"].(string); w != "" && s.store != nil {
 			if rec, err := s.store.Get(storage.RecordKeyDir, "keydir:"+strings.ToLower(w)); err == nil && rec != nil {
@@ -1678,8 +1685,11 @@ func (s *Server) verkaufMelden(daten map[string]any, listingID string, n, rest i
 	if rest > 0 {
 		text += fmt.Sprintf(" · noch %d verfügbar", rest)
 	}
-	s.pushNotify(strings.ToLower(fid), "Verkauft", text,
-		"/listings/"+listingID, "sale-"+listingID, true)
+	// R795: An ALLE Nodes des Verkäufers, nicht nur an diesen. Die Push-
+	// Anmeldung liegt dort, wo er sie erteilt hat – mit Lastverteilung nicht
+	// zwingend auf dem Node, dem das Angebot gehört.
+	s.meldungVerteilen(fid, "Verkauft", text,
+		"/listings/"+listingID, "sale-"+listingID)
 	if s.log != nil {
 		s.log.Info("Verkauf gemeldet", zap.String("listing", listingID),
 			zap.String("an", strings.ToLower(fid)[:10]+"…"))

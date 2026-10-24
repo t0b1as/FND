@@ -270,7 +270,7 @@ return function(captures)
         end
         -- Restbestand über dem Kaufbereich (nur bei mehreren Stück)
         buySection = stockRow .. string.format([==[
-  <div class="buy-box" id="buy-box" data-shipping="%s" data-ship="%s" data-cpk="%s" data-cfid="%s">
+  <div class="buy-box" id="buy-box" data-shipping="%s" data-ship="%s" data-cpk="%s" data-cfid="%s" data-creator="%s">
     <h3>%s</h3>
     <p class="buy-hint">
       FND werden nach Kauf fuer <strong>14 Tage</strong> eingefroren.
@@ -292,6 +292,10 @@ return function(captures)
     <div id="escrow-status" class="escrow-status hidden"></div>
   </div>]==],
             (isShipping and "1" or "0"), string.format("%.2f", tonumber(record.data and record.data.shipping_cost) or 0), cpkJs, cfidJs,
+            -- R795: die signierte Fundus-ID des Verkäufers (creator_fid). Die
+            -- ist IMMER gesetzt und der richtige Messenger-Empfänger – anders
+            -- als die Wallet, unter der kein Schlüssel geführt wird.
+            render.html_escape(tostring((record.data and record.data.creator_fid) or "")),
             t("listing.buy"), walletRow, shipRow, qtyPicker, buyDisabled,
             record.id, (sellerWallet or ""), (price_min > 0 and string.format("%.2f", price_min) or ""),
             record.id, contactBtn)
@@ -436,7 +440,11 @@ async function sendSaleMessage(buyBox, listingId, escrowId, k, sellerWallet) {
   // Die Wallet-Adresse ist dagegen bei jedem Kauf vorhanden (ohne sie gäbe es
   // keinen Kauf), und der Messenger löst sie über das Schlüsselverzeichnis
   // selbst in die Kontaktkennung auf.
-  const cfid = buyBox.dataset.cfid || sellerWallet || '';
+  // R795: Reihenfolge der Empfänger. creator_fid (die signierte Fundus-ID
+  // des Verkäufers) vor der Wallet: Der Messenger führt Schlüssel unter der
+  // Fundus-ID. Mit der Wallet landete die Nachricht in der Warteschlange,
+  // adressiert an eine Kennung, unter der nie jemand online geht.
+  const cfid = buyBox.dataset.cfid || buyBox.dataset.creator || sellerWallet || '';
   if (!cfid) return { ok: false, grund: 'kein Empfänger bekannt' };
 
   const meta  = window.LISTING_META || {};
@@ -467,7 +475,14 @@ async function sendSaleMessage(buyBox, listingId, escrowId, k, sellerWallet) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    if (r.ok) return { ok: true };
+    if (r.ok) {
+      // R795: 200 heißt nicht "zugestellt". Ohne bekannten Schlüssel legt der
+      // Messenger die Nachricht in die Warteschlange und meldet queued:true.
+      // Das war vorher als "benachrichtigt" angezeigt worden.
+      let d = {}; try { d = await r.json(); } catch (e) {}
+      if (d.queued) return { ok: false, grund: 'Verkäufer noch nie im Messenger online – Nachricht wird zugestellt, sobald er sich anmeldet' };
+      return { ok: true };
+    }
     let d = {}; try { d = await r.json(); } catch (e) {}
     // An sich selbst stellt der Messenger nicht zu – beim Testkauf aus dem
     // eigenen Inserat ist das der Normalfall, kein Fehler.

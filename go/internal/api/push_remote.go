@@ -134,31 +134,17 @@ func (s *Server) anrufMeldungVerteilen(empfaenger, anruferName string, video boo
 		}
 	}
 
-	ziele := s.eigeneNodes(fid) // Heim-Node und Geräteliste des Empfängers
+	// R796: Geräteliste UND Nachbarn – siehe meldeZiele (push_meldung.go).
+	// Vorher wurden die Nachbarn nur bei LEERER Liste gefragt; eine veraltete,
+	// aber nicht leere Liste ließ neu angemeldete Geräte stumm.
+	ziele := s.meldeZiele(fid)
 	if s.log != nil {
 		s.log.Info("Anrufmeldung wird verteilt", zap.String("an", fid),
 			zap.Int("nodes", len(ziele)),
 			zap.Bool("hier_angemeldet", s.hatPushAnmeldung(fid)))
 	}
 	if len(ziele) == 0 {
-		// R690: Kennt dieser Node keine Geräte des Empfängers, wurde bisher
-		// niemand gebeten – und genau dann klingelt es nur dort, wo der
-		// Messenger gerade offen ist. Also ersatzweise ALLE Nachbarn fragen.
-		//
-		// Das ist unbedenklich: Die Gegenseite meldet ausschließlich, wenn sie
-		// selbst eine Push-Anmeldung für dieses Konto hat. Ein Node ohne
-		// Anmeldung verwirft die Bitte, ohne etwas zu tun. Es wird also nicht
-		// „gestreut", sondern nur dort zugestellt, wo es hingehört.
-		for _, p := range s.node.Peers() {
-			ziele = append(ziele, p.String())
-		}
-		if s.log != nil {
-			s.log.Info("Anrufmeldung: keine Geräte bekannt, frage alle Nachbarn",
-				zap.Int("nachbarn", len(ziele)))
-		}
-		if len(ziele) == 0 {
-			return
-		}
+		return
 	}
 	payload, err := json.Marshal(pushAskMsg{
 		FID: fid, Von: anruferName, Video: video, TS: time.Now().Unix(),
