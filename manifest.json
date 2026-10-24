@@ -1,8 +1,8 @@
 {
-  "version": "R798",
-  "description": "FUNDUS R798 - market messenger notification",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R798/FND-R798-update.zip",
-  "node_argon2": "2d4c17074ad3feb23100818caf1aba91f720aad8de36e0b7968b6a8097c61710",
-  "published_at": "2026-10-24T06:51:07.0662233Z",
-  "signature": "0xafcda0dd9ea90b1a246a0e2dbf6318ec85ce3074343e0b3b4ff6ea62c66fa3314aa5f12f365da9a09de03037310ee3cb3421e8c3db3f39730301df62a07443bd1c"
+  "version": "R800",
+  "description": "FUNDUS R800 - market messenger notification",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R800/FND-R800-update.zip",
+  "node_argon2": "da4f0170b008f2ad3b263b55cd3cc7c517c844005f813774255b9412447dc549",
+  "published_at": "2026-10-24T07:39:49.8299675Z",
+  "signature": "0xa18ccaaf57ba77f697dbeafafdcdcf617dd247be479419105f43bc32af0e562c0aff52cab6e10ee95f00c01f26687e3da28f412f1b86d008479472fd0ca5c9d11b"
 }
