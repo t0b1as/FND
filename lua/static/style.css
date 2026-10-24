@@ -2339,7 +2339,11 @@ input[type=date]::-webkit-date-and-time-value { text-align: left; }
 .msg-row { display:flex; align-items:flex-end; gap:8px; }
 .msg-row .msg-row-av { width:28px; flex-shrink:0; }
 .msg-row .msg-row-av .msg-av { width:28px; height:28px; font-size:12px; }
-.msg-row.cont { margin-top:-6px; }
+/* R802: kein Hochziehen mehr. Mit -6px bei nur 3px Grundabstand
+   (.msg-messages gap) überlappten Folgenachrichten desselben Absenders um 3px –
+   sichtbar bei live eingehenden Nachrichten. Der Grundabstand hält sie auch
+   ohne Hochzug eng beisammen. */
+.msg-row.cont { margin-top:0; }
 .msg-row .msg-bubble { margin-left:0; }
 /* R684: Sitzt jetzt über der Schreibzeile, nicht mehr in der Kopfzeile –
    dort stand er hinter den Anrufknöpfen. Kein margin-left:auto mehr, das war
@@ -2962,9 +2966,12 @@ button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
 .drive-tab .set-card {
   background-color: var(--surface) !important;
   backdrop-filter: none; -webkit-backdrop-filter: none;
-  padding: 4px 16px 16px;
+  /* R803: Innenabstand vom Kartenrand in den Inhalt verlegt. Er saß hier aus
+     der Zeit, als die Kopfzeile eine schlichte Überschrift war. Seit sie als
+     Balken über die volle Breite gestaltet ist, rückte sie dadurch ein. */
+  padding: 0;
 }
-.drive-tab .set-card .set-body { padding: 0 2px; }
+.drive-tab .set-card .set-body { padding: 14px 16px 16px; }
 .drive-tab .set-card + .set-card { margin-top: 14px; }
 .drive-tab input, .drive-tab select, .drive-tab textarea {
   background-color: var(--surface-2) !important;
@@ -3265,3 +3272,16 @@ summary:focus-visible,
 @media (max-width: 760px) {
   .dl-liste { bottom: calc(66px + env(safe-area-inset-bottom, 0px)); left: 14px; right: 14px; max-width: none; }
 }
+
+/* ── Einstellungs-Karten, seitenübergreifend (R803) ─────────────────────────
+   Diese Gestaltung stand bisher NUR in der Einstellungsseite. Drive und
+   Sammelbestellung benutzen dieselben Klassen (set-card, set-head, set-body),
+   bekamen sie aber nie: Dort rutschte der Neu-laden-Knopf unter die
+   Überschrift und klebte am Inhalt. Hier für alle Seiten, wortgleich mit der
+   bisherigen Einstellungs-Regel, damit dort nichts anders aussieht. */
+.set-card { background:var(--sur); border:1px solid var(--brd); border-radius:var(--r); overflow:hidden; }
+.set-head { background:var(--sur2); border-bottom:1px solid var(--brd);
+            padding:.65rem 1.1rem; display:flex; align-items:center; justify-content:space-between;
+            gap:12px; }
+.set-head h3 { margin:0; font-size:13.5px; font-weight:600; }
+.set-body { padding:1rem 1.1rem; }
