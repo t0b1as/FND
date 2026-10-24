@@ -842,7 +842,8 @@ async function fahrtNachricht(empfaenger, zeilen){
     const r = await fetch('/api/v1/messenger/send', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipient_id: empfaenger, text: zeilen.join('\n') })
+      // R794: type ist Pflicht – ohne kam "unbekannter Typ" zurück.
+      body: JSON.stringify({ recipient_id: empfaenger, text: zeilen.join('\n'), type: 'text' })
     });
     if (!r.ok) console.warn('Fahrtnachricht nicht zugestellt: HTTP ' + r.status);
   } catch(e) {

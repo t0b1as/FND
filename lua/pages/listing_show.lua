@@ -456,7 +456,8 @@ async function sendSaleMessage(buyBox, listingId, escrowId, k, sellerWallet) {
   zeilen.push('', 'Die Zahlung wird freigegeben, sobald ich den Erhalt bestätige.',
               '\u2014 automatische Nachricht bei Kauf');
 
-  const body = { recipient_id: cfid, text: zeilen.join('\n') };
+  // R794: type ist Pflicht – ohne kam "unbekannter Typ" zurück.
+  const body = { recipient_id: cfid, text: zeilen.join('\n'), type: 'text' };
   // Den Schlüssel nur mitgeben, wenn er zur Kontaktkennung gehört – beim
   // Rückfall auf die Wallet schlägt der Messenger ihn selbst nach.
   if (cpk && buyBox.dataset.cfid) body.recipient_pub_key = cpk;

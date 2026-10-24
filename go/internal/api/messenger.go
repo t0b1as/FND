@@ -706,6 +706,14 @@ func (s *Server) messengerSend(c *gin.Context) {
 		err error
 	)
 
+	// R794: Fehlt der Typ, aber Text ist da, ist es eindeutig eine
+	// Textnachricht. Bisher kam dann "unbekannter Typ" zurück – und zwei
+	// automatische Nachrichten (Verkauf, Fahrt) sowie die Versandadresse beim
+	// Kauf scheiterten daran, die letzte vermutlich schon seit Langem, weil der
+	// Fehler im Browser still verschluckt wurde.
+	if req.Type == "" && req.Text != "" && req.FileHash == "" && req.Signal == nil {
+		req.Type = messenger.TypeText
+	}
 	switch req.Type {
 	case messenger.TypeText:
 		msg, err = sess.messenger.Send(c.Request.Context(),
