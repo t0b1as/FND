@@ -1,8 +1,8 @@
 {
-  "version": "R793",
-  "description": "FUNDUS R793 - market",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R793/FND-R793-update.zip",
-  "node_argon2": "f23c02f7434e9c789c625be0443b757ffaa9636e7b19040f8ba6f4e701b47a84",
-  "published_at": "2026-10-24T04:47:11.5104417Z",
-  "signature": "0xbbd13b5ead5bc9511e50311092a303581eb7294790b1980b9401e1f0f29d8b5746e53a4072267e32acdf61d87c8ef7975b2861f0bb05f97dec4d4b3cc0efce211b"
+  "version": "R794",
+  "description": "FUNDUS R794 - market messenger notification",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R794/FND-R794-update.zip",
+  "node_argon2": "ded71733da24313b72db5da75fc99e9add6b04b90d84ca5b52f729e798a362f8",
+  "published_at": "2026-10-24T05:51:33.6700123Z",
+  "signature": "0x0ddb40a5c5a6bb059e7452d22b9e071a57e0afc45124bf286dfa43757c907cd04c423040dfdced03f2b269615863b8879fd1edce815705f9b6768602f6e5a9b81b"
 }
