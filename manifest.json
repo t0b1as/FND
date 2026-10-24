@@ -1,8 +1,8 @@
 {
-  "version": "R789",
-  "description": "FUNDUS R789 - drive and market notifications",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R789/FND-R789-update.zip",
-  "node_argon2": "5769fb9469a1c71596ad8a73fd2d82d7bcf4028266fc48b126f2bfc1a99a9a63",
-  "published_at": "2026-10-24T04:13:04.6207814Z",
-  "signature": "0xdf0b9aedc06e233cd31487657106a88877c9698748174c0b15bf781bbd1ee19e13c03aad4af421d03ded50a3eae5b7dcf76cdd85d151661cdcb09b630abb68811c"
+  "version": "R792",
+  "description": "FUNDUS R792 - drive and market notifications",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R792/FND-R792-update.zip",
+  "node_argon2": "eeb6597f67bda0117e7cf0b672c88a17877d40c39ef36b936ff856593a1e6e3b",
+  "published_at": "2026-10-24T04:31:44.6101334Z",
+  "signature": "0xdfa681ce22eeffccfa15c507ad21715dab6edd9d13acb2aa46f13fb5ceb25da978a08862fd4a5eb439919823232efd3900390f0b6ca399c3fdadd59af5cf886a1c"
 }
