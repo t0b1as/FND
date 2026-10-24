@@ -1255,7 +1255,16 @@ async function loadDrivesOffer(){
       return '<div class="drive-offer-row" style="margin-bottom:12px">'+
         '<div style="display:flex;justify-content:space-between;font-size:13px">'+
         '<span>'+escapeHtmlF(v.label||v.path)+off+minNote+'</span>'+
-        '<span style="color:var(--muted)">'+freeGb.toFixed(0)+' GB frei / '+totalGb+' GB</span></div>'+
+        '<span style="color:var(--muted)">'+freeGb.toFixed(0)+' GB frei / '+totalGb+' GB'+
+        // R786: Nur-lesend deutlich kennzeichnen. Ohne diesen Hinweis sah man
+        // im Freigabemanager nur, dass sich kein Ordner anlegen lässt – und
+        // nicht, dass es am Laufwerk liegt.
+        (v.writable === false
+          ? ' \u00b7 <span style="color:#ffc107" title="Schreiben nicht m\u00f6glich. '+
+            'Meist Windows-Schnellstart oder Ruhezustand, unsauber getrennte Platte '+
+            'oder Schreibschutz am Geh\u00e4use.">nur lesbar</span>'
+          : '')+
+        '</span></div>'+
         '<div style="display:flex;align-items:center;gap:8px;margin-top:4px">'+
         '<input type="range" min="'+minGb+'" max="'+maxGb+'" step="1" value="'+curGb+'" '+
         'style="flex:1" oninput="this.nextElementSibling.textContent=this.value+\' GB\'" '+

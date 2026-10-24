@@ -461,6 +461,24 @@ async function gesuchSenden(){
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
     st.textContent = '✓ Gesuch eingestellt.';
+    // R788: Bei Direktbuchung dem gebuchten Fahrer schreiben. Öffentliche
+    // Gesuche bekommen keine Nachricht – das wäre eine Rundnachricht an
+    // Fremde; dort melden sich die Fahrer per Push (Server, R788).
+    if (ziel && d.ride) {
+      const r = d.ride;
+      const z = ['\uD83D\uDE97 Ich möchte mit dir fahren: ' + fahrtStrecke(r)];
+      if (r.when_text) z.push('Wann: ' + r.when_text);
+      if (r.kind === 'goods') {
+        const g = r.goods || {};
+        z.push('Ware' + (g.desc ? ': ' + g.desc : '') +
+               (g.weight_kg ? ' (' + g.weight_kg + ' kg)' : ''));
+      } else if (r.seats) {
+        z.push('Personen: ' + r.seats);
+      }
+      if (r.note) z.push('Hinweis: ' + r.note);
+      z.push('', '\u2014 automatische Nachricht bei Buchung');
+      fahrtNachricht(ziel, z);
+    }
     driveTab('gesuche');
   } catch(e) { st.textContent = '✗ ' + e.message; }
 }
@@ -696,7 +714,19 @@ function wer(name, fid){
 function escHtml(s){ return String(s||'').replace(/[<>&]/g, function(c){ return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c]; }); }
 
 async function annehmen(id){
-  await rideAktion(id, 'accept');
+  const erg = await rideAktion(id, 'accept');
+  // R788: Gespräch mit dem Fahrgast eröffnen.
+  if (erg && erg.ride && erg.ride.customer_fid) {
+    const r = erg.ride;
+    const z = ['\uD83D\uDE97 Ich übernehme deine Fahrt: ' + fahrtStrecke(r)];
+    const teile = [];
+    if (r.eta_min)   teile.push('da in etwa ' + Math.round(r.eta_min) + ' Minuten');
+    if (r.price_fnd) teile.push('Preis ' + Number(r.price_fnd).toFixed(2) + ' FND');
+    if (teile.length) z.push(teile.join('   \u00b7   '));
+    z.push('', 'Gibt es etwas, das ich für die Abholung wissen sollte?',
+           '', '\u2014 automatische Nachricht bei Annahme');
+    fahrtNachricht(r.customer_fid, z);   // nicht abwarten – die Navigation soll sofort öffnen
+  }
   // Als Fahrer übernehme ich die Fahrt – das weiß der andere Node nicht.
   const eigen = (_letzteGesuche || []).find(function(x){ return x.id === id; });
   if (eigen && eigen.status === 'locked') { eigen.driving = true; uebernehmeFahrt(eigen); }
@@ -783,7 +813,41 @@ async function rideAktion(id, was){
     // Fassung noch die alte und die Liste zeigte wieder „noch kein Fahrer".
     if (d.ride) uebernehmeFahrt(d.ride);
     ladeGesuche();
-  } catch(e) { alert('✗ ' + e.message); }
+    return d;   // R788: für die Nachricht nach dem Annehmen
+  } catch(e) { alert('✗ ' + e.message); return null; }
+}
+
+// ── Automatische Messenger-Nachrichten (R788) ─────────────────────────────
+//
+// Wie beim Marktplatz (R787): Die Nachricht kommt vom Handelnden selbst, über
+// den normalen Messenger-Weg. Sie landet im echten Gespräch, und der andere
+// kann direkt antworten – dort klärt man ohnehin Treffpunkt und Wartezeit.
+//
+// Bewusst NUR bei Annahme und Direktbuchung. Position, Freigabe und Bezahlung
+// bleiben bei Push: Im Gesprächsverlauf wäre das Lärm, der die eigentlichen
+// Nachrichten verdrängt.
+function fahrtStrecke(r){
+  const st = (r && r.stops) || [];
+  const kurz = function(x){ const l = (x && x.label) || ''; const k = l.indexOf(',');
+                            return (k > 0 ? l.slice(0, k) : l).trim(); };
+  let t = kurz(st[0]);
+  const z = kurz(st[st.length - 1]);
+  if (z && z !== t) t += ' \u2192 ' + z;
+  if (r && r.distance_km) t += ' (' + Math.round(r.distance_km) + ' km)';
+  return t || 'Fahrt';
+}
+async function fahrtNachricht(empfaenger, zeilen){
+  if (!empfaenger) return;
+  try {
+    const r = await fetch('/api/v1/messenger/send', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient_id: empfaenger, text: zeilen.join('\n') })
+    });
+    if (!r.ok) console.warn('Fahrtnachricht nicht zugestellt: HTTP ' + r.status);
+  } catch(e) {
+    console.warn('Fahrtnachricht nicht zugestellt:', e.message);
+  }
 }
 
 // Einen Stand in die gemerkte Liste einsetzen und neu zeichnen.

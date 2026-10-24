@@ -418,7 +418,27 @@ func (s *Server) registerDriveNotifyProtocol() {
 		if rec, err := s.store.Get(storage.RecordRide, rid); err == nil && rec != nil {
 			if r := rideFromRecord(rec); r != nil &&
 				!strings.EqualFold(r.CustomerFID, fid) && !strings.EqualFold(r.DriverFID, fid) {
-				return ok(false)
+				// R788: Ausnahmen für die beiden neuen Ereignisse. Der Empfänger
+				// ist hier noch nicht Fahrer der Fahrt – genau darum geht es.
+				// Ohne diese Ausnahme wurden sie stillschweigend verworfen.
+				erlaubt := false
+				switch m.Event {
+				case "gebucht":
+					erlaubt = strings.EqualFold(r.TargetDriver, fid)
+				case "neues_gesuch":
+					// Nur für offene Gesuche und nur an jemanden, der hier
+					// ein aktives Fahrerprofil hat.
+					if r.Status == "open" {
+						if drec, derr := s.store.Get(storage.RecordDriver, "driver:"+fid); derr == nil && drec != nil {
+							if d := driverFromRecord(drec); d != nil && d.Active {
+								erlaubt = true
+							}
+						}
+					}
+				}
+				if !erlaubt {
+					return ok(false)
+				}
 			}
 		}
 		sess.broadcastWS(gin.H{"type": "drive", "event": m.Event, "ride": m.Ride})

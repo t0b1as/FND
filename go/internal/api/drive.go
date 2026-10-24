@@ -593,7 +593,93 @@ func (s *Server) driveCreateRide(c *gin.Context) {
 		return
 	}
 	s.drivePublish(rec)
+	// R788: Fahrer benachrichtigen – bisher erfuhr niemand von einem neuen
+	// Gesuch, außer er sah selbst nach.
+	s.driveNeuesGesuchMelden(&r)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "ride": r})
+}
+
+// driveNeuesGesuchMelden benachrichtigt die passenden Fahrer (R788).
+//
+// Direktbuchung: nur der gebuchte Fahrer, Ereignis "gebucht".
+// Öffentliches Gesuch: alle Fahrer, die
+//   - gerade Aufträge annehmen (Active),
+//   - den Startpunkt in ihrem Einsatzgebiet haben,
+//   - Ware transportieren, falls es um Ware geht,
+//   - genug Plätze haben, falls Personen fahren.
+// Höchstens die zwanzig nächsten – ein Gesuch in einer Großstadt soll nicht
+// jeden Fahrer im Umkreis gleichzeitig wecken.
+func (s *Server) driveNeuesGesuchMelden(r *driveRide) {
+	if r == nil || len(r.Stops) == 0 || s.store == nil {
+		return
+	}
+	daten := toMap(r)
+	go func() {
+		defer func() { _ = recover() }()
+		if ziel := strings.ToLower(strings.TrimSpace(r.TargetDriver)); ziel != "" {
+			s.driveAnFahrerMelden(ziel, "gebucht", daten)
+			return
+		}
+		recs, err := s.store.List(storage.RecordDriver)
+		if err != nil {
+			return
+		}
+		start := r.Stops[0]
+		type kandidat struct {
+			fid  string
+			dist float64
+		}
+		var liste []kandidat
+		for _, rec := range recs {
+			if rec == nil || rec.DeletedAt != nil {
+				continue
+			}
+			d := driverFromRecord(rec)
+			if d == nil || !d.Active || d.FID == "" ||
+				strings.EqualFold(d.FID, r.CustomerFID) {
+				continue // nicht verfügbar, oder der Kunde selbst
+			}
+			if r.Kind == "goods" && !d.Goods {
+				continue
+			}
+			if r.Kind != "goods" && r.Seats > 0 && d.Seats > 0 && d.Seats < r.Seats {
+				continue
+			}
+			radius := d.RadiusKm
+			if radius <= 0 {
+				radius = 25 // ohne Angabe: übliches Einsatzgebiet, nicht "überall"
+			}
+			dist := geo.HaversineKm(start.Lat, start.Lon, d.Lat, d.Lon)
+			if dist > radius {
+				continue
+			}
+			liste = append(liste, kandidat{strings.ToLower(d.FID), dist})
+		}
+		sort.Slice(liste, func(i, j int) bool { return liste[i].dist < liste[j].dist })
+		if len(liste) > 20 {
+			liste = liste[:20]
+		}
+		for _, k := range liste {
+			s.driveAnFahrerMelden(k.fid, "neues_gesuch", daten)
+		}
+		if s.log != nil {
+			s.log.Info("Neues Fahrtgesuch gemeldet",
+				zap.String("ride", r.ID), zap.Int("fahrer", len(liste)))
+		}
+	}()
+}
+
+// driveAnFahrerMelden stellt EINE Meldung an einen Fahrer zu – lokal und an
+// seine übrigen Nodes, wie driveNotify es für Kunde und Fahrer tut (R788).
+func (s *Server) driveAnFahrerMelden(fid, was string, daten map[string]any) {
+	sessionMu.RLock()
+	sess := sessionStore[fid]
+	sessionMu.RUnlock()
+	if sess != nil {
+		sess.broadcastWS(gin.H{"type": "drive", "event": was, "ride": daten})
+		s.drivePushFor(fid, was, daten)
+	}
+	s.driveNotifyRemote(fid, was, daten)
 }
 
 // POST /rides/:id/accept – Fahrer nimmt an; das Gesuch wird gesperrt.
@@ -1283,8 +1369,55 @@ func (s *Server) drivePushFor(fid, was string, ride map[string]any) {
 				fmt.Sprintf("%.2f FND für die Fahrt gutgeschrieben.", zahl("paid_fnd")),
 				"/drive", "drive-"+rid, true)
 		}
+	case "neues_gesuch":
+		// R788: An verfügbare Fahrer in der Nähe. Dringend, weil das Gesuch
+		// an den geht, der zuerst annimmt.
+		if istKunde {
+			return
+		}
+		text := driveStreckeKurz(ride)
+		if p := zahl("estimate_fnd"); p > 0 {
+			text += fmt.Sprintf(" · etwa %.2f FND", p)
+		}
+		s.pushNotify(fid, "Neues Fahrtgesuch", text, "/drive", "drive-"+rid, true)
+	case "gebucht":
+		// R788: Ein Fahrgast hat GENAU DIESEN Fahrer gebucht.
+		if istKunde {
+			return
+		}
+		text := txt("customer_name") + " möchte mit dir fahren: " + driveStreckeKurz(ride)
+		s.pushNotify(fid, "Du wurdest gebucht", text, "/drive", "drive-"+rid, true)
 	}
 	// "position" bewusst ohne Push – sonst klingelt es im Minutentakt.
+}
+
+// driveStreckeKurz fasst Start und Ziel für eine Meldung zusammen (R788).
+func driveStreckeKurz(ride map[string]any) string {
+	stops, _ := ride["stops"].([]any)
+	label := func(i int) string {
+		if i < 0 || i >= len(stops) {
+			return ""
+		}
+		m, _ := stops[i].(map[string]any)
+		l, _ := m["label"].(string)
+		// Nur den ersten Teil der Adresse – eine Meldung hat wenig Platz.
+		if k := strings.Index(l, ","); k > 0 {
+			l = l[:k]
+		}
+		return strings.TrimSpace(l)
+	}
+	von, nach := label(0), label(len(stops)-1)
+	out := von
+	if nach != "" && nach != von {
+		out += " → " + nach
+	}
+	if km, ok := toFloatOK(ride["distance_km"]); ok && km > 0 {
+		out += fmt.Sprintf(" (%.0f km)", km)
+	}
+	if out == "" {
+		out = "Fahrt"
+	}
+	return out
 }
 
 // POST /rides/:id/position – der Fahrer meldet seinen Standort.
@@ -1363,7 +1496,8 @@ func (s *Server) driveAngebotFuer(fid string, r *driveRide) (preis, etaMin float
 func driveBekanntesEreignis(was string) bool {
 	switch was {
 	case "angenommen", "freigegeben", "zurückgezogen", "abgeschlossen",
-		"hinterlegt", "bezahlt", "position":
+		"hinterlegt", "bezahlt", "position",
+		"neues_gesuch", "gebucht": // R788
 		return true
 	}
 	return false

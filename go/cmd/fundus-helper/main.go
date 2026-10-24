@@ -348,8 +348,60 @@ func mountByUUID(uuid string) (string, error) {
 			_ = os.Chown(mountPoint, fu, fg)
 		}
 	}
+	// R786: Prüfen, ob WIRKLICH beschreibbar.
+	//
+	// ntfs-3g schaltet von sich aus auf nur-lesend, wenn das Dateisystem
+	// unsauber ausgehängt wurde oder Windows im Ruhezustand liegt – und meldet
+	// dabei KEINEN Fehler. Der Mount gilt als gelungen, aber im
+	// Freigabemanager lässt sich weder ein Ordner anlegen noch etwas
+	// schreiben, ohne dass irgendwo stünde warum.
+	if !istBeschreibbar(mountPoint) {
+		logf("WARNUNG: %s ist nur lesbar eingehängt", mountPoint)
+		if fsType == "ntfs" || fsType == "ntfs3" {
+			// Häufigste Ursache: das "dirty"-Kennzeichen von Windows.
+			// ntfsfix -d entfernt nur dieses Kennzeichen; es rührt WEDER
+			// Dateien NOCH die Ruhezustandsdatei an. Deshalb ist es hier
+			// vertretbar, ohne Rückfrage.
+			logf("versuche NTFS-Kennzeichen zu bereinigen: %s", dev)
+			if out, ferr := runCmd(60*time.Second, "ntfsfix", "-d", dev); ferr != nil {
+				logf("ntfsfix: %s", sanitize(out))
+			} else {
+				_, _ = runCmd(15*time.Second, "/bin/umount", mountPoint)
+				if out2, merr := runCmd(15*time.Second, "/bin/mount", mountArgs...); merr != nil {
+					logf("Neueinhängen nach ntfsfix fehlgeschlagen: %s", sanitize(out2))
+				} else if istBeschreibbar(mountPoint) {
+					logf("nach ntfsfix beschreibbar: %s", mountPoint)
+					return mountPoint, nil
+				}
+			}
+		}
+		// Weiterhin nur lesbar: einhängen lassen, aber den Grund NENNEN.
+		// Lesen ist besser als gar nichts, und die Meldung erspart die Suche.
+		logf("bleibt nur lesbar – mögliche Ursachen: Windows-Schnellstart oder "+
+			"Ruhezustand aktiv, Platte unsauber getrennt, oder Schreibschutz am Gehäuse")
+	}
 	logf("gemountet: %s (%s) → %s", dev, fsType, mountPoint)
 	return mountPoint, nil
+}
+
+// istBeschreibbar prüft durch einen tatsächlichen Schreibversuch (R786).
+//
+// Grenze des Verfahrens: Als root übergeht der Schreibversuch gewöhnliche
+// Rechtebits – ein Verzeichnis mit 0555 gilt hier als beschreibbar. Für eine
+// nur lesbar EINGEHÄNGTE Partition gilt das nicht, dort scheitert auch root,
+// und genau darum geht es hier.
+//
+// Die Mount-Optionen abzufragen genügt nicht: ntfs-3g meldet dort durchaus
+// "rw", während jeder Schreibvorgang scheitert. Nur der Versuch zählt.
+func istBeschreibbar(pfad string) bool {
+	probe := filepath.Join(pfad, ".fundus-schreibtest")
+	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0600)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	_ = os.Remove(probe)
+	return true
 }
 
 // blkidType ermittelt den Dateisystemtyp eines Geräts.

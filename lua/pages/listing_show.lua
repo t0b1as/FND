@@ -401,20 +401,56 @@ function onShipAddressChange() {
   }
 }
 
-// sendShippingAddress: schickt die Versandadresse nach dem Kauf per Messenger an
-// den Verkäufer (nutzt den contact_pub_key aus dem Inserat).
-async function sendShippingAddress(buyBox, listingId, escrowId, address) {
-  const cpk = buyBox.dataset.cpk;
-  const cfid = buyBox.dataset.cfid;
-  if (!cpk) return; // Kein Kontaktschlüssel → keine automatische Nachricht möglich
-  const msg = "📦 Kauf abgeschlossen (Escrow " + (escrowId||"").slice(0,12) + "…)\n" +
-              "Inserat: " + listingId + "\n\nVersandadresse des Käufers:\n" + address;
+// R787: Automatische Verkaufsnachricht an den Verkäufer.
+//
+// Sie geht vom KÄUFER aus, über den normalen Messenger-Weg. Das hat zwei
+// Vorteile gegenüber einer Systemnachricht: Sie landet im echten Gespräch, und
+// der Verkäufer kann direkt darauf antworten. Einen Systemabsender gibt es im
+// Messenger nicht – jede Nachricht braucht eine Identität mit Schlüsseln, und
+// die hat der Käufer in diesem Moment.
+//
+// Gegenüber der bisherigen sendShippingAddress drei Änderungen:
+//   - bei JEDEM Kauf, nicht nur bei Versand
+//   - mit Titel, Menge und Betrag statt nur der Inseratskennung
+//   - auch OHNE bekannten Kontaktschlüssel: Der Messenger schlägt ihn selbst
+//     nach und legt die Nachricht notfalls in die Warteschlange, bis der
+//     Verkäufer erreichbar ist. Vorher brach die Funktion dann still ab.
+async function sendSaleMessage(buyBox, listingId, escrowId, k) {
+  const cpk  = buyBox.dataset.cpk  || '';
+  const cfid = buyBox.dataset.cfid || '';
+  if (!cfid) return;   // ohne Empfänger keine Nachricht – Kauf bleibt gültig
+
+  const meta  = window.LISTING_META || {};
+  const titel = (meta.title || '').trim() || ('Inserat ' + listingId.slice(0, 10) + '…');
+  const zeilen = [
+    '\uD83D\uDED2 Verkauft: \u201E' + titel + '\u201C',
+    '',
+    'Menge: ' + (k.menge || 1) + (k.summe ? '   \u00B7   Betrag: ' + k.summe + ' FND' : ''),
+    'Übergabe: ' + (k.versand ? 'Versand' : 'Abholung'),
+    'Zahlung: im Escrow eingefroren (' + (escrowId || '').slice(0, 12) + '\u2026)',
+  ];
+  if (k.versand && k.adresse) {
+    zeilen.push('', 'Versandadresse:', k.adresse);
+  } else if (!k.versand) {
+    zeilen.push('', 'Bitte melde dich hier wegen der Abholung.');
+  }
+  zeilen.push('', 'Die Zahlung wird freigegeben, sobald ich den Erhalt bestätige.',
+              '\u2014 automatische Nachricht bei Kauf');
+
+  const body = { recipient_id: cfid, text: zeilen.join('\n') };
+  if (cpk) body.recipient_pub_key = cpk;   // spart den Nachschlageschritt
   try {
-    await fetch('/api/v1/messenger/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recipient_id: cfid, recipient_pub_key: cpk, text: msg })
+    const r = await fetch('/api/v1/messenger/send', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
     });
-  } catch(e) { /* Nachricht best-effort; Kauf ist trotzdem gültig */ }
+    if (!r.ok) console.warn('Verkaufsnachricht nicht zugestellt: HTTP ' + r.status);
+  } catch (e) {
+    // Best effort: Der Kauf ist auf der Chain gültig, auch wenn die Nachricht
+    // nicht durchgeht. Aber sichtbar machen statt verschlucken.
+    console.warn('Verkaufsnachricht nicht zugestellt:', e.message);
+  }
 }
 
 function copyWallet(addr) {
@@ -683,10 +719,15 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || LS.error_word);
 
-        // Bei Versand: Adresse per Messenger an den Verkäufer schicken.
-        if (isShipping && shipAddress) {
-            await sendShippingAddress(buyBox, listingId, d.escrow_id, shipAddress);
-        }
+        // R787: Den Verkäufer bei JEDEM Kauf benachrichtigen, nicht nur bei
+        // Versand. Bisher erfuhr er von einem Abholkauf nichts – außer er sah
+        // zufällig nach. Bei Versand steht die Adresse mit in der Nachricht.
+        await sendSaleMessage(buyBox, listingId, d.escrow_id, {
+            menge: buyQty(),
+            summe: totalFnd || amountFnd || '',
+            versand: isShipping,
+            adresse: isShipping ? shipAddress : ''
+        });
 
         const escrowId = d.escrow_id;
         // Bestand auf der Seite sofort nachführen (R580) – vorher musste man

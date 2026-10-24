@@ -29,6 +29,30 @@ type mountInfo struct {
 	UsedGB     float64 `json:"used_gb"`
 	Accessible bool    `json:"accessible"`  // false = Node kann nicht lesen (udisks2-Mount) → Einbinden anbieten
 	ForFundus  bool    `json:"for_fundus"`  // true = bereits unter /mnt/fundus- (vom Helper eingebunden)
+	// R786: Beschreibbar? ntfs-3g schaltet bei einem unsauber ausgehängten
+	// Dateisystem stillschweigend auf nur-lesend. Ohne diese Angabe sah man im
+	// Freigabemanager nur, dass sich kein Ordner anlegen lässt – ohne Grund.
+	Writable bool `json:"writable"`
+}
+
+// pfadBeschreibbar prüft durch einen echten Schreibversuch (R786).
+//
+// Grenze des Verfahrens: Als root übergeht der Schreibversuch gewöhnliche
+// Rechtebits – ein Verzeichnis mit 0555 gilt hier als beschreibbar. Für eine
+// nur lesbar EINGEHÄNGTE Partition gilt das nicht, dort scheitert auch root,
+// und genau darum geht es hier.
+//
+// Die Mount-Optionen zu lesen genügt nicht: ntfs-3g meldet dort "rw", während
+// jeder Schreibvorgang scheitert. Nur der Versuch zählt.
+func pfadBeschreibbar(pfad string) bool {
+	probe := filepath.Join(pfad, ".fundus-schreibtest")
+	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+	if err != nil {
+		return false
+	}
+	_ = f.Close()
+	_ = os.Remove(probe)
+	return true
 }
 
 // listMountedDrives liest /proc/mounts und liefert Laufwerke unter /mnt.
@@ -106,6 +130,9 @@ func listMountedDrives() []mountInfo {
 			FreeGB:     free,
 			UsedGB:     total - free,
 			Accessible: accessible,
+			// R786: Nur prüfen, wenn überhaupt lesbar – sonst scheitert der
+			// Schreibversuch ohnehin und kostet nur Zeit.
+			Writable:   accessible && pfadBeschreibbar(mountPoint),
 			ForFundus:  forFundus,
 		})
 	}
