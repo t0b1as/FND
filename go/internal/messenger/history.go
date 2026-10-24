@@ -76,11 +76,41 @@ type HistoryStore struct {
 }
 
 // NewHistoryStore erstellt einen Verlauf-Store für die gegebene Identität.
+// historyRegistry hält EIN Verlaufsobjekt je Konto und Datenverzeichnis (R801).
+//
+// Jede Sitzung bekam bisher ihr eigenes. Die Prüfung auf doppelte Einträge
+// läuft aber über eine Liste bekannter Kennungen IM SPEICHER des Objekts. Gab
+// es für dasselbe Konto mehrere Sitzungen – nach mehrfacher Anmeldung, oder
+// beim Wiederherstellen nach einem Neustart, das je gespeichertem Zeichen eine
+// Sitzung baut –, schrieb jede dieselbe Nachricht in dieselbe Datei, ohne von
+// den anderen zu wissen.
+//
+// Gemeldet auf dem 39er: live einmal, nach dem Neuladen viermal mit gleicher
+// Uhrzeit. Auf den Nodes ohne mehrfache Anmeldung trat es nicht auf.
+//
+// Mit einem gemeinsamen Objekt gibt es nur eine Liste – unabhängig davon, wie
+// viele Sitzungen es gibt und auf welchem Weg sie entstanden sind.
+var (
+	historyRegistryMu sync.Mutex
+	historyRegistry   = map[string]*HistoryStore{}
+)
+
 func NewHistoryStore(dataDir string, id *identity.Identity) (*HistoryStore, error) {
 	if id == nil {
 		return nil, fmt.Errorf("history: identity fehlt")
 	}
-	return newHistoryStoreWithKey(dataDir, id.FundusID, id.AtRestKey())
+	schluessel := dataDir + "|" + strings.ToLower(id.FundusID)
+	historyRegistryMu.Lock()
+	defer historyRegistryMu.Unlock()
+	if hs, ok := historyRegistry[schluessel]; ok {
+		return hs, nil
+	}
+	hs, err := newHistoryStoreWithKey(dataDir, id.FundusID, id.AtRestKey())
+	if err != nil {
+		return nil, err
+	}
+	historyRegistry[schluessel] = hs
+	return hs, nil
 }
 
 // newHistoryStoreWithKey ist der interne Konstruktor (direkt mit Schlüssel) —
@@ -371,6 +401,7 @@ func (h *HistoryStore) readAll(peerID string) ([]HistoryEntry, error) {
 	defer f.Close()
 
 	var entries []HistoryEntry
+	gesehen := map[string]bool{} // R801
 	sc := bufio.NewScanner(f)
 	// Große Zeilen erlauben (lange Nachrichten): Buffer hochsetzen.
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
@@ -390,6 +421,17 @@ func (h *HistoryStore) readAll(peerID string) ([]HistoryEntry, error) {
 		var e HistoryEntry
 		if json.Unmarshal(plain, &e) != nil {
 			continue
+		}
+		// R801: Bereits mehrfach geschriebene Einträge nur einmal liefern.
+		// Bereinigt die Doppelten, die vor diesem Stand entstanden sind, ohne
+		// die Datei anfassen zu müssen. Die erste Fassung gewinnt – spätere
+		// Zeilen derselben Kennung sind Kopien, keine Bearbeitungen (die
+		// schreiben die Datei neu, siehe schreibeAlle).
+		if e.ID != "" {
+			if gesehen[e.ID] {
+				continue
+			}
+			gesehen[e.ID] = true
 		}
 		entries = append(entries, e)
 	}
