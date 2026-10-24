@@ -82,6 +82,30 @@ self.addEventListener('push', (event) => {
         new URL(c.url).pathname.indexOf('/messenger') === 0);
       if (aktiv && (d.tag === 'msg')) return;   // Chat offen: nur Nachrichten unterdrücken
     } catch (e) {}
+
+    // R799: GLEICHE Meldung binnen 30 Sekunden nur einmal.
+    //
+    // Mit der Lastverteilung kann dasselbe Gerät für Push auf mehreren Nodes
+    // angemeldet sein, und seit R796 werden alle Nodes gefragt. Jeder mit
+    // einer Anmeldung schickt die Meldung – alle landen hier. Über das
+    // Etikett ersetzten sie sich zwar, aber renotify ließ es bei JEDER erneut
+    // klingeln und vibrieren: viermal gesendet gefühlt, obwohl einmal
+    // ausgelöst.
+    //
+    // Erkannt wird an Etikett UND Inhalt. Nur das Etikett reichte nicht: Bei
+    // Fahrten teilen sich "angenommen" und "bezahlt" dasselbe Etikett, und die
+    // zweite ist eine neue Nachricht, keine Kopie.
+    const kennung = (d.tag || '') + '|' + title + '|' + (d.body || '');
+    if (d.tag) {
+      try {
+        const offen = await self.registration.getNotifications({ tag: d.tag });
+        const jetzt = Date.now();
+        if (offen.some((n) => n.data && n.data.kennung === kennung &&
+                              jetzt - (n.data.zeit || 0) < 30000)) {
+          return;   // dieselbe Meldung ist eben erst erschienen
+        }
+      } catch (e) {}
+    }
     return self.registration.showNotification(title, {
       body: d.body || '',
       // PNG statt SVG (R595): Android stellt SVG in Benachrichtigungen NICHT dar –
@@ -95,7 +119,7 @@ self.addEventListener('push', (event) => {
       // erscheint die Meldung dadurch wie die einer App.
       vibrate: [60, 40, 60],
       timestamp: Date.now(),
-      data: { url: d.url || '/' },
+      data: { url: d.url || '/', kennung: kennung, zeit: Date.now() },
     });
   })());
 });

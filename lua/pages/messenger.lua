@@ -223,7 +223,11 @@ const MSGT = ]] .. (require("cjson.safe").encode({
 .outgoing        { background:linear-gradient(135deg,#00e676,#00c853); color:#04120a;
                    align-self:flex-end; border-bottom-right-radius:4px; font-weight:500; }
 .outgoing a      { color:#023; text-decoration:underline; }
-.msg-content     { }
+/* R800: Zeilenumbrüche im Text erhalten. Ohne das lief jede mehrzeilige
+   Nachricht als ein Absatz durch – auch von Hand getippte. Nur hier, nicht auf
+   der ganzen Sprechblase: dort stünden sonst auch die Abstände zwischen
+   Absender, Text und Uhrzeit als Leerraum. */
+.msg-content     { white-space:pre-wrap; }
 .msg-time        { font-size:10px; opacity:0.5; margin-left:8px; white-space:nowrap;
                    vertical-align:baseline; }
 .msg-sender      { display:block; font-size:11px; font-weight:600; opacity:0.75; margin-bottom:1px; }

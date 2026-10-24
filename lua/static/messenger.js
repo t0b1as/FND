@@ -323,6 +323,20 @@ async function handleIncomingMessage(msg) {
         return;
     }
 
+    // R800: NUR echte Nachrichten als Nachricht darstellen.
+    //
+    // Über dieselbe Live-Verbindung laufen auch Ereignisse anderer Bereiche,
+    // etwa Fahrten (type: "drive"). Alles, was oben nicht abgefangen wurde,
+    // galt bisher als Nachricht – ein Fahrtereignis erschien dann als leeres
+    // Feld ohne Absender ("?") und ohne Zeit ("Invalid Date"). Kam dasselbe
+    // Ereignis vom eigenen Node UND von den übrigen Nodes des Kontos, stand
+    // es mehrfach da, weil es keine Kennung zum Zusammenführen hatte.
+    //
+    // Eine Nachricht hat einen Typ text oder file (ältere ohne Typ), eine
+    // Kennung und einen Absender. Alles andere gehört nicht in den Verlauf.
+    if (msg.type && msg.type !== 'text' && msg.type !== 'file') return;
+    if (!msg.id || !msg.sender_id) return;
+
     // Backend liefert die Nachricht bereits ENTSCHLÜSSELT über den WebSocket
     // (decrypted:true). Dann direkt anzeigen — kein zweiter decrypt-Roundtrip.
     let payload;
@@ -2012,7 +2026,9 @@ function verlinke(htmlSicher) {
 // Beim Anklicken springt die Ansicht dorthin und hebt sie kurz hervor.
 function zitatHtml(zitat) {
     const m = zitat.match(/^\[([^\]\s]{1,64})\]\s?([\s\S]*)$/);
-    if (!m) return '<span class="zitat">' + verlinke(emojifyText(escapeHtml(zitat))) + '</span>';
+    // R800: Reihenfolge wie in R797 – erst verlinken, dann Emojis. Diese Stelle
+    // hatte ich dort übersehen; ein zitiertes Emoji zerbrach genauso.
+    if (!m) return '<span class="zitat">' + emojifyText(verlinke(escapeHtml(zitat))) + '</span>';
     const id = m[1], txt = m[2];
     return '<a href="#" class="zitat zitat-link" onclick="zuNachricht(\'' +
            escapeHtml(id).replace(/'/g, '') + '\');return false;">' +
