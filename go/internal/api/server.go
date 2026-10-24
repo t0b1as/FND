@@ -157,6 +157,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerDriveActionProtocol() // Fahrten vom Node des Fahrers aus ändern (R644)
 	s.registerDriveNotifyProtocol() // Meldungen über Node-Grenzen zustellen (R646)
 	s.registerKeyDirAsk()           // fehlende Schlüssel im Netz erfragen (R687)
+	s.registerListingAsk()          // fehlende Angebote im Netz erfragen (R793)
 	s.registerPushAsk()             // Anrufmeldung über Node-Grenzen (R689)
 	// Selbsterkennung für die Lastverteilung (R671): fragt die Nachbarn über
 	// das P2P-Netz und schreibt die Empfängerliste selbst.
@@ -485,7 +486,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R792"
+const NodeRevision = "R793"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -892,6 +893,12 @@ func (s *Server) getListing(c *gin.Context) {
 	if err != nil {
 		s.internalError(c, err)
 		return
+	}
+	if record == nil {
+		// R793: Lokal fehlt es – bei den Nachbarn nachfragen, bevor 404 kommt.
+		// Mit der Lastverteilung landet die Detailseite oft auf einem anderen
+		// Node als das Anlegen, und der Abgleich braucht Sekunden.
+		record = s.listingHolen(c.Request.Context(), id)
 	}
 	if record == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})

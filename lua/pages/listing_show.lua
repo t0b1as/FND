@@ -177,7 +177,17 @@ return function(captures)
             '<button class="btn btn-danger" onclick="deleteListing(\'%s\')">%s</button>',
             record.id, t("general.edit"), record.id, t("general.delete"))
         if isSold then
-            buySection = '<div class="sold-note">' .. t("listing.sold_note_owner") .. '</div>'
+            -- R793: Verkauftes Angebot wieder einstellen. Bisher sah der
+            -- Besitzer nur den Hinweis und musste das Angebot neu anlegen –
+            -- samt Bildern, Beschreibung und Eigenschaften.
+            buySection = '<div class="sold-note">' .. t("listing.sold_note_owner") .. '</div>' ..
+                string.format(
+                    '<div class="relist-box" style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">' ..
+                    '<label style="font-size:13px">Menge <input type="number" id="relist-qty" min="1" max="9999" value="1" ' ..
+                    'style="width:72px;margin-left:4px"></label>' ..
+                    '<button class="btn btn-buy" onclick="wiederEinstellen(\'%s\')">↻ Wieder einstellen</button>' ..
+                    '<span id="relist-msg" class="meta" style="font-size:12.5px"></span></div>',
+                    record.id)
         else
             buySection = vorschauHinweis .. stockRow .. '<div class="owner-note">' .. t("listing.own_offer_note") .. '</div>'
         end
@@ -845,6 +855,34 @@ async function aufChainWarten(escrowId, sekunden) {
 // Geld zurück. So kann niemand Ware behalten und gleichzeitig das Geld
 // zurückholen. Das sagt der Dialog ausdrücklich, damit niemand auf eine
 // sofortige Gutschrift wartet.
+// R793: Verkauftes Angebot wieder einstellen.
+//
+// Setzt nur die verfügbare Menge neu und hebt "verkauft" auf. Die Liste der
+// bereits verbuchten Käufe (sold_txs) bleibt unangetastet – alte Käufe werden
+// also nicht ein zweites Mal abgezogen. Läuft über die normale Bearbeitung,
+// die auch die Weiterleitung an den Besitzer-Node und die neue Signatur
+// übernimmt.
+async function wiederEinstellen(id) {
+    const feld = document.getElementById('relist-qty');
+    const msg  = document.getElementById('relist-msg');
+    const menge = parseInt((feld && feld.value) || '1', 10);
+    if (!(menge >= 1)) { msg.textContent = '\u2717 Menge mindestens 1'; return; }
+    msg.textContent = '\u2026 wird eingestellt';
+    try {
+        const r = await fetch('/api/v1/listings/' + encodeURIComponent(id), {
+            method: 'PUT', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ quantity: menge, sold: false })
+        });
+        let d = {}; try { d = await r.json(); } catch (e) {}
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        msg.textContent = '\u2713 Wieder eingestellt';
+        setTimeout(function(){ location.reload(); }, 700);
+    } catch (e) {
+        msg.textContent = '\u2717 ' + e.message;
+    }
+}
+
 async function cancelPurchase(escrowId) {
     if (!confirm('Kauf stornieren?\n\n' +
                  'Das ist ein Antrag: Der Verkäufer muss den Rückerhalt bestätigen, ' +
