@@ -607,26 +607,107 @@
     const scan = ov.querySelector('#at-scan-'+kind);
     if (scan) scan.onclick = function(){ scanQR(function(text){ toInput.value = String(text).replace(/^(fundus|solana|ethereum):/i, '').split('?')[0]; toInput.dispatchEvent(new Event('input')); }); };
   }
-  // Kamera-Scanner (BarcodeDetector – Chrome/Edge/Android; sonst Hinweis)
+  // ── Kamera-Scanner (R806) ─────────────────────────────────────────────────
+  //
+  // Bisher NUR BarcodeDetector. Den gibt es nicht in Safari, nicht in Brave
+  // (dort aus Datenschutzgründen abgeschaltet) und nicht im gewöhnlichen
+  // Chrome unter Windows und Linux. Jetzt springt dort ein eigener Leser ein
+  // (qrscan.js, ohne fremde Server – funktioniert auch im Heimnetz ohne
+  // Internet). BarcodeDetector wird weiter benutzt, wo er da ist: schneller.
+  var qrLeserLaden = null;
+  function qrLeser() {
+    if (window.fundusQRDecode) return Promise.resolve(window.fundusQRDecode);
+    if (qrLeserLaden) return qrLeserLaden;
+    qrLeserLaden = new Promise(function (ok, fehler) {
+      var sc = document.createElement('script');
+      // Gleiche Revision wie diese Datei, damit nach einem Update nichts Altes
+      // aus dem Zwischenspeicher kommt.
+      var eigen = document.querySelector('script[src*="walletauth.js"]');
+      var v = eigen && (eigen.src.split('?v=')[1] || '');
+      sc.src = '/static/qrscan.js' + (v ? '?v=' + v : '');
+      sc.onload = function () { window.fundusQRDecode ? ok(window.fundusQRDecode) : fehler(new Error('Leser nicht geladen')); };
+      sc.onerror = function () { qrLeserLaden = null; fehler(new Error('Leser nicht geladen')); };
+      document.head.appendChild(sc);
+    });
+    return qrLeserLaden;
+  }
+  async function nativerDetektor() {
+    // Brave stellt BarcodeDetector teils bereit, liefert aber keine Formate –
+    // deshalb nicht nur auf das Vorhandensein prüfen, sondern auf qr_code.
+    if (!('BarcodeDetector' in window)) return null;
+    try {
+      var f = await BarcodeDetector.getSupportedFormats();
+      if (!f || f.indexOf('qr_code') < 0) return null;
+      return new BarcodeDetector({ formats: ['qr_code'] });
+    } catch (e) { return null; }
+  }
   function scanQR(onResult){
-    if (!('BarcodeDetector' in window) || !navigator.mediaDevices) { alert('Scanner braucht Chrome oder Android. Auf dem iPhone bitte die Adresse einfügen.'); return; }
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Die Kamera braucht eine sichere Verbindung (https). Bitte die Adresse einfügen.');
+      return;
+    }
     const wrap = document.createElement('div'); wrap.className = 'scan-overlay';
-    wrap.innerHTML = '<video autoplay playsinline muted></video><div class="scan-frame"></div><button type="button" class="btn-sm scan-close">Abbrechen</button>';
+    // playsinline und muted: ohne beides spielt Safari auf dem iPhone das Bild
+    // nicht im Fenster ab, sondern versucht den Vollbildmodus – oder gar nicht.
+    wrap.innerHTML = '<video autoplay playsinline muted></video><div class="scan-frame"></div>' +
+      '<div class="scan-hinweis" style="position:absolute;left:0;right:0;bottom:84px;text-align:center;' +
+      'color:#fff;font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.8)">QR-Code in den Rahmen halten</div>' +
+      '<button type="button" class="btn-sm scan-close">Abbrechen</button>';
     document.body.appendChild(wrap);
-    const video = wrap.querySelector('video'); let stream = null, stop = false;
+    const video = wrap.querySelector('video');
+    video.setAttribute('playsinline', ''); video.muted = true;
+    let stream = null, stop = false;
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     function close(){ stop = true; if (stream) stream.getTracks().forEach(function(t){ t.stop(); }); wrap.remove(); }
+    function treffer(text){ if (stop) return; close(); onResult(text); }
     wrap.querySelector('.scan-close').onclick = close;
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(function(st){
-      stream = st; video.srcObject = st;
-      const det = new BarcodeDetector({ formats: ['qr_code'] });
-      (function tick(){
-        if (stop) return;
-        det.detect(video).then(function(codes){
-          if (codes && codes.length) { onResult(codes[0].rawValue); close(); return; }
-          setTimeout(tick, 250);
-        }).catch(function(){ setTimeout(tick, 400); });
-      })();
-    }).catch(function(e){ close(); alert('Kamera nicht verfügbar: ' + e.message); });
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' },
+                                                   width: { ideal: 1280 }, height: { ideal: 720 } },
+                                          audio: false })
+      .then(async function(st){
+        stream = st; video.srcObject = st;
+        try { await video.play(); } catch (e) { /* Safari: autoplay genügt meist */ }
+        let nativ = await nativerDetektor();   // let: wird bei Versagen auf null gesetzt
+        let leser = null;
+        if (!nativ) {
+          try { leser = await qrLeser(); }
+          catch (e) { close(); alert('Der QR-Leser konnte nicht geladen werden. Bitte die Adresse einfügen.'); return; }
+        }
+        (function tick(){
+          if (stop) return;
+          if (video.readyState < 2 || !video.videoWidth) { setTimeout(tick, 120); return; }
+          if (nativ) {
+            nativ.detect(video).then(function(codes){
+              if (codes && codes.length) { treffer(codes[0].rawValue); return; }
+              setTimeout(tick, 200);
+            }).catch(async function(){
+              // Schnittstelle da, aber unbrauchbar: auf den eigenen Leser wechseln.
+              try { leser = await qrLeser(); } catch (e) {}
+              nativ = null; setTimeout(tick, 200);
+            });
+            return;
+          }
+          // Eigener Leser: Bild auf höchstens 960 px verkleinern – schneller,
+          // und ein Code im Rahmen hat dann immer noch mehrere Pixel je Modul.
+          const sk = Math.min(1, 960 / Math.max(video.videoWidth, video.videoHeight));
+          const w = Math.round(video.videoWidth * sk), h = Math.round(video.videoHeight * sk);
+          if (canvas.width !== w) { canvas.width = w; canvas.height = h; }
+          ctx.drawImage(video, 0, 0, w, h);
+          let text = null;
+          try { text = leser && leser(ctx.getImageData(0, 0, w, h)); } catch (e) {}
+          if (text) { treffer(text); return; }
+          setTimeout(tick, 150);
+        })();
+      })
+      .catch(function(e){
+        close();
+        const grund = (e && e.name === 'NotAllowedError')
+          ? 'Der Kamerazugriff wurde abgelehnt. In den Browser-Einstellungen für diese Seite erlauben.'
+          : (e && e.name === 'NotFoundError') ? 'Keine Kamera gefunden.'
+          : 'Kamera nicht verfügbar: ' + (e && e.message);
+        alert(grund);
+      });
   }
   // Nach dem Senden: Empfänger ins Adressbuch
   async function offerRemember(outEl, addr){
