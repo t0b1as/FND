@@ -1261,7 +1261,12 @@ function buildBubble({ id, from, text, file, ts, outgoing, deliveredAt, readAt }
             zitat += (zitat ? '\n' : '') + zeilen.shift().slice(2);
         }
         content = (zitat ? zitatHtml(zitat) : '')
-                + verlinke(emojifyText(escapeHtml(zeilen.join('\n'))));
+                // R797: ERST verlinken, DANN Emojis. Umgekehrt fand verlinke()
+                // die Bildadresse (https://cdn.jsdelivr.net/…) MITTEN im eben
+                // erzeugten Emoji-<img> und machte daraus einen Link – das Tag
+                // zerbrach, und der Rest stand als Text in der Nachricht. Betraf
+                // jede Nachricht mit Emoji seit der Verlinkung (R663).
+                + emojifyText(verlinke(escapeHtml(zeilen.join('\n'))));
     }
     if (file) {
         const url  = '/api/v1/files/download/' + encodeURIComponent(file.hash);

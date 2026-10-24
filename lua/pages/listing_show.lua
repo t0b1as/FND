@@ -466,9 +466,19 @@ async function sendSaleMessage(buyBox, listingId, escrowId, k, sellerWallet) {
 
   // R794: type ist Pflicht – ohne kam "unbekannter Typ" zurück.
   const body = { recipient_id: cfid, text: zeilen.join('\n'), type: 'text' };
-  // Den Schlüssel nur mitgeben, wenn er zur Kontaktkennung gehört – beim
-  // Rückfall auf die Wallet schlägt der Messenger ihn selbst nach.
-  if (cpk && buyBox.dataset.cfid) body.recipient_pub_key = cpk;
+  // R798: Den Schlüssel aus dem Angebot NICHT mitgeben.
+  //
+  // contact_pub_key ist ein Schnappschuss vom Zeitpunkt, an dem das Angebot
+  // angelegt wurde. Hat sich der Schlüssel des Verkäufers seitdem geändert –
+  // etwa weil ein Node neu aufgesetzt wurde –, verschlüsselte diese Nachricht
+  // an einen VERALTETEN Schlüssel. Der Server prüft einen mitgegebenen
+  // Schlüssel nicht, er benutzt ihn einfach. Ergebnis: Die Nachricht stand
+  // beim Käufer korrekt unter dem Verkäufer, beim Verkäufer war sie nie
+  // lesbar. Von Hand getippte Nachrichten kamen an, weil der Messenger dort
+  // den AKTUELLEN Schlüssel nachschlägt.
+  //
+  // Ohne mitgegebenen Schlüssel schlägt der Server ihn selbst nach: lokal,
+  // bei den Nachbarn, im DHT.
   try {
     const r = await fetch('/api/v1/messenger/send', {
       method: 'POST', credentials: 'same-origin',
