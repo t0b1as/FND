@@ -557,6 +557,18 @@ func main() {
 			// expectedGenesisHash: in einer späteren Phase aus einer extern
 			// verankerten Quelle (signiert/veröffentlicht). Phase 2: leer (0) =
 			// keine externe Verankerung, nur Selbst-Konsistenz.
+			// R792: Abgelehnte Transaktionen mit GRUND protokollieren. Ohne das
+			// stand nur "alle abgelehnt" im Protokoll, und welche Transaktion woran
+			// scheiterte, ließ sich nicht sagen.
+			chain.TxAbgelehnt = func(tx *chain.Transaction, err error) {
+				h := tx.Hash()
+				log.Warn("Transaktion abgelehnt",
+					zap.String("grund", err.Error()),
+					zap.String("typ", fmt.Sprintf("0x%02x", uint8(tx.Type))),
+					zap.String("von", tx.From.Hex()),
+					zap.Uint64("nonce", tx.Nonce),
+					zap.String("tx", hex.EncodeToString(h[:8])+"…"))
+			}
 			var expected [32]byte
 			bc, err := chain.NewBlockchain(chainDir, proposer, genesis, expected)
 			if err != nil {

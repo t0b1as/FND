@@ -518,10 +518,26 @@ func (s *Server) contractHTML(c *gin.Context) {
 	data, err := s.buildContractData(c.Param("escrowId"))
 	if err != nil {
 		// Direkt nach dem Kauf steht die Hinterlegung noch in keinem Block
-		// (alle 5 Sekunden einer). Statt einer Fehlermeldung eine Seite, die
-		// sich selbst neu lädt, sobald der Vertrag bereitsteht.
+		// (alle 5 Sekunden einer). Dann eine Seite, die sich neu lädt.
+		//
+		// R791: ABER NICHT ENDLOS. Bisher lud sie sich ohne Obergrenze alle
+		// vier Sekunden neu. Kam die Hinterlegung nie an – weil die
+		// Transaktion abgelehnt wurde oder der Node nicht synchron ist –, hing
+		// die Seite für immer, ohne jeden Hinweis. Genau so wurde es gemeldet.
+		versuch, _ := strconv.Atoi(c.Query("versuch"))
 		c.Header("Content-Type", "text/html; charset=utf-8")
-		c.String(http.StatusAccepted, contractPendingHTML)
+		if versuch >= 15 { // 15 × 4 s = eine Minute, also etwa 12 Blöcke
+			hoehe := uint64(0)
+			if s.chain != nil {
+				hoehe = s.chain.Height()
+			}
+			c.String(http.StatusNotFound, fmt.Sprintf(contractMissingHTML,
+				template.HTMLEscapeString(err.Error()), hoehe,
+				template.HTMLEscapeString(c.Param("escrowId"))))
+			return
+		}
+		c.String(http.StatusAccepted, strings.Replace(contractPendingHTML,
+			`content="4"`, fmt.Sprintf(`content="4;url=?versuch=%d"`, versuch+1), 1))
 		return
 	}
 
@@ -1341,6 +1357,14 @@ func (s *Server) applySale(listingID, tx string, n int) bool {
 			}()
 		}
 	}
+	// R790: Den Verkäufer per Push benachrichtigen – VOM EIGENEN NODE aus.
+	//
+	// Die Messenger-Nachricht aus R787 hängt am Browser des Käufers: Fehlt dort
+	// der Kontakt, ist er gerade offline oder schließt er das Fenster zu früh,
+	// erfährt der Verkäufer nichts. Dieser Weg dagegen läuft hier, wo das
+	// Angebot liegt, und genau einmal je Kauf – die Prüfung gegen bereits
+	// verbuchte Kennungen steht oben.
+	go s.verkaufMelden(rec.Data, listingID, n, left)
 	if s.log != nil {
 		s.log.Info("Bestand verringert", zap.String("listing", listingID), zap.Int("verkauft", n), zap.Int("verfuegbar", left))
 	}
@@ -1544,6 +1568,29 @@ animation:p 1.2s ease-in-out infinite;margin-bottom:14px}
 <p>Dein Kauf wird in den nächsten Sekunden in einem Block der Fundus-Chain festgeschrieben.
 Diese Seite lädt sich automatisch neu.</p></div></body></html>`
 
+// contractMissingHTML erscheint, wenn die Hinterlegung nach einer Minute
+// noch nicht auf der Chain steht (R791). Platzhalter: Grund, Höhe, Kennung.
+const contractMissingHTML = `<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
+<title>Kaufvertrag nicht verfügbar</title>
+<style>body{font-family:system-ui,sans-serif;background:#0f1117;color:#f2f3f8;display:flex;
+align-items:center;justify-content:center;min-height:100vh;margin:0}
+.box{max-width:520px;padding:28px}h1{font-size:20px;margin:0 0 12px;color:#ffc107}
+p{color:#b0b4cc;line-height:1.55;margin:0 0 10px}code{color:#8ab4ff;font-size:12px;word-break:break-all}
+a{color:#00e676}</style></head>
+<body><div class="box">
+<h1>Die Hinterlegung ist nicht auf der Chain angekommen</h1>
+<p>Nach einer Minute gibt es zu diesem Kauf noch keinen Eintrag. Normalerweise
+dauert das fünf bis zehn Sekunden.</p>
+<p><strong>Mögliche Ursachen:</strong> Die Transaktion wurde abgelehnt, etwa wegen zu
+geringen Guthabens oder weil zwei Transaktionen gleichzeitig eingereicht wurden. Oder
+dieser Node ist gerade nicht mit den anderen abgeglichen.</p>
+<p><strong>Was du tun kannst:</strong> Prüfe deinen Kontostand. Wurde nichts abgebucht,
+ist der Kauf nicht zustande gekommen, und du kannst es erneut versuchen.</p>
+<p style="margin-top:16px;font-size:12px">Meldung der Chain: %s<br>
+Höhe dieses Nodes: %d<br>Transaktion: <code>%s</code></p>
+<p><a href="?versuch=0">Erneut prüfen</a></p>
+</div></body></html>`
+
 // ── Verkaufsmeldung an den Verkäufer-Node (R578) ────────────────────────────
 
 const listingSoldProtocol = "/fundus/listing-sold/1.0.0"
@@ -1594,4 +1641,47 @@ func (s *Server) registerListingSoldProtocol() {
 		s.applySale(m.ListingID, m.Tx, n)
 		return []byte(`{"ok":true}`)
 	})
+}
+
+// verkaufMelden schickt dem Verkäufer eine Push-Meldung (R790).
+//
+// Wer der Verkäufer ist, steht im Inserat auf zwei Arten: als Messenger-
+// Kontakt (contact_fundus_id) oder als Wallet-Adresse (seller_wallet). Der
+// Kontakt wird bevorzugt; fehlt er, wird die Wallet über das
+// Schlüsselverzeichnis in die Kennung übersetzt – derselbe Weg, den die
+// Überweisungsprüfung benutzt.
+func (s *Server) verkaufMelden(daten map[string]any, listingID string, n, rest int) {
+	defer func() { _ = recover() }()
+	fid, _ := daten["contact_fundus_id"].(string)
+	if fid == "" {
+		if w, _ := daten["seller_wallet"].(string); w != "" && s.store != nil {
+			if rec, err := s.store.Get(storage.RecordKeyDir, "keydir:"+strings.ToLower(w)); err == nil && rec != nil {
+				fid, _ = rec.Data["fundus_id"].(string)
+			}
+		}
+	}
+	if fid == "" {
+		if s.log != nil {
+			s.log.Info("Verkauf: kein Empfänger für die Benachrichtigung bekannt",
+				zap.String("listing", listingID))
+		}
+		return
+	}
+	titel, _ := daten["title"].(string)
+	if titel == "" {
+		titel = "Dein Angebot"
+	}
+	text := fmt.Sprintf("„%s“ wurde gekauft", titel)
+	if n > 1 {
+		text = fmt.Sprintf("„%s“ – %d Stück gekauft", titel, n)
+	}
+	if rest > 0 {
+		text += fmt.Sprintf(" · noch %d verfügbar", rest)
+	}
+	s.pushNotify(strings.ToLower(fid), "Verkauft", text,
+		"/listings/"+listingID, "sale-"+listingID, true)
+	if s.log != nil {
+		s.log.Info("Verkauf gemeldet", zap.String("listing", listingID),
+			zap.String("an", strings.ToLower(fid)[:10]+"…"))
+	}
 }

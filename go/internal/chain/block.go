@@ -96,6 +96,10 @@ func isCanonicalOrder(txs []*Transaction) bool {
 
 // BuildBlock erzeugt den nächsten Block aus parent + Transaktionen, wendet sie
 // auf state an und füllt tx_root/state_root. state wird dabei verändert.
+// TxAbgelehnt wird aufgerufen, wenn der Blockbau eine Transaktion auslässt
+// (R792). Gesetzt vom Node, um den Grund zu protokollieren; nil heißt stumm.
+var TxAbgelehnt func(tx *Transaction, err error)
+
 func BuildBlock(parent *BlockHeader, proposer Address, timestamp uint64, txs []*Transaction, state *State, feeCollector Address) (*Block, error) {
 	ordered := orderTxs(txs)
 	height := parent.Height + 1
@@ -119,6 +123,17 @@ func BuildBlock(parent *BlockHeader, proposer Address, timestamp uint64, txs []*
 			rewardSeen = true
 		}
 		if err := state.ApplyTransaction(tx, feeCollector, proposer, height); err != nil {
+			// R792: Den Grund NICHT verwerfen. ApplyTransaction sagt genau, was
+			// los ist ("falsche Nonce, erwartet 5, war 4", "Escrow nicht
+			// gefunden"). Bisher stand im Protokoll nur "alle abgelehnt —
+			// Nonce/Guthaben/Gebühr prüfen", ohne Grund und ohne Transaktion.
+			//
+			// Nur ein Melder, keine Verhaltensänderung: Der Block wird genau so
+			// gebaut wie vorher. Das ist Konsenscode – hier ändert sich nichts
+			// an dem, was in den Block kommt.
+			if TxAbgelehnt != nil {
+				TxAbgelehnt(tx, err)
+			}
 			continue // ungültige Tx auslassen
 		}
 		applied = append(applied, tx)

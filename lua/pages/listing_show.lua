@@ -415,10 +415,19 @@ function onShipAddressChange() {
 //   - auch OHNE bekannten Kontaktschlüssel: Der Messenger schlägt ihn selbst
 //     nach und legt die Nachricht notfalls in die Warteschlange, bis der
 //     Verkäufer erreichbar ist. Vorher brach die Funktion dann still ab.
-async function sendSaleMessage(buyBox, listingId, escrowId, k) {
+async function sendSaleMessage(buyBox, listingId, escrowId, k, sellerWallet) {
   const cpk  = buyBox.dataset.cpk  || '';
-  const cfid = buyBox.dataset.cfid || '';
-  if (!cfid) return;   // ohne Empfänger keine Nachricht – Kauf bleibt gültig
+  // R790: Rückfall auf die Wallet-Adresse des Verkäufers.
+  //
+  // contact_fundus_id steht nur im Inserat, wenn der Verkäufer beim Anlegen
+  // einen Messenger-Kontakt eingebettet hat. Fehlte er, brach diese Funktion
+  // bisher STILL ab – beim Testkauf kam deshalb keine Nachricht an.
+  //
+  // Die Wallet-Adresse ist dagegen bei jedem Kauf vorhanden (ohne sie gäbe es
+  // keinen Kauf), und der Messenger löst sie über das Schlüsselverzeichnis
+  // selbst in die Kontaktkennung auf.
+  const cfid = buyBox.dataset.cfid || sellerWallet || '';
+  if (!cfid) return { ok: false, grund: 'kein Empfänger bekannt' };
 
   const meta  = window.LISTING_META || {};
   const titel = (meta.title || '').trim() || ('Inserat ' + listingId.slice(0, 10) + '…');
@@ -438,18 +447,22 @@ async function sendSaleMessage(buyBox, listingId, escrowId, k) {
               '\u2014 automatische Nachricht bei Kauf');
 
   const body = { recipient_id: cfid, text: zeilen.join('\n') };
-  if (cpk) body.recipient_pub_key = cpk;   // spart den Nachschlageschritt
+  // Den Schlüssel nur mitgeben, wenn er zur Kontaktkennung gehört – beim
+  // Rückfall auf die Wallet schlägt der Messenger ihn selbst nach.
+  if (cpk && buyBox.dataset.cfid) body.recipient_pub_key = cpk;
   try {
     const r = await fetch('/api/v1/messenger/send', {
       method: 'POST', credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    if (!r.ok) console.warn('Verkaufsnachricht nicht zugestellt: HTTP ' + r.status);
+    if (r.ok) return { ok: true };
+    let d = {}; try { d = await r.json(); } catch (e) {}
+    // An sich selbst stellt der Messenger nicht zu – beim Testkauf aus dem
+    // eigenen Inserat ist das der Normalfall, kein Fehler.
+    return { ok: false, grund: d.error || ('HTTP ' + r.status) };
   } catch (e) {
-    // Best effort: Der Kauf ist auf der Chain gültig, auch wenn die Nachricht
-    // nicht durchgeht. Aber sichtbar machen statt verschlucken.
-    console.warn('Verkaufsnachricht nicht zugestellt:', e.message);
+    return { ok: false, grund: e.message };
   }
 }
 
@@ -722,14 +735,40 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
         // R787: Den Verkäufer bei JEDEM Kauf benachrichtigen, nicht nur bei
         // Versand. Bisher erfuhr er von einem Abholkauf nichts – außer er sah
         // zufällig nach. Bei Versand steht die Adresse mit in der Nachricht.
-        await sendSaleMessage(buyBox, listingId, d.escrow_id, {
+
+
+        const escrowId = d.escrow_id;
+        // R791: Erst auf die Chain warten, DANN Erfolg melden.
+        //
+        // Bisher stand "✓ Kauf abgeschlossen" sofort da – obwohl die
+        // Transaktion nur eingereicht war. Wurde sie danach abgelehnt (etwa
+        // wegen Guthaben oder Reihenfolge), glaubte der Käufer an einen Kauf,
+        // den es nie gab. Der Kaufvertrag wartete dann endlos auf eine
+        // Hinterlegung, die nicht kommen konnte.
+        st.innerHTML = '<div class="escrow-status" style="padding:10px">\u23F3 Kauf eingereicht \u2013 wird auf der Chain bestätigt …</div>';
+        const bestaetigt = await aufChainWarten(escrowId, 60);
+        if (!bestaetigt) {
+            st.innerHTML = `<div class="error-box">
+              <strong>\u26A0 Kauf nach einer Minute noch nicht auf der Chain.</strong>
+              <p style="margin-top:6px">Die Transaktion wurde eingereicht, ist aber in keinem Block angekommen.
+              Mögliche Ursachen: Sie wurde abgelehnt (Guthaben, Reihenfolge der Transaktionen),
+              oder dieser Node ist gerade nicht synchron.</p>
+              <p style="margin-top:6px">Prüfe deinen Kontostand: Wurde nichts abgebucht, ist der Kauf <strong>nicht</strong>
+              zustande gekommen und du kannst es erneut versuchen.</p>
+              <p class="meta" style="margin-top:6px">Transaktion ${(escrowId||'').slice(0,18)}…</p></div>`;
+            btn.disabled = false;
+            btn.textContent = LS.buy_now;
+            return;
+        }
+        // R791: Den Verkäufer ERST JETZT benachrichtigen – nach der Bestätigung.
+        // Vorher bekam er „Verkauft" auch für Käufe, die die Chain danach
+        // ablehnte.
+        const benachrichtigt = await sendSaleMessage(buyBox, listingId, escrowId, {
             menge: buyQty(),
             summe: totalFnd || amountFnd || '',
             versand: isShipping,
             adresse: isShipping ? shipAddress : ''
-        });
-
-        const escrowId = d.escrow_id;
+        }, sellerWallet);
         // Bestand auf der Seite sofort nachführen (R580) – vorher musste man
         // neu laden, um die verringerte Menge zu sehen.
         updateStockAfterPurchase(buyQty());
@@ -738,9 +777,11 @@ async function startEscrow(listingId, sellerWallet, amountFnd) {
         st.innerHTML = `
           <div class="success-box">
             <strong>✓ Kauf abgeschlossen — ${totalFnd || amountFnd || ''} FND eingefroren${buyQty() > 1 ? ' (' + buyQty() + ' Stück)' : ''} (Escrow ${(escrowId||'').slice(0,12)}…)</strong>
+            <p style="margin-top:6px;font-size:12.5px;color:${benachrichtigt.ok ? 'var(--grn)' : '#ffc107'}">${benachrichtigt.ok ? '\u2709 Verkäufer per Messenger benachrichtigt' : '\u26A0 Verkäufer nicht per Messenger erreicht: ' + benachrichtigt.grund + ' \u2013 er erhält aber eine Push-Meldung seines Nodes.'}</p>
             <p style="margin-top:6px">Die FND sind für 14 Tage im Escrow gesichert. Bestätige den Erhalt der Ware, sobald sie da ist — dann wird die Zahlung an den Verkäufer freigegeben.</p>
             <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn btn-buy" onclick="confirmReceipt('${escrowId}')">✓ Erhalt bestätigen</button>
+              <button class="btn btn-outline" onclick="cancelPurchase('${escrowId}')">✗ Kauf stornieren</button>
               <a href="/api/v1/contracts/${escrowId}/html" target="_blank" class="btn btn-outline">📄 Kaufvertrag</a>
               <a href="/ratings?escrow=${escrowId}" class="btn btn-outline">⭐ Verkäufer bewerten</a>
             </div>
@@ -776,6 +817,57 @@ async function fundEscrow(escrowId) {
           </div>`;
     } else {
         st.innerHTML = `<div class="error-box">✗ ${d.error}</div>`;
+    }
+}
+
+// R791: Wartet, bis die Hinterlegung auf der Chain steht.
+//
+// Ein Block entsteht alle fünf Sekunden; normalerweise ist sie nach 5 bis 10
+// Sekunden da. Die Obergrenze verhindert endloses Warten auf etwas, das
+// abgelehnt wurde.
+async function aufChainWarten(escrowId, sekunden) {
+    const ende = Date.now() + sekunden * 1000;
+    while (Date.now() < ende) {
+        try {
+            const r = await fetch('/api/v1/escrow/' + encodeURIComponent(escrowId),
+                                  { credentials: 'same-origin' });
+            if (r.ok) return true;
+        } catch (e) { /* kurz kein Netz – weiter versuchen */ }
+        await new Promise(function(res){ setTimeout(res, 2500); });
+    }
+    return false;
+}
+
+// R791: Storno BEANTRAGEN.
+//
+// Es ist ein Antrag, keine sofortige Rückzahlung: Die Chain vermerkt ihn, der
+// Verkäufer bestätigt danach den Rückerhalt der Ware, und erst dann fließt das
+// Geld zurück. So kann niemand Ware behalten und gleichzeitig das Geld
+// zurückholen. Das sagt der Dialog ausdrücklich, damit niemand auf eine
+// sofortige Gutschrift wartet.
+async function cancelPurchase(escrowId) {
+    if (!confirm('Kauf stornieren?\n\n' +
+                 'Das ist ein Antrag: Der Verkäufer muss den Rückerhalt bestätigen, ' +
+                 'erst dann bekommst du die FND zurück. Hast du die Ware schon, ' +
+                 'schicke sie zurück.')) return;
+    const seed = prompt(LS.enter_key || 'Gib deine Wallet-Wörter ein, um den Storno zu signieren:');
+    if (!seed) return;
+    const words = seed.trim().split(/\s+/);
+    if (words.length < 12) { alert(LS.key_too_short || 'Zu wenige Wörter.'); return; }
+    const st = document.getElementById('escrow-status');
+    try {
+        const r = await fetch('/api/v1/escrow/' + encodeURIComponent(escrowId) + '/cancel', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ words: words })
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        st.innerHTML = `<div class="success-box"><strong>\u2713 Storno beantragt.</strong>
+          <p style="margin-top:6px">Sobald der Verkäufer den Rückerhalt bestätigt, werden die FND
+          zurückgebucht. Den Stand zeigt der <a href="/api/v1/contracts/${escrowId}/html" target="_blank">Kaufvertrag</a>.</p></div>`;
+    } catch (e) {
+        st.innerHTML = `<div class="error-box">\u2717 Storno nicht möglich: ${e.message}</div>`;
     }
 }
 
