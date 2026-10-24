@@ -1,8 +1,8 @@
 {
-  "version": "R801",
-  "description": "FUNDUS R801 - messenger",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R801/FND-R801-update.zip",
-  "node_argon2": "0039859cf8af2cc27603dd879bcff50a3b30b1083b0bfbd36e3dd3f5ce2c55c5",
-  "published_at": "2026-10-24T14:23:03.8916171Z",
-  "signature": "0x26a0a53cac8c16e563c678a0abd227308c9941817b838cd5a038e457fc0266b24208884eb87251ca85602e9446d35b033de3cbe0b98d438f1992a914876835041c"
+  "version": "R803",
+  "description": "FUNDUS R803 - layout refinement",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R803/FND-R803-update.zip",
+  "node_argon2": "9381dfe4cfaba0e11f96199bff66c80f3aa0a068afaf77e9f8be848cb19515ea",
+  "published_at": "2026-10-24T14:49:35.7747692Z",
+  "signature": "0x923d5854e0dc48d7a74818656c0085225b4d6b3af71212176ea227ad978d22c22c646823c0e1ecfdec0a955f387218c009417103841efe0572e744308e9591e81b"
 }
