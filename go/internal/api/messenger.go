@@ -836,6 +836,31 @@ func (s *Server) messengerSend(c *gin.Context) {
 				Type: storage.RecordMailbox,
 				Data: map[string]any{"recipient": rid, "envelope": string(env), "ts": time.Now().Unix()},
 			}
+			// R810: Empfänger auf DIESEM Node? Dann sofort einspeisen.
+			//
+			// Auf anderen Nodes wird eine Nachricht beim Eintreffen des
+			// Postfach-Eintrags sofort zugestellt – mit Live-Anzeige und
+			// Push. Auf demselben Node löst das lokale Ablegen das aber nicht
+			// aus: Die Nachricht wartete auf den Abholdurchlauf alle 30
+			// Sekunden. Gemeldet als "Push geht nicht, wenn Sender und
+			// Empfänger auf demselben Node angemeldet sind".
+			//
+			// Für Anrufe gibt es diesen Weg seit R685. Eingespeist wird
+			// dasselbe Paket wie beim Abholen; der Abholdurchlauf erkennt den
+			// Eintrag danach als erledigt, und der Messenger verwirft eine
+			// Nachricht ohnehin, deren Kennung er schon kennt.
+			if sess.identity != nil && rid != strings.ToLower(sess.identity.FundusID) {
+				sessionMu.RLock()
+				empf := sessionStore[rid]
+				sessionMu.RUnlock()
+				if empf != nil && empf.messenger != nil && !drainedMailboxSeen(mbID) {
+					envKopie := append([]byte(nil), env...)
+					go func() {
+						defer func() { _ = recover() }()
+						empf.messenger.InjectIncoming(envKopie)
+					}()
+				}
+			}
 			go func() {
 				defer func() { _ = recover() }()
 				_ = s.store.Put(mbRec)

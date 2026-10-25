@@ -372,6 +372,9 @@ func (s *Server) registerRoutes() {
 	// Sammelbestellungen (R696): gemeinsam bestellen, um den Mengenpreis zu
 	// bekommen. Der Händler braucht dafür keine Wallet – die Hinterlegung läuft
 	// zwischen Teilnehmern und Organisator.
+	// Feed (R812): Beiträge, Likes, Kommentare – siehe feed.go.
+	s.registerFeedRoutes(r)
+
 	gb := r.Group("/api/v1/groupbuy")
 	{
 		gb.GET("/meta", s.gbMeta)
@@ -487,7 +490,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R809"
+const NodeRevision = "R812"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

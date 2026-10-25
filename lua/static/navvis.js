@@ -16,6 +16,7 @@
     { key:"jobs",         path:"/jobs",         label:"Jobs",         icon:"💼", beta:true, color:"purple", defLanding:false },
     { key:"files",        path:"/files",        label:"Dateien",      icon:"📁", color:"pink",   defQuick:true, quickPath:"/shared", quickLabel:"Freigaben" },
     { key:"messenger",    path:"/messenger",    label:"Messenger",    icon:"💬", beta:true, color:"blue", defQuick:true },
+    { key:"feed",         path:"/feed",         label:"Feed",         icon:"🌊", color:"purple", defQuick:true },
     { key:"partner",      path:"/partner",      label:"Fundus Love",  icon:"💗", color:"rose", defQuick:true },
     { key:"wallet",       path:"/wallet",       label:"Wallet",       icon:"👛", color:"gold",   defQuick:true }
   ];

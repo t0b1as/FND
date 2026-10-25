@@ -25,6 +25,8 @@ local P = {
   peers        = '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a13.5 13.5 0 0 1 0 18M12 3a13.5 13.5 0 0 0 0 18"/>',
   storage      = '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>',
   settings     = '<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2 1.2M17.8 15.3l2 1.2M4.2 16.5l2-1.2M17.8 8.7l2-1.2"/><circle cx="12" cy="12" r="7"/>',
+  -- Feed (R812): drei Wellen – Beiträge, die sich im Netz ausbreiten.
+  feed         = '<path d="M3 7q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M3 12q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M3 17q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/>',
   star         = '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
 }
 

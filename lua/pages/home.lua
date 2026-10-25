@@ -65,6 +65,14 @@ return function()
       })
       .catch(function(){ el.textContent = '–'; });
   }
+  // Feed-Kachel (R812): sichtbare Beiträge der letzten 24 Stunden.
+  (function(){
+    var el = document.getElementById('tile-feed-count'); if (!el) return;
+    fetch('/api/v1/feed/count', {credentials:'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){ el.textContent = d ? d.count : '–'; })
+      .catch(function(){ el.textContent = '–'; });
+  })();
   // Drive-Kachel: Anzahl offener Fahrtgesuche (R637).
   function driveZahl(){
     var el = document.getElementById('tile-drive-count'); if (!el) return;
@@ -123,6 +131,12 @@ return function()
     <div class="tile-icon">]] .. require("icons").svg("messenger") .. [[</div>
     <div class="tile-value" id="tile-msg-count">–</div>
     <div class="tile-label">%s</div>
+  </a>
+  <a href="/feed" class="tile tile-purple" data-nav-key="feed" data-nav-zone="landing">
+    <div class="tile-glow"></div>
+    <div class="tile-icon">]] .. require("icons").svg("feed") .. [[</div>
+    <div class="tile-value" id="tile-feed-count">–</div>
+    <div class="tile-label">Feed</div>
   </a>
   <a href="/drive" class="tile tile-cyan" data-nav-key="drive" data-nav-zone="landing">
     <div class="tile-glow"></div>

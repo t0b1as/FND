@@ -270,6 +270,7 @@ function _M.header(title_key, active)
   <a href="/shared" data-nav-key="shared" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("shared") .. [[</span>]] .. t("nav.shared_label") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_communication") .. [[</div>
+  <a href="/feed"      class="%s" data-nav-key="feed" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("feed") .. [[</span>Feed</a>
   <a href="/messenger" class="%s" data-nav-key="messenger" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("messenger") .. [[</span>]] .. t("nav.messenger") .. [[<span class="wip-pill">BETA</span></a>
   <a href="/partner"   class="%s" data-nav-key="partner" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("partner") .. [[</span>]] .. t("nav.partner_label") .. [[</a>
   <div class="drawer-sep"></div>
@@ -300,6 +301,7 @@ function _M.header(title_key, active)
         active == "drive"        and "active" or "",
         active == "jobs"         and "active" or "",
         active == "files"        and "active" or "",
+        active == "feed"         and "active" or "",
         active == "messenger"    and "active" or "",
         active == "partner"      and "active" or "",
         active == "topology"     and "active" or "",

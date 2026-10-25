@@ -43,6 +43,8 @@ const (
 	RecordOutbox         RecordType = "outbox"            // ausgehende Nachrichten die auf den Empfänger-PubKey warten
 	RecordWalletLink     RecordType = "wallet_link"       // hinterlegte Wallet je Login (verschlüsselt, NUR lokal)
 	RecordDisplayName    RecordType = "display_name"      // signierter Anzeigename je Fundus-ID (lokal, Verteilung per Präsenz)
+	RecordPost           RecordType = "post"              // Feed-Beitrag (R812), öffentlich oder für Kontakte verschlüsselt
+	RecordPostReact      RecordType = "post_react"        // Like, Kommentar oder Löschmarke zu einem Feed-Beitrag (R812)
 )
 
 // Record ist der generische Datencontainer im Fundus-Netz.
@@ -335,6 +337,7 @@ func (s *Store) HandleIncoming(topic string, fromPeerID string, data []byte) err
 	// ergibt das einen konsistenten, vollstaendigen Marktplatz.
 	isPublicMarket := topic == "fundus.listings" || topic == "fundus.certificate" ||
 		topic == "fundus.drive" || // Drive: Fahrerprofile und Gesuche (R635)
+		topic == "fundus.feed" || // Feed: Beiträge und Reaktionen (R812)
 		topic == "fundus.jobs" || topic == "fundus.energy"
 
 	// Persönliche, verschlüsselte Records (Mailbox, Kontakte, Email-Verzeichnis)
@@ -505,6 +508,10 @@ var PublicRecordTypes = []RecordType{
 	// Sammelbestellungen (R696): öffentlich, damit Nachbarn sie überhaupt
 	// finden und mitbestellen können.
 	RecordGroupBuy,
+	// Feed (R812): Beiträge und Reaktionen. Echtheit über die Signatur des
+	// Autors, nicht nur des Nodes; Kontakt-Beiträge sind verschlüsselt.
+	RecordPost,
+	RecordPostReact,
 	// Verlaufsabgleich (R584): verschlüsselte Verlaufseinträge, damit derselbe
 	// Nutzer von mehreren eigenen Nodes aus denselben Verlauf sieht. Lesbar
 	// nur mit dem Schlüssel der angemeldeten Identität.

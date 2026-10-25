@@ -1450,7 +1450,8 @@ onProtoChange();
   window.NAV_ITEMS.forEach(function(it){
     const tr = document.createElement("tr");
     const name = document.createElement("td");
-    name.innerHTML = '<span class="nvi">'+it.icon+'</span> '+it.label+(it.beta?' <span class="wip-pill">BETA</span>':'');
+    // R812: eigenes Symbol wie in der Schnellzugriffsleiste; Emoji nur als Ersatz.
+    name.innerHTML = '<span class="nvi">'+((window.FUNDUS_ICONS||{})[it.key] || it.icon)+'</span> '+it.label+(it.beta?' <span class="wip-pill">BETA</span>':'');
     tr.appendChild(name);
     ["landing","burger","quick"].forEach(function(zone){
       const td = document.createElement("td");

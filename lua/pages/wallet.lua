@@ -1073,7 +1073,9 @@ async function confirmSeedBackup(){
 
   -- ── Adressbuch (R553): FND- und Solana-Adressen, pro Nutzer, mit Bearbeiten ──
   ngx.print([==[
-<div class="w-card" id="addrbook-card">
+<!-- R811: steht AUSSERHALB von .wallet-layout (die Karten darüber bekommen
+     ihren Abstand von dort, gap:12px) – deshalb hier derselbe Abstand von Hand. -->
+<div class="w-card" id="addrbook-card" style="margin-top:12px">
   <div class="w-head"><h3>Adressbuch</h3></div>
   <div class="w-body">
     <p class="meta">Empfangsadressen für Überweisungen und Verkäufe – FND (0x…) und Solana. Von außen sieht jeder nur seine eigenen Einträge.</p>
