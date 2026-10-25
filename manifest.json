@@ -1,8 +1,8 @@
 {
-  "version": "R818",
-  "description": "FUNDUS R818 - transparency and chat deletion",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R818/FND-R818-update.zip",
-  "node_argon2": "f746b469f92f7941c0a607a27af2d448c1f0aca8bba0c4e6a586da7b5211642d",
-  "published_at": "2026-10-25T09:26:49.7086065Z",
-  "signature": "0xe9fe7635ffc3e031917a90892a37382a73c6e3cb45ff898b61b6fb397c12521455a4e4b9748353621e30d8e3d610ef7807490076f975c7b57e74516f7932e0201c"
+  "version": "R822",
+  "description": "FUNDUS R822 - FEED Layout",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R822/FND-R822-update.zip",
+  "node_argon2": "f4753e7e9c5109f20fbadb12778140f3b338af5042bb359cbd0368fd7a2e053e",
+  "published_at": "2026-10-25T11:50:46.9122116Z",
+  "signature": "0x8132c648af6edbcb756d421b93752c9f6ed17e85835ded2318e4f12e97df5dc4046807d481a1384fe2e6b1c6e4d2ab9181b21b3b592668cf75399d619828add71c"
 }
