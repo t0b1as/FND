@@ -62,6 +62,7 @@ const (
 	feedThema       = "fundus.feed"
 	feedSichtOeff   = "public"
 	feedSichtKontak = "contacts"
+	feedSichtGruppe = "group" // R813: nur Mitglieder einer eigenen Gruppe
 )
 
 var (
@@ -71,7 +72,7 @@ var (
 	feedGeheimMu    sync.Mutex
 	feedGeheimnisse = map[string][]byte{} // "meineFid|ihrX25519" → ECDH-Geheimnis
 	feedSchluessMu  sync.Mutex
-	feedSchluessel  = map[string][]byte{} // "meineFid|beitrag" → K (nil = kein Zugang)
+	feedSchluessel  = map[string][]byte{} // "meineFid|beitrag" → K (nur Erfolge)
 )
 
 // feedDrosseln begrenzt, wie oft jemand schreiben darf (Spam-Schutz).
@@ -112,6 +113,8 @@ type feedInhalt struct {
 	Bilder []string `json:"images,omitempty"`
 	Video  string   `json:"video,omitempty"`      // Adresse (YouTube, Vimeo, Datei)
 	VidDat string   `json:"video_hash,omitempty"` // hochgeladene Videodatei
+	Gruppe string   `json:"group_name,omitempty"` // R813: nur im verschlüsselten Inhalt
+	Link   *feedLink `json:"link,omitempty"`      // R814: Vorschau des ersten Links
 }
 
 var feedVideoMuster = regexp.MustCompile(`^https://[^\s"'<>]{4,400}$`)
@@ -136,7 +139,10 @@ func (i *feedInhalt) pruefen() string {
 	if i.VidDat != "" && !feedHashMuster.MatchString(i.VidDat) {
 		return "Ungültiger Videoverweis."
 	}
-	if i.Text == "" && len(i.Bilder) == 0 && i.Video == "" && i.VidDat == "" {
+	if msg := i.Link.pruefen(); msg != "" {
+		return msg
+	}
+	if i.Text == "" && len(i.Bilder) == 0 && i.Video == "" && i.VidDat == "" && i.Link == nil {
 		return "Der Beitrag ist leer."
 	}
 	return ""
@@ -217,8 +223,11 @@ func (s *Server) feedX25519(c *gin.Context, fid string) string {
 	return s.keyDirHolen(c.Request.Context(), fid)
 }
 
-// feedBeitragsschluessel liefert K für einen Kontakt-Beitrag, oder nil.
-func feedBeitragsschluessel(id *identity.Identity, rec *storage.Record) []byte {
+// feedBeitragsschluessel liefert K für einen nicht öffentlichen Beitrag, oder
+// nil. Gesucht wird erst im Beitrag selbst, dann in nachträglichen Freigaben
+// des Autors (R813) – so sehen auch später hinzugekommene Kontakte und
+// Gruppenmitglieder ältere Beiträge.
+func feedBeitragsschluessel(id *identity.Identity, rec *storage.Record, reakt []*storage.Record) []byte {
 	me := strings.ToLower(id.FundusID)
 	ck := me + "|" + rec.ID
 	feedSchluessMu.Lock()
@@ -228,17 +237,49 @@ func feedBeitragsschluessel(id *identity.Identity, rec *storage.Record) []byte {
 	}
 	feedSchluessMu.Unlock()
 	var k []byte
+	xpub, _ := rec.Data["xpub"].(string)
+	auspacken := func(verpackt string) []byte {
+		if verpackt == "" || xpub == "" {
+			return nil
+		}
+		g, err := feedGeheimnis(id, xpub)
+		if err != nil {
+			return nil
+		}
+		roh, err := hex.DecodeString(verpackt)
+		if err != nil {
+			return nil
+		}
+		if kk, err := identity.Decrypt(roh, g); err == nil && len(kk) == 32 {
+			return kk
+		}
+		return nil
+	}
 	keys, _ := rec.Data["keys"].(map[string]any)
-	if verpackt, _ := keys[me].(string); verpackt != "" {
-		if xpub, _ := rec.Data["xpub"].(string); xpub != "" {
-			if g, err := feedGeheimnis(id, xpub); err == nil {
-				if roh, err := hex.DecodeString(verpackt); err == nil {
-					if kk, err := identity.Decrypt(roh, g); err == nil && len(kk) == 32 {
-						k = kk
-					}
-				}
+	verpackt, _ := keys[me].(string)
+	k = auspacken(verpackt)
+	if k == nil {
+		autor, _ := rec.Data["fid"].(string)
+		for _, f := range reakt {
+			if art, _ := f.Data["kind"].(string); art != "key" {
+				continue
+			}
+			if ziel, _ := f.Data["target"].(string); ziel != me {
+				continue
+			}
+			if von, _ := f.Data["fid"].(string); von != autor {
+				continue // nur der Autor darf Zugang gewähren
+			}
+			v, _ := f.Data["payload"].(string)
+			if k = auspacken(v); k != nil {
+				break
 			}
 		}
+	}
+	if k == nil {
+		// "Kein Zugang" NICHT merken: Eine spätere Freigabe des Autors soll
+		// sofort wirken, nicht erst nach einem Neustart.
+		return nil
 	}
 	feedSchluessMu.Lock()
 	if len(feedSchluessel) > 20000 {
@@ -364,10 +405,27 @@ func (s *Server) feedErstellen(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
-	if req.Sicht != feedSichtKontak {
+	fid := strings.ToLower(sess.identity.FundusID)
+	// R813: "group:<id>" = nur die Mitglieder dieser eigenen Gruppe.
+	var gruppe *feedGruppe
+	if strings.HasPrefix(req.Sicht, "group:") {
+		gid := strings.TrimPrefix(req.Sicht, "group:")
+		for _, g := range s.feedGruppenLaden(sess) {
+			if g.ID == gid {
+				gg := g
+				gruppe = &gg
+				break
+			}
+		}
+		if gruppe == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Diese Gruppe gibt es nicht (mehr)."})
+			return
+		}
+		req.Sicht = feedSichtGruppe
+		req.feedInhalt.Gruppe = gruppe.Name
+	} else if req.Sicht != feedSichtKontak {
 		req.Sicht = feedSichtOeff
 	}
-	fid := strings.ToLower(sess.identity.FundusID)
 	if !feedDrosseln("post", fid, 30, time.Hour) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Beiträge in kurzer Zeit – bitte später erneut."})
 		return
@@ -379,7 +437,7 @@ func (s *Server) feedErstellen(c *gin.Context) {
 
 	var nutzlast string
 	empfaenger := 0
-	if req.Sicht == feedSichtKontak {
+	if req.Sicht != feedSichtOeff {
 		k := make([]byte, 32)
 		if _, err := rand.Read(k); err != nil {
 			s.internalError(c, err)
@@ -394,7 +452,14 @@ func (s *Server) feedErstellen(c *gin.Context) {
 		meinX := sess.identity.X25519PublicKeyHex()
 		keys := map[string]string{}
 		// Mich selbst einschließen: Auch der Autor muss seinen Beitrag lesen.
-		ziele := append([]string{fid}, s.feedKontakte(sess)...)
+		var kreis []string
+		if gruppe != nil {
+			kreis = gruppe.Mitglieder
+			daten["grp"] = gruppe.ID
+		} else {
+			kreis = s.feedKontakte(sess)
+		}
+		ziele := append([]string{fid}, kreis...)
 		for _, ziel := range ziele {
 			x := meinX
 			if ziel != fid {
@@ -443,6 +508,16 @@ func (s *Server) feedErstellen(c *gin.Context) {
 // ── Reaktion anlegen (Like, Kommentar, Löschmarke) ───────────────────────────
 
 func (s *Server) feedReaktion(c *gin.Context, sess *Session, art, beitrag, ziel, nutzlast string, eindeutig bool) (*storage.Record, error) {
+	return s.feedReaktionAnlegen(sess, art, beitrag, ziel, nutzlast, eindeutig)
+}
+
+// feedReaktionOhneAnfrage: für Freigaben aus dem Hintergrund, je Empfänger
+// und Node eindeutig.
+func (s *Server) feedReaktionOhneAnfrage(sess *Session, art, beitrag, ziel, nutzlast string) (*storage.Record, error) {
+	return s.feedReaktionAnlegen(sess, art, beitrag, ziel, nutzlast, true)
+}
+
+func (s *Server) feedReaktionAnlegen(sess *Session, art, beitrag, ziel, nutzlast string, eindeutig bool) (*storage.Record, error) {
 	fid := strings.ToLower(sess.identity.FundusID)
 	ts := time.Now().Unix()
 	sig, err := sess.identity.Sign(feedReaktionSignaturtext(art, beitrag, ziel, fid, ts, nutzlast))
@@ -472,15 +547,56 @@ func (s *Server) feedBeitragLaden(id string) *storage.Record {
 }
 
 // feedDarfSehen: öffentlich, oder ich habe den Beitragsschlüssel.
-func feedDarfSehen(sess *Session, rec *storage.Record) (bool, []byte) {
-	if sicht, _ := rec.Data["vis"].(string); sicht != feedSichtKontak {
+func feedDarfSehen(sess *Session, rec *storage.Record, reakt []*storage.Record) (bool, []byte) {
+	if sicht, _ := rec.Data["vis"].(string); sicht == feedSichtOeff || sicht == "" {
 		return true, nil
 	}
 	if sess == nil || sess.identity == nil {
 		return false, nil
 	}
-	k := feedBeitragsschluessel(sess.identity, rec)
+	k := feedBeitragsschluessel(sess.identity, rec, reakt)
 	return k != nil, k
+}
+
+// feedReaktionenVon liefert die gültigen Reaktionen EINES Beitrags.
+func (s *Server) feedReaktionenVon(beitragID string) []*storage.Record {
+	alle, _ := s.store.ListPrefix(storage.RecordPostReact, "react:"+beitragID+":")
+	return feedGueltige(alle, beitragID)
+}
+
+// feedReaktionenIndex liest ALLE Reaktionen einmal und ordnet sie den
+// Beiträgen zu – für die Feed-Liste günstiger als je Beitrag eine Suche.
+func (s *Server) feedReaktionenIndex() map[string][]*storage.Record {
+	idx := map[string][]*storage.Record{}
+	alle, _ := s.store.List(storage.RecordPostReact)
+	for _, x := range alle {
+		if x == nil || x.DeletedAt != nil || x.Data == nil {
+			continue
+		}
+		p, _ := x.Data["post"].(string)
+		if p == "" || !feedReaktionEcht(x) {
+			continue
+		}
+		idx[p] = append(idx[p], x)
+	}
+	return idx
+}
+
+func feedGueltige(alle []*storage.Record, beitragID string) []*storage.Record {
+	var out []*storage.Record
+	for _, x := range alle {
+		if x == nil || x.DeletedAt != nil || x.Data == nil {
+			continue
+		}
+		if p, _ := x.Data["post"].(string); p != beitragID || !feedReaktionEcht(x) {
+			continue
+		}
+		out = append(out, x)
+	}
+	if out == nil {
+		out = []*storage.Record{} // leer, aber vorhanden: "keine Freigaben"
+	}
+	return out
 }
 
 func (s *Server) feedLiken(c *gin.Context) {
@@ -494,7 +610,7 @@ func (s *Server) feedLiken(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Beitrag nicht gefunden."})
 		return
 	}
-	if ok, _ := feedDarfSehen(sess, rec); !ok {
+	if ok, _ := feedDarfSehen(sess, rec, s.feedReaktionenVon(beitrag)); !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Kein Zugang zu diesem Beitrag."})
 		return
 	}
@@ -528,7 +644,7 @@ func (s *Server) feedKommentieren(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Beitrag nicht gefunden."})
 		return
 	}
-	ok, k := feedDarfSehen(sess, rec)
+	ok, k := feedDarfSehen(sess, rec, s.feedReaktionenVon(beitrag))
 	if !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Kein Zugang zu diesem Beitrag."})
 		return
@@ -618,19 +734,12 @@ type feedReakt struct {
 
 // feedReaktionenSammeln wertet alle Reaktionen eines Beitrags aus. Der Autor
 // des Beitrags (bzw. des Kommentars) ist der Einzige, dessen Löschmarke zählt.
-func (s *Server) feedReaktionenSammeln(beitrag *storage.Record) *feedReakt {
+func feedReaktionenSammeln(beitrag *storage.Record, alle []*storage.Record) *feedReakt {
 	r := &feedReakt{likes: map[string]bool{}, likeTs: map[string]int64{}, geloescht: map[string]bool{}}
-	alle, _ := s.store.ListPrefix(storage.RecordPostReact, "react:"+beitrag.ID+":")
 	autor, _ := beitrag.Data["fid"].(string)
 	kommAutor := map[string]string{}
 	var marken []*storage.Record
 	for _, x := range alle {
-		if x == nil || x.DeletedAt != nil || x.Data == nil || !feedReaktionEcht(x) {
-			continue
-		}
-		if p, _ := x.Data["post"].(string); p != beitrag.ID {
-			continue
-		}
 		fid, _ := x.Data["fid"].(string)
 		ts := zahl64(x.Data["ts"])
 		switch art, _ := x.Data["kind"].(string); art {
@@ -672,10 +781,15 @@ func (s *Server) feedListe(c *gin.Context) {
 	}
 	vor, _ := strconv.ParseInt(c.Query("before"), 10, 64)
 	nurVon := strings.ToLower(strings.TrimSpace(c.Query("author")))
+	nurID := strings.TrimSpace(c.Query("id")) // R813: geteilter Link auf einen Beitrag
 	alle, err := s.store.List(storage.RecordPost)
 	if err != nil {
 		s.internalError(c, err)
 		return
+	}
+	reaktIdx := s.feedReaktionenIndex()
+	if sess != nil && sess.identity != nil {
+		go s.feedZugangErgaenzen(sess, alle, reaktIdx) // R813: neue Kontakte nachträglich freischalten
 	}
 	sort.Slice(alle, func(i, j int) bool { return zahl64(alle[i].Data["ts"]) > zahl64(alle[j].Data["ts"]) })
 	var out []gin.H
@@ -690,6 +804,9 @@ func (s *Server) feedListe(c *gin.Context) {
 		if vor > 0 && ts >= vor {
 			continue
 		}
+		if nurID != "" && rec.ID != nurID {
+			continue
+		}
 		fid, _ := rec.Data["fid"].(string)
 		if nurVon != "" && fid != nurVon {
 			continue
@@ -697,11 +814,15 @@ func (s *Server) feedListe(c *gin.Context) {
 		if !feedBeitragEcht(rec) {
 			continue
 		}
-		ok, k := feedDarfSehen(sess, rec)
+		reakt := reaktIdx[rec.ID]
+		if reakt == nil {
+			reakt = []*storage.Record{}
+		}
+		ok, k := feedDarfSehen(sess, rec, reakt)
 		if !ok {
 			continue
 		}
-		r := s.feedReaktionenSammeln(rec)
+		r := feedReaktionenSammeln(rec, reakt)
 		if r.geloescht[""] {
 			// Der Besitzer-Node räumt einen vom Autor gelöschten Beitrag ab.
 			if rec.OwnerID == s.nodeID() {
@@ -738,7 +859,9 @@ func (s *Server) feedListe(c *gin.Context) {
 		out = append(out, gin.H{
 			"id": rec.ID, "ts": ts, "visibility": sicht, "author": s.feedAutorInfo(fid),
 			"text": inhalt.Text, "images": inhalt.Bilder, "video": inhalt.Video, "video_hash": inhalt.VidDat,
+			"link": inhalt.Link,
 			"likes": likes, "liked": me != "" && r.likes[me], "comments": kommentare, "mine": me != "" && fid == me,
+			"group_name": inhalt.Gruppe,
 		})
 	}
 	if out == nil {
@@ -754,7 +877,8 @@ func (s *Server) feedKommentare(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Beitrag nicht gefunden."})
 		return
 	}
-	ok, k := feedDarfSehen(sess, rec)
+	reakt := s.feedReaktionenVon(rec.ID)
+	ok, k := feedDarfSehen(sess, rec, reakt)
 	if !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Kein Zugang zu diesem Beitrag."})
 		return
@@ -763,7 +887,7 @@ func (s *Server) feedKommentare(c *gin.Context) {
 	if sess != nil && sess.identity != nil {
 		me = strings.ToLower(sess.identity.FundusID)
 	}
-	r := s.feedReaktionenSammeln(rec)
+	r := feedReaktionenSammeln(rec, reakt)
 	sort.Slice(r.kommentar, func(i, j int) bool {
 		return zahl64(r.kommentar[i].Data["ts"]) < zahl64(r.kommentar[j].Data["ts"])
 	})
@@ -801,14 +925,29 @@ func (s *Server) feedAnzahl(c *gin.Context) {
 	}
 	seit := time.Now().Add(-24 * time.Hour).Unix()
 	alle, _ := s.store.List(storage.RecordPost)
+	// Nachträgliche Freigaben (R813): Beitrag|Empfänger
+	freigaben := map[string]bool{}
+	if me != "" {
+		reakt, _ := s.store.List(storage.RecordPostReact)
+		for _, x := range reakt {
+			if x == nil || x.Data == nil {
+				continue
+			}
+			if art, _ := x.Data["kind"].(string); art == "key" {
+				p, _ := x.Data["post"].(string)
+				z, _ := x.Data["target"].(string)
+				freigaben[p+"|"+z] = true
+			}
+		}
+	}
 	n := 0
 	for _, rec := range alle {
 		if rec == nil || rec.DeletedAt != nil || rec.Data == nil || zahl64(rec.Data["ts"]) < seit {
 			continue
 		}
-		if sicht, _ := rec.Data["vis"].(string); sicht == feedSichtKontak {
+		if sicht, _ := rec.Data["vis"].(string); sicht != feedSichtOeff && sicht != "" {
 			keys, _ := rec.Data["keys"].(map[string]any)
-			if me == "" || keys[me] == nil {
+			if me == "" || (keys[me] == nil && !freigaben[rec.ID+"|"+me]) {
 				continue
 			}
 		}
@@ -827,5 +966,248 @@ func (s *Server) registerFeedRoutes(r *gin.Engine) {
 		g.POST("/:id/comments", s.feedKommentieren)
 		g.POST("/:id/like", s.feedLiken)
 		g.DELETE("/:id", s.feedLoeschen)
+		g.POST("/preview", s.feedVorschau) // R814
+		g.GET("/groups", s.feedGruppenListe)
+		g.PUT("/groups", s.feedGruppenSpeichern)
+	}
+}
+
+// ── Gruppen (R813) ───────────────────────────────────────────────────────────
+//
+// Eine Gruppe ist eine benannte Auswahl eigener Kontakte. Sie liegt
+// selbst-verschlüsselt wie die Kontaktliste: Nur dieses Konto kann sie lesen,
+// sie folgt ihm aber auf jeden Node (Thema fundus.contacts). Wer in einer
+// Gruppe ist, erfährt das nicht – er sieht nur die Beiträge, und bei denen den
+// Gruppennamen, der verschlüsselt im Beitrag mitreist.
+
+type feedGruppe struct {
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Mitglieder []string `json:"members"`
+}
+
+func (s *Server) feedGruppenLaden(sess *Session) []feedGruppe {
+	fid := strings.ToLower(sess.identity.FundusID)
+	rec, err := s.store.Get(storage.RecordFeedGroups, "feedgroups:"+fid)
+	if err != nil || rec == nil || rec.Data == nil {
+		return nil
+	}
+	encHex, _ := rec.Data["enc"].(string)
+	enc, err := hex.DecodeString(encHex)
+	if err != nil {
+		return nil
+	}
+	plain, err := sess.identity.SelfDecrypt(enc)
+	if err != nil {
+		return nil
+	}
+	var g []feedGruppe
+	_ = json.Unmarshal(plain, &g)
+	return g
+}
+
+func (s *Server) feedGruppenListe(c *gin.Context) {
+	sess := s.feedSitzung(c)
+	if sess == nil {
+		return
+	}
+	g := s.feedGruppenLaden(sess)
+	if g == nil {
+		g = []feedGruppe{}
+	}
+	c.JSON(http.StatusOK, gin.H{"groups": g})
+}
+
+var feedGruppenID = regexp.MustCompile(`^[0-9a-f]{8,32}$`)
+var feedFidMuster = regexp.MustCompile(`^0x[0-9a-f]{40}$`)
+
+func (s *Server) feedGruppenSpeichern(c *gin.Context) {
+	sess := s.feedSitzung(c)
+	if sess == nil {
+		return
+	}
+	var req struct {
+		Gruppen []feedGruppe `json:"groups"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
+		return
+	}
+	if len(req.Gruppen) > 50 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Höchstens 50 Gruppen."})
+		return
+	}
+	me := strings.ToLower(sess.identity.FundusID)
+	for i := range req.Gruppen {
+		g := &req.Gruppen[i]
+		g.Name = strings.TrimSpace(g.Name)
+		if g.Name == "" || len([]rune(g.Name)) > 40 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Gruppenname fehlt oder ist zu lang (höchstens 40 Zeichen)."})
+			return
+		}
+		if !feedGruppenID.MatchString(g.ID) {
+			g.ID = feedZufall(8)
+		}
+		var m []string
+		gesehen := map[string]bool{}
+		for _, f := range g.Mitglieder {
+			f = strings.ToLower(strings.TrimSpace(f))
+			if feedFidMuster.MatchString(f) && f != me && !gesehen[f] {
+				gesehen[f] = true
+				m = append(m, f)
+			}
+		}
+		if len(m) > 500 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Höchstens 500 Mitglieder je Gruppe."})
+			return
+		}
+		g.Mitglieder = m
+	}
+	plain, _ := json.Marshal(req.Gruppen)
+	enc, err := sess.identity.SelfEncrypt(plain)
+	if err != nil {
+		s.internalError(c, err)
+		return
+	}
+	rec := &storage.Record{ID: "feedgroups:" + me, Type: storage.RecordFeedGroups,
+		Data: map[string]any{"enc": hex.EncodeToString(enc), "owner": me}}
+	rec.UpdatedAt = time.Now().UTC()
+	if err := s.store.Put(rec); err != nil {
+		s.internalError(c, err)
+		return
+	}
+	if s.node != nil {
+		if raw, e := json.Marshal(rec); e == nil {
+			go func() {
+				defer func() { _ = recover() }()
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = s.node.Publish(ctx, "fundus.contacts", raw)
+			}()
+		}
+	}
+	// Neue Mitglieder bekommen ältere Gruppenbeiträge – im Hintergrund.
+	feedZugangMu.Lock()
+	delete(feedZugangZuletzt, me)
+	feedZugangMu.Unlock()
+	c.JSON(http.StatusOK, gin.H{"ok": true, "groups": req.Gruppen})
+}
+
+// ── Nachträgliche Freigaben (R813) ───────────────────────────────────────────
+//
+// Wer erst NACH einem Beitrag Kontakt oder Gruppenmitglied wird, hätte ihn
+// nie gesehen – der Schlüssel war nur für den damaligen Kreis verpackt. Wenn
+// der Autor den Feed öffnet, ergänzt sein Node für jeden neuen Berechtigten
+// eine Freigabe: K, verpackt für den Neuen, vom Autor signiert.
+//
+// Zurücknehmen lässt sich das nicht: Wer einen Beitrag einmal lesen konnte,
+// hat ihn gesehen. Wer aus der Gruppe entfernt wird, bekommt aber für KÜNFTIGE
+// Beiträge keinen Schlüssel mehr.
+
+var (
+	feedZugangMu      sync.Mutex
+	feedZugangZuletzt = map[string]time.Time{}
+)
+
+func (s *Server) feedZugangErgaenzen(sess *Session, beitraege []*storage.Record, reaktIdx map[string][]*storage.Record) {
+	defer func() { _ = recover() }()
+	me := strings.ToLower(sess.identity.FundusID)
+	feedZugangMu.Lock()
+	if t, ok := feedZugangZuletzt[me]; ok && time.Since(t) < 5*time.Minute {
+		feedZugangMu.Unlock()
+		return
+	}
+	feedZugangZuletzt[me] = time.Now()
+	feedZugangMu.Unlock()
+
+	var kontakte []string
+	var kontakteGeladen bool
+	gruppen := map[string][]string{}
+	for _, g := range s.feedGruppenLaden(sess) {
+		gruppen[g.ID] = g.Mitglieder
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	schluessel := map[string]string{} // fid → X25519, je Lauf einmal
+	neu := 0
+	for _, rec := range beitraege {
+		if neu >= 200 || ctx.Err() != nil {
+			break // je Lauf begrenzt; der Rest folgt beim nächsten Öffnen
+		}
+		if rec == nil || rec.DeletedAt != nil || rec.Data == nil {
+			continue
+		}
+		if f, _ := rec.Data["fid"].(string); f != me {
+			continue
+		}
+		sicht, _ := rec.Data["vis"].(string)
+		var kreis []string
+		switch sicht {
+		case feedSichtKontak:
+			if !kontakteGeladen {
+				kontakte, kontakteGeladen = s.feedKontakte(sess), true
+			}
+			kreis = kontakte
+		case feedSichtGruppe:
+			gid, _ := rec.Data["grp"].(string)
+			kreis = gruppen[gid]
+		default:
+			continue
+		}
+		if len(kreis) == 0 {
+			continue
+		}
+		reakt := reaktIdx[rec.ID]
+		if reakt == nil {
+			reakt = []*storage.Record{}
+		}
+		k := feedBeitragsschluessel(sess.identity, rec, reakt)
+		if k == nil {
+			continue
+		}
+		hat := map[string]bool{}
+		if keys, ok := rec.Data["keys"].(map[string]any); ok {
+			for f := range keys {
+				hat[f] = true
+			}
+		}
+		for _, x := range reakt {
+			if art, _ := x.Data["kind"].(string); art == "key" {
+				z, _ := x.Data["target"].(string)
+				hat[z] = true
+			}
+		}
+		for _, ziel := range kreis {
+			if hat[ziel] || neu >= 200 {
+				continue
+			}
+			x, ok := schluessel[ziel]
+			if !ok {
+				if r, err := s.store.Get(storage.RecordKeyDir, "keydir:"+ziel); err == nil && r != nil {
+					x, _ = r.Data["x25519"].(string)
+				}
+				if x == "" {
+					x = s.keyDirHolen(ctx, ziel)
+				}
+				schluessel[ziel] = x
+			}
+			if x == "" {
+				continue
+			}
+			g, err := feedGeheimnis(sess.identity, x)
+			if err != nil {
+				continue
+			}
+			v, err := identity.Encrypt(k, g)
+			if err != nil {
+				continue
+			}
+			if _, err := s.feedReaktionOhneAnfrage(sess, "key", rec.ID, ziel, hex.EncodeToString(v)); err == nil {
+				neu++
+			}
+		}
+	}
+	if neu > 0 && s.log != nil {
+		s.log.Info("Feed: ältere Beiträge für neue Kontakte freigegeben", zap.Int("freigaben", neu))
 	}
 }

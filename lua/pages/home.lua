@@ -66,13 +66,16 @@ return function()
       .catch(function(){ el.textContent = '–'; });
   }
   // Feed-Kachel (R812): sichtbare Beiträge der letzten 24 Stunden.
-  (function(){
+  // R813: als Funktion, aufgerufen von allesSetzen(). In R812 lief sie sofort –
+  // dieses Skript steht aber VOR den Kacheln, die Kachel gab es noch nicht.
+  // Derselbe Fehler war bei Drive schon einmal behoben worden (R640).
+  function feedZahl(){
     var el = document.getElementById('tile-feed-count'); if (!el) return;
     fetch('/api/v1/feed/count', {credentials:'same-origin'})
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(d){ el.textContent = d ? d.count : '–'; })
       .catch(function(){ el.textContent = '–'; });
-  })();
+  }
   // Drive-Kachel: Anzahl offener Fahrtgesuche (R637).
   function driveZahl(){
     var el = document.getElementById('tile-drive-count'); if (!el) return;
@@ -101,7 +104,7 @@ return function()
   }
   // R640: driveZahl() lief sofort – das Skript steht aber VOR den Kacheln,
   // das Feld gab es da noch nicht und die Funktion brach still ab.
-  function allesSetzen(){ setzen(); driveZahl(); gbZahl(); }
+  function allesSetzen(){ setzen(); driveZahl(); gbZahl(); feedZahl(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', allesSetzen);
   else allesSetzen();
   setTimeout(allesSetzen, 1200);

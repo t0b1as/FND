@@ -11,6 +11,8 @@ return function()
     ngx.print([[
 <style>
 .feed-wrap { max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+/* R813: Auch zwischen den Beiträgen derselbe Abstand wie zwischen Eingabe und Feed. */
+#feed-liste { display:flex; flex-direction:column; gap:14px; }
 .feed-card { background:var(--sur); border:1px solid var(--brd); border-radius:var(--r); padding:14px 16px; }
 .feed-composer textarea { width:100%; min-height:84px; resize:vertical; box-sizing:border-box;
   background:var(--sur2); color:var(--text); border:1px solid var(--brd); border-radius:8px;
@@ -22,8 +24,33 @@ return function()
   padding:7px 11px; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
 .feed-tool:hover { border-color:var(--green); color:var(--text); }
 .feed-tool .ico { width:17px; height:17px; }
-.feed-sicht { background:var(--sur2); color:var(--text); border:1px solid var(--brd); border-radius:8px;
-  padding:7px 9px; font-size:13px; }
+/* R813: Auswahl und Teilen-Knopf gleich hoch und gleich beschriftet. Die
+   Seite gibt Eingabefeldern 46 px Mindesthöhe (fingerfreundlich) – der Knopf
+   übernimmt dieses Maß, statt die Auswahl darunter zu drücken. */
+.feed-sicht, .feed-teilen { height:46px; min-height:46px; box-sizing:border-box; border-radius:8px; font-size:14px; padding:0 14px; }
+.feed-sicht { background:var(--sur2); color:var(--text); border:1px solid var(--brd); max-width:52vw; }
+.feed-teilen { background:rgba(0,230,118,0.15); color:var(--green); border:1px solid rgba(0,230,118,0.4);
+  font-weight:600; cursor:pointer; min-width:84px; }
+.feed-teilen:hover { background:rgba(0,230,118,0.25); }
+.feed-teilen:disabled { opacity:.55; cursor:default; }
+.feed-beitrag.hervor { border-color:var(--green); box-shadow:0 0 0 2px rgba(0,230,118,.25); }
+.feed-toast { position:fixed; left:50%; bottom:calc(24px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%);
+  background:var(--sur2); color:var(--text); border:1px solid var(--brd); border-radius:10px; padding:9px 16px;
+  font-size:13.5px; z-index:20001; box-shadow:0 6px 24px rgba(0,0,0,.4); }
+.feed-dlg { position:fixed; inset:0; z-index:15000; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; padding:16px; }
+.feed-dlg-karte { background:var(--sur); border:1px solid var(--brd); border-radius:12px; width:min(440px,100%); max-height:86vh;
+  display:flex; flex-direction:column; }
+.feed-dlg-kopf { padding:14px 16px; border-bottom:1px solid var(--brd); font-weight:600; color:var(--text); display:flex; align-items:center; }
+.feed-dlg-kopf button { margin-left:auto; background:none; border:none; color:var(--text-dim); font-size:18px; cursor:pointer; }
+.feed-dlg-inhalt { padding:14px 16px; overflow-y:auto; display:flex; flex-direction:column; gap:10px; }
+.feed-dlg-fuss { padding:12px 16px; border-top:1px solid var(--brd); display:flex; gap:8px; justify-content:flex-end; }
+.feed-dlg input[type=text] { background:var(--sur2); color:var(--text); border:1px solid var(--brd); border-radius:8px; padding:9px 11px; font-size:14px; }
+.feed-mitglied { display:flex; align-items:center; gap:10px; padding:6px 4px; border-radius:8px; cursor:pointer; color:var(--text); font-size:14px; }
+.feed-mitglied:hover { background:var(--sur2); }
+.feed-mitglied input { width:18px; height:18px; accent-color:var(--green); }
+.feed-gruppe-zeile { display:flex; align-items:center; gap:8px; padding:8px 4px; border-bottom:1px solid var(--brd); color:var(--text); }
+.feed-gruppe-zeile .meta { color:var(--text-dim); font-size:12.5px; }
+.feed-gruppe-zeile button { background:none; border:1px solid var(--brd); color:var(--text-dim); border-radius:7px; padding:4px 9px; cursor:pointer; font-size:12.5px; }
 .feed-video-eingabe { width:100%; margin-top:8px; box-sizing:border-box; background:var(--sur2); color:var(--text);
   border:1px solid var(--brd); border-radius:8px; padding:8px 10px; font-size:13.5px; }
 .feed-vorschau { display:grid; grid-template-columns:repeat(auto-fill,minmax(84px,1fr)); gap:6px; margin-top:10px; }
@@ -77,33 +104,47 @@ return function()
 .feed-leer { text-align:center; color:var(--text-dim); padding:30px 10px; }
 .feed-leer .ico { width:44px; height:44px; color:var(--green); opacity:.7; }
 .feed-mehr { align-self:center; }
+/* R814: Linkvorschau */
+.feed-linkkarte { display:block; margin-top:10px; border:1px solid var(--brd); border-radius:10px; overflow:hidden;
+  text-decoration:none; color:inherit; background:var(--sur2); position:relative; }
+.feed-linkkarte:hover { border-color:var(--green); }
+.feed-linkkarte img { width:100%; max-height:300px; object-fit:cover; display:block; background:#000; }
+.feed-linkkarte .lk-text { padding:10px 12px; }
+.feed-linkkarte .lk-seite { font-size:11.5px; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; }
+.feed-linkkarte .lk-titel { font-weight:600; color:var(--text); margin-top:2px; line-height:1.35; }
+.feed-linkkarte .lk-besch { font-size:13px; color:var(--text-dim); margin-top:3px; line-height:1.4;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.feed-start.mit-bild { background-size:cover; background-position:center; }
+.feed-start.mit-bild::before { content:""; position:absolute; inset:0; background:rgba(0,0,0,.35); }
+.feed-start.mit-bild > * { position:relative; }
+.feed-start .titel { font-size:14px; font-weight:600; padding:0 16px; text-align:center; text-shadow:0 1px 4px rgba(0,0,0,.8); }
+.feed-vorschau-zu { position:absolute; top:6px; right:6px; z-index:2; width:26px; height:26px; border-radius:50%; border:none;
+  background:rgba(0,0,0,.65); color:#fff; cursor:pointer; font-size:14px; }
+.feed-lade { margin-top:10px; font-size:12.5px; color:var(--text-dim); }
 .feed-lightbox { position:fixed; inset:0; z-index:20000; background:rgba(0,0,0,.92); display:flex;
   align-items:center; justify-content:center; cursor:zoom-out; }
 .feed-lightbox img { max-width:96vw; max-height:94vh; object-fit:contain; }
 </style>
 
-<div class="top-bar"><h2 style="margin:0;font-size:20px;color:var(--text);display:flex;align-items:center;gap:8px">
+<div class="top-bar" style="margin-bottom:14px"><h2 style="margin:0;font-size:20px;color:var(--text);display:flex;align-items:center;gap:8px">
   <span style="display:inline-flex;width:24px;height:24px;color:#a763f7">]] .. icons.svg("feed") .. [[</span>Feed</h2></div>
 
 <div class="feed-wrap">
   <div class="feed-card feed-composer">
-    <textarea id="feed-text" placeholder="Was gibt es Neues? Links zu YouTube oder Vimeo werden als Video eingebettet." maxlength="5000"></textarea>
+    <textarea id="feed-text" placeholder="Was gibt's Neues?" maxlength="5000"></textarea>
+    <div id="feed-link-vorschau" style="display:none"></div>
     <div id="feed-vorschau" class="feed-vorschau" style="display:none"></div>
-    <div id="feed-video-box" style="display:none">
-      <input id="feed-video-url" class="feed-video-eingabe" type="url" placeholder="Video-Link (YouTube, Vimeo oder .mp4)" inputmode="url">
-      <button type="button" class="feed-tool" style="margin-top:6px" onclick="document.getElementById('feed-video-datei').click()">📁 Stattdessen Videodatei hochladen (bis 24 MB)</button>
-    </div>
     <div class="feed-row">
       <button type="button" class="feed-tool" onclick="document.getElementById('feed-bilder-datei').click()" title="Bilder oder GIFs anhängen">🖼 Bild/GIF</button>
-      <button type="button" class="feed-tool" onclick="feedVideoUmschalten()" title="Video-Link oder Videodatei">🎬 Video</button>
+      <button type="button" class="feed-tool" onclick="document.getElementById('feed-video-datei').click()" title="Videodatei anhängen (bis 24 MB) – Video-Links einfach in den Text einfügen">🎬 Video</button>
       <input type="file" id="feed-bilder-datei" accept="image/*" multiple style="display:none">
       <input type="file" id="feed-video-datei" accept="video/mp4,video/webm,video/quicktime" style="display:none">
       <span class="grow"></span>
-      <select id="feed-sicht" class="feed-sicht" title="Wer sieht den Beitrag?">
+      <select id="feed-sicht" class="feed-sicht" title="Wer sieht den Beitrag?" aria-label="Reichweite">
         <option value="public">🌐 Öffentlich</option>
         <option value="contacts">👥 Nur Kontakte</option>
       </select>
-      <button type="button" class="btn btn-buy" id="feed-senden" style="width:auto;padding:8px 18px">Teilen</button>
+      <button type="button" class="feed-teilen" id="feed-senden">Teilen</button>
     </div>
     <div class="feed-status" id="feed-status"></div>
   </div>

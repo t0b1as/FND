@@ -45,6 +45,7 @@ const (
 	RecordDisplayName    RecordType = "display_name"      // signierter Anzeigename je Fundus-ID (lokal, Verteilung per Präsenz)
 	RecordPost           RecordType = "post"              // Feed-Beitrag (R812), öffentlich oder für Kontakte verschlüsselt
 	RecordPostReact      RecordType = "post_react"        // Like, Kommentar oder Löschmarke zu einem Feed-Beitrag (R812)
+	RecordFeedGroups     RecordType = "feed_groups"       // eigene Feed-Gruppen je Konto, selbst-verschlüsselt (R813)
 )
 
 // Record ist der generische Datencontainer im Fundus-Netz.
@@ -221,8 +222,19 @@ func (s *Store) Get(recordType RecordType, id string) (*Record, error) {
 // zusammen mit einer Anmeldung (256 MB Schlüsselableitung) reichte das, um den
 // Dienst über seine Speichergrenze zu treiben.
 func (s *Store) ListPrefix(recordType RecordType, idPrefix string) ([]*Record, error) {
-	prefix := fmt.Sprintf("/%s/%s", string(recordType), idPrefix)
-	results, err := s.db.Query(context.Background(), query.Query{Prefix: prefix})
+	// R813: Das Präfix NICHT an die Datenbank weiterreichen.
+	//
+	// go-ds-leveldb legt ein Abfragepräfix als PFAD aus und hängt einen
+	// Schrägstrich an: "/mailbox/mailbox:0xab:" suchte nach
+	// "/mailbox/mailbox:0xab:/…". Keine Kennung enthält dort einen
+	// Schrägstrich – die Suche fand deshalb NIE etwas. Betroffen waren das
+	// Messenger-Postfach (Abholung), der Verlaufsabgleich und die Reaktionen
+	// im Feed (Likes, Kommentare, Löschmarken).
+	//
+	// Abgefragt wird jetzt der Datensatztyp – das ist ein echter Pfad – und das
+	// Kennungspräfix hier verglichen.
+	typPfad := "/" + string(recordType)
+	results, err := s.db.Query(context.Background(), query.Query{Prefix: typPfad})
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +242,9 @@ func (s *Store) ListPrefix(recordType RecordType, idPrefix string) ([]*Record, e
 	var out []*Record
 	for result := range results.Next() {
 		if result.Error != nil {
+			continue
+		}
+		if !strings.HasPrefix(strings.TrimPrefix(result.Key, typPfad+"/"), idPrefix) {
 			continue
 		}
 		var r Record
