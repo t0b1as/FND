@@ -374,6 +374,8 @@ func (s *Server) registerRoutes() {
 	// zwischen Teilnehmern und Organisator.
 	// Feed (R812): Beiträge, Likes, Kommentare – siehe feed.go.
 	s.registerFeedRoutes(r)
+	// Transaktionsindex (R823): Buchungen je Wallet – siehe txindex.go.
+	s.registerTxIndex(r)
 
 	gb := r.Group("/api/v1/groupbuy")
 	{
@@ -490,7 +492,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R822"
+const NodeRevision = "R823"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

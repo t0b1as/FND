@@ -153,17 +153,32 @@ func BuildBlock(parent *BlockHeader, proposer Address, timestamp uint64, txs []*
 // ApplyBlock validiert einen Block gegen parent + state und wendet ihn an
 // (für Nodes, die einen fremden Block nachvollziehen). state wird verändert.
 func ApplyBlock(parent *BlockHeader, blk *Block, state *State, feeCollector Address) error {
+	_, err := applyBlock(parent, blk, state, feeCollector, false)
+	return err
+}
+
+// ApplyBlockErfasst wendet einen Block GENAU wie ApplyBlock an und liefert dazu
+// die Saldoänderungen je Adresse (R823). Für den Buchungsindex, der auf
+// einem eigenen Schattenzustand läuft – nie auf dem Zustand der Chain.
+func ApplyBlockErfasst(parent *BlockHeader, blk *Block, state *State, feeCollector Address) ([]Buchung, error) {
+	return applyBlock(parent, blk, state, feeCollector, true)
+}
+
+func applyBlock(parent *BlockHeader, blk *Block, state *State, feeCollector Address, messen bool) (buchungen []Buchung, err error) {
+	if messen {
+		defer func() { state.erfassung = nil }() // auch bei Fehler nicht stehen lassen
+	}
 	if blk.Header.Height != parent.Height+1 {
-		return errors.New("chain: falsche Höhe")
+		return nil, errors.New("chain: falsche Höhe")
 	}
 	if blk.Header.PrevHash != parent.Hash() {
-		return errors.New("chain: prev_hash passt nicht zum Vorgänger")
+		return nil, errors.New("chain: prev_hash passt nicht zum Vorgänger")
 	}
 	if !isCanonicalOrder(blk.Transactions) {
-		return errors.New("chain: Transaktionen nicht kanonisch (from,nonce) geordnet")
+		return nil, errors.New("chain: Transaktionen nicht kanonisch (from,nonce) geordnet")
 	}
 	if blk.Header.TxRoot != txRoot(blk.Transactions) {
-		return errors.New("chain: tx_root stimmt nicht")
+		return nil, errors.New("chain: tx_root stimmt nicht")
 	}
 	// Höchstens EIN Storage-Reward-Tx pro Block. Ein Block mit mehreren wird
 	// verworfen — ein ehrlicher Node darf einen solchen Block nicht übernehmen,
@@ -175,18 +190,30 @@ func ApplyBlock(parent *BlockHeader, blk *Block, state *State, feeCollector Addr
 		}
 	}
 	if rewardCount > 1 {
-		return errors.New("chain: mehr als ein Storage-Reward-Tx im Block")
+		return nil, errors.New("chain: mehr als ein Storage-Reward-Tx im Block")
+	}
+	if messen {
+		state.erfassung = map[Address]*big.Int{}
 	}
 	state.MatureUnbonding(blk.Header.Height) // gleiche Position wie in BuildBlock
-	for _, tx := range blk.Transactions {
+	if messen {
+		buchungen = append(buchungen, state.erfassungAbschliessen(blk, -1, nil)...)
+	}
+	for i, tx := range blk.Transactions {
+		if messen {
+			state.erfassung = map[Address]*big.Int{}
+		}
 		if err := state.ApplyTransaction(tx, feeCollector, blk.Header.Proposer, blk.Header.Height); err != nil {
-			return err
+			return nil, err
+		}
+		if messen {
+			buchungen = append(buchungen, state.erfassungAbschliessen(blk, i, tx)...)
 		}
 	}
 	if blk.Header.StateRoot != state.Root() {
-		return errors.New("chain: state_root stimmt nicht nach Anwendung")
+		return nil, errors.New("chain: state_root stimmt nicht nach Anwendung")
 	}
-	return nil
+	return buchungen, nil
 }
 
 // GenesisAccount ist eine Anfangs-Allokation (Spec §9, Frischstart).

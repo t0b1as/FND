@@ -61,6 +61,11 @@ type State struct {
 	// allen Nodes gleich gesetzt sein, damit alle dieselben SolCredits gültig
 	// finden. Standard: Null-Adresse = Brücke deaktiviert.
 	bridgeAuthority Address
+	// erfassung (R823): Saldo jedes Kontos beim ERSTEN Zugriff innerhalb einer
+	// gemessenen Einheit (Transaktion oder Stake-Freigabe). Nur während des
+	// Buchungsindex gesetzt; sonst nil und ohne Wirkung. Kein Konsenszustand –
+	// fließt nicht in die Wurzel ein.
+	erfassung map[Address]*big.Int
 }
 
 // NewState erzeugt einen leeren State.
@@ -89,6 +94,14 @@ func (s *State) getOrCreate(a Address) *Account {
 	if !ok {
 		acct = &Account{Balance: new(big.Int)}
 		s.accounts[a] = acct
+	}
+	// R823: Saldo vor der ersten Änderung merken. Jede Saldoänderung läuft
+	// über getOrCreate (GetAccount/Balance geben nur Kopien heraus) – die
+	// Messung ist damit lückenlos.
+	if s.erfassung != nil {
+		if _, schon := s.erfassung[a]; !schon {
+			s.erfassung[a] = new(big.Int).Set(acct.Balance)
+		}
 	}
 	return acct
 }

@@ -427,6 +427,19 @@ loadEscrows().catch(()=>{});
 
 <style>
 
+/* R823: Letzte Bewegungen */
+.wv-zeile { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--brd, #2e3348); }
+.wv-zeile:last-child { border-bottom:none; }
+.wv-links { flex:1; min-width:0; }
+.wv-titel { font-size:14px; color:var(--text); display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.wv-meta { font-size:11.5px; color:var(--muted); margin-top:2px; }
+.wv-meta code { font-size:11px; white-space:nowrap; }
+.wv-betrag { font-variant-numeric:tabular-nums; font-weight:600; white-space:nowrap; font-size:14px; }
+.wv-plus { color:var(--grn); }
+.wv-minus { color:#ff8a80; }
+.wv-marke { font-size:10.5px; font-weight:600; padding:1px 7px; border-radius:9px; letter-spacing:.02em; }
+.wv-belohnung { background:rgba(0,230,118,.15); color:var(--grn); border:1px solid rgba(0,230,118,.4); }
+.wv-gebuehr { background:rgba(255,255,255,.06); color:var(--muted); border:1px solid var(--brd, #2e3348); }
 /* R822: Beträge ausblenden – weichgezeichnet statt entfernt, damit die
    Seite nicht springt. Wer auf den Bildschirm schaut, liest nichts ab. */
 .wal-verborgen .bal-val, .wal-verborgen .bal-geheim { filter: blur(8px); user-select: none; }
@@ -642,6 +655,93 @@ async function walAutoOeffnen(){
   if (an) walAutoOeffnen();
 })();
 
+// ── Letzte Bewegungen (R823) ──────────────────────────────────────────────
+// Aus dem Transaktionsindex des Nodes. Belohnungen und Gebühren sind eigens
+// markiert; die Gebühr einer eigenen Transaktion steht als eigene Zeile.
+var WAL_ARTEN = {
+  ueberweisung:        ['Überweisung', ''],
+  gebuehr:             ['Transaktion', 'gebuehr'],
+  gebuehr_einnahme:    ['Gebühreneinnahme', 'belohnung'],
+  belohnung_validator: ['Validator-Anteil an Gebühren', 'belohnung'],
+  belohnung_vorhaltung:['Vorhaltung und Übertragung', 'belohnung'],
+  stake:               ['Stake gebunden', ''],
+  unstake:             ['Stake gelöst', ''],
+  stake_freigabe:      ['Stake freigegeben', ''],
+  slash:               ['Stake entzogen', 'gebuehr'],
+  sol_gutschrift:      ['SOL-Einzahlung', ''],
+  hinterlegung:        ['Hinterlegung', ''],
+  freigabe:            ['Freigabe aus Hinterlegung', ''],
+  erstattung:          ['Erstattung', ''],
+  tausch:              ['Tausch (HTLC)', ''],
+  sonstiges:           ['Buchung', '']
+};
+// var statt let: wird schon vom automatischen Öffnen (weiter oben) gelesen,
+// let wäre dort noch nicht angelegt.
+var walVerlaufAdr = '', walVerlaufWeiter = '', walVerlaufNurErste = true;
+function walVerlaufKarte(){
+  let k = document.getElementById('wal-verlauf');
+  if (k) return k;
+  const nach = document.getElementById('bal-free');
+  const karte = nach && nach.closest('.w-card');
+  if (!karte) return null;
+  karte.insertAdjacentHTML('afterend',
+    '<div class="w-card" id="wal-verlauf"><div class="w-head"><h3>Letzte Bewegungen</h3></div>' +
+    '<div class="w-body"><div id="wal-verlauf-stand" class="w-hint" style="display:none"></div>' +
+    '<div id="wal-verlauf-liste"></div>' +
+    '<button type="button" class="btn-sm" id="wal-verlauf-mehr" style="display:none;margin-top:8px">Ältere anzeigen</button></div></div>');
+  document.getElementById('wal-verlauf-mehr').onclick = function(){ walVerlaufLaden(walVerlaufAdr, false); };
+  return document.getElementById('wal-verlauf');
+}
+function walZeit(t){
+  t = Number(t || 0);
+  if (!t) return '';
+  const d = new Date(t > 1e12 ? t : t * 1000);   // Sekunden oder Millisekunden
+  return d.toLocaleDateString('de-DE', {day:'2-digit', month:'2-digit', year:'2-digit'}) + ' ' +
+         d.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'});
+}
+function walKurz(a){ return a ? a.slice(0, 6) + '…' + a.slice(-4) : ''; }
+function walEsc(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+async function walVerlaufLaden(addr, neu){
+  if (!walVerlaufKarte()) return;
+  if (neu) { walVerlaufAdr = addr; walVerlaufWeiter = ''; walVerlaufNurErste = true; }
+  const liste = document.getElementById('wal-verlauf-liste');
+  try {
+    const q = '/api/v1/wallet/verlauf?address=' + encodeURIComponent(addr.toLowerCase()) +
+              (!neu && walVerlaufWeiter ? '&vor=' + encodeURIComponent(walVerlaufWeiter) : '');
+    const r = await fetch(q, {credentials:'same-origin'});
+    if (!r.ok) return;
+    const d = await r.json();
+    const zeilen = (d.eintraege || []).map(function(e){
+      const art = WAL_ARTEN[e.art] || WAL_ARTEN.sonstiges;
+      const betrag = Number(e.fnd || 0);
+      const plus = betrag > 0;
+      let titel = art[0];
+      if (e.art === 'ueberweisung') titel = plus ? 'Eingang' : 'Überweisung';
+      const gegen = e.gegen ? (plus ? ' von ' : ' an ') + '<code title="' + walEsc(e.gegen) + '">' + walKurz(e.gegen) + '</code>' : '';
+      const marke = art[1] === 'belohnung' ? '<span class="wv-marke wv-belohnung">Belohnung</span>'
+                  : art[1] === 'gebuehr' ? '<span class="wv-marke wv-gebuehr">Gebühr</span>' : '';
+      return '<div class="wv-zeile">' +
+        '<div class="wv-links"><div class="wv-titel">' + walEsc(titel) + marke + '</div>' +
+        '<div class="wv-meta">' + walZeit(e.t) + ' · Block ' + Number(e.h || 0).toLocaleString('de-DE') + gegen + '</div></div>' +
+        '<div class="wv-betrag bal-geheim ' + (plus ? 'wv-plus' : 'wv-minus') + '">' + (plus ? '+' : '−') +
+          Math.abs(betrag).toLocaleString('de-DE', {minimumFractionDigits:4, maximumFractionDigits:4}) + ' FND</div></div>';
+    }).join('');
+    if (neu) liste.innerHTML = zeilen || '<div class="w-hint">Noch keine Bewegungen.</div>';
+    else { liste.insertAdjacentHTML('beforeend', zeilen); walVerlaufNurErste = false; }
+    walVerlaufWeiter = d.weiter || '';
+    document.getElementById('wal-verlauf-mehr').style.display = walVerlaufWeiter ? '' : 'none';
+    // Solange der Index aufgebaut wird, den Fortschritt zeigen.
+    const st = d.stand || {}, sEl = document.getElementById('wal-verlauf-stand');
+    if (st.chain && st.bis + 5 < st.chain) {
+      sEl.style.display = '';
+      sEl.textContent = 'Verlauf wird aufgebaut: Block ' + Number(st.bis).toLocaleString('de-DE') + ' von ' +
+        Number(st.chain).toLocaleString('de-DE') + ' (' + Math.floor(st.bis * 100 / st.chain) + ' %) – ältere Bewegungen folgen.';
+    } else if (st.fehler) {
+      sEl.style.display = ''; sEl.textContent = 'Verlauf vorübergehend unvollständig: ' + st.fehler;
+    } else sEl.style.display = 'none';
+  } catch(e) {}
+}
+
 async function walShowBalance(addr){
   const el = document.getElementById('wal-open-state');
   el.style.display = 'block';
@@ -649,6 +749,10 @@ async function walShowBalance(addr){
   const setTop = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
   // Obere Adresse sofort auf die geöffnete Wallet setzen (unabhängig vom Saldo).
   setTop('top-wal-address', addr);
+  // R823: Bewegungen mitführen – neu bei Adresswechsel, sonst nur die erste
+  // Seite, solange niemand ältere aufgeklappt hat.
+  if (addr !== walVerlaufAdr) walVerlaufLaden(addr, true);
+  else if (walVerlaufNurErste) walVerlaufLaden(addr, true);
   try {
     const r = await fetch('/api/v1/wallet/balance?address=' + encodeURIComponent(addr));
     const d = await r.json();
