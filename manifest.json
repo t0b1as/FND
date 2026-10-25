@@ -1,8 +1,8 @@
 {
-  "version": "R822",
-  "description": "FUNDUS R822 - FEED Layout",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R822/FND-R822-update.zip",
-  "node_argon2": "f4753e7e9c5109f20fbadb12778140f3b338af5042bb359cbd0368fd7a2e053e",
-  "published_at": "2026-10-25T11:50:46.9122116Z",
-  "signature": "0x8132c648af6edbcb756d421b93752c9f6ed17e85835ded2318e4f12e97df5dc4046807d481a1384fe2e6b1c6e4d2ab9181b21b3b592668cf75399d619828add71c"
+  "version": "R823",
+  "description": "FUNDUS R823 - chain index",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R823/FND-R823-update.zip",
+  "node_argon2": "b9d0ff44a74a0b7a00c44dc3dcd2b64c7541f88d8040d4484c25a5919f55280b",
+  "published_at": "2026-10-25T12:12:28.3920342Z",
+  "signature": "0x696985cb1216312c2a376dad81d4a9f27f7294e36808450fa148df4c03258eda1d5494c5921bbaf26dbfec46ed6666830d1698664b39c86b606e7c7759d752a01c"
 }
