@@ -1,8 +1,8 @@
 {
-  "version": "R808",
-  "description": "FUNDUS R808 - mobile notifications",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R808/FND-R808-update.zip",
-  "node_argon2": "6426c914e06dac36574b6f8d90ba10c304c70347421ae9bb24c3e1084a30e092",
-  "published_at": "2026-10-24T17:53:34.3355882Z",
-  "signature": "0xb3870e1b8873fee6f8bac9ad2e6e8d3bd80a1e85cf26fb18df6098260d0519e429cc5dfca1324fcf3e93368f108e9d6926e5a95bcc8e807699602f16064473f01b"
+  "version": "R809",
+  "description": "FUNDUS R809 - mobile notifications",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R809/FND-R809-update.zip",
+  "node_argon2": "565b3977e4bfb0aa421e612799bc401a5df6bf1b7845776e94ead4e2c2948a77",
+  "published_at": "2026-10-25T05:47:53.8896385Z",
+  "signature": "0x9cd627ff8e7cf1e31f6d6e63db17a4a54e057037c2ceecd1a0127d4cfcedbd0a4c85daae5e07bfcb843e4f834f4cf76a5ef075041ecbac45a63e63ef4dd5b26a1b"
 }
