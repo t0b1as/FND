@@ -10,6 +10,11 @@ return function()
 
     ngx.print([[
 <style>
+/* R822: Überschrift und Symbol im Violett der Feed-Kachel, mit Leuchten. */
+.feed-titel { margin:0; font-size:20px; font-weight:800; color:#a763f7; display:flex; align-items:center; gap:8px;
+  text-shadow:0 0 10px rgba(167,99,247,.75), 0 0 22px rgba(167,99,247,.35); }
+.feed-titel-ico { display:inline-flex; width:24px; height:24px; color:#a763f7;
+  filter:drop-shadow(0 0 5px rgba(167,99,247,.85)) drop-shadow(0 0 12px rgba(167,99,247,.4)); }
 .feed-wrap { max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 /* R815: Auf dem Desktop 50 % größer (640 → 960 px). */
 @media (min-width: 1000px) { .feed-wrap { max-width:960px; } .feed-text { font-size:16.5px; } }
@@ -130,7 +135,7 @@ return function()
 .feed-kblase { background:var(--sur2); border-radius:12px; padding:7px 11px; flex:1; min-width:0; }
 .feed-kblase .feed-name { font-size:13px; }
 .feed-kblase .feed-text { margin-top:2px; font-size:14px; }
-.feed-kblase .feed-meta { margin-top:3px; }
+.feed-kblase .feed-meta { margin-top:3px; display:block; line-height:1.6; } /* R820: fließt wie Text statt in Spalten zu zerfallen */
 .feed-keingabe { display:flex; gap:6px; }
 .feed-keingabe input { flex:1; background:var(--sur2); color:var(--text); border:1px solid var(--brd);
   border-radius:18px; padding:8px 14px; font-size:14px; }
@@ -154,13 +159,28 @@ return function()
 .feed-vorschau-zu { position:absolute; top:6px; right:6px; z-index:2; width:26px; height:26px; border-radius:50%; border:none;
   background:rgba(0,0,0,.65); color:#fff; cursor:pointer; font-size:14px; }
 .feed-lade { margin-top:10px; font-size:12.5px; color:var(--text-dim); }
+/* R820: Hashtags und Antworten */
+.feed-tag { color:var(--green); text-decoration:none; font-weight:500; }
+.feed-tag:hover { text-decoration:underline; }
+.feed-filter { display:flex; align-items:center; gap:10px; padding:10px 16px; }
+.feed-filter .tagname { font-weight:600; color:var(--green); }
+.feed-filter button { margin-left:auto; background:none; border:1px solid var(--brd); color:var(--text-dim);
+  border-radius:8px; padding:5px 11px; cursor:pointer; font-size:13px; }
+.feed-antworten { margin-left:36px; display:flex; flex-direction:column; gap:8px; }
+.feed-k.antwort .feed-av { width:24px; height:24px; font-size:11px; }
+.feed-an { font-size:12px; color:var(--text-dim); margin-left:6px; font-weight:400; }
+.feed-antwortfeld { display:flex; gap:6px; margin-left:36px; }
+.feed-antwortfeld input { flex:1; background:transparent; color:var(--text); border:1px solid var(--green);
+  border-radius:18px; padding:7px 13px; font-size:14px; }
+.feed-antwortfeld button { background:none; border:1px solid var(--brd); color:var(--text-dim); border-radius:16px; padding:5px 11px; cursor:pointer; font-size:12.5px; }
+.feed-antwortfeld button.ok { border-color:var(--green); color:var(--green); }
 .feed-lightbox { position:fixed; inset:0; z-index:20000; background:rgba(0,0,0,.92); display:flex;
   align-items:center; justify-content:center; cursor:zoom-out; }
 .feed-lightbox img { max-width:96vw; max-height:94vh; object-fit:contain; }
 </style>
 
-<div class="top-bar" style="margin-bottom:14px"><h2 style="margin:0;font-size:20px;color:var(--text);display:flex;align-items:center;gap:8px">
-  <span style="display:inline-flex;width:24px;height:24px;color:#a763f7">]] .. icons.svg("feed") .. [[</span>Feed</h2>
+<div class="top-bar" style="margin-bottom:14px"><h2 class="feed-titel">
+  <span class="feed-titel-ico">]] .. icons.svg("feed") .. [[</span>Feed</h2>
   <button type="button" class="feed-tool feed-tonwahl" id="feed-ton" title="Videos starten beim Scrollen von selbst – stumm oder mit Ton">🔇 Stumm</button></div>
 
 <div class="feed-wrap">
@@ -180,7 +200,11 @@ return function()
     <div class="feed-status" id="feed-status"></div>
   </div>
 
+  <div id="feed-filter" class="feed-card feed-filter" style="display:none"></div>
   <div id="feed-liste"></div>
+  <!-- R821: Endmarke fürs Nachladen beim Scrollen; der Knopf bleibt als
+       Rückfall für Browser ohne IntersectionObserver. -->
+  <div id="feed-ende" class="feed-meta" style="justify-content:center;min-height:24px;padding:6px 0" aria-live="polite"></div>
   <button type="button" class="btn btn-outline feed-mehr" id="feed-mehr" style="display:none;width:auto">Ältere Beiträge laden</button>
 </div>
 <script>window.FEED_ICON = ]] .. require("cjson.safe").encode(icons.svg("feed")) .. [[;</script>

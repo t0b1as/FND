@@ -34,7 +34,11 @@ ngx.print(string.format([[
 
 <!-- ── FND Balance ─────────────────────────────────────────── -->
 <div class="w-card">
-  <div class="w-head"><h3>FND Balance</h3></div>
+  <div class="w-head" style="display:flex;align-items:center;gap:10px"><h3 style="margin:0">FND Balance</h3>
+    <label class="w-auto" title="Beim Öffnen der Seite die eigene Wallet nur zum Ansehen anzeigen" style="margin-left:auto;font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" id="wal-auto" style="width:16px;height:16px;accent-color:var(--grn)"> automatisch zeigen</label>
+    <button type="button" id="wal-auge" class="btn-sm" title="Beträge ausblenden" aria-label="Beträge ausblenden" aria-pressed="false">👁</button>
+  </div>
   <div class="w-body">
     <div class="balance-row">
       <div class="bal-block">
@@ -48,6 +52,7 @@ ngx.print(string.format([[
         <span class="bal-unit">FND</span>
       </div>
     </div>
+    <div id="bal-eingehend" class="w-hint" style="display:none;margin-top:6px"></div>
   </div>
 </div>
 
@@ -422,6 +427,9 @@ loadEscrows().catch(()=>{});
 
 <style>
 
+/* R822: Beträge ausblenden – weichgezeichnet statt entfernt, damit die
+   Seite nicht springt. Wer auf den Bildschirm schaut, liest nichts ab. */
+.wal-verborgen .bal-val, .wal-verborgen .bal-geheim { filter: blur(8px); user-select: none; }
 .w-pane input:not([type=checkbox]), .w-pane textarea, #wal-to, #wal-amount, #wal-mint-to, #wal-mint-amount, #wal-addr {
   width:100%; margin:4px 0; padding:8px; border:1px solid var(--brd);
   border-radius:8px; background:var(--bg,#111); color:var(--txt); font-size:13px; }
@@ -575,6 +583,65 @@ function wSetHTML(el, html){
   if (!el) return;
   if (el._wh !== html) { el.innerHTML = html; el._wh = html; }
 }
+// ── Eigene Wallet automatisch zeigen (R822) ───────────────────────────────
+// Der Node kennt die Adresse der Anmeldung. Kontostand und Hinterlegungen
+// stehen öffentlich auf der Chain – sie anzuzeigen braucht keinen Schlüssel
+// und gibt nichts preis. SENDEN verlangt weiterhin den Schlüssel
+// (walReadOnly bleibt gesetzt, walTransfer prüft das).
+const WAL_LS_AUTO = 'fundus_wallet_auto', WAL_LS_AUGE = 'fundus_wallet_verborgen';
+function walLs(k, v){ try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch(e){ return null; } }
+function walFmt(n){ return Number(n||0).toLocaleString('de-DE', {minimumFractionDigits:4, maximumFractionDigits:4}); }
+async function walEigeneHinterlegungen(){
+  const ein = document.getElementById('bal-eingehend');
+  try {
+    const r = await fetch('/api/v1/escrow', {credentials:'same-origin'});
+    if (!r.ok) return;
+    const d = await r.json();
+    let gesperrt = 0, eingehend = 0, n = 0;
+    (d.escrows || []).forEach(function(e){
+      if (e.status === 'closed') return;
+      if (e.role === 'buyer') gesperrt += Number(e.amount_fnd || 0);
+      else { eingehend += Number(e.amount_fnd || 0); n++; }
+    });
+    const el = document.getElementById('bal-escrow'); if (el) el.textContent = walFmt(gesperrt);
+    if (ein) {
+      ein.style.display = n ? '' : 'none';
+      ein.innerHTML = n ? 'Eingehend aus ' + n + (n === 1 ? ' Verkauf' : ' Verkäufen') + ' in Hinterlegung: <strong class="bal-geheim">' + walFmt(eingehend) + ' FND</strong>' : '';
+    }
+  } catch(e) {}
+}
+function walAugeSetzen(verborgen){
+  document.body.classList.toggle('wal-verborgen', verborgen);
+  const b = document.getElementById('wal-auge');
+  if (b) { b.textContent = verborgen ? '🙈' : '👁'; b.setAttribute('aria-pressed', verborgen ? 'true' : 'false');
+           b.title = verborgen ? 'Beträge zeigen' : 'Beträge ausblenden'; b.setAttribute('aria-label', b.title); }
+}
+async function walAutoOeffnen(){
+  // walletauth.js lädt die Anmeldung nachträglich – kurz darauf warten.
+  for (let i = 0; i < 40 && !(window.WALLET && window.WALLET.loaded); i++) await new Promise(function(r){ setTimeout(r, 125); });
+  const addr = window.WALLET && window.WALLET.address;
+  if (!addr || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return;   // nie die Fundus-ID als Wallet
+  if (window.walOpenAddress) return;                            // schon von Hand geöffnet
+  window.walOpenAddress = addr;
+  window.walReadOnly = true;
+  await walShowBalance(addr);
+}
+(function(){
+  const auto = document.getElementById('wal-auto');
+  const an = walLs(WAL_LS_AUTO) !== '0';        // ab Werk an
+  if (auto) {
+    auto.checked = an;
+    auto.addEventListener('change', function(){ walLs(WAL_LS_AUTO, auto.checked ? '1' : '0'); if (auto.checked) walAutoOeffnen(); });
+  }
+  walAugeSetzen(walLs(WAL_LS_AUGE) === '1');
+  const auge = document.getElementById('wal-auge');
+  if (auge) auge.addEventListener('click', function(){
+    const v = !document.body.classList.contains('wal-verborgen');
+    walLs(WAL_LS_AUGE, v ? '1' : '0'); walAugeSetzen(v);
+  });
+  if (an) walAutoOeffnen();
+})();
+
 async function walShowBalance(addr){
   const el = document.getElementById('wal-open-state');
   el.style.display = 'block';
@@ -588,13 +655,20 @@ async function walShowBalance(addr){
     if (r.ok) {
       const fnd = (d.fnd!==undefined && d.fnd!==null) ? d.fnd : '?';
       wSetHTML(el, '<strong>]==] .. t("wallet.opened_wallet") .. [==[</strong> <code>' + addr +
-        '</code><br>]==] .. t("wallet.balance_label") .. [==[ <strong>' + fnd + ' FND</strong>');
+        '</code><br>]==] .. t("wallet.balance_label") .. [==[ <strong class="bal-geheim">' + fnd + ' FND</strong>');
       // Obere Felder auf die geöffnete Wallet umstellen: freier Saldo aus der
       // nativen Chain. Escrow/Pending sind für eine geöffnete Fremdadresse nicht
       // ermittelbar → auf "–" setzen, damit keine irreführende 0 erscheint.
       const num = parseFloat(d.fnd);
       setTop('bal-free', isNaN(num) ? '?' : num.toLocaleString('de-DE', {minimumFractionDigits:4, maximumFractionDigits:4}));
       setTop('bal-escrow', '–');
+      // R822: Für die EIGENE Wallet ist der Betrag ermittelbar – über die
+      // Hinterlegungen der Anmeldung. Für fremde Adressen bleibt "–".
+      if (window.WALLET && window.WALLET.address && addr.toLowerCase() === window.WALLET.address.toLowerCase()) {
+        await walEigeneHinterlegungen();
+      } else {
+        const ein = document.getElementById('bal-eingehend'); if (ein) ein.style.display = 'none';
+      }
     } else {
       wSetHTML(el, '<strong>]==] .. t("wallet.opened_wallet") .. [==[</strong> <code>' + addr +
         '</code><br><span style="color:var(--muted)">' + WT.balance_unavailable + (d.error||'Chain offline') + ')</span>');

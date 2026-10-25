@@ -76,6 +76,25 @@ function M.render()
 ]], lang, t("tos.title"), t("tos.version_label") .. " " .. TOS_VERSION,
     t("tos.effective_date")))
 
+    -- Sprachumschalter (R819). Die englische Fassung gab es schon, sie war aber
+    -- nur über die Browsersprache erreichbar – und diese Seite erscheint, bevor
+    -- man an die Spracheinstellung kommt. /lang läuft nicht durch die
+    -- Zustimmungspflicht und führt hierher zurück, mit dem ursprünglichen Ziel.
+    do
+        -- Das ursprüngliche Ziel unverändert weiterreichen (es kommt hier roh
+        -- an und geht roh zurück); nur das Ganze wird für /lang einmal kodiert.
+        local zurueck = "/tos?back=" .. (ngx.var.arg_back or "/")
+        local function wahl(code, name)
+            if code == lang then
+                return '<strong aria-current="true">' .. name .. '</strong>'
+            end
+            return '<a href="/lang?set=' .. code .. '&amp;back=' .. ngx.escape_uri(zurueck) ..
+                   '" hreflang="' .. code .. '" lang="' .. code .. '">' .. name .. '</a>'
+        end
+        ngx.print('<div class="tos-sprache" style="text-align:right;font-size:13px;margin:-4px 0 14px;color:var(--dim)">' ..
+            wahl("de", "Deutsch") .. ' &middot; ' .. wahl("en", "English") .. '</div>')
+    end
+
     -- Haupttext je nach Sprache
     if lang == "en" then
         M._render_en(t)

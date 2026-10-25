@@ -26,9 +26,19 @@
   }
 
   // ── Text: maskieren, Links anklickbar ─────────────────────────────────────
+  // R820: Hashtags. Dasselbe Muster wie im Server (feedTagMuster): "#" plus
+  // 2–50 Buchstaben/Ziffern/_ in jeder Schrift, davor kein Buchstabe, keine
+  // Ziffer, kein "/" oder "&" – so bleiben Sprungmarken in Adressen und
+  // maskierte Zeichen (&#39;) unberührt. Links werden zuerst herausgelöst,
+  // damit ein "#" in einer Adresse nie zum Tag wird.
+  const TAG_RX = /(^|[^\p{L}\p{N}_&\/#])#([\p{L}\p{N}_]{2,50})/gu;
   function textHtml(t) {
-    return esc(t).replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g,
-      '<a href="$1" target="_blank" rel="noopener noreferrer nofollow">$1</a>');
+    const teile = esc(t).split(/(https?:\/\/[^\s<]+[^\s<.,;:!?)\]'"])/g);
+    return teile.map((x, i) => i % 2
+      ? '<a href="' + x + '" target="_blank" rel="noopener noreferrer nofollow">' + x + '</a>'
+      : x.replace(TAG_RX, (m, vor, tag) => vor + '<a href="/feed?tag=' + encodeURIComponent(tag.toLowerCase()) +
+          '" class="feed-tag" data-tag="' + tag.toLowerCase() + '">#' + tag + '</a>')
+    ).join('');
   }
 
   // ── Video erkennen ────────────────────────────────────────────────────────
@@ -186,25 +196,62 @@
   }
 
   // ── Laden ─────────────────────────────────────────────────────────────────
+  let aktTag = (new URLSearchParams(location.search).get('tag') || '').replace(/^#/, '').toLowerCase();
+  function filterAnzeigen() {
+    const f = $('feed-filter');
+    if (!aktTag) { f.style.display = 'none'; f.innerHTML = ''; return; }
+    f.style.display = '';
+    f.innerHTML = '<span>Beiträge mit <span class="tagname">#' + esc(aktTag) + '</span></span>' +
+      '<button type="button" aria-label="Filter entfernen">✕ Alle Beiträge</button>';
+    f.querySelector('button').onclick = () => tagSetzen('');
+  }
+  // Eigene Adresse je Filter (/feed?tag=…): teilbar, und Zurück im Browser
+  // führt zum vorigen Filter.
+  function tagSetzen(tag, ohneVerlauf) {
+    aktTag = (tag || '').toLowerCase();
+    if (!ohneVerlauf) {
+      const u = new URL(location.href);
+      u.searchParams.delete('p');
+      if (aktTag) u.searchParams.set('tag', aktTag); else u.searchParams.delete('tag');
+      history.pushState({}, '', u);
+    }
+    filterAnzeigen();
+    aeltester = 0;
+    laden(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  window.addEventListener('popstate', () => {
+    tagSetzen((new URLSearchParams(location.search).get('tag') || '').toLowerCase(), true);
+  });
+
   async function laden(neu) {
     if (laedt) return;
     laedt = true;
     const liste = $('feed-liste');
     try {
-      const r = await fetch('/api/v1/feed' + (!neu && aeltester ? '?before=' + aeltester : ''), { credentials: 'same-origin' });
+      const q = new URLSearchParams();
+      if (!neu && aeltester) q.set('before', aeltester);
+      if (aktTag) q.set('tag', aktTag);
+      const r = await fetch('/api/v1/feed' + (q.toString() ? '?' + q : ''), { credentials: 'same-origin' });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || ('HTTP ' + r.status));
       const posts = d.posts || [];
       if (neu) liste.innerHTML = '';
       if (neu && !posts.length) {
         liste.innerHTML = '<div class="feed-card feed-leer">' + (window.FEED_ICON || '') +
-          '<p>Noch keine Beiträge. Schreib den ersten!</p></div>';
+          (aktTag ? '<p>Keine Beiträge mit #' + esc(aktTag) + ', die du sehen kannst.</p>'
+                  : '<p>Noch keine Beiträge. Schreib den ersten!</p>') + '</div>';
       }
       posts.forEach((p) => {
+        // Beim Nachladen nichts doppelt zeigen (etwa einen per Direktlink
+        // schon oben eingefügten Beitrag).
+        if (!neu && liste.querySelector('[data-id="' + CSS.escape(p.id) + '"]')) { aeltester = p.ts; return; }
         liste.insertAdjacentHTML('beforeend', beitragHtml(p));
         aeltester = p.ts;
       });
-      $('feed-mehr').style.display = posts.length >= 20 ? '' : 'none';
+      // R821: Eine volle Seite heißt: es gibt vermutlich mehr.
+      nochMehr = posts.length >= 20;
+      endeAnzeigen();
     } catch (e) {
       if (neu) liste.innerHTML = '<div class="feed-card feed-leer">✗ ' + esc(e.message) + '</div>';
     } finally { laedt = false; }
@@ -245,12 +292,7 @@
     box.innerHTML = '<div class="feed-meta">Lade …</div>';
     try {
       const d = await api('GET', '/api/v1/feed/' + encodeURIComponent(art.dataset.id) + '/comments');
-      box.innerHTML = (d.comments || []).map((k) =>
-        '<div class="feed-k" data-kid="' + esc(k.id) + '">' + avatarHtml(k.author) +
-          '<div class="feed-kblase"><span class="feed-name">' + esc(k.author.name || 'Unbekannt') + '</span>' +
-          '<div class="feed-text">' + textHtml(k.text) + '</div>' +
-          '<div class="feed-meta">' + wann(k.ts) + (k.edited ? ' <span class="feed-bearb">· bearbeitet</span>' : '') +
-            (k.mine ? ' · <a href="#" data-akt="kbearbeiten">bearbeiten</a> · <a href="#" data-akt="kloeschen">löschen</a>' : '') + '</div></div></div>').join('') +
+      box.innerHTML = kommentarStraenge(d.comments || []) +
         '<div class="feed-keingabe"><input type="text" maxlength="1500" placeholder="Kommentieren …" aria-label="Kommentar">' +
         '<button type="button" class="btn btn-buy" data-akt="ksenden" style="width:auto;padding:6px 14px">Senden</button></div>';
       const zahl = art.querySelector('[data-akt="kommentare"] .zahl');
@@ -354,6 +396,81 @@
     };
   }
 
+  // ── Kommentarstränge (R820) ────────────────────────────────────────────
+  // Antworten stehen eingerückt unter ihrem Kommentar. Antworten auf Antworten
+  // bleiben im selben Strang (mit "↪ Name") statt immer tiefer einzurücken –
+  // auf dem Handy wäre eine tiefe Verschachtelung schnell unlesbar.
+  function kommentarHtml(k, antwort, an) {
+    return '<div class="feed-k' + (antwort ? ' antwort' : '') + '" data-kid="' + esc(k.id) + '" data-name="' + esc(k.author.name || '') + '">' +
+      avatarHtml(k.author) +
+      '<div class="feed-kblase"><span class="feed-name">' + esc(k.author.name || 'Unbekannt') + '</span>' +
+        (an ? '<span class="feed-an">↪ ' + esc(an) + '</span>' : '') +
+        '<div class="feed-text">' + textHtml(k.text) + '</div>' +
+        '<div class="feed-meta">' + wann(k.ts) + (k.edited ? ' <span class="feed-bearb">· bearbeitet</span>' : '') +
+          ' · <a href="#" data-akt="kantworten">antworten</a>' +
+          (k.mine ? ' · <a href="#" data-akt="kbearbeiten">bearbeiten</a> · <a href="#" data-akt="kloeschen">löschen</a>' : '') +
+        '</div></div></div>';
+  }
+  function kommentarStraenge(liste) {
+    const nachId = {};
+    liste.forEach((k) => { nachId[k.id] = k; });
+    // Wurzel eines Kommentars: dem Bezug nach oben folgen (mit Schutz gegen
+    // Kreise). Fehlt ein Glied – gelöscht –, wird der Kommentar selbst Wurzel.
+    function wurzel(k) {
+      let w = k, schritte = 0;
+      while (w.parent && nachId[w.parent] && schritte++ < 50) w = nachId[w.parent];
+      return w;
+    }
+    const straenge = {}, reihenfolge = [];
+    liste.forEach((k) => {
+      const w = wurzel(k);
+      if (!straenge[w.id]) { straenge[w.id] = { wurzel: w, antworten: [] }; reihenfolge.push(w.id); }
+      if (w !== k) straenge[w.id].antworten.push(k);
+    });
+    return reihenfolge.map((id) => {
+      const st = straenge[id];
+      const w = st.wurzel;
+      const verwaist = w.parent && !nachId[w.parent];
+      return '<div class="feed-strang" data-wurzel="' + esc(w.id) + '">' +
+        kommentarHtml(w, false, verwaist ? 'einem gelöschten Kommentar' : '') +
+        '<div class="feed-antworten">' + st.antworten.map((a) => {
+          const eltern = nachId[a.parent];
+          // Nur zeigen, wem geantwortet wird, wenn es nicht die Wurzel ist.
+          const an = eltern && eltern.id !== w.id ? (eltern.author.name || 'Unbekannt') : '';
+          return kommentarHtml(a, true, an);
+        }).join('') + '</div></div>';
+    }).join('');
+  }
+  // Antwortfeld unter dem Strang öffnen.
+  function antworten(art, k) {
+    const strang = k.closest('.feed-strang');
+    const vorhanden = strang.querySelector('.feed-antwortfeld');
+    if (vorhanden) vorhanden.remove();
+    const feld = document.createElement('div');
+    feld.className = 'feed-antwortfeld';
+    feld.innerHTML = '<input type="text" maxlength="1500" aria-label="Antwort"><button type="button" data-a="ab">✕</button>' +
+      '<button type="button" class="ok" data-a="ok">Senden</button>';
+    const eingabe = feld.querySelector('input');
+    eingabe.placeholder = 'Antwort an ' + (k.dataset.name || 'Unbekannt') + ' …';
+    strang.appendChild(feld);
+    eingabe.focus();
+    async function senden() {
+      const text = eingabe.value.trim();
+      if (!text) return;
+      eingabe.disabled = true;
+      try {
+        await api('POST', '/api/v1/feed/' + encodeURIComponent(art.dataset.id) + '/comments', { text: text, parent: k.dataset.kid });
+        await kommentareZeigen(art, true);
+      } catch (x) { alert('✗ ' + x.message); eingabe.disabled = false; }
+    }
+    eingabe.addEventListener('keydown', (e) => { if (e.key === 'Enter') senden(); if (e.key === 'Escape') feld.remove(); });
+    feld.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-a]');
+      if (!b) return;
+      if (b.dataset.a === 'ab') feld.remove(); else senden();
+    });
+  }
+
   // R815: Kommentar an Ort und Stelle bearbeiten.
   function kommentarBearbeiten(art, k) {
     const blase = k.querySelector('.feed-kblase');
@@ -432,6 +549,8 @@
   }
 
   $('feed-liste').addEventListener('click', (e) => {
+    const tagLink = e.target.closest('.feed-tag');
+    if (tagLink) { e.preventDefault(); tagSetzen(tagLink.dataset.tag); return; }
     const start = e.target.closest('.feed-start');
     if (start) { videoStarten(start); return; }
     const img = e.target.closest('.feed-bilder img');
@@ -448,8 +567,29 @@
       case 'teilen': teilen(art, t.dataset.sicht); break;
       case 'bearbeiten': beitragBearbeiten(art); break;
       case 'kbearbeiten': e.preventDefault(); kommentarBearbeiten(art, t.closest('.feed-k')); break;
+      case 'kantworten': e.preventDefault(); antworten(art, t.closest('.feed-k')); break;
     }
   });
+  // ── Nachladen beim Scrollen (R821) ────────────────────────────────────────
+  // Zuerst die letzten 20 Beiträge; die nächsten 20 kommen von selbst, kurz
+  // bevor man unten ankommt (600 px Vorlauf). Ohne IntersectionObserver
+  // bleibt der Knopf als Rückfall.
+  let nochMehr = false;
+  function endeAnzeigen() {
+    const ende = $('feed-ende');
+    const hatBeitraege = !!$('feed-liste').querySelector('.feed-beitrag');
+    ende.textContent = !hatBeitraege ? '' : nochMehr ? 'Weitere Beiträge werden geladen …' : 'Das waren alle Beiträge.';
+    $('feed-mehr').style.display = nochMehr && !('IntersectionObserver' in window) ? '' : 'none';
+  }
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver((eintraege) => {
+      if (eintraege.some((e) => e.isIntersecting) && nochMehr && !laedt) laden(false).then(() => {
+        // Ist der Bildschirm nach dem Nachladen noch nicht gefüllt, gleich weiter.
+        const r = $('feed-ende').getBoundingClientRect();
+        if (nochMehr && r.top < window.innerHeight + 600) laden(false);
+      });
+    }, { rootMargin: '600px 0px' }).observe($('feed-ende'));
+  }
   $('feed-mehr').onclick = () => laden(false);
   // Fehlendes Profilbild: Anfangsbuchstaben zeigen. Ein Fehler-Ereignis steigt
   // nicht auf, deshalb in der Einfangphase abhören.
@@ -853,6 +993,7 @@
   // Neue Beiträge (Nachladen, Bearbeiten, Direktlink) automatisch erfassen.
   new MutationObserver(videosBeobachten).observe($('feed-liste'), { childList: true, subtree: true });
 
+  filterAnzeigen();
   laden(true).then(direktlink);
   gruppenLaden();
   // Beim Zurückkehren in den Tab frisch laden, wenn nichts eingegeben wird.

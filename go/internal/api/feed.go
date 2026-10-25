@@ -545,7 +545,8 @@ func (s *Server) feedKommentieren(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Text string `json:"text"`
+		Text   string `json:"text"`
+		Parent string `json:"parent"` // R820: Antwort auf diesen Kommentar
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
@@ -555,6 +556,25 @@ func (s *Server) feedKommentieren(c *gin.Context) {
 	if req.Text == "" || len([]rune(req.Text)) > feedMaxComment {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Kommentar leer oder zu lang (höchstens 1500 Zeichen)."})
 		return
+	}
+	// R820: Eine Antwort muss sich auf einen vorhandenen Kommentar DIESES
+	// Beitrags beziehen. Der Bezug steht im Feld "target" und ist damit von
+	// der Signatur gedeckt – niemand kann eine Antwort nachträglich unter
+	// einen anderen Kommentar hängen.
+	req.Parent = strings.TrimSpace(req.Parent)
+	if req.Parent != "" {
+		gefunden := false
+		for _, x := range s.feedReaktionenVon(beitrag) {
+			if x.ID == req.Parent {
+				art, _ := x.Data["kind"].(string)
+				gefunden = art == "comment"
+				break
+			}
+		}
+		if !gefunden {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Der Kommentar, auf den du antwortest, existiert nicht (mehr)."})
+			return
+		}
 	}
 	if !feedDrosseln("comment", strings.ToLower(sess.identity.FundusID), 120, time.Hour) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Kommentare in kurzer Zeit."})
@@ -572,7 +592,7 @@ func (s *Server) feedKommentieren(c *gin.Context) {
 		}
 		nutzlast, extra["enc"] = hex.EncodeToString(enc), "1"
 	}
-	r, err := s.feedReaktionAnlegen(sess, "comment", beitrag, "", nutzlast, false, extra)
+	r, err := s.feedReaktionAnlegen(sess, "comment", beitrag, req.Parent, nutzlast, false, extra)
 	if err != nil {
 		s.internalError(c, err)
 		return
@@ -683,6 +703,7 @@ func (s *Server) feedListe(c *gin.Context) {
 	vor, _ := strconv.ParseInt(c.Query("before"), 10, 64)
 	nurVon := strings.ToLower(strings.TrimSpace(c.Query("author")))
 	nurID := strings.TrimSpace(c.Query("id")) // R813: geteilter Link auf einen Beitrag
+	nurTag := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(c.Query("tag")), "#")) // R820
 	alle, err := s.store.List(storage.RecordPost)
 	if err != nil {
 		s.internalError(c, err)
@@ -730,6 +751,11 @@ func (s *Server) feedListe(c *gin.Context) {
 		}
 		inhalt, lesbar := feedInhaltLesen(z, b)
 		if !lesbar {
+			continue
+		}
+		// R820: Nach dem Entschlüsseln filtern – sonst fänden Beiträge für
+		// Kontakte oder Gruppen ihre Hashtags nie.
+		if nurTag != "" && !feedHatTag(inhalt.Text, nurTag) {
 			continue
 		}
 		likes := 0
@@ -805,8 +831,9 @@ func (s *Server) feedKommentare(c *gin.Context) {
 			continue
 		}
 		fid, _ := kr.Data["fid"].(string)
+		eltern, _ := kr.Data["target"].(string)
 		out = append(out, gin.H{"id": kr.ID, "ts": zahl64(kr.Data["ts"]), "author": s.feedAutorInfo(fid),
-			"text": text, "mine": me != "" && fid == me, "edited": bearbeitet})
+			"text": text, "mine": me != "" && fid == me, "edited": bearbeitet, "parent": eltern})
 	}
 	c.JSON(http.StatusOK, gin.H{"comments": out})
 }
@@ -1096,4 +1123,34 @@ func (s *Server) feedZugangErgaenzen(sess *Session, beitraege []*storage.Record,
 	if neu > 0 && s.log != nil {
 		s.log.Info("Feed: Beiträge für neue Kontakte freigegeben", zap.Int("freigaben", neu))
 	}
+}
+
+// ── Hashtags (R820) ──────────────────────────────────────────────────────────
+//
+// Ein Hashtag ist "#" plus 2 bis 50 Buchstaben, Ziffern oder Unterstriche, in
+// jeder Schrift (#Käse, #東京). Davor darf kein Buchstabe, keine Ziffer und
+// kein "/" oder "&" stehen – sonst würden Sprungmarken in Adressen
+// (seite.html#abschnitt) und HTML-Zeichen (&#39;) als Tags gelten.
+var feedTagMuster = regexp.MustCompile(`(?:^|[^\p{L}\p{N}_&/#])#([\p{L}\p{N}_]{2,50})`)
+
+func feedTags(text string) []string {
+	var out []string
+	gesehen := map[string]bool{}
+	for _, m := range feedTagMuster.FindAllStringSubmatch(text, -1) {
+		t := strings.ToLower(m[1])
+		if !gesehen[t] {
+			gesehen[t] = true
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func feedHatTag(text, tag string) bool {
+	for _, t := range feedTags(text) {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
