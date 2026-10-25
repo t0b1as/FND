@@ -281,7 +281,7 @@
       '<div id="fb-link"></div>' +
       '<div id="fb-medien" class="feed-vorschau" style="display:none"></div>' +
       '<div class="feed-row" style="margin-top:0">' +
-        '<button type="button" class="feed-tool" id="fb-plus">+ Media</button>' +
+        '<button type="button" class="feed-tool feed-plus" id="fb-plus">+ Media</button>' +
         '<input type="file" id="fb-datei" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style="display:none">' +
         '<span class="grow"></span>' +
         '<select id="fb-sicht" class="feed-sicht" aria-label="Reichweite">' + reichweitenHtml() + '</select>' +
@@ -595,16 +595,35 @@
 
   // Hochladen wie bei Inseraten (begin → Blöcke → finish → Status), ohne die
   // inseratsspezifische upload.js mitzuladen.
+  // R816: Redundanz 2 statt der Vorgabe 5.
+  //
+  // Ohne Angabe (redundancy: 0) galt 5: Die Datei sollte fünffach im Netz
+  // liegen. Dafür braucht der Node vier andere Nodes mit je mindestens 1 GB
+  // freiem Angebot, und die vierfache Dateigröße muss in das eigene Angebot
+  // passen. Bei mehreren Videos scheiterte das mit 507; die Prüfung fragte
+  // dazu bis zu 16 Nodes nacheinander an und dauerte so lange, dass die
+  // Lastverteilung mit 502 abbrach.
+  //
+  // Für Feed-Anhänge genügen zwei Kopien (lokal und eine im Netz). Reicht
+  // auch das nicht, nur lokal – ein Beitrag soll nie am Netzspeicher scheitern.
+  async function hochladenBeginnen(f, BLOCK, id, redundanz) {
+    const r = await fetch('/api/v1/files/upload/begin', {
+      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ upload_id: id, file_name: f.name || 'datei', mime_type: f.type || 'application/octet-stream',
+        total_size: f.size, block_size: BLOCK, redundancy: redundanz })
+    });
+    let d = {};
+    try { d = await r.json(); } catch (e) {}
+    return { ok: r.ok, status: r.status, d: d };
+  }
   async function hochladen(f, fortschritt) {
     const BLOCK = 4 * 1024 * 1024;
     const id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-    let r = await fetch('/api/v1/files/upload/begin', {
-      method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upload_id: id, file_name: f.name || 'datei', mime_type: f.type || 'application/octet-stream',
-        total_size: f.size, block_size: BLOCK, redundancy: 0 })
-    });
-    if (!r.ok) throw new Error('Hochladen nicht möglich (' + r.status + ')');
-    const b = await r.json();
+    let start = await hochladenBeginnen(f, BLOCK, id, 2);
+    if (!start.ok && start.status === 507) start = await hochladenBeginnen(f, BLOCK, id, 1);
+    if (!start.ok) throw new Error((f.name ? f.name + ': ' : '') + (start.d.error || ('Hochladen nicht möglich (' + start.status + ')')));
+    let r;
+    const b = start.d;
     const n = b.total_blocks, vorhanden = new Set(b.have_blocks || []);
     for (let i = 0; i < n; i++) {
       if (!vorhanden.has(i)) {

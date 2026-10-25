@@ -15,17 +15,27 @@ return function()
 @media (min-width: 1000px) { .feed-wrap { max-width:960px; } .feed-text { font-size:16.5px; } }
 /* R813: Auch zwischen den Beiträgen derselbe Abstand wie zwischen Eingabe und Feed. */
 #feed-liste { display:flex; flex-direction:column; gap:14px; }
-.feed-card { background:var(--sur); border:1px solid var(--brd); border-radius:var(--r); padding:14px 16px; }
+/* R816: Beiträge und Eingabefenster zu 80 % durchsichtig – nur der Rahmen
+   zeichnet die Karte. --sur ist #1a1d27; 0.2 Deckkraft = 80 % durchsichtig. */
+.feed-card { background:rgba(26,29,39,.2); border:1px solid var(--brd); border-radius:var(--r); padding:14px 16px; }
 .feed-composer textarea { width:100%; min-height:84px; resize:vertical; box-sizing:border-box;
-  background:var(--sur2); color:var(--text); border:1px solid var(--brd); border-radius:8px;
+  background:transparent; color:var(--text); border:1px solid var(--brd); border-radius:8px;
   padding:10px 12px; font:inherit; font-size:15px; line-height:1.45; }
 .feed-composer textarea:focus { outline:none; border-color:var(--green); }
+/* R816: Die allgemeine Regel für Eingabefelder setzt ihren Hintergrund mit
+   Vorrang (!important) – hier ausdrücklich durchsichtig, damit das
+   Eingabefenster wie die Beiträge nur seinen Rahmen zeigt. */
+.feed-composer textarea, .feed-composer .feed-sicht { background-color:transparent !important; }
+/* Die aufgeklappte Liste braucht einen deckenden Grund, sonst ist sie unlesbar. */
+.feed-sicht option, .feed-sicht optgroup { background-color:var(--sur); color:var(--text); }
 .feed-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
 .feed-row .grow { flex:1; }
 .feed-tool { background:transparent; border:1px solid var(--brd); color:var(--text-dim); border-radius:8px;
   padding:7px 11px; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:6px; }
 .feed-tool:hover { border-color:var(--green); color:var(--text); }
 .feed-tool .ico { width:17px; height:17px; }
+/* R816: + Media genauso hoch wie Teilen und die Reichweitenauswahl. */
+.feed-plus { height:46px; min-height:46px; box-sizing:border-box; padding:0 16px; font-size:14px; }
 /* R813: Auswahl und Teilen-Knopf gleich hoch und gleich beschriftet. Die
    Seite gibt Eingabefeldern 46 px Mindesthöhe (fingerfreundlich) – der Knopf
    übernimmt dieses Maß, statt die Auswahl darunter zu drücken. */
@@ -147,7 +157,7 @@ return function()
     <div id="feed-link-vorschau" style="display:none"></div>
     <div id="feed-vorschau" class="feed-vorschau" style="display:none"></div>
     <div class="feed-row">
-      <button type="button" class="feed-tool" onclick="document.getElementById('feed-media-datei').click()" title="Bilder, GIFs und Videos anhängen – auch mehrere auf einmal. Video-Links einfach in den Text einfügen.">+ Media</button>
+      <button type="button" class="feed-tool feed-plus" onclick="document.getElementById('feed-media-datei').click()" title="Bilder, GIFs und Videos anhängen – auch mehrere auf einmal. Video-Links einfach in den Text einfügen.">+ Media</button>
       <input type="file" id="feed-media-datei" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style="display:none">
       <span class="grow"></span>
       <select id="feed-sicht" class="feed-sicht" title="Wer sieht den Beitrag?" aria-label="Reichweite">
