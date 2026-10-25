@@ -107,6 +107,9 @@ type Payload struct {
 	// das Gegenüber, dasselbe zu tun (R663). Eine Bitte, keine Anweisung – der
 	// empfangende Node entscheidet, ob er sie befolgt.
 	ClearConv bool `json:"clear_conv,omitempty"`
+	// ClearMit (R818): bei einer Löschbitte an die EIGENEN anderen Nodes das
+	// Gespräch, das gelöscht werden soll – der Absender ist dann man selbst.
+	ClearMit string `json:"clear_mit,omitempty"`
 }
 
 // Quittungsarten (WhatsApp-analog): delivered = beim Empfänger angekommen,
@@ -585,4 +588,12 @@ func (m *Messenger) SendDelete(ctx context.Context, recipientID, recipientX25519
 func (m *Messenger) SendClear(ctx context.Context, recipientID, recipientX25519Hex string) (*Message, error) {
 	return m.sendPayload(ctx, recipientID, recipientX25519Hex, TypeText,
 		Payload{ClearConv: true})
+}
+
+// SendClearEigene bittet die EIGENEN anderen Nodes, das Gespräch mit "mit"
+// ebenfalls zu löschen (R818). Der Verlauf liegt je Node; ohne diese Bitte
+// stand das Gespräch auf den anderen Nodes weiter da.
+func (m *Messenger) SendClearEigene(ctx context.Context, mit string) (*Message, error) {
+	return m.sendPayload(ctx, m.identity.FundusID, m.identity.X25519PublicKeyHex(), TypeText,
+		Payload{ClearConv: true, ClearMit: strings.ToLower(mit)})
 }

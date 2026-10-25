@@ -16,6 +16,7 @@ package api
 //     Nachricht und landet bei Bedarf im Postfach.
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -185,20 +186,52 @@ func (s *Server) messengerClear(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "peer erforderlich"})
 		return
 	}
-	if err := sess.history.ClearConv(req.Peer); err != nil {
+	jetzt := time.Now().UTC()
+	if err := sess.history.ClearConvBis(req.Peer, jetzt); err != nil {
 		s.internalError(c, err)
 		return
 	}
+	ctx := c.Request.Context()
+	// R818: Auch auf den EIGENEN anderen Nodes löschen. Der Verlauf liegt je
+	// Node; bisher blieb das Gespräch dort stehen. Über das Postfach erreicht
+	// die Bitte auch Nodes, auf denen man gerade nicht angemeldet ist.
+	if sess.messenger != nil && sess.identity != nil {
+		if m, err := sess.messenger.SendClearEigene(ctx, req.Peer); err == nil && m != nil {
+			s.depositMailbox(ctx, sess.identity.FundusID, m)
+		}
+	}
 	// Auf Wunsch das Gegenüber bitten, dasselbe zu tun (R663).
-	zugestellt := false
-	if req.BeimPeer {
-		if pk := s.peerSchluessel(sess, req.Peer); pk != "" && sess.messenger != nil {
-			if _, err := sess.messenger.SendClear(c.Request.Context(), req.Peer, pk); err == nil {
-				zugestellt = true
+	//
+	// R818: Bisher kam die Bitte nur an, wenn das Gegenüber gerade auf einem
+	// ANDEREN Node erreichbar war. Auf demselben Node erreicht die direkte
+	// Zustellung sich selbst nicht (wie bei Textnachrichten vor R810), und
+	// ins Postfach wurde sie nie gelegt – wer offline war, bekam sie nie.
+	zugestellt, nachgeholt := false, false
+	if req.BeimPeer && sess.messenger != nil {
+		pk := s.peerSchluessel(sess, req.Peer)
+		if pk == "" {
+			pk = s.keyDirHolen(ctx, req.Peer) // aktuellen Schlüssel im Netz erfragen
+		}
+		if pk != "" {
+			if m, err := sess.messenger.SendClear(ctx, req.Peer, pk); m != nil {
+				zugestellt = err == nil
+				// Ins Postfach: erreicht das Gegenüber auf jedem Node, auch später.
+				s.depositMailbox(ctx, req.Peer, m)
+				nachgeholt = true
+				// Gegenüber auf DIESEM Node angemeldet? Dann sofort einspeisen.
+				sessionMu.RLock()
+				empf := sessionStore[req.Peer]
+				sessionMu.RUnlock()
+				if empf != nil && empf.messenger != nil {
+					if env, e := json.Marshal(m); e == nil {
+						empf.messenger.InjectIncoming(env)
+						zugestellt = true
+					}
+				}
 			}
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "zugestellt": zugestellt})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "zugestellt": zugestellt, "nachgeholt": nachgeholt})
 }
 
 // istEigeneNachricht prüft im Verlauf, ob die Nachricht von einem selbst

@@ -298,12 +298,23 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 			// uns, dasselbe zu tun (R663). Wir folgen dem, weil beide Seiten
 			// das ausdrücklich so gewählt haben.
 			if payload != nil && payload.ClearConv {
+				// R818: Welches Gespräch? Vom Gegenüber: das mit ihm. Von uns
+				// selbst (Bitte an die eigenen anderen Nodes): das in ClearMit.
+				peer := strings.ToLower(msg.SenderID)
+				if sess.identity != nil && peer == strings.ToLower(sess.identity.FundusID) {
+					peer = payload.ClearMit
+				}
+				if peer == "" {
+					return
+				}
+				// Nur bis zum Zeitpunkt der Bitte – sie kann verspätet aus dem
+				// Postfach kommen und darf neuere Nachrichten nicht wegnehmen.
 				if sess.history != nil {
-					_ = sess.history.ClearConv(msg.SenderID)
+					_ = sess.history.ClearConvBis(peer, msg.Timestamp)
 				}
 				sess.broadcastWS(gin.H{
 					"type":    "msgchange",
-					"peer_id": msg.SenderID,
+					"peer_id": peer,
 					"clear":   true,
 					"ts":      msg.Timestamp,
 				})

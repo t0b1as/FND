@@ -2886,18 +2886,33 @@ body::after {
    bekommen nur die FLÄCHEN einen Alphawert; Text, Rahmen und Symbole bleiben
    voll deckend. Dazu eine leichte Weichzeichnung dahinter, damit das Netz
    durchscheint, ohne die Lesbarkeit zu stören. */
-.set-card, .msg-header, .msg-input-row, .top-bar, .tile, .ride-card,
-.kw-box, .msg-menu, .hit-card, .filter-cat, #attr-filter, .set-body {
-  background-color: rgba(26, 29, 39, .5) !important;
+/* R818: Flächen zu 80 % durchsichtig (vorher 50 %), wie im Feed – nur Rahmen,
+   Text und Symbole zeichnen die Elemente. Ohne Weichzeichner, damit es
+   überall gleich aussieht. */
+.set-card, .tile, .ride-card, .kw-box, .hit-card, .filter-cat, #attr-filter {
+  background-color: rgba(26, 29, 39, .2) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+/* Der Kartenkörper liegt IN der Karte – ein zweiter Schleier verdoppelte die
+   Deckkraft. */
+.set-body { background-color: transparent !important; backdrop-filter: none; -webkit-backdrop-filter: none; }
+/* Was über anderem Inhalt liegt, bleibt kräftig: die mitlaufende Titelzeile,
+   Kopf- und Eingabezeile im Messenger und Kontextmenüs. Sonst schiebt sich
+   beim Scrollen Text unter Text. */
+.msg-header, .msg-input-row, .top-bar, .msg-menu {
+  background-color: rgba(26, 29, 39, .88) !important;
   backdrop-filter: blur(9px);
   -webkit-backdrop-filter: blur(9px);
 }
 input, select, textarea,
 .btn, button.btn, .btn-sm, .tab-btn {
-  background-color: rgba(34, 38, 58, .5) !important;
-  backdrop-filter: blur(7px);
-  -webkit-backdrop-filter: blur(7px);
+  background-color: rgba(34, 38, 58, .2) !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
+/* Aufgeklappte Auswahllisten brauchen einen deckenden Grund. */
+select option, select optgroup { background-color: var(--surface, #1a1d27); color: var(--text); }
 /* Der grüne Hauptknopf bleibt kräftig: Er ist der Aufruf zum Handeln und darf
    nicht im Hintergrund verschwinden. */
 .btn.btn-primary, #send-btn, .btn.primary, button[type="submit"] {
@@ -2911,12 +2926,10 @@ input, select, textarea,
 /* Ohne Weichzeichner-Unterstützung (ältere Browser) deckender, sonst würde
    der Hintergrund direkt durch den Text schlagen. */
 @supports not (backdrop-filter: blur(1px)) {
-  .set-card, .msg-header, .msg-input-row, .top-bar, .tile, .ride-card,
-  .kw-box, .msg-menu, .hit-card, #attr-filter, .set-body {
-    background-color: rgba(26, 29, 39, .88) !important;
-  }
-  input, select, textarea, .btn, button.btn, .btn-sm, .tab-btn {
-    background-color: rgba(34, 38, 58, .9) !important;
+  /* R818: Karten kommen ohne Weichzeichner aus; nur was über Inhalt liegt,
+     braucht ohne ihn mehr Deckkraft. */
+  .msg-header, .msg-input-row, .top-bar, .msg-menu {
+    background-color: rgba(26, 29, 39, .95) !important;
   }
 }
 
@@ -2959,15 +2972,17 @@ button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
 /* ── Nachträge zur Durchsichtigkeit (R680) ───────────────────────────────── */
 /* Kaufen/Shop nutzt die allgemeine Klasse .card – die fehlte in der Liste. */
 .card, .donate-card, .swap-card, .price-card {
-  background-color: rgba(26, 29, 39, .5) !important;
-  backdrop-filter: blur(9px);
-  -webkit-backdrop-filter: blur(9px);
+  background-color: rgba(26, 29, 39, .2) !important;   /* R818: 80 % durchsichtig */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 /* Drive: hier bleiben die Karten DECKEND. Die Formulare sind dicht an dicht
    und reichen bis an den Rand; durchscheinende Flächen wirken dort unruhig
    statt luftig. Dazu etwas Innenabstand, der dort bisher fehlte. */
+/* R818: Drive jetzt ebenfalls zu 80 % durchsichtig (vorher bewusst deckend,
+   siehe oben). Zurück zur deckenden Fassung: var(--surface) statt rgba(…). */
 .drive-tab .set-card {
-  background-color: var(--surface) !important;
+  background-color: rgba(26, 29, 39, .2) !important;
   backdrop-filter: none; -webkit-backdrop-filter: none;
   /* R803: Innenabstand vom Kartenrand in den Inhalt verlegt. Er saß hier aus
      der Zeit, als die Kopfzeile eine schlichte Überschrift war. Seit sie als
@@ -2977,7 +2992,7 @@ button, .btn, .btn-sm, .tab-btn, label.btn, .tile,
 .drive-tab .set-card .set-body { padding: 14px 16px 16px; }
 .drive-tab .set-card + .set-card { margin-top: 14px; }
 .drive-tab input, .drive-tab select, .drive-tab textarea {
-  background-color: var(--surface-2) !important;
+  background-color: rgba(34, 38, 58, .2) !important;   /* R818 */
   backdrop-filter: none; -webkit-backdrop-filter: none;
 }
 
@@ -3291,7 +3306,7 @@ summary:focus-visible,
    Überschrift und klebte am Inhalt. Hier für alle Seiten, wortgleich mit der
    bisherigen Einstellungs-Regel, damit dort nichts anders aussieht. */
 .set-card { background:var(--sur); border:1px solid var(--brd); border-radius:var(--r); overflow:hidden; }
-.set-head { background:var(--sur2); border-bottom:1px solid var(--brd);
+.set-head { background:rgba(34,38,58,.25); border-bottom:1px solid var(--brd);
             padding:.65rem 1.1rem; display:flex; align-items:center; justify-content:space-between;
             gap:12px; }
 .set-head h3 { margin:0; font-size:13.5px; font-weight:600; }

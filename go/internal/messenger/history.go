@@ -532,6 +532,35 @@ func (h *HistoryStore) DeleteEntry(peerID, messageID string) (bool, error) {
 }
 
 // ClearConv leert den Verlauf einer Konversation vollständig.
+// ClearConvBis löscht alle Einträge eines Gesprächs bis einschließlich "bis"
+// (R818). Neuere bleiben. Eine Löschbitte kann über das Postfach verspätet
+// ankommen – sie darf dann keine Nachrichten wegnehmen, die erst NACH dem
+// Löschen geschrieben wurden.
+func (h *HistoryStore) ClearConvBis(peerID string, bis time.Time) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	alle, err := h.readAll(peerID)
+	if err != nil {
+		return err
+	}
+	var rest []HistoryEntry
+	for _, e := range alle {
+		if e.Timestamp.After(bis) {
+			rest = append(rest, e)
+		}
+	}
+	if len(rest) == len(alle) {
+		return nil
+	}
+	if len(rest) == 0 {
+		if err := os.Remove(h.convPath(peerID)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("history: remove: %w", err)
+		}
+		return nil
+	}
+	return h.schreibeAlle(peerID, rest)
+}
+
 func (h *HistoryStore) ClearConv(peerID string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
