@@ -1,8 +1,8 @@
 {
-  "version": "R814",
-  "description": "FUNDUS R814 - feedture",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R814/FND-R814-update.zip",
-  "node_argon2": "e9487b6e34416c51168291b0b9f4e3839efdb9f09b2eeae160455f92a010be8e",
-  "published_at": "2026-10-25T07:14:56.7331366Z",
-  "signature": "0xcb986132add2fcab216e66d3a9a95999065c78a3b0e0510563d7b89d4a78f44d6f13f6d0bb263ae00a6074f7a50ae473c3177dbfeeccde84f9aa955bc7945c6f1c"
+  "version": "R815",
+  "description": "FUNDUS R815 - feedture",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R815/FND-R815-update.zip",
+  "node_argon2": "c2cb300b8fa0769a948bda38b8b8919e1494f63cd9f859710eccdc95fef46392",
+  "published_at": "2026-10-25T07:45:27.1077533Z",
+  "signature": "0xfe3edc6819e128f6329db03a55867b0ebe8648cdeed5d07eaf92e4eaf956ee816d1106be9e536b2756c57c18cc6bbe7409288e8459983cc5d5e974a366779b621b"
 }
