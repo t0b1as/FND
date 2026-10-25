@@ -4,10 +4,10 @@
   "use strict";
 
   const MAX_BILDER = 6;
+  const MAX_VIDEOS = 4;
   const MAX_BILD_MB = 15;   // GIFs werden NICHT verkleinert, sonst wäre die Animation weg
   const MAX_VIDEO_MB = 24;  // darüber reicht der Abruf über andere Nodes nicht (siehe R774)
 
-  let anhaenge = [];        // { art:'bild'|'video', datei, vorschau, hash }
   let aeltester = 0;
   let laedt = false;
 
@@ -53,11 +53,14 @@
     for (const l of links) if (videoErkennen(l)) return l;
     return '';
   }
+  // R815: Hochgeladene Videos laufen in Schleife (loop) – wie man es von
+  // kurzen Clips in sozialen Netzen kennt. Ton und Start bleiben beim Nutzer.
+  function videosHtml(liste) {
+    if (!liste || !liste.length) return '';
+    return '<div class="feed-videos">' + liste.map((h) =>
+      '<video controls loop playsinline preload="metadata" src="/api/v1/files/download/' + encodeURIComponent(h) + '"></video>').join('') + '</div>';
+  }
   function videoHtml(p) {
-    if (p.video_hash) {
-      return '<div class="feed-video datei"><video class="datei" controls playsinline preload="metadata" src="/api/v1/files/download/' +
-        encodeURIComponent(p.video_hash) + '"></video></div>';
-    }
     const link = p.link && p.link.url && videoErkennen(p.link.url) ? p.link : null;
     const v = videoErkennen(p.video || (link && link.url) || (!p.link ? ersterVideoLink(p.text) : ''));
     if (!v) return '';
@@ -144,7 +147,9 @@
   const LEUTE = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 19.5c.6-3.3 3-5 6-5s5.4 1.7 6 5"/><circle cx="17" cy="9" r="2.6"/><path d="M16.5 14.6c2.4.2 4 1.7 4.5 4.4"/></svg>';
 
   // ── Beitrag darstellen ────────────────────────────────────────────────────
+  const beitraege = {};   // id → Beitrag, für das Bearbeiten
   function beitragHtml(p) {
+    beitraege[p.id] = p;
     const sicht = p.visibility === 'group'
       ? '<span title="Nur für die Gruppe ' + esc(p.group_name || '') + '">' + LEUTE + ' ' + esc(p.group_name || 'Gruppe') + '</span>'
       : p.visibility === 'contacts'
@@ -162,11 +167,12 @@
     return '<article class="feed-card feed-beitrag" data-id="' + esc(p.id) + '">' +
       '<div class="feed-kopf">' + avatarHtml(p.author) +
         '<div><div class="feed-name">' + esc(p.author.name || 'Unbekannt') + '</div>' +
-        '<div class="feed-meta">' + wann(p.ts) + ' · ' + sicht + '</div></div>' +
-        (p.mine ? '<button type="button" class="feed-menu" data-akt="loeschen" title="Beitrag löschen" aria-label="Beitrag löschen">🗑</button>' : '') +
+        '<div class="feed-meta">' + wann(p.ts) + (p.edited ? ' <span class="feed-bearb">· bearbeitet</span>' : '') + ' · ' + sicht + '</div></div>' +
+        (p.mine ? '<button type="button" class="feed-menu" data-akt="bearbeiten" title="Beitrag bearbeiten" aria-label="Beitrag bearbeiten" style="margin-left:auto">✎</button>' +
+                  '<button type="button" class="feed-menu" data-akt="loeschen" title="Beitrag löschen" aria-label="Beitrag löschen" style="margin-left:0">🗑</button>' : '') +
       '</div>' +
       (text ? '<div class="feed-text">' + textHtml(text) + '</div>' : '') +
-      bilderHtml(p.images) + videoHtml(p) + linkKarteHtml(p.link) +
+      bilderHtml(p.images) + videosHtml(p.videos) + videoHtml(p) + linkKarteHtml(p.link) +
       '<div class="feed-aktionen">' +
         '<button type="button" class="feed-akt' + (p.liked ? ' an' : '') + '" data-akt="like" aria-pressed="' + !!p.liked + '">' +
           (p.liked ? HERZ_VOLL : HERZ) + '<span class="zahl">' + (p.likes || '') + '</span></button>' +
@@ -243,8 +249,8 @@
         '<div class="feed-k" data-kid="' + esc(k.id) + '">' + avatarHtml(k.author) +
           '<div class="feed-kblase"><span class="feed-name">' + esc(k.author.name || 'Unbekannt') + '</span>' +
           '<div class="feed-text">' + textHtml(k.text) + '</div>' +
-          '<div class="feed-meta">' + wann(k.ts) +
-            (k.mine ? ' · <a href="#" data-akt="kloeschen">löschen</a>' : '') + '</div></div></div>').join('') +
+          '<div class="feed-meta">' + wann(k.ts) + (k.edited ? ' <span class="feed-bearb">· bearbeitet</span>' : '') +
+            (k.mine ? ' · <a href="#" data-akt="kbearbeiten">bearbeiten</a> · <a href="#" data-akt="kloeschen">löschen</a>' : '') + '</div></div></div>').join('') +
         '<div class="feed-keingabe"><input type="text" maxlength="1500" placeholder="Kommentieren …" aria-label="Kommentar">' +
         '<button type="button" class="btn btn-buy" data-akt="ksenden" style="width:auto;padding:6px 14px">Senden</button></div>';
       const zahl = art.querySelector('[data-akt="kommentare"] .zahl');
@@ -264,6 +270,117 @@
       await api('POST', '/api/v1/feed/' + encodeURIComponent(art.dataset.id) + '/comments', { text: text });
       await kommentareZeigen(art, true);
     } catch (e) { alert('✗ ' + e.message); eingabe.disabled = false; }
+  }
+
+  // R815: Beitrag bearbeiten – Text, Medien, Linkvorschau und Reichweite.
+  function beitragBearbeiten(art) {
+    const p = beitraege[art.dataset.id];
+    if (!p) return;
+    const d = dialog('Beitrag bearbeiten',
+      '<textarea id="fb-text" maxlength="5000" aria-label="Text"></textarea>' +
+      '<div id="fb-link"></div>' +
+      '<div id="fb-medien" class="feed-vorschau" style="display:none"></div>' +
+      '<div class="feed-row" style="margin-top:0">' +
+        '<button type="button" class="feed-tool" id="fb-plus">+ Media</button>' +
+        '<input type="file" id="fb-datei" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style="display:none">' +
+        '<span class="grow"></span>' +
+        '<select id="fb-sicht" class="feed-sicht" aria-label="Reichweite">' + reichweitenHtml() + '</select>' +
+      '</div>' +
+      '<div class="feed-status" id="fb-status"></div>',
+      '<button type="button" class="feed-tool" data-zu>Abbrechen</button><button type="button" class="feed-teilen" id="fb-ok">Speichern</button>');
+    const ta = d.querySelector('#fb-text');
+    ta.value = p.text || '';
+    const st = (t) => { d.querySelector('#fb-status').textContent = t || ''; };
+    const m = medienListe(d.querySelector('#fb-medien'), st);
+    m.vorhandene(p.images, p.videos);
+    d.querySelector('#fb-plus').onclick = () => d.querySelector('#fb-datei').click();
+    d.querySelector('#fb-datei').addEventListener('change', (e) => { m.dateien(e.target.files); e.target.value = ''; });
+    const sel = d.querySelector('#fb-sicht');
+    sel.value = p.visibility === 'group' && p.group_id ? 'group:' + p.group_id : (p.visibility || 'public');
+    if (!sel.value) sel.value = 'public';   // Gruppe inzwischen gelöscht
+
+    // Linkvorschau wie beim Schreiben
+    let lv = p.link || null, lvFuer = lv ? lv.url : '', lvWeg = '', lvNr = 0, lvT = null;
+    const lvBox = d.querySelector('#fb-link');
+    function lvZeigen() {
+      if (!lv) { lvBox.innerHTML = ''; return; }
+      lvBox.innerHTML = '<div style="position:relative">' + (videoErkennen(lv.url) ? videoHtml({ link: lv, text: '' }) : linkKarteHtml(lv)) +
+        '<button type="button" class="feed-vorschau-zu" aria-label="Vorschau entfernen">✕</button></div>';
+      lvBox.querySelector('.feed-vorschau-zu').onclick = () => { lvWeg = lv.url; lv = null; lvZeigen(); };
+      lvBox.querySelectorAll('a, .feed-start').forEach((el) => el.addEventListener('click', (e) => e.preventDefault()));
+    }
+    async function lvPruefen() {
+      const url = ersterLink(ta.value);
+      if (!url) { lv = null; lvFuer = ''; lvZeigen(); return; }
+      if (url === lvFuer || url === lvWeg) return;
+      lvFuer = url;
+      const nr = ++lvNr;
+      lvBox.innerHTML = '<div class="feed-lade">Vorschau wird geladen …</div>';
+      try { const r = await api('POST', '/api/v1/feed/preview', { url: url }); if (nr === lvNr) lv = r.link && r.link.url ? r.link : { url: url }; }
+      catch (e) { if (nr === lvNr) lv = { url: url }; }
+      if (nr === lvNr) lvZeigen();
+    }
+    lvZeigen();
+    ta.addEventListener('input', () => { clearTimeout(lvT); lvT = setTimeout(lvPruefen, 700); });
+    ta.addEventListener('paste', () => { clearTimeout(lvT); lvT = setTimeout(lvPruefen, 50); });
+    ta.focus();
+
+    d.querySelector('#fb-ok').onclick = async function () {
+      const knopf = this;
+      const text = ta.value.trim();
+      if (!text && !m.eintraege.length) { st('Der Beitrag wäre leer – zum Entfernen bitte löschen.'); return; }
+      const vorher = p.visibility === 'group' && p.group_id ? 'group:' + p.group_id : p.visibility;
+      if (sel.value !== vorher && vorher === 'public' &&
+          !confirm('Der Beitrag war öffentlich. Wer ihn bisher gesehen hat, kann sich den alten Stand gemerkt haben – das lässt sich nicht zurückholen. Trotzdem einschränken?')) return;
+      knopf.disabled = true;
+      try {
+        const md = await m.hochladenAlle(st);
+        st('Wird gespeichert …');
+        const r = await api('PUT', '/api/v1/feed/' + encodeURIComponent(p.id), {
+          text: text, images: md.bilder, videos: md.videos, visibility: sel.value,
+          link: lv && text.indexOf(lv.url) >= 0 ? lv : undefined
+        });
+        // Beitrag frisch vom Server holen und ersetzen
+        const n = await api('GET', '/api/v1/feed?id=' + encodeURIComponent(p.id));
+        const neuP = (n.posts || [])[0];
+        if (neuP) {
+          art.insertAdjacentHTML('afterend', beitragHtml(neuP));
+          art.remove();
+        }
+        d.remove();
+        hinweis(sel.value === 'public' ? 'Gespeichert'
+          : 'Gespeichert – sichtbar für ' + r.contacts + (r.contacts === 1 ? ' Person' : ' Personen'));
+      } catch (e) { st('✗ ' + e.message); knopf.disabled = false; }
+    };
+  }
+
+  // R815: Kommentar an Ort und Stelle bearbeiten.
+  function kommentarBearbeiten(art, k) {
+    const blase = k.querySelector('.feed-kblase');
+    if (blase.querySelector('.feed-kbearb')) return;
+    const textEl = blase.querySelector('.feed-text');
+    const alt = textEl.textContent;
+    const box = document.createElement('div');
+    box.className = 'feed-kbearb';
+    box.innerHTML = '<textarea maxlength="1500" aria-label="Kommentar bearbeiten"></textarea><div class="zeile">' +
+      '<button type="button" data-k="ab">Abbrechen</button><button type="button" class="ok" data-k="ok">Speichern</button></div>';
+    box.querySelector('textarea').value = alt;
+    textEl.style.display = 'none';
+    textEl.after(box);
+    const ta = box.querySelector('textarea');
+    ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+    box.addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-k]');
+      if (!b) return;
+      if (b.dataset.k === 'ab') { box.remove(); textEl.style.display = ''; return; }
+      const neu = ta.value.trim();
+      if (!neu || neu === alt) { box.remove(); textEl.style.display = ''; return; }
+      b.disabled = true;
+      try {
+        await api('PUT', '/api/v1/feed/' + encodeURIComponent(art.dataset.id) + '/comments/' + encodeURIComponent(k.dataset.kid), { text: neu });
+        await kommentareZeigen(art, true);
+      } catch (x) { alert('✗ ' + x.message); b.disabled = false; }
+    });
   }
 
   async function loeschen(art, kommentarId) {
@@ -329,6 +446,8 @@
       case 'loeschen': loeschen(art, ''); break;
       case 'kloeschen': e.preventDefault(); loeschen(art, t.closest('.feed-k').dataset.kid); break;
       case 'teilen': teilen(art, t.dataset.sicht); break;
+      case 'bearbeiten': beitragBearbeiten(art); break;
+      case 'kbearbeiten': e.preventDefault(); kommentarBearbeiten(art, t.closest('.feed-k')); break;
     }
   });
   $('feed-mehr').onclick = () => laden(false);
@@ -383,45 +502,76 @@
   $('feed-text').addEventListener('paste', () => { clearTimeout(vorschauTimer); vorschauTimer = setTimeout(vorschauPruefen, 50); });
 
   // ── Anhänge ───────────────────────────────────────────────────────────────
-  function vorschauZeichnen() {
-    const box = $('feed-vorschau');
-    box.style.display = anhaenge.length ? '' : 'none';
-    box.innerHTML = '';
-    anhaenge.forEach((a, i) => {
-      const d = document.createElement('div');
-      d.innerHTML = (a.art === 'video' ? '<video muted playsinline></video>' : '<img alt="">') +
-        '<button type="button" aria-label="Entfernen">×</button>';
-      d.firstChild.src = a.vorschau;
-      d.querySelector('button').onclick = () => { URL.revokeObjectURL(a.vorschau); anhaenge.splice(i, 1); vorschauZeichnen(); };
-      box.appendChild(d);
-    });
+  // ── Medien (R815): Bilder und Videos gemeinsam, auch mehrere auf einmal ──
+  // Ein Baustein für das Eingabefeld und das Bearbeiten-Fenster. Einträge
+  // sind entweder neue Dateien (datei) oder bereits hochgeladene (hash).
+  function medienListe(box, meldung) {
+    const eintraege = [];
+    function zeichnen() {
+      box.style.display = eintraege.length ? '' : 'none';
+      box.innerHTML = '';
+      eintraege.forEach((a, i) => {
+        const d = document.createElement('div');
+        const src = a.datei ? a.vorschau : '/api/v1/files/download/' + encodeURIComponent(a.hash);
+        d.innerHTML = (a.art === 'video' ? '<video muted playsinline preload="metadata"></video>' : '<img alt="">') +
+          '<button type="button" aria-label="Entfernen">×</button>';
+        d.firstChild.src = src;
+        d.querySelector('button').onclick = () => {
+          if (a.datei) URL.revokeObjectURL(a.vorschau);
+          eintraege.splice(i, 1); zeichnen();
+        };
+        box.appendChild(d);
+      });
+    }
+    return {
+      eintraege: eintraege,
+      zeichnen: zeichnen,
+      vorhandene(bilder, videos) {
+        (bilder || []).forEach((h) => eintraege.push({ art: 'bild', hash: h }));
+        (videos || []).forEach((h) => eintraege.push({ art: 'video', hash: h }));
+        zeichnen();
+      },
+      dateien(liste) {
+        const zu = [];
+        for (const f of Array.from(liste || [])) {
+          const art = /^image\//.test(f.type) ? 'bild' : /^video\//.test(f.type) ? 'video' : '';
+          if (!art) { zu.push(f.name + ': kein Bild oder Video'); continue; }
+          const anzahl = eintraege.filter((a) => a.art === art).length;
+          if (art === 'bild' && anzahl >= MAX_BILDER) { zu.push('höchstens ' + MAX_BILDER + ' Bilder'); continue; }
+          if (art === 'video' && anzahl >= MAX_VIDEOS) { zu.push('höchstens ' + MAX_VIDEOS + ' Videos'); continue; }
+          const grenze = art === 'bild' ? MAX_BILD_MB : MAX_VIDEO_MB;
+          if (f.size > grenze * 1048576) {
+            zu.push(f.name + ': größer als ' + grenze + ' MB' + (art === 'video' ? ' – längere Videos bitte als Link teilen' : ''));
+            continue;
+          }
+          eintraege.push({ art: art, datei: f, vorschau: URL.createObjectURL(f) });
+        }
+        meldung(zu.length ? 'Nicht angehängt: ' + Array.from(new Set(zu)).join(', ') + '.' : '');
+        zeichnen();
+      },
+      leeren() { eintraege.forEach((a) => a.datei && URL.revokeObjectURL(a.vorschau)); eintraege.length = 0; zeichnen(); },
+      // Neue Dateien hochladen; liefert die Prüfsummen getrennt nach Art.
+      async hochladenAlle(fortschritt) {
+        const bilder = [], videos = [];
+        const neu = eintraege.filter((a) => a.datei).length;
+        let n = 0;
+        for (const a of eintraege) {
+          let hash = a.hash;
+          if (a.datei) {
+            n++;
+            const f = a.art === 'bild' ? await verkleinern(a.datei) : a.datei;
+            hash = await hochladen(f, (p) => fortschritt('Lade hoch ' + n + '/' + neu + ' … ' + Math.round(p * 100) + ' %'));
+            a.hash = hash;
+          }
+          (a.art === 'bild' ? bilder : videos).push(hash);
+        }
+        return { bilder: bilder, videos: videos };
+      }
+    };
   }
   function status(t) { $('feed-status').textContent = t || ''; }
-
-  $('feed-bilder-datei').addEventListener('change', (e) => {
-    for (const f of Array.from(e.target.files || [])) {
-      if (anhaenge.filter((a) => a.art === 'bild').length >= MAX_BILDER) { status('Höchstens ' + MAX_BILDER + ' Bilder je Beitrag.'); break; }
-      if (!/^image\//.test(f.type)) continue;
-      if (f.size > MAX_BILD_MB * 1048576) { status(f.name + ': größer als ' + MAX_BILD_MB + ' MB.'); continue; }
-      anhaenge.push({ art: 'bild', datei: f, vorschau: URL.createObjectURL(f) });
-    }
-    e.target.value = '';
-    vorschauZeichnen();
-  });
-  $('feed-video-datei').addEventListener('change', (e) => {
-    const f = (e.target.files || [])[0];
-    e.target.value = '';
-    if (!f) return;
-    if (f.size > MAX_VIDEO_MB * 1048576) {
-      status('Video größer als ' + MAX_VIDEO_MB + ' MB – bitte als Link teilen (z. B. YouTube).');
-      return;
-    }
-    anhaenge = anhaenge.filter((a) => a.art !== 'video');
-    anhaenge.push({ art: 'video', datei: f, vorschau: URL.createObjectURL(f) });
-    vorschauZeichnen();
-  });
-
-
+  const medien = medienListe($('feed-vorschau'), status);
+  $('feed-media-datei').addEventListener('change', (e) => { medien.dateien(e.target.files); e.target.value = ''; });
 
   // Fotos auf 1600 px verkleinern (spart Speicher im Netz). GIFs NICHT – das
   // Zeichnen auf ein Canvas behielte nur das erste Bild der Animation.
@@ -472,8 +622,10 @@
     }
     r = await fetch('/api/v1/files/upload/finish?id=' + id, { method: 'POST', credentials: 'same-origin' });
     if (!r.ok) throw new Error('Hochladen nicht abgeschlossen');
+    // Erst schnell, dann seltener nachfragen: Bilder sind meist nach Bruchteilen
+    // einer Sekunde fertig, große Videos brauchen länger (R815).
     for (let i = 0; i < 200; i++) {
-      await new Promise((res) => setTimeout(res, 1200));
+      await new Promise((res) => setTimeout(res, Math.min(1200, 250 + i * 150)));
       try {
         const s = await (await fetch('/api/v1/files/upload/status?id=' + id, { credentials: 'same-origin' })).json();
         if (s.state === 'done') return s.content_hash;
@@ -487,29 +639,20 @@
   $('feed-senden').onclick = async function () {
     const btn = this;
     const text = $('feed-text').value.trim();
-    if (!text && !anhaenge.length) { status('Schreib etwas oder hänge ein Bild oder Video an.'); return; }
+    if (!text && !medien.eintraege.length) { status('Schreib etwas oder hänge ein Bild oder Video an.'); return; }
     // Vorschau nur mitschicken, wenn ihr Link noch im Text steht.
     const link = vorschau && text.indexOf(vorschau.url) >= 0 ? vorschau : null;
     btn.disabled = true;
     try {
-      const bilder = [];
-      let videoHash = '';
-      for (let i = 0; i < anhaenge.length; i++) {
-        const a = anhaenge[i];
-        const f = a.art === 'bild' ? await verkleinern(a.datei) : a.datei;
-        const hash = await hochladen(f, (p) => status('Lade hoch ' + (i + 1) + '/' + anhaenge.length + ' … ' + Math.round(p * 100) + ' %'));
-        if (a.art === 'bild') bilder.push(hash); else videoHash = hash;
-      }
+      const m = await medien.hochladenAlle(status);
       status('Wird geteilt …');
       const d = await api('POST', '/api/v1/feed', {
-        text: text, images: bilder, video_hash: videoHash, visibility: $('feed-sicht').value,
+        text: text, images: m.bilder, videos: m.videos, visibility: $('feed-sicht').value,
         link: link || undefined
       });
       $('feed-text').value = '';
       vorschau = null; vorschauFuer = ''; verworfen = ''; vorschauZeigen();
-      anhaenge.forEach((a) => URL.revokeObjectURL(a.vorschau));
-      anhaenge = [];
-      vorschauZeichnen();
+      medien.leeren();
       const sw = $('feed-sicht').value;
       const gName = sw.indexOf('group:') === 0 ? ((gruppen.find((g) => 'group:' + g.id === sw) || {}).name || 'Gruppe') : '';
       status(sw === 'public' ? '✓ Geteilt.'
@@ -531,12 +674,15 @@
   let sichtVorher = 'public';
   const LS_SICHT = 'fundus_feed_sicht';
 
+  function reichweitenHtml() {
+    return '<option value="public">🌐 Öffentlich</option><option value="contacts">👥 Nur Kontakte</option>' +
+      (gruppen.length ? '<optgroup label="Gruppen">' + gruppen.map((g) =>
+        '<option value="group:' + esc(g.id) + '">👥 ' + esc(g.name) + ' (' + g.members.length + ')</option>').join('') + '</optgroup>' : '');
+  }
   function auswahlAufbauen() {
     const sel = $('feed-sicht');
     const wert = sel.value;
-    sel.innerHTML = '<option value="public">🌐 Öffentlich</option><option value="contacts">👥 Nur Kontakte</option>' +
-      (gruppen.length ? '<optgroup label="Gruppen">' + gruppen.map((g) =>
-        '<option value="group:' + esc(g.id) + '">👥 ' + esc(g.name) + ' (' + g.members.length + ')</option>').join('') + '</optgroup>' : '') +
+    sel.innerHTML = reichweitenHtml() +
       '<option value="_neu">＋ Neue Gruppe …</option>' +
       (gruppen.length ? '<option value="_verwalten">⚙ Gruppen verwalten …</option>' : '');
     let gemerkt = wert;
@@ -641,6 +787,6 @@
   gruppenLaden();
   // Beim Zurückkehren in den Tab frisch laden, wenn nichts eingegeben wird.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && !$('feed-text').value && !anhaenge.length) { aeltester = 0; laden(true); }
+    if (document.visibilityState === 'visible' && !$('feed-text').value && !medien.eintraege.length && !document.querySelector('.feed-dlg')) { aeltester = 0; laden(true); }
   });
 })();

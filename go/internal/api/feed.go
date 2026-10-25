@@ -112,7 +112,8 @@ type feedInhalt struct {
 	Text   string   `json:"text"`
 	Bilder []string `json:"images,omitempty"`
 	Video  string   `json:"video,omitempty"`      // Adresse (YouTube, Vimeo, Datei)
-	VidDat string   `json:"video_hash,omitempty"` // hochgeladene Videodatei
+	VidDat string   `json:"video_hash,omitempty"` // hochgeladene Videodatei (vor R815: nur eine)
+	Videos []string `json:"videos,omitempty"`     // R815: mehrere hochgeladene Videos
 	Gruppe string   `json:"group_name,omitempty"` // R813: nur im verschlüsselten Inhalt
 	Link   *feedLink `json:"link,omitempty"`      // R814: Vorschau des ersten Links
 }
@@ -139,10 +140,18 @@ func (i *feedInhalt) pruefen() string {
 	if i.VidDat != "" && !feedHashMuster.MatchString(i.VidDat) {
 		return "Ungültiger Videoverweis."
 	}
+	if len(i.Videos) > 4 {
+		return "Höchstens 4 Videos je Beitrag."
+	}
+	for _, h := range i.Videos {
+		if !feedHashMuster.MatchString(h) {
+			return "Ungültiger Videoverweis."
+		}
+	}
 	if msg := i.Link.pruefen(); msg != "" {
 		return msg
 	}
-	if i.Text == "" && len(i.Bilder) == 0 && i.Video == "" && i.VidDat == "" && i.Link == nil {
+	if i.Text == "" && len(i.Bilder) == 0 && len(i.Videos) == 0 && i.Video == "" && i.VidDat == "" && i.Link == nil {
 		return "Der Beitrag ist leer."
 	}
 	return ""
@@ -223,72 +232,7 @@ func (s *Server) feedX25519(c *gin.Context, fid string) string {
 	return s.keyDirHolen(c.Request.Context(), fid)
 }
 
-// feedBeitragsschluessel liefert K für einen nicht öffentlichen Beitrag, oder
-// nil. Gesucht wird erst im Beitrag selbst, dann in nachträglichen Freigaben
-// des Autors (R813) – so sehen auch später hinzugekommene Kontakte und
-// Gruppenmitglieder ältere Beiträge.
-func feedBeitragsschluessel(id *identity.Identity, rec *storage.Record, reakt []*storage.Record) []byte {
-	me := strings.ToLower(id.FundusID)
-	ck := me + "|" + rec.ID
-	feedSchluessMu.Lock()
-	if k, ok := feedSchluessel[ck]; ok {
-		feedSchluessMu.Unlock()
-		return k
-	}
-	feedSchluessMu.Unlock()
-	var k []byte
-	xpub, _ := rec.Data["xpub"].(string)
-	auspacken := func(verpackt string) []byte {
-		if verpackt == "" || xpub == "" {
-			return nil
-		}
-		g, err := feedGeheimnis(id, xpub)
-		if err != nil {
-			return nil
-		}
-		roh, err := hex.DecodeString(verpackt)
-		if err != nil {
-			return nil
-		}
-		if kk, err := identity.Decrypt(roh, g); err == nil && len(kk) == 32 {
-			return kk
-		}
-		return nil
-	}
-	keys, _ := rec.Data["keys"].(map[string]any)
-	verpackt, _ := keys[me].(string)
-	k = auspacken(verpackt)
-	if k == nil {
-		autor, _ := rec.Data["fid"].(string)
-		for _, f := range reakt {
-			if art, _ := f.Data["kind"].(string); art != "key" {
-				continue
-			}
-			if ziel, _ := f.Data["target"].(string); ziel != me {
-				continue
-			}
-			if von, _ := f.Data["fid"].(string); von != autor {
-				continue // nur der Autor darf Zugang gewähren
-			}
-			v, _ := f.Data["payload"].(string)
-			if k = auspacken(v); k != nil {
-				break
-			}
-		}
-	}
-	if k == nil {
-		// "Kein Zugang" NICHT merken: Eine spätere Freigabe des Autors soll
-		// sofort wirken, nicht erst nach einem Neustart.
-		return nil
-	}
-	feedSchluessMu.Lock()
-	if len(feedSchluessel) > 20000 {
-		feedSchluessel = map[string][]byte{}
-	}
-	feedSchluessel[ck] = k
-	feedSchluessMu.Unlock()
-	return k
-}
+// feedBeitragsschluessel: ersetzt durch feedSchluesselbund (feed_edit.go, R815).
 
 // ── Prüfen ───────────────────────────────────────────────────────────────────
 
@@ -406,88 +350,40 @@ func (s *Server) feedErstellen(c *gin.Context) {
 		return
 	}
 	fid := strings.ToLower(sess.identity.FundusID)
-	// R813: "group:<id>" = nur die Mitglieder dieser eigenen Gruppe.
-	var gruppe *feedGruppe
-	if strings.HasPrefix(req.Sicht, "group:") {
-		gid := strings.TrimPrefix(req.Sicht, "group:")
-		for _, g := range s.feedGruppenLaden(sess) {
-			if g.ID == gid {
-				gg := g
-				gruppe = &gg
-				break
-			}
-		}
-		if gruppe == nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Diese Gruppe gibt es nicht (mehr)."})
-			return
-		}
-		req.Sicht = feedSichtGruppe
-		req.feedInhalt.Gruppe = gruppe.Name
-	} else if req.Sicht != feedSichtKontak {
-		req.Sicht = feedSichtOeff
-	}
 	if !feedDrosseln("post", fid, 30, time.Hour) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Beiträge in kurzer Zeit – bitte später erneut."})
 		return
 	}
+	sicht, gid, gname, kreis, fehler := s.feedReichweite(sess, req.Sicht)
+	if fehler != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fehler})
+		return
+	}
+	req.feedInhalt.Gruppe = gname
 	inhalt, _ := json.Marshal(req.feedInhalt)
 	id := "post:" + feedZufall(12)
 	ts := time.Now().Unix()
-	daten := map[string]any{"fid": fid, "pub": sess.identity.PublicKeyHex, "ts": ts, "vis": req.Sicht}
-
+	daten := map[string]any{"fid": fid, "pub": sess.identity.PublicKeyHex, "ts": ts, "vis": sicht}
 	var nutzlast string
 	empfaenger := 0
-	if req.Sicht != feedSichtOeff {
-		k := make([]byte, 32)
-		if _, err := rand.Read(k); err != nil {
-			s.internalError(c, err)
-			return
-		}
-		enc, err := identity.Encrypt(inhalt, k)
+	if sicht == feedSichtOeff {
+		nutzlast = string(inhalt)
+	} else {
+		var keys map[string]string
+		var err error
+		nutzlast, keys, _, empfaenger, err = s.feedVerpacken(c, sess, inhalt, kreis)
 		if err != nil {
 			s.internalError(c, err)
 			return
 		}
-		nutzlast = hex.EncodeToString(enc)
-		meinX := sess.identity.X25519PublicKeyHex()
-		keys := map[string]string{}
-		// Mich selbst einschließen: Auch der Autor muss seinen Beitrag lesen.
-		var kreis []string
-		if gruppe != nil {
-			kreis = gruppe.Mitglieder
-			daten["grp"] = gruppe.ID
-		} else {
-			kreis = s.feedKontakte(sess)
-		}
-		ziele := append([]string{fid}, kreis...)
-		for _, ziel := range ziele {
-			x := meinX
-			if ziel != fid {
-				x = s.feedX25519(c, ziel)
-			}
-			if x == "" {
-				continue // ohne Schlüssel kein Zugang – lieber ausgelassen als offen
-			}
-			g, err := feedGeheimnis(sess.identity, x)
-			if err != nil {
-				continue
-			}
-			v, err := identity.Encrypt(k, g)
-			if err != nil {
-				continue
-			}
-			keys[ziel] = hex.EncodeToString(v)
-			if ziel != fid {
-				empfaenger++
-			}
-		}
 		daten["keys"] = keys
-		daten["xpub"] = meinX
-	} else {
-		nutzlast = string(inhalt)
+		daten["xpub"] = sess.identity.X25519PublicKeyHex()
+		if gid != "" {
+			daten["grp"] = gid
+		}
 	}
 	daten["payload"] = nutzlast
-	sig, err := sess.identity.Sign(feedBeitragSignaturtext(id, fid, ts, req.Sicht, nutzlast))
+	sig, err := sess.identity.Sign(feedBeitragSignaturtext(id, fid, ts, sicht, nutzlast))
 	if err != nil {
 		s.internalError(c, err)
 		return
@@ -499,8 +395,8 @@ func (s *Server) feedErstellen(c *gin.Context) {
 		return
 	}
 	if s.log != nil {
-		s.log.Info("Feed-Beitrag erstellt", zap.String("id", id), zap.String("sicht", req.Sicht),
-			zap.Int("kontakte", empfaenger))
+		s.log.Info("Feed-Beitrag erstellt", zap.String("id", id), zap.String("sicht", sicht),
+			zap.Int("empfaenger", empfaenger))
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "id": id, "contacts": empfaenger})
 }
@@ -508,16 +404,16 @@ func (s *Server) feedErstellen(c *gin.Context) {
 // ── Reaktion anlegen (Like, Kommentar, Löschmarke) ───────────────────────────
 
 func (s *Server) feedReaktion(c *gin.Context, sess *Session, art, beitrag, ziel, nutzlast string, eindeutig bool) (*storage.Record, error) {
-	return s.feedReaktionAnlegen(sess, art, beitrag, ziel, nutzlast, eindeutig)
+	return s.feedReaktionAnlegen(sess, art, beitrag, ziel, nutzlast, eindeutig, nil)
 }
 
 // feedReaktionOhneAnfrage: für Freigaben aus dem Hintergrund, je Empfänger
 // und Node eindeutig.
-func (s *Server) feedReaktionOhneAnfrage(sess *Session, art, beitrag, ziel, nutzlast string) (*storage.Record, error) {
-	return s.feedReaktionAnlegen(sess, art, beitrag, ziel, nutzlast, true)
+func (s *Server) feedReaktionOhneAnfrage(sess *Session, art, beitrag, ziel, nutzlast string, extra map[string]any) (*storage.Record, error) {
+	return s.feedReaktionAnlegen(sess, art, beitrag, ziel, nutzlast, true, extra)
 }
 
-func (s *Server) feedReaktionAnlegen(sess *Session, art, beitrag, ziel, nutzlast string, eindeutig bool) (*storage.Record, error) {
+func (s *Server) feedReaktionAnlegen(sess *Session, art, beitrag, ziel, nutzlast string, eindeutig bool, extra map[string]any) (*storage.Record, error) {
 	fid := strings.ToLower(sess.identity.FundusID)
 	ts := time.Now().Unix()
 	sig, err := sess.identity.Sign(feedReaktionSignaturtext(art, beitrag, ziel, fid, ts, nutzlast))
@@ -531,10 +427,18 @@ func (s *Server) feedReaktionAnlegen(sess *Session, art, beitrag, ziel, nutzlast
 	if eindeutig {
 		id = "react:" + beitrag + ":" + art + ":" + ziel + ":" + fid + ":" + s.nodeID()
 	}
-	rec := &storage.Record{ID: id, Type: storage.RecordPostReact, Data: map[string]any{
+	daten := map[string]any{
 		"post": beitrag, "kind": art, "target": ziel, "fid": fid,
 		"pub": sess.identity.PublicKeyHex, "ts": ts, "payload": nutzlast, "sig": sig,
-	}}
+	}
+	// Zusatzfelder (Schlüssel einer Bearbeitung, Verschlüsselungskennung …)
+	// überschreiben nie die signierten Grundfelder.
+	for k, v := range extra {
+		if _, belegt := daten[k]; !belegt {
+			daten[k] = v
+		}
+	}
+	rec := &storage.Record{ID: id, Type: storage.RecordPostReact, Data: daten}
 	return rec, s.feedAblegen(rec)
 }
 
@@ -546,17 +450,7 @@ func (s *Server) feedBeitragLaden(id string) *storage.Record {
 	return rec
 }
 
-// feedDarfSehen: öffentlich, oder ich habe den Beitragsschlüssel.
-func feedDarfSehen(sess *Session, rec *storage.Record, reakt []*storage.Record) (bool, []byte) {
-	if sicht, _ := rec.Data["vis"].(string); sicht == feedSichtOeff || sicht == "" {
-		return true, nil
-	}
-	if sess == nil || sess.identity == nil {
-		return false, nil
-	}
-	k := feedBeitragsschluessel(sess.identity, rec, reakt)
-	return k != nil, k
-}
+// feedDarfSehen: ersetzt durch feedZugang (feed_edit.go, R815).
 
 // feedReaktionenVon liefert die gültigen Reaktionen EINES Beitrags.
 func (s *Server) feedReaktionenVon(beitragID string) []*storage.Record {
@@ -610,7 +504,7 @@ func (s *Server) feedLiken(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Beitrag nicht gefunden."})
 		return
 	}
-	if ok, _ := feedDarfSehen(sess, rec, s.feedReaktionenVon(beitrag)); !ok {
+	if ok, _, _ := feedZugang(sess, rec, s.feedReaktionenVon(beitrag)); !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Kein Zugang zu diesem Beitrag."})
 		return
 	}
@@ -644,7 +538,7 @@ func (s *Server) feedKommentieren(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Beitrag nicht gefunden."})
 		return
 	}
-	ok, k := feedDarfSehen(sess, rec, s.feedReaktionenVon(beitrag))
+	ok, z, b := feedZugang(sess, rec, s.feedReaktionenVon(beitrag))
 	if !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Kein Zugang zu diesem Beitrag."})
 		return
@@ -665,16 +559,19 @@ func (s *Server) feedKommentieren(c *gin.Context) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Zu viele Kommentare in kurzer Zeit."})
 		return
 	}
-	nutzlast := req.Text
-	if k != nil { // Kontakt-Beitrag: Kommentar ebenso verschlüsseln
-		enc, err := identity.Encrypt([]byte(req.Text), k)
+	// Verschlüsselt mit dem Schlüssel des AKTUELLEN Stands. Die Kennzeichnung
+	// "enc" (R815) sagt Lesern, ob sie entschlüsseln müssen – die Reichweite
+	// kann sich seither geändert haben.
+	nutzlast, extra := req.Text, map[string]any{"enc": "0"}
+	if z.Sicht != feedSichtOeff && b.Aktuell != nil {
+		enc, err := identity.Encrypt([]byte(req.Text), b.Aktuell)
 		if err != nil {
 			s.internalError(c, err)
 			return
 		}
-		nutzlast = hex.EncodeToString(enc)
+		nutzlast, extra["enc"] = hex.EncodeToString(enc), "1"
 	}
-	r, err := s.feedReaktion(c, sess, "comment", beitrag, "", nutzlast, false)
+	r, err := s.feedReaktionAnlegen(sess, "comment", beitrag, "", nutzlast, false, extra)
 	if err != nil {
 		s.internalError(c, err)
 		return
@@ -818,7 +715,7 @@ func (s *Server) feedListe(c *gin.Context) {
 		if reakt == nil {
 			reakt = []*storage.Record{}
 		}
-		ok, k := feedDarfSehen(sess, rec, reakt)
+		ok, z, b := feedZugang(sess, rec, reakt)
 		if !ok {
 			continue
 		}
@@ -830,39 +727,43 @@ func (s *Server) feedListe(c *gin.Context) {
 			}
 			continue
 		}
-		nutzlast, _ := rec.Data["payload"].(string)
-		var inhalt feedInhalt
-		if k != nil {
-			roh, err := hex.DecodeString(nutzlast)
-			if err != nil {
-				continue
-			}
-			klar, err := identity.Decrypt(roh, k)
-			if err != nil || json.Unmarshal(klar, &inhalt) != nil {
-				continue
-			}
-		} else if json.Unmarshal([]byte(nutzlast), &inhalt) != nil {
+		inhalt, lesbar := feedInhaltLesen(z, b)
+		if !lesbar {
 			continue
 		}
-		likes, kommentare := 0, 0
+		likes := 0
 		for _, v := range r.likes {
 			if v {
 				likes++
 			}
 		}
+		// Nur Kommentare zählen, die ich auch lesen kann (nach einer Änderung
+		// der Reichweite sind ältere womöglich nicht mehr für jeden lesbar).
+		basisSicht, _ := rec.Data["vis"].(string)
+		bearb := feedKommentarBearbeitungen(reakt)
+		kommentare := 0
 		for _, kr := range r.kommentar {
-			if !r.geloescht[kr.ID] {
+			if r.geloescht[kr.ID] {
+				continue
+			}
+			if _, _, ok := feedKommentarText(kr, bearb, basisSicht, b); ok {
 				kommentare++
 			}
 		}
-		sicht, _ := rec.Data["vis"].(string)
-		out = append(out, gin.H{
-			"id": rec.ID, "ts": ts, "visibility": sicht, "author": s.feedAutorInfo(fid),
-			"text": inhalt.Text, "images": inhalt.Bilder, "video": inhalt.Video, "video_hash": inhalt.VidDat,
-			"link": inhalt.Link,
-			"likes": likes, "liked": me != "" && r.likes[me], "comments": kommentare, "mine": me != "" && fid == me,
-			"group_name": inhalt.Gruppe,
-		})
+		videos := inhalt.Videos
+		if inhalt.VidDat != "" {
+			videos = append([]string{inhalt.VidDat}, videos...)
+		}
+		eintrag := gin.H{
+			"id": rec.ID, "ts": ts, "visibility": z.Sicht, "author": s.feedAutorInfo(fid),
+			"text": inhalt.Text, "images": inhalt.Bilder, "video": inhalt.Video, "videos": videos,
+			"link": inhalt.Link, "likes": likes, "liked": me != "" && r.likes[me], "comments": kommentare,
+			"mine": me != "" && fid == me, "group_name": inhalt.Gruppe, "edited": z.Bearbeitet,
+		}
+		if me != "" && fid == me && z.Gruppe != "" {
+			eintrag["group_id"] = z.Gruppe // nur der Autor braucht die Kennung (Bearbeiten)
+		}
+		out = append(out, eintrag)
 	}
 	if out == nil {
 		out = []gin.H{}
@@ -878,7 +779,7 @@ func (s *Server) feedKommentare(c *gin.Context) {
 		return
 	}
 	reakt := s.feedReaktionenVon(rec.ID)
-	ok, k := feedDarfSehen(sess, rec, reakt)
+	ok, _, b := feedZugang(sess, rec, reakt)
 	if !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Kein Zugang zu diesem Beitrag."})
 		return
@@ -891,67 +792,41 @@ func (s *Server) feedKommentare(c *gin.Context) {
 	sort.Slice(r.kommentar, func(i, j int) bool {
 		return zahl64(r.kommentar[i].Data["ts"]) < zahl64(r.kommentar[j].Data["ts"])
 	})
+	basisSicht, _ := rec.Data["vis"].(string)
+	bearb := feedKommentarBearbeitungen(reakt)
 	out := []gin.H{}
 	for _, kr := range r.kommentar {
 		if r.geloescht[kr.ID] {
 			continue
 		}
-		text, _ := kr.Data["payload"].(string)
-		if k != nil {
-			roh, err := hex.DecodeString(text)
-			if err != nil {
-				continue
-			}
-			klar, err := identity.Decrypt(roh, k)
-			if err != nil {
-				continue
-			}
-			text = string(klar)
+		text, bearbeitet, lesbar := feedKommentarText(kr, bearb, basisSicht, b)
+		if !lesbar {
+			continue
 		}
 		fid, _ := kr.Data["fid"].(string)
 		out = append(out, gin.H{"id": kr.ID, "ts": zahl64(kr.Data["ts"]), "author": s.feedAutorInfo(fid),
-			"text": text, "mine": me != "" && fid == me})
+			"text": text, "mine": me != "" && fid == me, "edited": bearbeitet})
 	}
 	c.JSON(http.StatusOK, gin.H{"comments": out})
 }
 
-// feedAnzahl: sichtbare Beiträge der letzten 24 Stunden (für die Kachel).
-// Ohne Entschlüsselung – ein Eintrag in der Schlüsselliste genügt als Zeichen.
 func (s *Server) feedAnzahl(c *gin.Context) {
 	sess := s.getSession(c)
-	me := ""
-	if sess != nil && sess.identity != nil {
-		me = strings.ToLower(sess.identity.FundusID)
-	}
 	seit := time.Now().Add(-24 * time.Hour).Unix()
 	alle, _ := s.store.List(storage.RecordPost)
-	// Nachträgliche Freigaben (R813): Beitrag|Empfänger
-	freigaben := map[string]bool{}
-	if me != "" {
-		reakt, _ := s.store.List(storage.RecordPostReact)
-		for _, x := range reakt {
-			if x == nil || x.Data == nil {
-				continue
-			}
-			if art, _ := x.Data["kind"].(string); art == "key" {
-				p, _ := x.Data["post"].(string)
-				z, _ := x.Data["target"].(string)
-				freigaben[p+"|"+z] = true
-			}
-		}
-	}
+	reaktIdx := s.feedReaktionenIndex()
 	n := 0
 	for _, rec := range alle {
 		if rec == nil || rec.DeletedAt != nil || rec.Data == nil || zahl64(rec.Data["ts"]) < seit {
 			continue
 		}
-		if sicht, _ := rec.Data["vis"].(string); sicht != feedSichtOeff && sicht != "" {
-			keys, _ := rec.Data["keys"].(map[string]any)
-			if me == "" || (keys[me] == nil && !freigaben[rec.ID+"|"+me]) {
-				continue
-			}
+		reakt := reaktIdx[rec.ID]
+		if feedReaktionenSammeln(rec, reakt).geloescht[""] {
+			continue
 		}
-		n++
+		if ok, _, _ := feedZugang(sess, rec, reakt); ok {
+			n++
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{"count": n})
 }
@@ -967,6 +842,8 @@ func (s *Server) registerFeedRoutes(r *gin.Engine) {
 		g.POST("/:id/like", s.feedLiken)
 		g.DELETE("/:id", s.feedLoeschen)
 		g.POST("/preview", s.feedVorschau) // R814
+		g.PUT("/:id", s.feedBearbeiten)                            // R815
+		g.PUT("/:id/comments/:cid", s.feedKommentarBearbeiten)      // R815
 		g.GET("/groups", s.feedGruppenListe)
 		g.PUT("/groups", s.feedGruppenSpeichern)
 	}
@@ -1140,41 +1017,47 @@ func (s *Server) feedZugangErgaenzen(sess *Session, beitraege []*storage.Record,
 		if f, _ := rec.Data["fid"].(string); f != me {
 			continue
 		}
-		sicht, _ := rec.Data["vis"].(string)
+		reakt := reaktIdx[rec.ID]
+		if reakt == nil {
+			reakt = []*storage.Record{}
+		}
+		// R815: maßgeblich ist der AKTUELLE Stand – nach einer Bearbeitung
+		// womöglich mit anderer Reichweite und neuem Schlüssel.
+		z := feedZustandVon(rec, reakt)
 		var kreis []string
-		switch sicht {
+		switch z.Sicht {
 		case feedSichtKontak:
 			if !kontakteGeladen {
 				kontakte, kontakteGeladen = s.feedKontakte(sess), true
 			}
 			kreis = kontakte
 		case feedSichtGruppe:
-			gid, _ := rec.Data["grp"].(string)
-			kreis = gruppen[gid]
+			kreis = gruppen[z.Gruppe]
 		default:
 			continue
 		}
 		if len(kreis) == 0 {
 			continue
 		}
-		reakt := reaktIdx[rec.ID]
-		if reakt == nil {
-			reakt = []*storage.Record{}
-		}
-		k := feedBeitragsschluessel(sess.identity, rec, reakt)
-		if k == nil {
+		b := feedSchluesselbund(sess.identity, rec, z, reakt)
+		if b.Aktuell == nil {
 			continue
 		}
+		kid := feedKid(b.Aktuell)
 		hat := map[string]bool{}
-		if keys, ok := rec.Data["keys"].(map[string]any); ok {
-			for f := range keys {
-				hat[f] = true
-			}
+		for f := range z.Keys {
+			hat[f] = true
 		}
 		for _, x := range reakt {
-			if art, _ := x.Data["kind"].(string); art == "key" {
-				z, _ := x.Data["target"].(string)
-				hat[z] = true
+			if art, _ := x.Data["kind"].(string); art != "key" {
+				continue
+			}
+			// Nur Freigaben für DIESEN Schlüssel zählen. Freigaben ohne
+			// Kennung stammen aus R813 und passen nur zum Ursprung.
+			xk, _ := x.Data["kid"].(string)
+			if xk == kid || (xk == "" && !z.Bearbeitet) {
+				zf, _ := x.Data["target"].(string)
+				hat[zf] = true
 			}
 		}
 		for _, ziel := range kreis {
@@ -1198,16 +1081,17 @@ func (s *Server) feedZugangErgaenzen(sess *Session, beitraege []*storage.Record,
 			if err != nil {
 				continue
 			}
-			v, err := identity.Encrypt(k, g)
+			v, err := identity.Encrypt(b.Aktuell, g)
 			if err != nil {
 				continue
 			}
-			if _, err := s.feedReaktionOhneAnfrage(sess, "key", rec.ID, ziel, hex.EncodeToString(v)); err == nil {
+			if _, err := s.feedReaktionOhneAnfrage(sess, "key", rec.ID, ziel, hex.EncodeToString(v),
+				map[string]any{"kid": kid}); err == nil {
 				neu++
 			}
 		}
 	}
 	if neu > 0 && s.log != nil {
-		s.log.Info("Feed: ältere Beiträge für neue Kontakte freigegeben", zap.Int("freigaben", neu))
+		s.log.Info("Feed: Beiträge für neue Kontakte freigegeben", zap.Int("freigaben", neu))
 	}
 }

@@ -349,6 +349,9 @@ if ("serviceWorker" in navigator) {
 <nav class="bottom-nav" id="bottom-nav" aria-label="Hauptbereiche">
   <a href="/" data-bn="/">]] .. require("icons").svg("home") .. [[<span>]] .. t("nav.home_label") .. [[</span></a>
   <a href="/listings" data-bn="/listings">]] .. require("icons").svg("listings") .. [[<span>]] .. t("nav.market") .. [[</span></a>
+  <!-- R815: Feed standardmäßig in der unteren Leiste. data-nav-zone="quick" verbindet ihn
+       mit der Schnellwahl unter Einstellungen → Navigation anpassen: dort abschaltbar. -->
+  <a href="/feed" data-bn="/feed" data-nav-key="feed" data-nav-zone="quick">]] .. require("icons").svg("feed") .. [[<span>Feed</span></a>
   <a href="/messenger" data-bn="/messenger">]] .. require("icons").svg("messenger") .. [[<span>]] .. t("nav.messenger") .. [[</span></a>
   <a href="/wallet" data-bn="/wallet">]] .. require("icons").svg("wallet") .. [[<span>]] .. t("nav.wallet") .. [[</span></a>
   <a href="/shared" data-bn="/shared">]] .. require("icons").svg("shared") .. [[<span>]] .. t("nav.shared_label") .. [[</span></a>

@@ -11,6 +11,8 @@ return function()
     ngx.print([[
 <style>
 .feed-wrap { max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+/* R815: Auf dem Desktop 50 % größer (640 → 960 px). */
+@media (min-width: 1000px) { .feed-wrap { max-width:960px; } .feed-text { font-size:16.5px; } }
 /* R813: Auch zwischen den Beiträgen derselbe Abstand wie zwischen Eingabe und Feed. */
 #feed-liste { display:flex; flex-direction:column; gap:14px; }
 .feed-card { background:var(--sur); border:1px solid var(--brd); border-radius:var(--r); padding:14px 16px; }
@@ -79,6 +81,16 @@ return function()
 .feed-video iframe, .feed-video video { position:absolute; inset:0; width:100%; height:100%; border:0; }
 .feed-video video.datei { position:static; height:auto; max-height:520px; }
 .feed-video.datei { aspect-ratio:auto; }
+.feed-videos { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+.feed-videos video { width:100%; max-height:560px; border-radius:10px; background:#000; display:block; }
+.feed-bearb { font-size:11.5px; color:var(--text-dim); font-style:italic; }
+.feed-kbearb textarea { width:100%; box-sizing:border-box; background:var(--sur); color:var(--text); border:1px solid var(--green);
+  border-radius:8px; padding:6px 8px; font:inherit; font-size:14px; min-height:54px; resize:vertical; }
+.feed-kbearb .zeile { display:flex; gap:6px; justify-content:flex-end; margin-top:5px; }
+.feed-kbearb button { background:none; border:1px solid var(--brd); color:var(--text-dim); border-radius:7px; padding:4px 10px; cursor:pointer; font-size:12.5px; }
+.feed-kbearb button.ok { border-color:var(--green); color:var(--green); }
+.feed-dlg textarea { width:100%; box-sizing:border-box; min-height:110px; background:var(--sur2); color:var(--text); border:1px solid var(--brd);
+  border-radius:8px; padding:10px 12px; font:inherit; font-size:15px; resize:vertical; }
 .feed-start { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
   gap:10px; cursor:pointer; color:#fff; background:linear-gradient(135deg,#1c1f2b,#0e1016); border:0; width:100%; }
 .feed-start .knopf { width:64px; height:64px; border-radius:50%; background:rgba(255,255,255,.14); display:flex;
@@ -135,10 +147,8 @@ return function()
     <div id="feed-link-vorschau" style="display:none"></div>
     <div id="feed-vorschau" class="feed-vorschau" style="display:none"></div>
     <div class="feed-row">
-      <button type="button" class="feed-tool" onclick="document.getElementById('feed-bilder-datei').click()" title="Bilder oder GIFs anhängen">🖼 Bild/GIF</button>
-      <button type="button" class="feed-tool" onclick="document.getElementById('feed-video-datei').click()" title="Videodatei anhängen (bis 24 MB) – Video-Links einfach in den Text einfügen">🎬 Video</button>
-      <input type="file" id="feed-bilder-datei" accept="image/*" multiple style="display:none">
-      <input type="file" id="feed-video-datei" accept="video/mp4,video/webm,video/quicktime" style="display:none">
+      <button type="button" class="feed-tool" onclick="document.getElementById('feed-media-datei').click()" title="Bilder, GIFs und Videos anhängen – auch mehrere auf einmal. Video-Links einfach in den Text einfügen.">+ Media</button>
+      <input type="file" id="feed-media-datei" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style="display:none">
       <span class="grow"></span>
       <select id="feed-sicht" class="feed-sicht" title="Wer sieht den Beitrag?" aria-label="Reichweite">
         <option value="public">🌐 Öffentlich</option>
