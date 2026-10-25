@@ -248,7 +248,7 @@ func (s *Server) feedVorschau(c *gin.Context) {
 		if b, err := basis.Parse(bildURL); err == nil && (b.Scheme == "https" || b.Scheme == "http") {
 			if daten, typ, err := feedAbrufen(ctx, b.String(), 3*1024*1024, "image/"); err == nil && len(daten) > 0 {
 				mime := strings.TrimSpace(strings.SplitN(typ, ";", 2)[0])
-				if hash, err := s.fileStore.Upload(ctx, bytes.NewReader(daten), mime, "vorschau"); err == nil {
+				if hash, err := s.fileStore.Upload(ctx, bytes.NewReader(daten), mime, "feed-vorschau"); err == nil {
 					l.Bild = hash
 				}
 			}

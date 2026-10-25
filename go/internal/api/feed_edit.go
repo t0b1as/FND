@@ -443,6 +443,7 @@ func (s *Server) feedBearbeiten(c *gin.Context) {
 		s.internalError(c, err)
 		return
 	}
+	s.feedMedienMerken(beitrag, req.feedInhalt) // R817
 	// Neue Mitglieder der Reichweite gleich freischalten lassen.
 	feedZugangMu.Lock()
 	delete(feedZugangZuletzt, fid)

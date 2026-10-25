@@ -394,6 +394,7 @@ func (s *Server) feedErstellen(c *gin.Context) {
 		s.internalError(c, err)
 		return
 	}
+	s.feedMedienMerken(id, req.feedInhalt) // R817: für echtes Löschen
 	if s.log != nil {
 		s.log.Info("Feed-Beitrag erstellt", zap.String("id", id), zap.String("sicht", sicht),
 			zap.Int("empfaenger", empfaenger))
@@ -617,6 +618,9 @@ func (s *Server) feedLoeschen(c *gin.Context) {
 		s.internalError(c, err)
 		return
 	}
+	// R817: Auf diesem Node sofort tatsächlich entfernen; die übrigen folgen,
+	// sobald die Löschmarke bei ihnen ankommt.
+	s.feedLoeschmarkenVerarbeiten(map[string][]*storage.Record{beitrag: s.feedReaktionenVon(beitrag)})
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -685,6 +689,7 @@ func (s *Server) feedListe(c *gin.Context) {
 		return
 	}
 	reaktIdx := s.feedReaktionenIndex()
+	s.feedLoeschmarkenVerarbeiten(reaktIdx) // R817: echtes Löschen auf JEDEM Node
 	if sess != nil && sess.identity != nil {
 		go s.feedZugangErgaenzen(sess, alle, reaktIdx) // R813: neue Kontakte nachträglich freischalten
 	}
@@ -721,11 +726,7 @@ func (s *Server) feedListe(c *gin.Context) {
 		}
 		r := feedReaktionenSammeln(rec, reakt)
 		if r.geloescht[""] {
-			// Der Besitzer-Node räumt einen vom Autor gelöschten Beitrag ab.
-			if rec.OwnerID == s.nodeID() {
-				_ = s.store.Delete(storage.RecordPost, rec.ID)
-			}
-			continue
+			continue // wird von feedLoeschmarkenVerarbeiten entfernt
 		}
 		inhalt, lesbar := feedInhaltLesen(z, b)
 		if !lesbar {
@@ -832,6 +833,7 @@ func (s *Server) feedAnzahl(c *gin.Context) {
 }
 
 func (s *Server) registerFeedRoutes(r *gin.Engine) {
+	go s.feedAufraeumen() // R817: Löschmarken auch ohne Feed-Aufruf umsetzen
 	g := r.Group("/api/v1/feed")
 	{
 		g.GET("", s.feedListe)

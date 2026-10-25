@@ -46,6 +46,7 @@ const (
 	RecordPost           RecordType = "post"              // Feed-Beitrag (R812), öffentlich oder für Kontakte verschlüsselt
 	RecordPostReact      RecordType = "post_react"        // Like, Kommentar oder Löschmarke zu einem Feed-Beitrag (R812)
 	RecordFeedGroups     RecordType = "feed_groups"       // eigene Feed-Gruppen je Konto, selbst-verschlüsselt (R813)
+	RecordFeedMedia      RecordType = "feed_media"        // NUR LOKAL: welche Feed-Beiträge eine Datei nutzen (R817)
 )
 
 // Record ist der generische Datencontainer im Fundus-Netz.

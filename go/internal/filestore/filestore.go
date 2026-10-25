@@ -27,6 +27,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -589,7 +590,9 @@ func (fs *FileStore) UploadWithRedundancy(ctx context.Context, r io.Reader, mime
 	chunkNum := 0
 	buf := make([]byte, ChunkSize)
 	// Peers EINMAL vor der Schleife bestimmen (nicht pro Chunk neu).
-	remotePeers := fs.selectPeers(remoteReplicas)
+	// R817: nach freiem Platz – die Kopie im Netz geht an den Node mit dem
+	// meisten freien Speicher, nicht an einen beliebigen verbundenen.
+	remotePeers := fs.selectPeersNachPlatz(ctx, remoteReplicas)
 	// WaitGroup für die gedrosselte Chunk-Replikation: der Upload wartet am Ende
 	// kurz auf die Spiegelung, damit ein sofortiger Remote-Download die Chunks
 	// findet. Schlägt eine Replikation fehl, fängt der robuste Download + das
@@ -732,7 +735,7 @@ func (fs *FileStore) UploadWithRedundancy(ctx context.Context, r io.Reader, mime
 			}
 			// Sub-Manifeste asynchron replizieren (selbstverifizierend) — darf den
 			// Upload nicht blockieren (siehe Manifest-Replikation unten).
-			if smPeers := fs.selectPeers(remoteReplicas); len(smPeers) > 0 {
+			if smPeers := remotePeers; len(smPeers) > 0 { // R817: dieselben Nodes wie die Chunks
 				smKey := shHex
 				smData := block
 				peers := smPeers
@@ -769,7 +772,7 @@ func (fs *FileStore) UploadWithRedundancy(ctx context.Context, r io.Reader, mime
 	// ASYNCHRON: Seit die Replikation auf eine Antwort wartet (Quittungs-Fluss,
 	// Phase 2b), darf diese Schleife den Upload NICHT mehr blockieren — sonst
 	// wird der lokale Index-Write unten verzoegert und die Datei erscheint nicht.
-	if mremotePeers := fs.selectPeers(remoteReplicas); len(mremotePeers) > 0 {
+	if mremotePeers := remotePeers; len(mremotePeers) > 0 { // R817: dieselben Nodes wie die Chunks
 		mkey := localManifestKey
 		mdata := manifestData
 		peers := mremotePeers
@@ -2450,4 +2453,66 @@ func (fs *FileStore) NameForHash(hash string) string {
 		return ""
 	}
 	return fs.localIdx.NameForHash(hash)
+}
+
+// selectPeersNachPlatz wählt Ziel-Nodes für Kopien nach freiem Speicher,
+// größter zuerst (R817).
+//
+// selectPeers nimmt verbundene Nodes in beliebiger Reihenfolge – eine Kopie
+// konnte so auf einem fast vollen Node landen, während ein anderer reichlich
+// Platz hatte. Gefragt wird mit demselben "ping", den die Verfügbarkeits-
+// prüfung nutzt; die Antworten kommen parallel. Antwortet keiner, gilt die
+// bisherige Auswahl, damit ein Upload nie an dieser Abfrage scheitert.
+func (fs *FileStore) selectPeersNachPlatz(ctx context.Context, n int) []string {
+	if n <= 0 {
+		return nil
+	}
+	kandidaten := fs.selectPeers(n * 4)
+	if len(kandidaten) == 0 {
+		return nil
+	}
+	type platz struct {
+		id   string
+		frei int64
+	}
+	pctx, cancel := context.WithTimeout(ctx, PeerPingTimeout)
+	defer cancel()
+	ping, _ := json.Marshal(ChunkRequest{Op: "ping"})
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	var antworten []platz
+	for _, pid := range kandidaten {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			defer func() { _ = recover() }()
+			resp, err := fs.sendAndReceive(pctx, id, ping)
+			if err != nil {
+				return
+			}
+			var cr ChunkResponse
+			if json.Unmarshal(resp, &cr) != nil || !cr.OK || cr.FreeGB <= 0 {
+				return
+			}
+			mu.Lock()
+			antworten = append(antworten, platz{id, cr.FreeGB})
+			mu.Unlock()
+		}(pid)
+	}
+	wg.Wait()
+	if len(antworten) == 0 {
+		return fs.selectPeers(n)
+	}
+	sort.Slice(antworten, func(i, j int) bool { return antworten[i].frei > antworten[j].frei })
+	out := make([]string, 0, n)
+	for _, a := range antworten {
+		if len(out) >= n {
+			break
+		}
+		out = append(out, a.id)
+	}
+	if fs.log != nil {
+		fs.log.Debug("Ziel-Nodes nach freiem Platz", zap.Strings("nodes", out))
+	}
+	return out
 }

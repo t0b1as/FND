@@ -36,6 +36,17 @@ return function()
 .feed-tool .ico { width:17px; height:17px; }
 /* R816: + Media genauso hoch wie Teilen und die Reichweitenauswahl. */
 .feed-plus { height:46px; min-height:46px; box-sizing:border-box; padding:0 16px; font-size:14px; }
+/* R817: + Media, Reichweite und Teilen in EINER Zeile – auch auf dem Handy.
+   Die Auswahl nimmt den Platz dazwischen und kürzt bei Bedarf ihren Text. */
+#feed-knopfzeile { flex-wrap:nowrap; gap:8px; }
+#feed-knopfzeile .feed-plus, #feed-knopfzeile .feed-teilen { flex:0 0 auto; }
+#feed-knopfzeile .feed-sicht { flex:1 1 auto; min-width:0; max-width:none; text-overflow:ellipsis; }
+@media (max-width:480px) {
+  #feed-knopfzeile .feed-plus { padding:0 11px; }
+  #feed-knopfzeile .feed-teilen { padding:0 12px; min-width:0; }
+  #feed-knopfzeile .feed-sicht { padding:0 8px; }
+}
+.feed-tonwahl { margin-left:auto; height:36px; padding:0 12px; font-size:13px; }
 /* R813: Auswahl und Teilen-Knopf gleich hoch und gleich beschriftet. Die
    Seite gibt Eingabefeldern 46 px Mindesthöhe (fingerfreundlich) – der Knopf
    übernimmt dieses Maß, statt die Auswahl darunter zu drücken. */
@@ -149,17 +160,17 @@ return function()
 </style>
 
 <div class="top-bar" style="margin-bottom:14px"><h2 style="margin:0;font-size:20px;color:var(--text);display:flex;align-items:center;gap:8px">
-  <span style="display:inline-flex;width:24px;height:24px;color:#a763f7">]] .. icons.svg("feed") .. [[</span>Feed</h2></div>
+  <span style="display:inline-flex;width:24px;height:24px;color:#a763f7">]] .. icons.svg("feed") .. [[</span>Feed</h2>
+  <button type="button" class="feed-tool feed-tonwahl" id="feed-ton" title="Videos starten beim Scrollen von selbst – stumm oder mit Ton">🔇 Stumm</button></div>
 
 <div class="feed-wrap">
   <div class="feed-card feed-composer">
     <textarea id="feed-text" placeholder="Was gibt's Neues?" maxlength="5000"></textarea>
     <div id="feed-link-vorschau" style="display:none"></div>
     <div id="feed-vorschau" class="feed-vorschau" style="display:none"></div>
-    <div class="feed-row">
+    <div class="feed-row" id="feed-knopfzeile">
       <button type="button" class="feed-tool feed-plus" onclick="document.getElementById('feed-media-datei').click()" title="Bilder, GIFs und Videos anhängen – auch mehrere auf einmal. Video-Links einfach in den Text einfügen.">+ Media</button>
       <input type="file" id="feed-media-datei" accept="image/*,video/mp4,video/webm,video/quicktime" multiple style="display:none">
-      <span class="grow"></span>
       <select id="feed-sicht" class="feed-sicht" title="Wer sieht den Beitrag?" aria-label="Reichweite">
         <option value="public">🌐 Öffentlich</option>
         <option value="contacts">👥 Nur Kontakte</option>

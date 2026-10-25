@@ -609,7 +609,9 @@
   async function hochladenBeginnen(f, BLOCK, id, redundanz) {
     const r = await fetch('/api/v1/files/upload/begin', {
       method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ upload_id: id, file_name: f.name || 'datei', mime_type: f.type || 'application/octet-stream',
+      // R817: "feed-" kennzeichnet Feed-Uploads im Datei-Index. Nur solche
+      // Dateien entfernt der Node, wenn der letzte Beitrag gelöscht ist.
+      body: JSON.stringify({ upload_id: id, file_name: 'feed-' + (f.name || 'datei'), mime_type: f.type || 'application/octet-stream',
         total_size: f.size, block_size: BLOCK, redundancy: redundanz })
     });
     let d = {};
@@ -801,6 +803,55 @@
       }
     });
   }
+
+  // ── Videos starten beim Scrollen (R817) ─────────────────────────────────
+  // Ein hochgeladenes Video spielt, sobald es zu 60 % im Bild ist, und hält
+  // an, wenn es hinausläuft. Es läuft immer nur eines. Wahl stumm oder mit
+  // Ton oben in der Titelzeile, gemerkt im Browser.
+  //
+  // Mit Ton: Browser erlauben hörbares Abspielen nur nach einer Berührung der
+  // Seite, Safari auf dem iPhone oft gar nicht ohne direkten Tipp aufs Video.
+  // Verweigert der Browser es, spielt das Video stumm weiter, statt stehen zu
+  // bleiben. YouTube und Vimeo starten nicht von selbst – sie laden erst nach
+  // einem Klick (Datenschutz, siehe R812).
+  const LS_TON = 'fundus_feed_ton';
+  let tonModus = 'stumm';
+  try { tonModus = localStorage.getItem(LS_TON) === 'ton' ? 'ton' : 'stumm'; } catch (e) {}
+  function tonKnopf() { $('feed-ton').textContent = tonModus === 'ton' ? '🔊 Mit Ton' : '🔇 Stumm'; }
+  tonKnopf();
+  $('feed-ton').onclick = () => {
+    tonModus = tonModus === 'ton' ? 'stumm' : 'ton';
+    try { localStorage.setItem(LS_TON, tonModus); } catch (e) {}
+    tonKnopf();
+    // Das gerade laufende Video sofort umstellen – dieser Tipp zählt als
+    // Berührung, danach darf der Browser hörbar abspielen.
+    document.querySelectorAll('.feed-videos video').forEach((v) => { if (!v.paused) v.muted = tonModus !== 'ton'; });
+  };
+  function abspielen(v) {
+    document.querySelectorAll('.feed-videos video').forEach((x) => { if (x !== v && !x.paused) x.pause(); });
+    v.muted = tonModus !== 'ton';
+    const p = v.play();
+    if (p && p.catch) p.catch(() => {
+      if (!v.muted) { v.muted = true; v.play().catch(() => {}); }
+    });
+  }
+  const sichtbar = 'IntersectionObserver' in window ? new IntersectionObserver((eintraege) => {
+    eintraege.forEach((e) => {
+      const v = e.target;
+      if (e.isIntersecting && e.intersectionRatio >= 0.6) abspielen(v);
+      else if (!v.paused) v.pause();
+    });
+  }, { threshold: [0, 0.6] }) : null;
+  function videosBeobachten() {
+    if (!sichtbar) return;
+    document.querySelectorAll('#feed-liste .feed-videos video:not([data-beob])').forEach((v) => {
+      v.dataset.beob = '1';
+      v.setAttribute('playsinline', '');   // iPhone: im Beitrag statt Vollbild
+      sichtbar.observe(v);
+    });
+  }
+  // Neue Beiträge (Nachladen, Bearbeiten, Direktlink) automatisch erfassen.
+  new MutationObserver(videosBeobachten).observe($('feed-liste'), { childList: true, subtree: true });
 
   laden(true).then(direktlink);
   gruppenLaden();
