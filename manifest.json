@@ -1,8 +1,8 @@
 {
-  "version": "R817",
-  "description": "FUNDUS R817 - feedture",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R817/FND-R817-update.zip",
-  "node_argon2": "d16f31b0dc0dbe0d46cf2658df3e5f021840d8ce8f5b7afc8124f27890f216a2",
-  "published_at": "2026-10-25T08:43:55.4745338Z",
-  "signature": "0x81a5ac45b8f74500e0bfbca51532ac97ffd0a6fd844747eda1bdbb2f5f8a39dd003f714059128a8bc88807112726a82c598f553a60a863c5f9de296454031fa81c"
+  "version": "R818",
+  "description": "FUNDUS R818 - transparency and chat deletion",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R818/FND-R818-update.zip",
+  "node_argon2": "f746b469f92f7941c0a607a27af2d448c1f0aca8bba0c4e6a586da7b5211642d",
+  "published_at": "2026-10-25T09:26:49.7086065Z",
+  "signature": "0xe9fe7635ffc3e031917a90892a37382a73c6e3cb45ff898b61b6fb397c12521455a4e4b9748353621e30d8e3d610ef7807490076f975c7b57e74516f7932e0201c"
 }
