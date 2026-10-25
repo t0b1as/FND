@@ -332,17 +332,51 @@ func (s *Server) pushNotify(fid, title, body, link, tag string, urgent bool) {
 		return
 	}
 	payload, _ := json.Marshal(map[string]string{"title": title, "body": body, "url": link, "tag": tag})
-	go func() {
-		for _, sub := range subs {
-			gone, err := ps.send(sub, payload, urgent)
+	go ps.zustellen(fid, subs, payload, urgent)
+}
+
+// pushErgebnis beschreibt die Zustellung an EIN Gerät (R809).
+type pushErgebnis struct {
+	Dienst string `json:"dienst"` // Push-Dienst des Browsers, z. B. web.push.apple.com
+	OK     bool   `json:"ok"`
+	Fehler string `json:"fehler,omitempty"`
+}
+
+// zustellen schickt an alle Geräte und GIBT DAS ERGEBNIS ZURÜCK (R809).
+//
+// Bisher wurde ein Fehlschlag nur auf Stufe Debug protokolliert – die
+// erscheint im Betriebsprotokoll nicht. Erfolge gar nicht. Ob eine Meldung den
+// Push-Dienst von Google oder Apple erreichte und was der antwortete, ließ
+// sich so nicht feststellen. Jetzt steht beides im Protokoll, und der
+// Testknopf zeigt es direkt auf dem Gerät an.
+func (ps *pushService) zustellen(fid string, subs []pushSub, payload []byte, urgent bool) []pushErgebnis {
+	var out []pushErgebnis
+	for _, sub := range subs {
+		dienst := sub.Endpoint
+		if u, err := url.Parse(sub.Endpoint); err == nil {
+			dienst = u.Host
+		}
+		gone, err := ps.send(sub, payload, urgent)
+		if gone {
+			ps.remove(sub.Endpoint)
+		}
+		e := pushErgebnis{Dienst: dienst, OK: err == nil}
+		if err != nil {
+			e.Fehler = err.Error()
 			if gone {
-				ps.remove(sub.Endpoint)
-			}
-			if err != nil && ps.log != nil {
-				ps.log.Debug("Push nicht zugestellt", zap.Error(err))
+				e.Fehler += " – Anmeldung verfallen und entfernt, bitte neu einschalten"
 			}
 		}
-	}()
+		if ps.log != nil {
+			if err != nil {
+				ps.log.Warn("Push nicht zugestellt", zap.String("an", fid), zap.String("dienst", dienst), zap.Error(err))
+			} else {
+				ps.log.Info("Push zugestellt", zap.String("an", fid), zap.String("dienst", dienst))
+			}
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 // ── Swap ↔ Nutzer (für "Swap abgeschlossen") ────────────────────────────────
@@ -456,8 +490,25 @@ func (s *Server) pushTest(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden."})
 		return
 	}
-	s.pushNotify(fid, "Fundus", "✓ Benachrichtigungen funktionieren.", "/", "test", false)
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	// R809: Ergebnis zurückmelden statt immer "ok". Der Knopf sagte bisher
+	// "gesendet", auch wenn auf diesem Node gar kein Gerät angemeldet war oder
+	// der Push-Dienst ablehnte.
+	ps := s.push()
+	if ps == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Push ist auf diesem Node nicht verfügbar."})
+		return
+	}
+	ps.mu.Lock()
+	subs := append([]pushSub(nil), ps.subs[fid]...)
+	ps.mu.Unlock()
+	if len(subs) == 0 {
+		c.JSON(http.StatusOK, gin.H{"geraete": 0, "ergebnisse": []pushErgebnis{}})
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{"title": "Fundus",
+		"body": "✓ Benachrichtigungen funktionieren.", "url": "/", "tag": "test"})
+	erg := ps.zustellen(fid, subs, payload, true)
+	c.JSON(http.StatusOK, gin.H{"geraete": len(subs), "ergebnisse": erg})
 }
 
 // notifyIncomingMsg: Nachricht/Anruf an einen Nutzer, dessen App gerade NICHT

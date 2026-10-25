@@ -788,8 +788,8 @@
         if (!kr.ok) throw new Error(kd.error || 'Kein Schlüssel');
         if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: pushKeyBytes(kd.public_key) });
         await walletPost('/api/v1/push/subscribe', sub.toJSON());
-        out.textContent = '✓ Eingeschaltet. Eine Test-Benachrichtigung ist unterwegs.';
-        fetch('/api/v1/push/test', {method:'POST', credentials:'same-origin'});
+        out.textContent = '✓ Eingeschaltet. Test wird gesendet …';
+        out.innerHTML = await pushTestBericht();
       } catch(e){ out.textContent = '✗ ' + e.message; }
       await refresh();
     }
@@ -801,9 +801,35 @@
       } catch(e){ out.textContent = '✗ ' + e.message; }
       await refresh();
     }
-    ts.onclick = async function(){ out.textContent = '⏳ Gesendet – kommt in wenigen Sekunden.'; try { await fetch('/api/v1/push/test', {method:'POST', credentials:'same-origin'}); } catch(e){} };
+    ts.onclick = async function(){ out.textContent = '⏳ Wird gesendet …'; out.innerHTML = await pushTestBericht(); };
     await refresh();
   };
+
+  // R809: Testergebnis VOM NODE anzeigen statt pauschal "gesendet".
+  // Unterscheidet ehrlich: Hat der Push-Dienst angenommen, und erscheint
+  // trotzdem nichts, liegt es am Gerät – nicht am Node.
+  function pushDienstName(h){
+    h = String(h || '');
+    if (/apple\.com$/.test(h)) return 'Apple (Safari/iPhone)';
+    if (/googleapis\.com$/.test(h)) return 'Google (Chrome/Brave/Android)';
+    if (/mozilla\.com$/.test(h)) return 'Mozilla (Firefox)';
+    if (/windows\.com$/.test(h)) return 'Microsoft (Edge)';
+    return h;
+  }
+  async function pushTestBericht(){
+    const esc = function(t){ return String(t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+    try {
+      const r = await fetch('/api/v1/push/test', {method:'POST', credentials:'same-origin'});
+      const d = await r.json();
+      if (!r.ok) return '✗ ' + esc(d.error || ('HTTP ' + r.status));
+      if (!d.geraete) return '✗ Auf diesem Node ist für dein Konto <strong>kein Gerät</strong> angemeldet. Bitte aus- und wieder einschalten.';
+      return (d.ergebnisse || []).map(function(e){
+        return e.ok
+          ? '✓ Vom Push-Dienst <strong>' + esc(pushDienstName(e.dienst)) + '</strong> angenommen. Erscheint gleich nichts, liegt es am Gerät: Berechtigung, Fokus-/Nicht-stören-Modus, oder auf dem iPhone nicht über den Home-Bildschirm geöffnet.'
+          : '✗ <strong>' + esc(pushDienstName(e.dienst)) + '</strong> hat abgelehnt: ' + esc(e.fehler);
+      }).join('<br><br>');
+    } catch(e){ return '✗ ' + esc(e.message); }
+  }
 
   // ── FND-Wallet: gleicher Aufbau wie die Solana-Wallet ────────────────────
   // Adresse, Guthaben, Kopieren, Senden (aus der angemeldeten Wallet – die
