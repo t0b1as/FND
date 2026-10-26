@@ -41,7 +41,6 @@ package api
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -355,8 +354,9 @@ func (s *Server) marktLauf() {
 						erz = append(erz, t)
 					}
 				}
+				saeumig := s.marktSaeumige() // R844: wer nicht zahlt, bekommt nichts
 				for _, t := range werte.fuer(w.Von, false) {
-					if t.Zaehler != w.Zaehler {
+					if t.Zaehler != w.Zaehler && !saeumig[t.Zaehler] {
 						verb = append(verb, t)
 					}
 				}
@@ -381,11 +381,13 @@ func (s *Server) marktLauf() {
 				}
 			}
 		}
-		// 3. Verbraucher: annehmen und bezahlen.
+		// 3. Verbraucher: annehmen (bezahlt wird gebündelt, siehe unten).
 		if b := wsZuKWh(w.BezugWs); b > 0 && jetzt.After(ende.Add(marktAnnehmenNach)) {
 			s.marktAnnehmenUndZahlen(w, b, p)
 		}
 	}
+	// R844: offene Posten gebündelt bezahlen, Zahlungen bestätigen.
+	s.marktZahlungen(p)
 }
 
 // ── Werte anderer Teilnehmer ─────────────────────────────────────────────────
@@ -462,134 +464,9 @@ func fndZuU(fnd float64) *big.Int {
 	return u
 }
 
-func (s *Server) marktAnnehmenUndZahlen(w viertelWert, bezugKWh float64, p marktParam) {
-	zid := w.Zaehler + "/" + strconv.FormatInt(w.Von, 10)
-	if r, _ := s.store.Get(storage.RecordMarktZahlung, zid); r != nil {
-		return // schon erledigt
-	}
-	var angebote []marktAngenommen
-	alle, _ := s.store.List(storage.RecordMarktZuteilung)
-	for _, r := range alle {
-		if r == nil || r.DeletedAt != nil || r.Data == nil {
-			continue
-		}
-		if von, _ := toFloatOK(r.Data["von"]); int64(von) != w.Von {
-			continue
-		}
-		erz, _ := r.Data["erzeuger"].(string)
-		// Die Wallet des Erzeugers kommt aus SEINEM Angebot – nicht aus der
-		// Zuteilung, die jeder Node hätte schreiben können.
-		ang, _ := s.store.Get(storage.RecordMarktAngebot, erz)
-		if ang == nil || ang.Data == nil {
-			continue
-		}
-		erzWallet, _ := ang.Data["wallet"].(string)
-		posten, _ := r.Data["posten"].([]any)
-		for _, x := range posten {
-			m, _ := x.(map[string]any)
-			if m == nil {
-				continue
-			}
-			if an, _ := m["an"].(string); an != w.Zaehler {
-				continue
-			}
-			f := func(k string) float64 { v, _ := toFloatOK(m[k]); return v }
-			a := marktAngenommen{Von: erz, marktPosten: marktPosten{An: w.Zaehler, KWh: f("kwh"),
-				Preis: f("preis"), Netz: f("netz"), Km: f("km"), Wallet: erzWallet}}
-			// Eigene Grenzen prüfen: nicht teurer als meine Obergrenze, nicht weiter
-			// als meine Reichweite, Netzentgelt nach MEINER Rechnung.
-			if a.Km > p.MaxKm || a.Preis+netzentgelt(p, a.Km) > p.Hoechst+1e-9 || a.KWh <= 0 {
-				continue
-			}
-			a.Netz = netzentgelt(p, a.Km)
-			angebote = append(angebote, a)
-		}
-	}
-	angenommen, tarif := marktAnnehmen(bezugKWh, angebote)
+// marktAnnehmenUndZahlen: ersetzt durch die Fassung in energiemarkt_zahlung.go (R844).
 
-	key, adr, err := s.zaehlerWallet()
-	if err != nil {
-		return
-	}
-	guthabenText, _ := s.chain.AccountInfo(adr)
-	guthaben, ok := new(big.Int).SetString(strings.TrimSpace(guthabenText), 10)
-	if !ok {
-		guthaben = new(big.Int)
-	}
-	var gezahlt []map[string]any
-	var summeEnergie, summeNetz float64
-	for _, a := range angenommen {
-		energie, netz := a.KWh*a.Preis, a.KWh*a.Netz
-		uE, uN := fndZuU(energie), fndZuU(netz)
-		bedarf := new(big.Int).Add(uE, uN)
-		bedarf.Add(bedarf, chain.FeeForValue(uE))
-		if p.NetzWallet != "" {
-			bedarf.Add(bedarf, chain.FeeForValue(uN))
-		}
-		if guthaben.Cmp(bedarf) < 0 {
-			break // Budget erschöpft: der Rest läuft über den Tarif
-		}
-		eintrag := map[string]any{"von": a.Von, "kwh": a.KWh, "preis": a.Preis, "netz": a.Netz, "km": a.Km}
-		if uE.Sign() > 0 {
-			if err := s.zaehlerUeberweisen(key, adr, a.Wallet, uE); err != nil {
-				eintrag["fehler"] = err.Error()
-				gezahlt = append(gezahlt, eintrag)
-				continue
-			}
-		}
-		if p.NetzWallet != "" && uN.Sign() > 0 {
-			if err := s.zaehlerUeberweisen(key, adr, p.NetzWallet, uN); err != nil {
-				eintrag["netz_fehler"] = err.Error()
-			} else {
-				eintrag["netz_ueberwiesen"] = true
-			}
-		}
-		guthaben = new(big.Int).Sub(guthaben, bedarf)
-		summeEnergie += energie
-		summeNetz += netz
-		gezahlt = append(gezahlt, eintrag)
-	}
-	var p2p float64
-	for _, g := range gezahlt {
-		if g["fehler"] == nil {
-			kwh, _ := g["kwh"].(float64)
-			p2p += kwh
-		}
-	}
-	_ = s.store.Put(&storage.Record{ID: zid, Type: storage.RecordMarktZahlung, Data: map[string]any{
-		"zaehler": w.Zaehler, "von": w.Von, "bezug_kwh": bezugKWh, "p2p_kwh": p2p,
-		"tarif_kwh": bezugKWh - p2p, "energie_fnd": summeEnergie, "netz_fnd": summeNetz,
-		"posten": gezahlt, "ohne_budget": tarif,
-	}})
-	if s.log != nil && len(gezahlt) > 0 {
-		s.log.Info("Nachbarschaftshandel: bezahlt", zap.String("zaehler", w.Zaehler),
-			zap.Float64("p2p_kwh", p2p), zap.Float64("energie_fnd", summeEnergie), zap.Float64("netz_fnd", summeNetz))
-	}
-}
-
-// zaehlerUeberweisen: Überweisung aus der Zähler-Wallet, mit derselben
-// Nonce-Zählung wie zaehlerEinreichen.
-func (s *Server) zaehlerUeberweisen(k *ecdsa.PrivateKey, adr chain.Address, an string, betrag *big.Int) error {
-	ziel, ok := chain.AddressFromHex(an)
-	if !ok {
-		return fmt.Errorf("Empfänger ungültig: %s", an)
-	}
-	_, nonce := s.chain.AccountInfo(adr)
-	for _, tx := range s.mempool.Pending() {
-		if tx != nil && tx.From == adr {
-			nonce++
-		}
-	}
-	tx, err := chain.BuildSignedTransfer(k, ziel, betrag, nonce)
-	if err != nil {
-		return err
-	}
-	if err := s.mempool.Add(tx); err != nil {
-		return err
-	}
-	s.broadcastTx(context.Background(), tx)
-	return nil
-}
+// zaehlerUeberweisen: ersetzt durch marktUeberweisen (energiemarkt_zahlung.go, R844).
 
 func jsonRoh(v any) (string, error) {
 	b, err := json.Marshal(v)
@@ -649,7 +526,10 @@ func (s *Server) marktStatus(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"parameter": p, "lat": lat, "lon": lon,
 		"wallet": strings.ToLower(wallet.Hex()), "guthaben_fnd": guthaben,
-		"gekauft": gekauft, "verkauft": verkauft})
+		"gekauft": gekauft, "verkauft": verkauft,
+		// R844: offene eigene Schulden und Forderungen gegenüber Abnehmern
+		"offen_fnd": uToFNDFloat(s.marktOffeneSchulden(p)), "forderungen": s.marktForderungen(),
+		"zahlintervall_min": int(marktZahlIntervall().Minutes())})
 }
 
 func (s *Server) registerMarkt(r *gin.Engine) {

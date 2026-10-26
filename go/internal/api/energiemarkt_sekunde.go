@@ -205,6 +205,7 @@ func (s *Server) marktSekundeErzeuger(nr string, einspW float64, p marktParam) {
 		peer string
 	}
 	var ziele []ziel
+	saeumig := s.marktSaeumige() // R844: wer nicht zahlt, bekommt keine Zuteilungen
 	alle, _ := s.store.List(storage.RecordMarktAngebot)
 	for _, a := range alle {
 		if a == nil || a.DeletedAt != nil || a.Data == nil {
@@ -213,6 +214,9 @@ func (s *Server) marktSekundeErzeuger(nr string, einspW float64, p marktParam) {
 		z, _ := a.Data["zaehler"].(string)
 		peer, _ := a.Data["peer"].(string)
 		if z == "" || z == nr || peer == "" || peer == s.nodeID() {
+			continue
+		}
+		if saeumig[z] {
 			continue
 		}
 		f := func(k string) float64 { v, _ := toFloatOK(a.Data[k]); return v }

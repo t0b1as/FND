@@ -790,13 +790,6 @@ document.addEventListener('DOMContentLoaded', updLoad);
       <div class="set-label">]] .. t("settings.meter_id") .. [[<div class="set-hint">]] .. t("settings.meter_id_hint") .. [[</div></div>
       <input type="text" id="s-meterid" placeholder="]] .. t("settings.placeholder_auto") .. [[" class="set-input">
     </div>
-    <div class="set-row">
-      <div class="set-label">]] .. t("settings.meter_coords") .. [[</div>
-      <div class="set-input-row">
-        <input type="number" id="s-mlat" placeholder="]] .. t("settings.placeholder_lat_short") .. [[" step="0.000001" class="set-input">
-        <input type="number" id="s-mlon" placeholder="]] .. t("settings.placeholder_lon_short") .. [["  step="0.000001" class="set-input">
-      </div>
-    </div>
     <div class="set-actions">
       <button class="btn-prim" onclick="saveMeter()">]] .. t("settings.save_meter") .. [[</button>
       <div id="meter-msg" class="status-line"></div>

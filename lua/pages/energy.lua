@@ -94,7 +94,8 @@ return function()
     var h='<p style="margin:0 0 8px">Mindestpreis <b>'+f(p.mindestpreis,3)+'</b> · Höchstpreis <b>'+f(p.hoechstpreis,3)+'</b> FND/kWh · Reichweite '+f(p.max_km,0)+' km<br>'+
       'Netzentgelt '+f(p.netz_grund,3)+' + '+f(p.netz_je_km,4)+' FND/kWh je km Luftlinie'+(p.netz_wallet?'':' <span class="meta">(nur vorgemerkt – kein Empfänger eingetragen)</span>')+'</p>'+
       '<p class="meta" style="margin:0 0 12px">Budget der Zähler-Wallet <code>'+esc((d.wallet||'').slice(0,10))+'…</code>: <b>'+f(d.guthaben_fnd,4)+' FND</b>'+
-      (d.guthaben_fnd>0?'':' – ohne Guthaben läuft dein Bezug vollständig über den Tarif.')+'</p>';
+      (d.guthaben_fnd>0?'':' – ohne Guthaben läuft dein Bezug vollständig über den Tarif.')+
+      (d.offen_fnd>0?' · <b>'+f(d.offen_fnd,4)+' FND</b> angenommen, noch nicht überwiesen – gezahlt wird gebündelt, spätestens nach '+(d.zahlintervall_min||60)+' min':'')+'</p>';
     function tab(titel, zeilen, spalten){
       if(!zeilen||!zeilen.length) return '<h4 style="margin:10px 0 4px">'+titel+'</h4><p class="meta">Noch nichts.</p>';
       return '<h4 style="margin:10px 0 4px">'+titel+'</h4><div style="overflow-x:auto"><table class="data-table"><tr>'+spalten.map(function(s){return '<th>'+s[0]+'</th>';}).join('')+'</tr>'+
@@ -106,6 +107,13 @@ return function()
     h+=tab('Verkauft', d.verkauft, [['Viertelstunde',function(z){return zeit(z.von);}],['Einspeisung',function(z){return f(z.einspeisung_kwh,3)+' kWh';}],
       ['zugeteilt',function(z){var s=0;(z.posten||[]).forEach(function(x){s+=Number(x.kwh||0);});return f(s,3)+' kWh an '+(z.posten||[]).length;}],
       ['gehandelt',function(z){return z.sekundlich ? 'sekündlich' : 'je Viertelstunde, Knappheit '+f(z.knappheit*100,0)+' %';}],['Energiepreis',function(z){return f(z.preis,4)+' FND/kWh';}]]);
+    // R844: Forderungen als Erzeuger – wer Posten älter als 2 h nicht bezahlt
+    // hat, ist säumig und bekommt keine Zuteilungen, bis er nachzahlt.
+    if(d.forderungen&&d.forderungen.length){
+      h+=tab('Forderungen an Abnehmer', d.forderungen, [['Abnehmer',function(z){return esc(z.verbraucher);}],
+        ['angenommen',function(z){return f(z.angenommen_fnd,4)+' FND';}],['bezahlt',function(z){return f(z.bezahlt_fnd,4)+' FND';}],
+        ['Stand',function(z){return z.saeumig?'<b style="color:var(--red)">säumig</b> – '+f(z.ueberfaellig_fnd,4)+' FND überfällig':'in Ordnung';}]]);
+    }
     b.innerHTML='<div id="markt-live" style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px"><span class="meta">Live: warte auf Daten …</span></div>'+h;
     live();
   }).catch(function(){});

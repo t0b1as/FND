@@ -138,12 +138,11 @@ func (s *Server) zaehlerWallet() (*ecdsa.PrivateKey, chain.Address, error) {
 // zaehlerEinreichen signiert eine Transaktion mit der Zähler-Wallet und gibt
 // sie in den Mempool. Zähler-Transaktionen tragen keine Gebühr.
 func (s *Server) zaehlerEinreichen(key *ecdsa.PrivateKey, adr chain.Address, typ chain.TxType, nutzlast []byte) error {
-	_, nonce := s.chain.AccountInfo(adr)
-	for _, tx := range s.mempool.Pending() {
-		if tx != nil && tx.From == adr {
-			nonce++ // noch nicht aufgenommene eigene Transaktionen mitzählen
-		}
-	}
+	// R844: gemeinsame Nonce-Vergabe mit den Zahlungen des Handels – sonst
+	// konnten zwei Transaktionen derselben Wallet dieselbe Nonce bekommen.
+	zaehlerTxMu.Lock()
+	defer zaehlerTxMu.Unlock()
+	nonce := s.zaehlerNaechsteNonce(adr)
 	tx, err := chain.BuildSignedTx(key, typ, nil, nutzlast, nonce)
 	if err != nil {
 		return err
