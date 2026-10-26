@@ -231,7 +231,15 @@ const (
 
 var marktMu sync.Mutex
 
+// marktPosition: der Standort des Nodes (Einstellungen → Profil oder Karte;
+// beide schreiben in denselben Standortspeicher). Zähler und Node stehen am
+// selben Ort – es gibt nur EINE Position (R841).
 func (s *Server) marktPosition() (float64, float64) {
+	if s.locationStore != nil {
+		if l := s.locationStore.get(); l.Lat != 0 || l.Lon != 0 {
+			return l.Lat, l.Lon
+		}
+	}
 	if s.cfg.NodeLat != 0 || s.cfg.NodeLon != 0 {
 		return s.cfg.NodeLat, s.cfg.NodeLon
 	}
@@ -295,7 +303,7 @@ func (s *Server) marktLauf() {
 	}
 	lat, lon := s.marktPosition()
 	if lat == 0 && lon == 0 {
-		s.zaehlerWarnen("markt-position", "Nachbarschaftshandel: Position fehlt (FUNDUS_NODE_LAT/LON)")
+		s.zaehlerWarnen("markt-position", "Nachbarschaftshandel: Standort fehlt (Einstellungen → Karte)")
 		return
 	}
 	jetzt := time.Now()

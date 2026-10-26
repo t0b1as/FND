@@ -95,7 +95,7 @@ return function()
     var p=d.parameter||{};
     if(!p.teilnahme){
       b.innerHTML='<p>Nicht aktiv. Ein Teil deines Stroms würde je Viertelstunde mit Nachbarn verrechnet, der Rest wie gewohnt über deinen Tarif.</p>'+
-        '<p class="meta">Einschalten in <code>/etc/fundus/fundus.env</code>: <code>FUNDUS_MARKT_TEILNAHME=1</code>, Position mit <code>FUNDUS_NODE_LAT</code> / <code>FUNDUS_NODE_LON</code>.</p>';
+        '<p class="meta">Einschalten in <code>/etc/fundus/fundus.env</code>: <code>FUNDUS_MARKT_TEILNAHME=1</code>, den Standort unter <a href="/settings">Einstellungen</a> auf der Karte.</p>';
       return;
     }
     var h='<p style="margin:0 0 8px">Mindestpreis <b>'+f(p.mindestpreis,3)+'</b> · Höchstpreis <b>'+f(p.hoechstpreis,3)+'</b> FND/kWh · Reichweite '+f(p.max_km,0)+' km<br>'+

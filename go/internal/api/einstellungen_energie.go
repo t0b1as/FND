@@ -40,6 +40,15 @@ var (
 )
 
 // energieSchluessel: erlaubte Einträge und ihre Prüfung (leer ist immer erlaubt).
+// haVorgaben: dieselben Vorgaben wie im Zählerleser (meter.readHomeAssistant).
+var haVorgaben = map[string]string{
+	"FUNDUS_HA_BEZUG":         "sensor.smart_meter_positive_wirkenergie_insgesamt",
+	"FUNDUS_HA_EINSPEISUNG":   "sensor.smart_meter_negative_wirkenergie_insgesamt",
+	"FUNDUS_HA_LEISTUNG":      "sensor.smart_meter_summe_der_aktiven_momentanleistung",
+	"FUNDUS_HA_ZAEHLERNUMMER": "sensor.smart_meter_messpunkt_id_1",
+	"FUNDUS_HA_INTERVALL":     "1",
+}
+
 var energieSchluessel = map[string]func(string) bool{
 	"FUNDUS_METER_PROTOCOL": func(v string) bool {
 		switch v {
@@ -60,8 +69,6 @@ var energieSchluessel = map[string]func(string) bool{
 		return reEntitaet.MatchString(v) || reZaehlerNr.MatchString(v)
 	},
 	"FUNDUS_HA_INTERVALL":       zahlZwischen(1, 3600),
-	"FUNDUS_NODE_LAT":           zahlZwischen(-90, 90),
-	"FUNDUS_NODE_LON":           zahlZwischen(-180, 180),
 	"FUNDUS_MARKT_TEILNAHME":    func(v string) bool { return v == "0" || v == "1" },
 	"FUNDUS_MARKT_MINDESTPREIS": zahlZwischen(0, 1000),
 	"FUNDUS_MARKT_HOECHSTPREIS": zahlZwischen(0, 1000),
@@ -138,12 +145,6 @@ func energieInKonfig(cfg *config.Config) {
 	if v, ok := os.LookupEnv("FUNDUS_METER_PROTOCOL"); ok {
 		cfg.MeterProtocol = v
 	}
-	if f, err := strconv.ParseFloat(os.Getenv("FUNDUS_NODE_LAT"), 64); err == nil {
-		cfg.NodeLat = f
-	}
-	if f, err := strconv.ParseFloat(os.Getenv("FUNDUS_NODE_LON"), 64); err == nil {
-		cfg.NodeLon = f
-	}
 }
 
 // GET /api/v1/admin/energie
@@ -160,13 +161,17 @@ func (s *Server) energieEinstellungenGet(c *gin.Context) {
 			quelle[k] = "oberflaeche"
 		} else if os.Getenv(k) != "" {
 			quelle[k] = "fundus.env"
+		} else if v, ok := haVorgaben[k]; ok {
+			// R841: Vorgabe des Zählerlesers mitliefern – sonst schickte der
+			// Verbindungstest den Platzhaltertext als Entität.
+			aktuell[k], quelle[k] = v, "vorgabe"
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"werte": aktuell, "quelle": quelle,
 		"token_gesetzt":  os.Getenv("FUNDUS_HA_TOKEN") != "",
 		"zaehler_aktiv":  s.cfg.MeterProtocol,
-		"position":       gin.H{"lat": s.cfg.NodeLat, "lon": s.cfg.NodeLon},
+
 	})
 }
 
@@ -220,13 +225,7 @@ func (s *Server) energieEinstellungenSet(c *gin.Context) {
 	}
 	protokollVorher := s.cfg.MeterProtocol
 	energieAnwenden(neu)
-	// Position wirkt sofort; die Zählerquelle erst nach dem Neustart.
-	if f, err := strconv.ParseFloat(os.Getenv("FUNDUS_NODE_LAT"), 64); err == nil {
-		s.cfg.NodeLat = f
-	}
-	if f, err := strconv.ParseFloat(os.Getenv("FUNDUS_NODE_LON"), 64); err == nil {
-		s.cfg.NodeLon = f
-	}
+	// Die Zählerquelle wirkt erst nach dem Neustart, alles andere sofort.
 	neustart := os.Getenv("FUNDUS_METER_PROTOCOL") != protokollVorher
 	c.JSON(http.StatusOK, gin.H{"ok": true, "neustart_noetig": neustart})
 }

@@ -862,12 +862,12 @@ document.addEventListener('DOMContentLoaded', updLoad);
       <div class="en-test" id="en-ha-erg"></div>
     </div>
 
-    <div class="en-abschnitt">Position dieses Nodes</div>
+    <div class="en-abschnitt">Standort (Node und Zähler)</div>
     <div class="en-grid">
-      <label for="en-lat">Breitengrad</label><input id="en-lat" data-k="FUNDUS_NODE_LAT" type="number" step="0.000001" placeholder="50.2856">
-      <label for="en-lon">Längengrad</label><input id="en-lon" data-k="FUNDUS_NODE_LON" type="number" step="0.000001" placeholder="8.9455">
+      <label for="en-lat">Breitengrad</label><input id="en-lat" type="number" step="0.000001" placeholder="50.2856">
+      <label for="en-lon">Längengrad</label><input id="en-lon" type="number" step="0.000001" placeholder="8.9455">
     </div>
-    <div class="set-hint" style="margin-top:6px">In die Karte klicken setzt die Position. <button type="button" class="btn-sm" id="en-gps">Mein Standort</button></div>
+    <div class="set-hint" style="margin-top:6px">In die Karte klicken setzt den Standort – derselbe wie oben im Profil. <button type="button" class="btn-sm" id="en-gps">Mein Standort</button></div>
     <div id="en-karte"></div>
 
     <div class="en-abschnitt">Nachbarschaftshandel</div>
@@ -912,6 +912,11 @@ document.addEventListener('DOMContentLoaded', updLoad);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19,
       attribution: '&copy; OpenStreetMap' }).addTo(karte);
     if (hat) markeSetzen(lat, lon, false);
+    // Leaflet kennt nur die Größe beim Anlegen. Verschiebt sich die Seite
+    // danach (andere Bereiche laden nach), bleiben Kacheln aus – deshalb bei
+    // jeder Größenänderung und kurz nach dem Start neu vermessen.
+    [100, 400, 1200].forEach(function(ms){ setTimeout(function(){ karte.invalidateSize(); }, ms); });
+    if (window.ResizeObserver) new ResizeObserver(function(){ karte.invalidateSize(); }).observe($('en-karte'));
     karte.on('click', function(e){
       $('en-lat').value = e.latlng.lat.toFixed(6);
       $('en-lon').value = e.latlng.lng.toFixed(6);
@@ -931,6 +936,12 @@ document.addEventListener('DOMContentLoaded', updLoad);
   };
   $('en-proto').addEventListener('change', sichtbar);
 
+  var ortVorher = null, ortPLZ = '';
+  var ortGeladen = fetch('/api/v1/admin/location', {credentials:'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(o){
+    if (o && (o.lat || o.lon)) { $('en-lat').value = Number(o.lat).toFixed(6); $('en-lon').value = Number(o.lon).toFixed(6); }
+    ortPLZ = (o && o.plz) || '';
+    ortVorher = $('en-lat').value + '|' + $('en-lon').value;
+  }).catch(function(){});
   fetch('/api/v1/admin/energie', {credentials:'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
     if (!d) return;
     var w = d.werte || {}, q = d.quelle || {};
@@ -945,14 +956,15 @@ document.addEventListener('DOMContentLoaded', updLoad);
       if (q[k]) {
         var hinweis = document.createElement('span');
         hinweis.className = 'en-quelle';
-        hinweis.textContent = q[k] === 'oberflaeche' ? ' aus der Oberfläche' : ' aus fundus.env' + (f.tagName === 'SELECT' && w[k] ? ': ' + w[k] : '');
+        hinweis.textContent = q[k] === 'oberflaeche' ? ' aus der Oberfläche' : q[k] === 'vorgabe' ? ' Vorgabe'
+          : ' aus fundus.env' + (f.tagName === 'SELECT' && w[k] ? ': ' + w[k] : '');
         var lab = document.querySelector('label[for="' + f.id + '"]');
         if (lab) lab.appendChild(hinweis);
       }
     });
     if (d.token_gesetzt) $('en-ha-token').placeholder = 'gesetzt – leer lassen, um ihn zu behalten';
-    sichtbar(); karteStarten();
-  }).catch(function(){ sichtbar(); karteStarten(); });
+    sichtbar(); ortGeladen.then(karteStarten);
+  }).catch(function(){ sichtbar(); ortGeladen.then(karteStarten); });
 
   $('en-ha-test').onclick = function(){
     var aus = $('en-ha-erg'); aus.textContent = 'Frage Home Assistant …';
@@ -979,8 +991,15 @@ document.addEventListener('DOMContentLoaded', updLoad);
     var tok = $('en-ha-token').value.trim();
     if (tok) werte.FUNDUS_HA_TOKEN = tok;
     $('en-status').textContent = 'Speichere …';
-    fetch('/api/v1/admin/energie', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ werte: werte }) }).then(function(r){ return r.json(); }).then(function(d){
+    var lat = parseFloat($('en-lat').value), lon = parseFloat($('en-lon').value);
+    var ort = (isFinite(lat) && isFinite(lon) && ($('en-lat').value + '|' + $('en-lon').value) !== ortVorher)
+      ? fetch('/api/v1/admin/location', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ lat: lat, lon: lon, plz: ortPLZ }) }).then(function(r){
+            if (!r.ok) throw new Error('Standort');
+            ortVorher = $('en-lat').value + '|' + $('en-lon').value; })
+      : Promise.resolve();
+    ort.then(function(){ return fetch('/api/v1/admin/energie', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ werte: werte }) }); }).then(function(r){ return r.json(); }).then(function(d){
       if (d.error) { $('en-status').textContent = '✗ ' + d.error; return; }
       $('en-ha-token').value = '';
       $('en-status').textContent = d.neustart_noetig
