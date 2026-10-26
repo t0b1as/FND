@@ -812,6 +812,185 @@ document.addEventListener('DOMContentLoaded', updLoad);
   </div>
 </div>
 
+<!-- ── Zähler & Nachbarschaftshandel (R839) ──────────────────────────────── -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
+<style>
+.en-grid { display:grid; grid-template-columns: minmax(150px, 34%) 1fr; gap:8px 12px; align-items:center; }
+.en-grid label { font-size:13px; color:var(--text-dim, #9aa0b4); }
+.en-grid input, .en-grid select { width:100%; box-sizing:border-box; }
+.en-quelle { font-size:11px; color:var(--text-dim, #9aa0b4); }
+.en-abschnitt { margin:16px 0 8px; font-weight:600; font-size:14px; }
+#en-karte { height:260px; border-radius:10px; border:1px solid var(--border, #2e3348); margin-top:8px; }
+.en-test { font-size:13px; margin-top:6px; line-height:1.6; }
+@media (max-width:560px) { .en-grid { grid-template-columns: 1fr; } }
+</style>
+<div class="set-card" id="en-karte-card">
+  <div class="set-head"><h3>Zähler &amp; Nachbarschaftshandel</h3></div>
+  <div class="set-body">
+    <p class="set-hint" style="margin:0 0 10px">Hier gespeicherte Werte haben Vorrang vor der <code>fundus.env</code>; ein leeres Feld nimmt wieder den Wert von dort. Alles wirkt sofort – nur ein Wechsel der Zählerquelle braucht einen Neustart.</p>
+
+    <div class="en-abschnitt">Zähler</div>
+    <div class="en-grid">
+      <label for="en-proto">Quelle</label>
+      <select id="en-proto" data-k="FUNDUS_METER_PROTOCOL">
+        <option value="">aus (bzw. fundus.env)</option>
+        <option value="homeassistant">Home Assistant</option>
+        <option value="sml">SML – Lesekopf am Pi</option>
+        <option value="d0">D0 – Lesekopf am Pi</option>
+        <option value="http">HTTP – Shelly / Tasmota / Tibber</option>
+        <option value="mock">Test ohne Zähler</option>
+      </select>
+      <label for="en-mock" class="en-nur-mock">Testprofil</label>
+      <select id="en-mock" class="en-nur-mock" data-k="FUNDUS_METER_MOCK_PROFIL">
+        <option value="">Standard</option><option value="erzeuger">Erzeuger (PV)</option><option value="verbraucher">Verbraucher</option>
+      </select>
+    </div>
+
+    <div class="en-nur-ha">
+      <div class="en-abschnitt">Home Assistant</div>
+      <div class="en-grid">
+        <label for="en-ha-url">Adresse</label><input id="en-ha-url" data-k="FUNDUS_HA_URL" placeholder="http://homeassistant.local:8123">
+        <label for="en-ha-token">Zugriffstoken</label><input id="en-ha-token" type="password" autocomplete="off" placeholder="HA → Profil → Sicherheit → Langlebige Zugriffstoken">
+        <label for="en-ha-bezug">Zählerstand Bezug</label><input id="en-ha-bezug" data-k="FUNDUS_HA_BEZUG" placeholder="sensor.smart_meter_positive_wirkenergie_insgesamt">
+        <label for="en-ha-einsp">Zählerstand Einspeisung</label><input id="en-ha-einsp" data-k="FUNDUS_HA_EINSPEISUNG" placeholder="sensor.smart_meter_negative_wirkenergie_insgesamt">
+        <label for="en-ha-leist">Leistung (W)</label><input id="en-ha-leist" data-k="FUNDUS_HA_LEISTUNG" placeholder="sensor.smart_meter_summe_der_aktiven_momentanleistung">
+        <label for="en-ha-nr">Zählernummer</label><input id="en-ha-nr" data-k="FUNDUS_HA_ZAEHLERNUMMER" placeholder="sensor.smart_meter_messpunkt_id_1 oder Nummer vom Typenschild">
+        <label for="en-ha-int">Abfrage alle … s</label><input id="en-ha-int" data-k="FUNDUS_HA_INTERVALL" type="number" min="1" step="1" placeholder="1">
+      </div>
+      <button type="button" class="btn-sm" id="en-ha-test" style="margin-top:8px">Verbindung testen</button>
+      <div class="en-test" id="en-ha-erg"></div>
+    </div>
+
+    <div class="en-abschnitt">Position dieses Nodes</div>
+    <div class="en-grid">
+      <label for="en-lat">Breitengrad</label><input id="en-lat" data-k="FUNDUS_NODE_LAT" type="number" step="0.000001" placeholder="50.2856">
+      <label for="en-lon">Längengrad</label><input id="en-lon" data-k="FUNDUS_NODE_LON" type="number" step="0.000001" placeholder="8.9455">
+    </div>
+    <div class="set-hint" style="margin-top:6px">In die Karte klicken setzt die Position. <button type="button" class="btn-sm" id="en-gps">Mein Standort</button></div>
+    <div id="en-karte"></div>
+
+    <div class="en-abschnitt">Nachbarschaftshandel</div>
+    <div class="en-grid">
+      <label for="en-teil">Teilnehmen</label>
+      <select id="en-teil" data-k="FUNDUS_MARKT_TEILNAHME"><option value="">wie fundus.env</option><option value="1">ja</option><option value="0">nein</option></select>
+      <label for="en-min">Mindestpreis als Erzeuger (FND/kWh)</label><input id="en-min" data-k="FUNDUS_MARKT_MINDESTPREIS" type="number" min="0" step="0.001" placeholder="0.02">
+      <label for="en-max">Höchstpreis als Verbraucher (FND/kWh, inkl. Netzentgelt)</label><input id="en-max" data-k="FUNDUS_MARKT_HOECHSTPREIS" type="number" min="0" step="0.001" placeholder="0.30">
+      <label for="en-km">Reichweite (km Luftlinie)</label><input id="en-km" data-k="FUNDUS_MARKT_MAX_KM" type="number" min="0" step="0.5" placeholder="10">
+      <label for="en-ng">Netzentgelt Grundbetrag (FND/kWh)</label><input id="en-ng" data-k="FUNDUS_NETZ_GRUND" type="number" min="0" step="0.001" placeholder="0.01">
+      <label for="en-nk">Netzentgelt je km (FND/kWh)</label><input id="en-nk" data-k="FUNDUS_NETZ_JE_KM" type="number" min="0" step="0.0001" placeholder="0.004">
+      <label for="en-nw">Empfänger Netzentgelt</label><input id="en-nw" data-k="FUNDUS_NETZENTGELT_WALLET" placeholder="0x… – leer: nur berechnen, nicht überweisen">
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary" id="en-speichern" style="width:auto">Speichern</button>
+      <span id="en-status" class="set-hint"></span>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var felder = Array.prototype.slice.call(document.querySelectorAll('#en-karte-card [data-k]'));
+  var karte = null, marke = null;
+  var envProto = '';   // Zählerquelle aus der fundus.env, falls die Auswahl leer ist
+  function sichtbar(){
+    var p = $('en-proto').value || envProto;   // wirksame Quelle
+    document.querySelectorAll('#en-karte-card .en-nur-ha').forEach(function(e){ e.style.display = p === 'homeassistant' ? '' : 'none'; });
+    document.querySelectorAll('#en-karte-card .en-nur-mock').forEach(function(e){ e.style.display = p === 'mock' ? '' : 'none'; });
+  }
+  function markeSetzen(lat, lon, schwenken){
+    if (!karte || !isFinite(lat) || !isFinite(lon)) return;
+    if (!marke) marke = L.marker([lat, lon]).addTo(karte); else marke.setLatLng([lat, lon]);
+    if (schwenken) karte.setView([lat, lon], Math.max(karte.getZoom(), 14));
+  }
+  function karteStarten(){
+    if (typeof L === 'undefined') { setTimeout(karteStarten, 200); return; }
+    var lat = parseFloat($('en-lat').value || $('en-lat').placeholder), lon = parseFloat($('en-lon').value || $('en-lon').placeholder);
+    var hat = isFinite(lat) && isFinite(lon) && (lat !== 0 || lon !== 0);
+    karte = L.map('en-karte').setView(hat ? [lat, lon] : [51.1, 10.4], hat ? 15 : 6);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19,
+      attribution: '&copy; OpenStreetMap' }).addTo(karte);
+    if (hat) markeSetzen(lat, lon, false);
+    karte.on('click', function(e){
+      $('en-lat').value = e.latlng.lat.toFixed(6);
+      $('en-lon').value = e.latlng.lng.toFixed(6);
+      markeSetzen(e.latlng.lat, e.latlng.lng, false);
+    });
+  }
+  ['en-lat','en-lon'].forEach(function(id){
+    $(id).addEventListener('change', function(){ markeSetzen(parseFloat($('en-lat').value), parseFloat($('en-lon').value), true); });
+  });
+  $('en-gps').onclick = function(){
+    if (!navigator.geolocation) { $('en-status').textContent = 'Der Browser kennt keinen Standort.'; return; }
+    navigator.geolocation.getCurrentPosition(function(pos){
+      $('en-lat').value = pos.coords.latitude.toFixed(6);
+      $('en-lon').value = pos.coords.longitude.toFixed(6);
+      markeSetzen(pos.coords.latitude, pos.coords.longitude, true);
+    }, function(){ $('en-status').textContent = 'Standort nicht verfügbar – bitte in die Karte klicken.'; });
+  };
+  $('en-proto').addEventListener('change', sichtbar);
+
+  fetch('/api/v1/admin/energie', {credentials:'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
+    if (!d) return;
+    var w = d.werte || {}, q = d.quelle || {};
+    if (q.FUNDUS_METER_PROTOCOL === 'fundus.env') envProto = w.FUNDUS_METER_PROTOCOL || '';
+    felder.forEach(function(f){
+      var k = f.getAttribute('data-k');
+      // Nur Werte aus der Oberfläche ins Feld. Werte aus der fundus.env als
+      // Platzhalter – sonst würde "Speichern" sie stillschweigend übernehmen
+      // und spätere Änderungen in der fundus.env verdecken.
+      if (q[k] === 'oberflaeche') f.value = w[k] || '';
+      else if (w[k] && f.tagName !== 'SELECT') f.placeholder = w[k];
+      if (q[k]) {
+        var hinweis = document.createElement('span');
+        hinweis.className = 'en-quelle';
+        hinweis.textContent = q[k] === 'oberflaeche' ? ' aus der Oberfläche' : ' aus fundus.env' + (f.tagName === 'SELECT' && w[k] ? ': ' + w[k] : '');
+        var lab = document.querySelector('label[for="' + f.id + '"]');
+        if (lab) lab.appendChild(hinweis);
+      }
+    });
+    if (d.token_gesetzt) $('en-ha-token').placeholder = 'gesetzt – leer lassen, um ihn zu behalten';
+    sichtbar(); karteStarten();
+  }).catch(function(){ sichtbar(); karteStarten(); });
+
+  $('en-ha-test').onclick = function(){
+    var aus = $('en-ha-erg'); aus.textContent = 'Frage Home Assistant …';
+    fetch('/api/v1/admin/energie/ha-test', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ url: $('en-ha-url').value || $('en-ha-url').placeholder, token: $('en-ha-token').value,
+        bezug: $('en-ha-bezug').value || $('en-ha-bezug').placeholder, einspeisung: $('en-ha-einsp').value || $('en-ha-einsp').placeholder,
+        zaehlernummer: $('en-ha-nr').value || $('en-ha-nr').placeholder })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.fehler) { aus.textContent = '✗ ' + d.fehler; return; }
+      var e = d.ergebnis || {}, zeile = function(name, titel){
+        var x = e[name] || {};
+        return titel + ': ' + (x.fehler ? '✗ ' + x.fehler : '✓ ' + (x.wert || '') + (x.einheit ? ' ' + x.einheit : ''));
+      };
+      aus.innerHTML = '';
+      [zeile('zaehlernummer','Zählernummer'), zeile('bezug','Bezug'), zeile('einspeisung','Einspeisung')].forEach(function(t){
+        var div = document.createElement('div'); div.textContent = t; aus.appendChild(div);
+      });
+    }).catch(function(){ aus.textContent = '✗ Keine Antwort vom Node.'; });
+  };
+
+  $('en-speichern').onclick = function(){
+    var werte = {};
+    felder.forEach(function(f){ werte[f.getAttribute('data-k')] = f.value.trim(); });
+    var tok = $('en-ha-token').value.trim();
+    if (tok) werte.FUNDUS_HA_TOKEN = tok;
+    $('en-status').textContent = 'Speichere …';
+    fetch('/api/v1/admin/energie', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ werte: werte }) }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.error) { $('en-status').textContent = '✗ ' + d.error; return; }
+      $('en-ha-token').value = '';
+      $('en-status').textContent = d.neustart_noetig
+        ? '✓ Gespeichert. Die neue Zählerquelle gilt nach einem Neustart: sudo systemctl restart fundus-node'
+        : '✓ Gespeichert – wirkt sofort.';
+    }).catch(function(){ $('en-status').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+})();
+</script>
+
 <!-- ── Filesharing / Storage ────────────────────────────────── -->
 <div class="set-card">
   <div class="set-head"><h3>]] .. t("settings.storage_head") .. [[</h3></div>

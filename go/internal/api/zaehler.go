@@ -251,9 +251,11 @@ func (s *Server) zaehlerLauf() {
 		}
 		m, vorhanden := s.chain.GetMeter(id)
 		if !vorhanden {
-			if ws.Sign() == 0 {
-				continue // noch keine Einspeisung – nichts zu zertifizieren
-			}
+			// R838: JEDEN Zähler registrieren, auch reine Verbraucher (Einspeise-
+			// zählwerk null). Gehandelt wird auch der Bezug; die Registrierung
+			// bindet die Zählernummer an diese Wallet, sodass niemand sonst sie
+			// belegen kann. Zertifiziert wird weiterhin nur echte Einspeisung
+			// (siehe unten: keine leeren Zertifikate).
 			s.zaehlerStandMerken(idHex, tok)
 			if err := s.zaehlerEinreichen(key, adr, chain.TxMeterRegister,
 				chain.MeterRegisterNutzlast(id, 0, chain.UnitWs, ws, ts)); err != nil {

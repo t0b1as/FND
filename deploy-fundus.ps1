@@ -862,7 +862,21 @@ if ((-not $envPresent) -or $WriteEnv) {
         "# Filesharing: -1=auto 50% des freien Speichers, 0=aus, >0=feste GB",
         "FUNDUS_STORAGE_OFFER_GB=-1",
         "FUNDUS_SWAP_HTLC_PROGRAM=$(if ($SwapHtlcProgram) { $SwapHtlcProgram } else { 'B1ysbjJT1f7dWvVwMp55oo1KYu4GwnwKeCF12DhL7K2N' })",
-        "FUNDUS_SHOP_SOLANA_RPC=$(if ($SolanaRpc) { $SolanaRpc } else { 'https://api.mainnet-beta.solana.com' })"
+        "FUNDUS_SHOP_SOLANA_RPC=$(if ($SolanaRpc) { $SolanaRpc } else { 'https://api.mainnet-beta.solana.com' })",
+        "# ── Zähler (optional): sml | d0 | http | homeassistant | mock",
+        "#FUNDUS_METER_PROTOCOL=",
+        "# Bei homeassistant: Adresse und langlebiges Zugriffstoken (HA → Profil → Sicherheit)",
+        "#FUNDUS_HA_URL=http://homeassistant.local:8123",
+        "#FUNDUS_HA_TOKEN=",
+        "# ── Position dieses Nodes (Nachbarschaftshandel, Karte)",
+        "#FUNDUS_NODE_LAT=",
+        "#FUNDUS_NODE_LON=",
+        "# ── Nachbarschaftshandel: Teil des Stroms je Viertelstunde mit Nachbarn verrechnen,",
+        "#    Rest wie gewohnt über den Tarif. Braucht Zähler und Position.",
+        "#FUNDUS_MARKT_TEILNAHME=1",
+        "#FUNDUS_MARKT_MINDESTPREIS=0.02",
+        "#FUNDUS_MARKT_HOECHSTPREIS=0.30",
+        "#FUNDUS_MARKT_MAX_KM=10"
     )
     # Mit \n verbinden (Unix-Zeilenenden), via base64 sicher uebertragen
     $envText  = ($envLines -join "`n") + "`n"

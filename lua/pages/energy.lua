@@ -73,6 +73,23 @@ return function()
   function f(n, d){ return Number(n||0).toLocaleString('de-DE', {minimumFractionDigits:d, maximumFractionDigits:d}); }
   function zeit(u){ var d=new Date(Number(u)*1000); return d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit'})+' '+d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'}); }
   function esc(t){ return String(t==null?'':t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  // R840: Live-Handel alle 2 s – dasselbe Signal liefert /api/v1/markt/live
+  // an Home Assistant (REST-Sensor) für Automationen.
+  var liveT=null;
+  function live(){
+    clearTimeout(liveT);
+    fetch('/api/v1/markt/live',{credentials:'same-origin'}).then(function(r){return r.ok?r.json():null;}).then(function(d){
+      var el=document.getElementById('markt-live'); if(!el||!d) return;
+      var t;
+      if(d.rolle==='erzeuger'){
+        t='<b>Du speist ein:</b> '+f(d.einspeisung_w,0)+' W · an '+(d.abnehmer||0)+' Nachbarn: <b>'+f(d.zugeteilt_w,0)+' W</b> · Energiepreis <b>'+f(d.preis,4)+'</b> FND/kWh · Knappheit '+f((d.knappheit||0)*100,0)+' %';
+      } else if(d.rolle==='verbraucher'){
+        t='<b>Du beziehst:</b> '+f(d.bezug_w,0)+' W · davon vom Nachbarn <b>'+f(d.vom_nachbarn_w,0)+' W</b>'+
+          (d.bester_preis!=null?' · bester Preis <b>'+f(d.bester_preis,4)+'</b> FND/kWh inkl. Netzentgelt':' · gerade kein Angebot in Reichweite');
+      } else t='<span class="meta">Noch keine Sekundendaten.</span>';
+      el.innerHTML='<span class="meta">Live · </span>'+t;
+    }).catch(function(){}).then(function(){ liveT=setTimeout(live,2000); });
+  }
   fetch('/api/v1/markt/status',{credentials:'same-origin'}).then(function(r){return r.ok?r.json():null;}).then(function(d){
     var b=document.getElementById('markt-body'); if(!d){ b.innerHTML='<p class="meta">Nicht verfügbar.</p>'; return; }
     var p=d.parameter||{};
@@ -95,8 +112,9 @@ return function()
       ['Energie',function(z){return f(z.energie_fnd,4)+' FND';}],['Netzentgelt',function(z){return f(z.netz_fnd,4)+' FND';}]]);
     h+=tab('Verkauft', d.verkauft, [['Viertelstunde',function(z){return zeit(z.von);}],['Einspeisung',function(z){return f(z.einspeisung_kwh,3)+' kWh';}],
       ['zugeteilt',function(z){var s=0;(z.posten||[]).forEach(function(x){s+=Number(x.kwh||0);});return f(s,3)+' kWh an '+(z.posten||[]).length;}],
-      ['Knappheit',function(z){return f(z.knappheit*100,0)+' %';}],['Energiepreis',function(z){return f(z.preis,4)+' FND/kWh';}]]);
-    b.innerHTML=h;
+      ['gehandelt',function(z){return z.sekundlich ? 'sekündlich' : 'je Viertelstunde, Knappheit '+f(z.knappheit*100,0)+' %';}],['Energiepreis',function(z){return f(z.preis,4)+' FND/kWh';}]]);
+    b.innerHTML='<div id="markt-live" style="margin:0 0 12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px"><span class="meta">Live: warte auf Daten …</span></div>'+h;
+    live();
   }).catch(function(){});
 })();
 </script>

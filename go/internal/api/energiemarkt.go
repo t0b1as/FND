@@ -316,11 +316,13 @@ func (s *Server) marktLauf() {
 	for nr, geraet := range zaehler {
 		alt, _ := s.store.Get(storage.RecordMarktAngebot, nr)
 		if alt != nil && alt.Data != nil && time.Since(alt.UpdatedAt) < 30*time.Minute &&
-			fmt.Sprint(alt.Data["mindest"]) == fmt.Sprint(p.Mindest) && fmt.Sprint(alt.Data["hoechst"]) == fmt.Sprint(p.Hoechst) {
+			fmt.Sprint(alt.Data["mindest"]) == fmt.Sprint(p.Mindest) && fmt.Sprint(alt.Data["hoechst"]) == fmt.Sprint(p.Hoechst) &&
+			fmt.Sprint(alt.Data["peer"]) == s.nodeID() && fmt.Sprint(alt.Data["lat"]) == fmt.Sprint(lat) {
 			continue
 		}
 		s.marktVeroeffentlichen(&storage.Record{ID: nr, Type: storage.RecordMarktAngebot, Data: map[string]any{
-			"zaehler": nr, "geraet": geraet, "wallet": strings.ToLower(wallet.Hex()),
+			// peer (R840): Nur dieser Node darf im Sekundenhandel für den Zähler sprechen.
+			"zaehler": nr, "geraet": geraet, "wallet": strings.ToLower(wallet.Hex()), "peer": s.nodeID(),
 			"lat": lat, "lon": lon, "mindest": p.Mindest, "hoechst": p.Hoechst, "max_km": p.MaxKm,
 		}})
 	}
@@ -351,11 +353,20 @@ func (s *Server) marktLauf() {
 					}
 				}
 				erz = append(erz, ich)
-				posten, knapp, preis := marktZuteilen(ich, erz, verb, p)
-				s.marktVeroeffentlichen(&storage.Record{ID: zid, Type: storage.RecordMarktZuteilung, Data: map[string]any{
-					"erzeuger": w.Zaehler, "von": w.Von, "einspeisung_kwh": e,
-					"knappheit": knapp, "preis": preis, "posten": posten,
-				}})
+				// R840: Sekundensummen haben Vorrang – gehandelt wurde jede Sekunde,
+				// hier wird nur dokumentiert (gedeckelt auf die unterschriebene
+				// Einspeisung). Ohne Sekundendaten die Rechnung je Viertelstunde.
+				daten := map[string]any{"erzeuger": w.Zaehler, "von": w.Von, "einspeisung_kwh": e}
+				posten, preis := marktSekundenPosten(w.Von, e, p)
+				if posten != nil {
+					daten["sekundlich"] = true
+				} else {
+					var knapp float64
+					posten, knapp, preis = marktZuteilen(ich, erz, verb, p)
+					daten["knappheit"] = knapp
+				}
+				daten["preis"], daten["posten"] = preis, posten
+				s.marktVeroeffentlichen(&storage.Record{ID: zid, Type: storage.RecordMarktZuteilung, Data: daten})
 				if s.log != nil && len(posten) > 0 {
 					s.log.Info("Nachbarschaftshandel: zugeteilt", zap.String("zaehler", w.Zaehler),
 						zap.Int("abnehmer", len(posten)), zap.Float64("preis", preis))
@@ -635,5 +646,8 @@ func (s *Server) marktStatus(c *gin.Context) {
 
 func (s *Server) registerMarkt(r *gin.Engine) {
 	r.GET("/api/v1/markt/status", s.marktStatus)
+	r.GET("/api/v1/markt/live", s.marktLive) // R840: Preissignal, z.B. für Home Assistant
+	s.registerMarktSekunde()
 	go s.marktSchleife()
+	go s.marktSekundeSchleife()
 }

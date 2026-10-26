@@ -65,6 +65,9 @@ func main() {
 	// -------------------------------------------------------------------------
 	cfg := config.Load(log)
 	cfg.MustValidate(log)
+	// R839: Energie-Einstellungen aus der Oberfläche haben Vorrang vor der
+	// fundus.env – hier, bevor der Zählerleser angelegt wird.
+	api.EnergieEinstellungenLaden(cfg)
 	log.Info("Config loaded",
 		zap.String("dataDir", cfg.DataDir),
 		zap.Int("port", cfg.Port),
@@ -317,13 +320,17 @@ func main() {
 				log.Warn("Meter reader start failed", zap.Error(err))
 			} else {
 				meterTokens = tokens
-				log.Info("Meter reader started",
-					zap.String("protocol",  cfg.MeterProtocol),
-					zap.String("port",      cfg.MeterPort),
-					zap.Int("baud",        cfg.MeterBaudRate),
-					zap.String("parity",   cfg.MeterParity),
-					zap.String("meterID",  cfg.MeterID),
-				)
+				// R838: Schnittstelle/Baud nur bei Lesekopf am Pi – bei HA, HTTP oder
+				// Test wären sie irreführend.
+				felder := []zap.Field{zap.String("protocol", cfg.MeterProtocol)}
+				if cfg.MeterProtocol == "sml" || cfg.MeterProtocol == "d0" {
+					felder = append(felder, zap.String("port", cfg.MeterPort),
+						zap.Int("baud", cfg.MeterBaudRate), zap.String("parity", cfg.MeterParity))
+				}
+				if cfg.MeterID != "" {
+					felder = append(felder, zap.String("meterID", cfg.MeterID))
+				}
+				log.Info("Meter reader started", felder...)
 
 				// Token → Storage + P2P-Publish im Hintergrund
 				go func() {

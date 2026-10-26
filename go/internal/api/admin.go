@@ -37,6 +37,9 @@ func (s *Server) registerAdminRoutes() {
 		g.GET("/update/status",    s.updateStatus)
 		g.GET("/solana/rpc",       s.adminSolRPCGet)  // Solana-Zugang: Liste + Zustand
 		g.POST("/solana/rpc",      s.adminSolRPCSet)  // Solana-Zugang speichern (leer = fundus.env)
+		g.GET("/energie",          s.energieEinstellungenGet) // R839: Zähler, Home Assistant, Position, Handel
+		g.POST("/energie",         s.energieEinstellungenSet)
+		g.POST("/energie/ha-test", s.energieHATest)
 		g.POST("/update/check",    s.updateCheck)
 		g.POST("/update/apply",    s.updateApply)
 		g.POST("/update/auto",     s.updateAutoSet)   // Automatik umschalten (R664)
