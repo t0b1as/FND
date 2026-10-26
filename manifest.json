@@ -1,8 +1,8 @@
 {
-  "version": "R835",
-  "description": "FUNDUS R835 - energy settlement",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R835/FND-R835-update.zip",
-  "node_argon2": "ade25f3d95b6bf7e2c152fc2c8643608d40c6b8f2c45001b4afbb45f00a18648",
-  "published_at": "2026-10-26T06:48:59.5133314Z",
-  "signature": "0x3d2cb99e3389d69a0dc428b193e69b0e6c84ab93bd53b74fc8215b4599d10465446bf88d33f557870907ea0a2f94935ffcbda31b6efa3f1beb63c39650a73a221c"
+  "version": "R836",
+  "description": "FUNDUS R836 - energy settlement",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R836/FND-R836-update.zip",
+  "node_argon2": "2dd747e78b776432fbc82f54a476d18c6537327d1416868b4b388530be7c7676",
+  "published_at": "2026-10-26T07:03:30.4899361Z",
+  "signature": "0x1e2d6a28682a33bba89b897f8ecee1ae8e08ca3ffc31783bc00434ba3205a88531ccefd29be9515854099c8b6e84eba73dc5550efc21fc36e7899b0d53e497991c"
 }
