@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"go.uber.org/zap"
@@ -163,13 +164,23 @@ func (c *Config) Validate(log *zap.Logger) ValidationResult {
 
 	// ── 4. Meter-Prüfungen ──────────────────────────────────────────────────
 	if c.MeterProtocol != "" {
-		validProtocols := map[string]bool{"sml": true, "d0": true, "http": true, "mock": true}
+		// R836: homeassistant/ha ergänzt (R833 hatte die Quelle nur im
+		// Zählerleser eingebaut – die Prüfung hier hielt den Node dann an).
+		validProtocols := map[string]bool{"sml": true, "d0": true, "http": true, "mock": true,
+			"homeassistant": true, "ha": true}
 		if !validProtocols[c.MeterProtocol] {
 			r.addError(fmt.Sprintf(
-				"FUNDUS_METER_PROTOCOL=%q ungültig. Erlaubt: sml, d0, http, mock.",
+				"FUNDUS_METER_PROTOCOL=%q ungültig. Erlaubt: sml, d0, http, mock, homeassistant.",
 				c.MeterProtocol,
 			))
 			r.OK = false
+		}
+		// Fehlende Zugangsdaten nur WARNEN: Der Zähler ist optional, eine
+		// unvollständige Zählerkonfiguration soll nie den ganzen Node anhalten.
+		if c.MeterProtocol == "homeassistant" || c.MeterProtocol == "ha" {
+			if strings.TrimSpace(os.Getenv("FUNDUS_HA_URL")) == "" || strings.TrimSpace(os.Getenv("FUNDUS_HA_TOKEN")) == "" {
+				r.addWarning("FUNDUS_METER_PROTOCOL=homeassistant, aber FUNDUS_HA_URL oder FUNDUS_HA_TOKEN fehlt – der Zähler liest nichts.")
+			}
 		}
 		if c.MeterProtocol == "http" && c.MeterHTTPURL == "" {
 			r.addError("FUNDUS_METER_PROTOCOL=http aber FUNDUS_METER_HTTP_URL fehlt.")

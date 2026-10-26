@@ -754,6 +754,7 @@ document.addEventListener('DOMContentLoaded', updLoad);
         <option value="sml">]] .. t("settings.proto_sml") .. [[</option>
         <option value="d0">]] .. t("settings.proto_d0") .. [[</option>
         <option value="http">HTTP – Shelly EM / Tasmota / Tibber Pulse</option>
+        <option value="homeassistant">Home Assistant – Lesekopf über HA (Zugang in fundus.env: FUNDUS_HA_URL, FUNDUS_HA_TOKEN)</option>
         <option value="mock">]] .. t("settings.proto_mock") .. [[</option>
       </select>
     </div>
@@ -1142,7 +1143,8 @@ const ST = ]] .. (require("cjson.safe").encode({
 }) or "{}") .. [[;
 function onProtoChange() {
   const proto = document.getElementById('s-proto').value;
-  document.getElementById('serial-fields').style.display = (proto==='http'||proto==='') ? 'none' : '';
+  // R836: serielle Felder nur für Lesekopf direkt am Pi (SML, D0)
+  document.getElementById('serial-fields').style.display = (proto==='sml'||proto==='d0') ? '' : 'none';
   document.getElementById('http-fields').style.display   = proto==='http' ? '' : 'none';
 }
 
