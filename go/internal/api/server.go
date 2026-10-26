@@ -377,6 +377,8 @@ func (s *Server) registerRoutes() {
 	s.registerFeedRoutes(r)
 	// Transaktionsindex (R823): Buchungen je Wallet – siehe txindex.go.
 	s.registerTxIndex(r)
+	// Zähler-Zertifikate (R827): Telegramm → Chain – siehe zaehler.go.
+	s.registerZaehler(r)
 
 	gb := r.Group("/api/v1/groupbuy")
 	{
@@ -449,11 +451,22 @@ func (s *Server) registerRoutes() {
 	}
 
 	// Zertifikate
+	// R826: Freie Zertifikate abgeschaltet. Sie standen nicht auf der Chain,
+	// trugen keine Unterschrift ihres Ausstellers, und "Aussteller" war freier
+	// Text – bis hin zu amtlich geregelten Arten (Herkunftsnachweis,
+	// Energieausweis, CO2-Zertifikat) im Namen von Behörden. Auch die Art
+	// "Smartmeter-Lesung" war nur von Hand eingetippt. Neue werden abgelehnt,
+	// vorhandene nicht mehr ausgeliefert. Zählerablesungen laufen über
+	// /api/v1/energy (Zählerleser, Telegramme).
 	certs := r.Group("/api/v1/certificates")
 	{
-		certs.GET("",      s.listCertificates)
-		certs.POST("",     s.createCertificate)
-		certs.GET("/:id",  s.getCertificate)
+		certs.GET("", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"records": []any{}}) })
+		certs.POST("", func(c *gin.Context) {
+			c.JSON(http.StatusGone, gin.H{"error": "Freie Zertifikate gibt es nicht mehr. Zählerablesungen kommen direkt aus dem Zähler."})
+		})
+		certs.GET("/:id", func(c *gin.Context) {
+			c.JSON(http.StatusGone, gin.H{"error": "Freie Zertifikate werden nicht mehr angezeigt."})
+		})
 	}
 
 	// Jobs
@@ -498,7 +511,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R825"
+const NodeRevision = "R831"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -1131,58 +1144,9 @@ func (s *Server) deleteListing(c *gin.Context) {
 //  Handler: Energie-Token
 // =============================================================================
 
-func (s *Server) listEnergyTokens(c *gin.Context) {
-	records, err := s.store.List(storage.RecordEnergy)
-	if err != nil {
-		s.internalError(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"tokens": records, "count": len(records)})
-}
+// listEnergyTokens: siehe ablesung.go (R828).
 
-func (s *Server) createEnergyToken(c *gin.Context) {
-	var token storage.EnergyToken
-	if err := c.ShouldBindJSON(&token); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if token.Timestamp.IsZero() {
-		token.Timestamp = time.Now()
-	}
-
-	ownerID := ""
-	if s.node != nil {
-		ownerID = s.node.ID().String()
-	}
-	record := &storage.Record{
-		ID:        generateID(),
-		Type:      storage.RecordEnergy,
-		OwnerID:   ownerID,
-		CreatedAt: time.Now(),
-		Data: map[string]any{
-			"timestamp":     token.Timestamp,
-			"meter_id":      token.MeterID,
-			"lat":           token.Lat,
-			"lon":           token.Lon,
-			"kwh":           token.KWh,
-			"generator_lat": token.GeneratorLat,
-			"generator_lon": token.GeneratorLon,
-		},
-	}
-
-	if err := s.store.Put(record); err != nil {
-		s.internalError(c, err)
-		return
-	}
-
-	if s.node != nil {
-		if data, err := marshalRecord(record); err == nil {
-			_ = s.node.Publish(c.Request.Context(), p2p.TopicEnergy, data)
-		}
-	}
-
-	c.JSON(http.StatusCreated, record)
-}
+// createEnergyToken: siehe ablesung.go (R828).
 
 func (s *Server) getEnergyToken(c *gin.Context) {
 	s.getRecord(c, storage.RecordEnergy)

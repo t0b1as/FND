@@ -273,6 +273,9 @@ func main() {
 	// -------------------------------------------------------------------------
 	var meterTokens <-chan meter.Token
 
+	// R830: Verweis auf den Datei-Speicher für die Zähler-Wurzel. Der Speicher
+	// entsteht erst nach dem Zählerleser; bis dahin liefert die Wurzel nil.
+	var zaehlerWurzelFS atomic.Pointer[filestore.FileStore]
 	if cfg.MeterProtocol != "" {
 		meterCfg := meter.Config{
 			Protocol:     cfg.MeterProtocol,
@@ -289,6 +292,20 @@ func main() {
 			GeneratorLon: cfg.MeterGenLon,
 			SigningKeyHex: cfg.MeterSignKey,
 			Interval:     time.Second,
+			// R830: Geräteschlüssel aus den Seed-Wörtern des Nodes und der
+			// Zählernummer – keine Schlüsseldatei. Der Datei-Speicher entsteht
+			// erst weiter unten; zaehlerWurzelFS wird dort gefüllt.
+			GeraetWurzel: func() []byte {
+				fsz := zaehlerWurzelFS.Load()
+				if fsz == nil {
+					return nil
+				}
+				k, _ := fsz.ConsensusSigner()
+				if k == nil {
+					return nil
+				}
+				return crypto.FromECDSA(k)
+			},
 		}
 
 		reader, err := meter.NewReader(meterCfg, log)
@@ -310,15 +327,11 @@ func main() {
 
 				// Token → Storage + P2P-Publish im Hintergrund
 				go func() {
+					// R828: Sekundenwerte NICHT mehr ins Netz. Lokal wird die erste
+					// Ablesung jeder Minute gespeichert; Zertifizierer und
+					// Live-Anzeige bekommen jede (siehe api/ablesung.go).
 					for tok := range tokens {
-						rec := tokenToRecord(tok, node.ID().String())
-						if err := store.Put(rec); err != nil {
-							log.Warn("Meter token store failed", zap.Error(err))
-							continue
-						}
-						if data, err := rec.Marshal(); err == nil {
-							_ = node.Publish(ctx, p2p.TopicEnergy, data)
-						}
+						api.AblesungSpeichern(store, tok)
 					}
 				}()
 			}
@@ -431,6 +444,10 @@ func main() {
 				zap.String("dir",    cfg.StorageDir),
 			)
 		}
+		if fs != nil {
+			zaehlerWurzelFS.Store(fs) // R830
+		}
+
 	}
 	// R784: Der frühere else-Zweig („Filesharing deaktiviert") ist entfallen –
 	// es gibt keinen Fall mehr, in dem der Dateispeicher gar nicht startet.
@@ -912,6 +929,11 @@ func tokenToRecord(tok meter.Token, ownerID string) *storage.Record {
 			"generator_lat": tok.GeneratorLat,
 			"generator_lon": tok.GeneratorLon,
 			"signature":     tok.Signature,
+			// R827: ganze Wattsekunden und Ed25519-Gerätesignatur – prüfbar für jeden.
+			"ws_bezug":       tok.WsBezug,
+			"ws_einspeisung": tok.WsEinspeisung,
+			"geraet":         tok.GeraetPub,
+			"geraet_sig":     tok.GeraetSig,
 		},
 	}
 }

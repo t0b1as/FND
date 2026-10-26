@@ -70,10 +70,10 @@ local routes = {
     -- Zertifikate
     { method = "GET",  pattern = "^/certificates$",
       handler = require "pages.certificates" },
-    { method = "GET",  pattern = "^/certificates/new$",
-      handler = require "pages.certificate_new" },
-    { method = "GET",  pattern = "^/certificates/([^/]+)$",
-      handler = require "pages.certificate_show" },
+    -- R826: Freie Zertifikate abgeschaltet – Formular und Einzelansicht
+    -- führen zur Übersicht, die jetzt die Zählerablesungen zeigt.
+    { method = "GET",  pattern = "^/certificates/.+$",
+      handler = function() return ngx.redirect("/certificates", 302) end },
 
     -- Jobs
     { method = "GET",  pattern = "^/jobs$",

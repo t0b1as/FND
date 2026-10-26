@@ -49,6 +49,11 @@ const (
 	RecordFeedMedia      RecordType = "feed_media"        // NUR LOKAL: welche Feed-Beiträge eine Datei nutzen (R817)
 	RecordTxIndex        RecordType = "txindex"           // NUR LOKAL: Buchungen je Adresse, Kennung "<adresse>/<höhe>-<tx>-<n>" (R823)
 	RecordTxIndexStand   RecordType = "txindex_stand"     // NUR LOKAL: bis zu welchem Block der Buchungsindex reicht (R823)
+	RecordZaehlerBeleg   RecordType = "zaehler_beleg"     // ÖFFENTLICH: signierte Ablesungen einer zertifizierten Periode (R827)
+	RecordZaehlerStand   RecordType = "zaehler_stand"     // NUR LOKAL: signierte Ablesung, die Endpunkt einer Periode wurde (R827)
+	RecordAblesung       RecordType = "ablesung"          // NUR LOKAL: erste Ablesung jeder Minute, Kennung "<zähler>/<minute>" (R828)
+	RecordViertelstunde  RecordType = "viertelstunde"     // NUR LOKAL: Bezug und Einspeisung je 15 min, Kennung "<zähler>/<beginn>" (R829)
+	RecordViertelTag     RecordType = "viertel_tag"       // NUR LOKAL: Tagesbündel im verteilten Speicher, Kennung "<zähler>/<datum>" (R829)
 )
 
 // Record ist der generische Datencontainer im Fundus-Netz.
@@ -229,6 +234,39 @@ func (s *Store) Get(recordType RecordType, id string) (*Record, error) {
 // go-ds-leveldb legt Präfixe als Pfad aus; hier ist genau das gewollt. Für
 // große lokale Bestände wie den Buchungsindex, dessen Kennungen die Adresse
 // als Pfadsegment tragen.
+// TypSchrittweiseLeeren löscht bis zu max Datensätze eines Typs und meldet,
+// wie viele es waren (R828). Liest nur Schlüssel, nie die Inhalte – auch
+// Millionen Einträge passen so nicht auf einmal in den Arbeitsspeicher. Nur
+// für Typen ohne Zusatzindex.
+func (s *Store) TypSchrittweiseLeeren(recordType RecordType, max int) (int, error) {
+	if _, indiziert := indexedFields[recordType]; indiziert {
+		return 0, fmt.Errorf("Typ %s hat einen Zusatzindex – nicht schrittweise löschbar", recordType)
+	}
+	results, err := s.db.Query(context.Background(), query.Query{Prefix: "/" + string(recordType), KeysOnly: true})
+	if err != nil {
+		return 0, err
+	}
+	var schluessel []string
+	for result := range results.Next() {
+		if result.Error != nil {
+			continue
+		}
+		schluessel = append(schluessel, result.Key)
+		if len(schluessel) >= max {
+			break
+		}
+	}
+	results.Close()
+	ctx := context.Background()
+	n := 0
+	for _, k := range schluessel {
+		if s.db.Delete(ctx, datastore.NewKey(k)) == nil {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (s *Store) ListUnterPfad(recordType RecordType, segment string) ([]*Record, error) {
 	results, err := s.db.Query(context.Background(), query.Query{Prefix: "/" + string(recordType) + "/" + segment})
 	if err != nil {
@@ -443,6 +481,12 @@ func (s *Store) HandleIncoming(topic string, fromPeerID string, data []byte) err
 		return fmt.Errorf("unmarshal incoming: %w", err)
 	}
 
+	// R828: Sekundenwerte älterer Nodes nicht mehr annehmen. Ablesungen
+	// bleiben auf dem eigenen Node; ins Netz gehen nur Belege.
+	if r.Type == RecordEnergy {
+		return nil
+	}
+
 	// SICHERHEIT: Signatur pruefen. Ein signierter Record mit UNGUELTIGER
 	// Signatur wird sofort verworfen (Manipulationsversuch).
 	if !s.checkSignature(&r) {
@@ -537,7 +581,9 @@ func (s *Store) UpdateReplicationTargets(peers []peer.ID, maxPeers int) error {
 var PublicRecordTypes = []RecordType{
 	RecordListing,
 	RecordCertificate,
-	RecordEnergy,
+	// RecordEnergy NICHT mehr (R828): Sekundenwerte blieben sonst auf jedem
+	// Node liegen – rund 35 MB je Zähler und Tag. Ablesungen bleiben lokal.
+	RecordZaehlerBeleg, // R827: Belege zu Zähler-Zertifikaten, für jeden prüfbar
 	RecordJob,
 	// Kaufvermerke (R572): Der Kauf läuft auf dem Node des Käufers. Nur wenn
 	// dieser Vermerk im Netz landet, kennt auch der Verkäufer den Bestand.

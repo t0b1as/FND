@@ -9,8 +9,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/fundus/node/internal/meter"
-	"github.com/fundus/node/internal/p2p"
-	"github.com/fundus/node/internal/storage"
 )
 
 // registerMeterRoutes hängt die Smartmeter-Routen ein.
@@ -90,12 +88,16 @@ func (s *Server) streamMeterReadings(c *gin.Context) {
 	c.Header("X-Accel-Buffering", "no")
 
 	clientGone := c.Request.Context().Done()
+	// R828: eigenes Abo statt des Leser-Kanals. Vorher lasen Live-Anzeige und
+	// main.go denselben Kanal, und jede Ablesung ging nur an einen von beiden.
+	abo := ablesungAbonnieren()
+	defer ablesungAbbestellen(abo)
 
 	for {
 		select {
 		case <-clientGone:
 			return
-		case tok, ok := <-s.meterTokens:
+		case tok, ok := <-abo:
 			if !ok {
 				return
 			}
@@ -126,39 +128,12 @@ func (s *Server) ingestReading(c *gin.Context) {
 	if tok.MeterID == "" {
 		tok.MeterID = s.cfg.MeterID
 	}
-
-	record := &storage.Record{
-		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
-		Type:      storage.RecordEnergy,
-		OwnerID:   s.node.ID().String(),
-		CreatedAt: time.Now(),
-		Data: map[string]any{
-			"timestamp":     tok.Timestamp,
-			"meter_id":      tok.MeterID,
-			"lat":           tok.Lat,
-			"lon":           tok.Lon,
-			"kwh":           tok.KWh,
-			"watt_now":      tok.WattNow,
-			"generator_lat": tok.GeneratorLat,
-			"generator_lon": tok.GeneratorLon,
-			"signature":     tok.Signature,
-		},
-	}
-
-	if err := s.store.Put(record); err != nil {
-		s.internalError(c, err)
-		return
-	}
-
-	if data, err := marshalRecord(record); err == nil {
-		_ = s.node.Publish(c.Request.Context(), p2p.TopicEnergy, data)
-	}
-
-	s.log.Info("Energy token ingested",
-		zap.String("meter", tok.MeterID),
-		zap.Float64("kwh", tok.KWh),
-		zap.Float64("watt", tok.WattNow),
-	)
-
-	c.JSON(http.StatusCreated, record)
+	// R828: Von außen eingespielte Ablesungen bleiben lokal wie die eigenen.
+	// Eine mitgeschickte Gerätesignatur wird NICHT übernommen – der Node kann
+	// nicht prüfen, woher sie stammt. Solche Ablesungen werden nie zertifiziert.
+	tok.GeraetPub, tok.GeraetSig = "", ""
+	AblesungSpeichern(s.store, tok)
+	s.log.Info("Ablesung von außen übernommen",
+		zap.String("meter", tok.MeterID), zap.Float64("kwh", tok.KWh), zap.Float64("watt", tok.WattNow))
+	c.JSON(http.StatusCreated, gin.H{"ok": true})
 }

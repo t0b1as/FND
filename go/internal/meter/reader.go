@@ -20,6 +20,7 @@ package meter
 
 import (
 	"context"
+	"crypto/ed25519"
 	"golang.org/x/crypto/argon2"
 	"lukechampine.com/blake3"
 	"encoding/binary"
@@ -32,6 +33,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.bug.st/serial"
@@ -158,6 +160,12 @@ type Token struct {
 	GeneratorLon float64   `json:"generator_lon"`
 	Commitment   string    `json:"commitment"` // Argon2id(key || payload) – kein SHA
 	Signature    string    `json:"signature,omitempty"`
+	// R827: Zählwerke als ganze Wattsekunden und Ed25519-Gerätesignatur –
+	// von jedem im Netz prüfbar (siehe geraet.go).
+	WsBezug       string `json:"ws_bezug,omitempty"`
+	WsEinspeisung string `json:"ws_einspeisung,omitempty"`
+	GeraetPub     string `json:"geraet,omitempty"`
+	GeraetSig     string `json:"geraet_sig,omitempty"`
 }
 
 // =============================================================================
@@ -181,6 +189,10 @@ type Config struct {
 	GeneratorLon float64
 	SigningKeyHex string
 	Interval   time.Duration
+	// GeraetWurzel (R830): liefert die Wurzel für die Geräteschlüssel – aus den
+	// gesicherten Seed-Wörtern des Nodes. Nil oder leer = noch keine Wurzel
+	// (verschlüsselter Seed nicht entsperrt); dann ohne Gerätesignatur.
+	GeraetWurzel func() []byte
 }
 
 // =============================================================================
@@ -193,6 +205,8 @@ type Reader struct {
 	log    *zap.Logger
 	key    []byte
 	client *http.Client
+	geraetMu  sync.Mutex                    // R830: Schlüssel je Zählernummer
+	geraete   map[string]ed25519.PrivateKey
 }
 
 // NewReader erstellt einen Reader mit validierten Defaults.
@@ -924,6 +938,7 @@ func (r *Reader) makeToken(reading *Reading) Token {
 		token.Signature = hex.EncodeToString(sig)
 	}
 
+	r.unterschreiben(&token) // R827
 	return token
 }
 
