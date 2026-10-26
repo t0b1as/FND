@@ -84,6 +84,9 @@ return function()
     <h3>%s</h3>
     <div id="ob-mine"></div>
   </div>
+  <!-- R824: der Solana-Vertrag, über den jeder Tausch läuft – aus der
+       Konfiguration des Nodes (FUNDUS_SWAP_HTLC_PROGRAM), nicht fest eingetragen. -->
+  <p class="meta" id="ob-vertrag" style="display:none;margin:14px 2px 0;font-size:12.5px;line-height:1.6"></p>
 </div>
 
 <script>const OB = %s;</script>
@@ -480,6 +483,22 @@ setInterval(function(){ loadBook(); loadMine(); }, 5000);
 // Swap-Schritte, Senden (auch aus anderen Tabs): Buch sofort neu laden.
 window.addEventListener("fundus:balances", function(){ loadBook(); loadMine(); });
 setInterval(loadRate, 30000); // Kurs alle 30s aktualisieren
+
+// R824: Den Solana-Vertrag nennen, über den der Tausch läuft. Die Adresse
+// kommt vom Node; der Explorer zeigt Programm und Quelltext-Prüfung.
+(function(){
+  fetch('/api/v1/swap/params', {credentials:'same-origin'})
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(d){
+      if (!d || !d.htlc_program_id || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(d.htlc_program_id)) return;
+      var id = d.htlc_program_id;
+      var el = document.getElementById('ob-vertrag');
+      el.innerHTML = 'Jeder Tausch läuft über den Fundus-Vertrag auf dem <b>Solana Mainnet</b>: ' +
+        '<code style="word-break:break-all">' + id + '</code> · ' +
+        '<a href="https://solscan.io/account/' + id + '" target="_blank" rel="noopener">auf Solscan ansehen</a>';
+      el.style.display = '';
+    }).catch(function(){});
+})();
 </script>
 ]],
         t("shop.title"), t("shop.subtitle"),

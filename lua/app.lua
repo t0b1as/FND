@@ -92,8 +92,15 @@ local routes = {
       handler = require "pages.feed" },
     { method = "GET", pattern = "^/sammelbestellung$",
       handler = require "pages.groupbuy" },
-    { method = "GET", pattern = "^/swaptest$",
-      handler = require "pages.swaptest" },
+    -- R824: /swaptest NICHT mehr ausliefern. Die Seite bat in einfachen
+    -- Textfeldern um Seed-Wörter und private Schlüssel und schickte sie an den
+    -- Node – im Testbetrieb praktisch, auf dem Mainnet ein Einfallstor (jeder
+    -- Node-Betreiber könnte mitschreiben, und Nutzer gewöhnen sich an genau das
+    -- Muster, das Phishing ausnutzt). Für lokale Tests diese zwei Zeilen wieder
+    -- einkommentieren UND FUNDUS_SWAP_TESTSEITE=1 setzen (sonst lehnt der Node
+    -- die zugehörigen Schnittstellen ab).
+    -- { method = "GET", pattern = "^/swaptest$",
+    --   handler = require "pages.swaptest" },
 
     -- Messenger
     { method = "GET", pattern = "^/messenger$",

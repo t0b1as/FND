@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -409,23 +410,28 @@ func (s *Server) registerRoutes() {
 	}
 
 	// Atomarer FND↔SOL-Swap (HTLC-Koordination)
+	//
+	// R824: Die mit nurTestbetrieb umhüllten Schnittstellen nehmen private
+	// Schlüssel oder Seed-Wörter im Anfragetext entgegen und handeln damit. Sie
+	// dienten der Testseite /swaptest. Auf dem Mainnet sind sie abgeschaltet –
+	// nur mit FUNDUS_SWAP_TESTSEITE=1 erreichbar.
 	swap := r.Group("/api/v1/swap")
 	{
 		swap.GET("/params",     s.swapParams)
 		swap.GET("/health",     s.swapHealth)
-		swap.GET("/secret",     s.swapSecret)
+		swap.GET("/secret",     nurTestbetrieb(s.swapSecret))
 		swap.GET("/htlcs",      s.swapHTLCList)
 		swap.GET("/all",        s.swapListAll)
 		swap.GET("/deposits",   s.swapDeposits)
 		swap.POST("/derive-addrs", s.swapDeriveAddrs)
-		swap.POST("/keyaddr",   s.swapKeyAddress)
-		swap.POST("/sol/initiate", s.swapSolInitiate)
-		swap.POST("/sol/redeem",   s.swapSolRedeem)
-		swap.POST("/sol/refund",   s.swapSolRefund)
-		swap.POST("/fnd/lock",     s.swapFndLock)
-		swap.POST("/fnd/claim",    s.swapFndClaim)
-		swap.POST("/fnd/refund",   s.swapFndRefund)
-		swap.POST("/auto/start",   s.swapAutoStart)
+		swap.POST("/keyaddr",   nurTestbetrieb(s.swapKeyAddress))
+		swap.POST("/sol/initiate", nurTestbetrieb(s.swapSolInitiate))
+		swap.POST("/sol/redeem",   nurTestbetrieb(s.swapSolRedeem))
+		swap.POST("/sol/refund",   nurTestbetrieb(s.swapSolRefund))
+		swap.POST("/fnd/lock",     nurTestbetrieb(s.swapFndLock))
+		swap.POST("/fnd/claim",    nurTestbetrieb(s.swapFndClaim))
+		swap.POST("/fnd/refund",   nurTestbetrieb(s.swapFndRefund))
+		swap.POST("/auto/start",   nurTestbetrieb(s.swapAutoStart))
 		swap.POST("/deposit",      s.swapDepositKeys)
 		swap.POST("/buy",          s.swapBuy)
 		swap.POST("",           s.swapInitiate)
@@ -492,7 +498,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R823"
+const NodeRevision = "R825"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -1682,3 +1688,17 @@ func (s *Server) listingThumbnail(c *gin.Context) {
 var thumbPregenOnce sync.Once
 
 var driveCleanupOnce sync.Once
+
+// nurTestbetrieb liefert einen Endpunkt nur aus, wenn der Node ausdrücklich im
+// Testbetrieb läuft (FUNDUS_SWAP_TESTSEITE=1). Sonst 404 – als gäbe es ihn
+// nicht (R824).
+func nurTestbetrieb(h gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if os.Getenv("FUNDUS_SWAP_TESTSEITE") != "1" {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Nur im Testbetrieb verfügbar."})
+			c.Abort()
+			return
+		}
+		h(c)
+	}
+}

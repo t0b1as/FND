@@ -271,7 +271,7 @@ function _M.header(title_key, active)
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_communication") .. [[</div>
   <a href="/feed"      class="%s" data-nav-key="feed" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("feed") .. [[</span>Feed</a>
-  <a href="/messenger" class="%s" data-nav-key="messenger" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("messenger") .. [[</span>]] .. t("nav.messenger") .. [[<span class="wip-pill">BETA</span></a>
+  <a href="/messenger" class="%s" data-nav-key="messenger" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("messenger") .. [[</span>]] .. t("nav.messenger") .. [[</a>
   <a href="/partner"   class="%s" data-nav-key="partner" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("partner") .. [[</span>]] .. t("nav.partner_label") .. [[</a>
   <div class="drawer-sep"></div>
   <div class="drawer-section">]] .. t("nav.sec_infrastructure") .. [[</div>

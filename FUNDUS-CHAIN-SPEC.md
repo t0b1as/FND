@@ -1,4 +1,4 @@
-# Fundus Chain — Spezifikation (Entwurf v0.1)
+# Fundus Chain — Spezifikation (v0.1)
 
 Eine eigene Proof-of-Stake-BFT-Blockchain für das Fundus-Ökosystem. Ersetzt die
 Abhängigkeit von Gnosis Chain. FND wird die native Währung *und* das Gas. Die
@@ -795,4 +795,4 @@ verifizierbares Fundament; Phase 3 ist der Schwerpunkt.
 
 ---
 
-*Status: Entwurf zur Abstimmung. Nach Freigabe → Phase 1 (Block & State-Machine).*
+*Grundlage der laufenden Fundus Chain. Wo Einzelheiten inzwischen abweichen, gilt der Code.*

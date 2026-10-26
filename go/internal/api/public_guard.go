@@ -325,11 +325,9 @@ var extWriteOpen = []string{
 	"/api/v1/wallet/derive",
 	"/api/v1/chain/tx",         // signierte Transaktion
 	"/api/v1/chain/send",       // mit Seed-Wörtern
-	"/api/v1/swap/keyaddr",     // Adresse aus mitgeschicktem Schlüssel
 	"/api/v1/swap/derive-addrs",
-	"/api/v1/swap/secret",
-	"/api/v1/swap/fnd/",        // Sperren/Einlösen: Schlüssel im Anfragetext
-	"/api/v1/swap/sol/",
+	// R824: keyaddr, secret, fnd/…, sol/… gehören zur abgeschalteten Testseite
+	// und sind nur noch im Testbetrieb erreichbar (nurTestbetrieb in server.go).
 }
 
 // isSwapPhasePath: /api/v1/swap/<id>/phase – Zustand eines Swaps setzen.
