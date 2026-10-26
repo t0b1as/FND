@@ -1,8 +1,8 @@
 {
-  "version": "R823",
-  "description": "FUNDUS R823 - chain index",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R823/FND-R823-update.zip",
-  "node_argon2": "b9d0ff44a74a0b7a00c44dc3dcd2b64c7541f88d8040d4484c25a5919f55280b",
-  "published_at": "2026-10-25T12:12:28.3920342Z",
-  "signature": "0x696985cb1216312c2a376dad81d4a9f27f7294e36808450fa148df4c03258eda1d5494c5921bbaf26dbfec46ed6666830d1698664b39c86b606e7c7759d752a01c"
+  "version": "R825",
+  "description": "FUNDUS R825 - edit",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R825/FND-R825-update.zip",
+  "node_argon2": "486eb95f8a275a3bc36c0da0a482380ed9124930b25f40459065adac1dd84d90",
+  "published_at": "2026-10-26T02:44:41.2063202Z",
+  "signature": "0x233556c53759d613aa0805ff5c82111669c17b533fd00d96d2a4a015acd34c9f52ec646175bdaa32f34bfc4466e71e8be6974208f2810840e15f0dbdf07f915a1c"
 }
