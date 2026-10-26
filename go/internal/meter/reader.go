@@ -206,6 +206,8 @@ type Reader struct {
 	key    []byte
 	client *http.Client
 	geraetMu  sync.Mutex                    // R830: Schlüssel je Zählernummer
+	haNummer  string     // R833: Zählernummer aus Home Assistant (einmal gelesen)
+	haLetzt   [2]float64 // R833: letzte Zählwerke (Bezug, Einspeisung) gegen Rücksprünge
 	geraete   map[string]ed25519.PrivateKey
 }
 
@@ -257,6 +259,16 @@ func (r *Reader) Run(ctx context.Context) (<-chan Token, error) {
 	case "http", "shelly", "tasmota", "tibber":
 		// HTTP: Polling mit konfiguriertem Intervall (Geräte-abhängig)
 		go r.runPolling(ctx, out, r.readHTTP)
+
+	case "homeassistant", "ha":
+		// R833/R834: Zählwerke aus Home Assistant (Lesekopf am Zähler).
+		// Standard jede Sekunde; FUNDUS_HA_INTERVALL (Sekunden) setzt es höher,
+		// falls Home Assistant unter der Last träge wird.
+		r.cfg.Interval = time.Second
+		if sek, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv("FUNDUS_HA_INTERVALL")), 64); err == nil && sek >= 1 {
+			r.cfg.Interval = time.Duration(sek * float64(time.Second))
+		}
+		go r.runPolling(ctx, out, r.readHomeAssistant)
 
 	case "mock", "":
 		go r.runPolling(ctx, out, r.readMock)
@@ -860,7 +872,67 @@ func (r *Reader) readHTTP(ctx context.Context) (*Reading, error) {
 //  Mock (Test ohne Hardware)
 // =============================================================================
 
+// mockProfil (R832): FUNDUS_METER_MOCK_PROFIL=erzeuger | verbraucher.
+//
+// Zum Testen des Nachbarschaftshandels ohne echten Zähler. Die Zählwerke sind
+// geschlossene Integrale über die Tageszeit – monoton, über Neustarts hinweg
+// stetig, und auf jedem Node mit derselben Uhr gleich.
+//   erzeuger:    PV-Kurve, Spitze 4 kW um 12 Uhr, 6–18 Uhr; Grundlast 0,3 kW
+//   verbraucher: 0,5 kW Grundlast, abends 18–22 Uhr zusätzlich 2 kW
+func mockProfil(jetzt time.Time) (bezugKWh, einspKWh, watt float64, ok bool) {
+	profil := strings.ToLower(strings.TrimSpace(os.Getenv("FUNDUS_METER_MOCK_PROFIL")))
+	if profil != "erzeuger" && profil != "verbraucher" {
+		return 0, 0, 0, false
+	}
+	lokal := jetzt.Local()
+	mitternacht := time.Date(lokal.Year(), lokal.Month(), lokal.Day(), 0, 0, 0, 0, lokal.Location())
+	tage := math.Floor(float64(mitternacht.Unix()) / 86400)
+	h := lokal.Sub(mitternacht).Hours()
+	fenster := func(von, bis float64) float64 { return math.Max(0, math.Min(h, bis)-von) }
+	if profil == "erzeuger" {
+		// Exakte Integrale (in Python über Tagesgrenzen auf Monotonie geprüft):
+		// Einspeisung nur, solange PV über der Grundlast liegt, Bezug nur darunter.
+		const spitze, last = 4.0, 0.3
+		h1 := 6 + 12/math.Pi*math.Asin(last/spitze) // PV übersteigt die Grundlast
+		h2 := 24 - h1                                // … und fällt wieder darunter
+		pvBis := func(x float64) float64 {           // ∫ PV von 6 Uhr bis x
+			x = math.Min(math.Max(x, 6), 18)
+			return spitze * 12 / math.Pi * (1 - math.Cos(math.Pi*(x-6)/12))
+		}
+		einspBis := func(x float64) float64 {
+			if x <= h1 {
+				return 0
+			}
+			y := math.Min(x, h2)
+			return pvBis(y) - pvBis(h1) - last*(y-h1)
+		}
+		bezugBis := func(x float64) float64 { return last*x - (pvBis(x) - einspBis(x)) }
+		einsp := tage*einspBis(24) + einspBis(h)
+		bezug := tage*bezugBis(24) + bezugBis(h)
+		pv := 0.0
+		if h > 6 && h < 18 {
+			pv = spitze * math.Sin(math.Pi*(h-6)/12)
+		}
+		return bezug, einsp, (last - pv) * 1000, true
+	}
+	tagV := 0.5*24 + 2.0*4
+	bezug := tage*tagV + 0.5*h + 2.0*fenster(18, 22)
+	w := 500.0
+	if h >= 18 && h < 22 {
+		w += 2000
+	}
+	return bezug, 0, w, true
+}
+
 func (r *Reader) readMock(ctx context.Context) (*Reading, error) {
+	if bezug, einsp, w, ok := mockProfil(time.Now()); ok {
+		return &Reading{
+			Timestamp: time.Now().UTC(), ZaehlerID: "MOCK-" + r.cfg.MeterID, MeterID: "MOCK-" + r.cfg.MeterID, Hersteller: "Fundus-Mock",
+			KWhBezug: bezug, KWhEinspeisung: einsp, WattGesamt: w,
+			WattBezug: math.Max(w, 0), WattEinspeisung: math.Max(-w, 0),
+			VoltL1: 230, VoltL2: 230, VoltL3: 230, FrequenzHz: 50,
+		}, nil
+	}
 	t := float64(time.Now().UnixMilli()) / 1000
 	watt := 1200.0 + 300.0*math.Sin(t/60) // simuliert schwankende Last
 
@@ -1083,4 +1155,141 @@ func (r *Reader) readSMLWithFallback(ctx context.Context) (*Reading, error) {
 	}
 
 	return nil, fmt.Errorf("sml: kein Smartmeter auf keinem verfügbaren Port")
+}
+
+// ── Home Assistant (R833) ─────────────────────────────────────────────────────
+//
+// Liest die Zählwerke, die Home Assistant von einem Lesekopf am Zähler hat
+// (OBIS 1.8.0 / 2.8.0 und die Zählernummer 96.1.0), über die REST-Schnittstelle.
+// Einstellungen in fundus.env:
+//   FUNDUS_HA_URL            z.B. http://10.10.11.119:8123
+//   FUNDUS_HA_TOKEN          langlebiges Zugriffstoken (Profil → Sicherheit)
+//   FUNDUS_HA_BEZUG          Entität Bezug,        Standard sensor.smart_meter_positive_wirkenergie_insgesamt
+//   FUNDUS_HA_EINSPEISUNG    Entität Einspeisung,  Standard sensor.smart_meter_negative_wirkenergie_insgesamt
+//   FUNDUS_HA_LEISTUNG       Entität Leistung (W), Standard sensor.smart_meter_summe_der_aktiven_momentanleistung
+//   FUNDUS_HA_ZAEHLERNUMMER  Entität ODER Nummer,  Standard sensor.smart_meter_messpunkt_id_1
+//
+// Die Zählernummer bindet Gerätesignatur und Zählerkennung auf der Chain an
+// genau diesen Zähler (R830). Ohne Nummer wird nicht unterschrieben.
+
+type haZustand struct {
+	State      string         `json:"state"`
+	Attributes map[string]any `json:"attributes"`
+}
+
+func haEnv(name, standard string) string {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v
+	}
+	return standard
+}
+
+func (r *Reader) haAbfragen(ctx context.Context, basis, token, entitaet string) (haZustand, error) {
+	var z haZustand
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, basis+"/api/states/"+entitaet, nil)
+	if err != nil {
+		return z, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return z, err
+	}
+	defer resp.Body.Close()
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized:
+		return z, fmt.Errorf("Home Assistant lehnt den Zugriff ab – FUNDUS_HA_TOKEN prüfen")
+	case resp.StatusCode == http.StatusNotFound:
+		return z, fmt.Errorf("Home Assistant kennt die Entität %s nicht", entitaet)
+	case resp.StatusCode != http.StatusOK:
+		return z, fmt.Errorf("Home Assistant antwortet %d für %s", resp.StatusCode, entitaet)
+	}
+	err = json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&z)
+	return z, err
+}
+
+// haKWh: Zählwerk in kWh, gleich ob HA es in Wh, kWh oder MWh führt.
+func haKWh(z haZustand, entitaet string) (float64, error) {
+	if z.State == "unavailable" || z.State == "unknown" || z.State == "" {
+		return 0, fmt.Errorf("%s ist gerade nicht verfügbar", entitaet)
+	}
+	v, err := strconv.ParseFloat(z.State, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s: kein Zahlenwert (%q)", entitaet, z.State)
+	}
+	einheit, _ := z.Attributes["unit_of_measurement"].(string)
+	switch strings.ToLower(strings.TrimSpace(einheit)) {
+	case "wh":
+		return v / 1000, nil
+	case "kwh":
+		return v, nil
+	case "mwh":
+		return v * 1000, nil
+	}
+	return 0, fmt.Errorf("%s: unbekannte Einheit %q", entitaet, einheit)
+}
+
+func (r *Reader) readHomeAssistant(ctx context.Context) (*Reading, error) {
+	basis := strings.TrimRight(haEnv("FUNDUS_HA_URL", ""), "/")
+	token := haEnv("FUNDUS_HA_TOKEN", "")
+	if basis == "" || token == "" {
+		return nil, fmt.Errorf("Home Assistant: FUNDUS_HA_URL und FUNDUS_HA_TOKEN setzen")
+	}
+	eBezug := haEnv("FUNDUS_HA_BEZUG", "sensor.smart_meter_positive_wirkenergie_insgesamt")
+	eEinsp := haEnv("FUNDUS_HA_EINSPEISUNG", "sensor.smart_meter_negative_wirkenergie_insgesamt")
+	eLeist := haEnv("FUNDUS_HA_LEISTUNG", "sensor.smart_meter_summe_der_aktiven_momentanleistung")
+	eNummer := haEnv("FUNDUS_HA_ZAEHLERNUMMER", "sensor.smart_meter_messpunkt_id_1")
+
+	// Zählernummer: einmal lesen – sie ändert sich nicht.
+	if r.haNummer == "" {
+		if strings.HasPrefix(eNummer, "sensor.") {
+			if z, err := r.haAbfragen(ctx, basis, token, eNummer); err == nil &&
+				z.State != "unavailable" && z.State != "unknown" {
+				r.haNummer = NummerNormal(z.State)
+			}
+		} else {
+			r.haNummer = NummerNormal(eNummer)
+		}
+		if r.haNummer == "" && r.cfg.MeterID != "" {
+			r.haNummer = NummerNormal(r.cfg.MeterID)
+		}
+		if r.haNummer != "" && r.log != nil {
+			r.log.Info("Home Assistant: Zähler erkannt", zap.String("zaehlernummer", r.haNummer))
+		}
+	}
+
+	zb, err := r.haAbfragen(ctx, basis, token, eBezug)
+	if err != nil {
+		return nil, err
+	}
+	bezug, err := haKWh(zb, eBezug)
+	if err != nil {
+		return nil, err
+	}
+	ze, err := r.haAbfragen(ctx, basis, token, eEinsp)
+	if err != nil {
+		return nil, err
+	}
+	einsp, err := haKWh(ze, eEinsp)
+	if err != nil {
+		return nil, err
+	}
+	// Ein Zählwerk läuft nie rückwärts. Meldet HA doch kleinere Werte (etwa
+	// kurz nach einem Neustart), wird die Ablesung verworfen – sonst lehnte die
+	// Chain die Zertifizierung ab und die Viertelstunde würde negativ.
+	if bezug < r.haLetzt[0] || einsp < r.haLetzt[1] {
+		return nil, fmt.Errorf("Home Assistant: Zählwerk rückläufig (%.3f/%.3f kWh nach %.3f/%.3f) – verworfen",
+			bezug, einsp, r.haLetzt[0], r.haLetzt[1])
+	}
+	r.haLetzt = [2]float64{bezug, einsp}
+
+	var w float64
+	if zl, err := r.haAbfragen(ctx, basis, token, eLeist); err == nil {
+		w, _ = strconv.ParseFloat(zl.State, 64) // optional; Summe der Momentanleistung, Einspeisung negativ
+	}
+	return &Reading{
+		Timestamp: time.Now().UTC(), ZaehlerID: r.haNummer, MeterID: r.haNummer, Hersteller: "Home Assistant",
+		KWhBezug: bezug, KWhEinspeisung: einsp, WattGesamt: w,
+		WattBezug: math.Max(w, 0), WattEinspeisung: math.Max(-w, 0), IstEinspeisung: w < 0,
+	}, nil
 }
