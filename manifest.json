@@ -1,8 +1,8 @@
 {
-  "version": "R825",
-  "description": "FUNDUS R825 - edit",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R825/FND-R825-update.zip",
-  "node_argon2": "486eb95f8a275a3bc36c0da0a482380ed9124930b25f40459065adac1dd84d90",
-  "published_at": "2026-10-26T02:44:41.2063202Z",
-  "signature": "0x233556c53759d613aa0805ff5c82111669c17b533fd00d96d2a4a015acd34c9f52ec646175bdaa32f34bfc4466e71e8be6974208f2810840e15f0dbdf07f915a1c"
+  "version": "R831",
+  "description": "FUNDUS R831 - energy settlement",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R831/FND-R831-update.zip",
+  "node_argon2": "c90e60d7ce65d39a8161a8a9e920e8b89ab26b4754df1accebfb8ebba0c15e05",
+  "published_at": "2026-10-26T06:01:10.5484172Z",
+  "signature": "0x6ed424378a66f579fd126e91dd2051e91134d098dd10642c8306688c2a4abbeb5ae3dea3b84bcba4f4f5e3fe0c6ee4e6f7e02217f50e02f790adf3929b36bd451c"
 }
