@@ -22,24 +22,17 @@ return function()
         ngx.print(string.format([[
 <section class="meter-live">
   <h2>%s <span class="live-badge">LIVE</span></h2>
-  <div class="meter-grid">
-    <div class="stat-card">
-      <span class="label">%s</span>
-      <span class="value" id="live-kwh">–</span>
-    </div>
-    <div class="stat-card">
-      <span class="label">%s</span>
-      <span class="value" id="live-watt">–</span>
-    </div>
-    <div class="stat-card">
-      <span class="label">%s</span>
-      <span class="value mono small" id="live-ts">–</span>
-    </div>
+  <!-- R842: alle Messwerte in EINER Zeile, Uhrzeit in derselben Schrift und Größe -->
+  <div class="meter-zeile">
+    <div><span class="label">%s</span><span class="value" id="live-kwh">–</span></div>
+    <div><span class="label">Einspeisung</span><span class="value" id="live-feed">–</span></div>
+    <div><span class="label">%s</span><span class="value" id="live-watt">–</span></div>
+    <div><span class="label">%s</span><span class="value" id="live-ts">–</span></div>
   </div>
 </section>
 <script>const METER_STRINGS = %s;</script>
 <script src="/static/meter.js?v=]] .. require("render").rev() .. [["></script>
-]], t("energy.title"), t("energy.col_kwh"), "Watt aktuell",
+]], t("energy.title"), "Bezug", "Leistung",
     t("energy.col_timestamp"), jsStr))
     end
 

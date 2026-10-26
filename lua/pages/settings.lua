@@ -710,14 +710,6 @@ document.addEventListener('DOMContentLoaded', updLoad);
       </select>
     </div>
     <div class="set-row">
-      <div class="set-label">]] .. t("settings.gps_position") .. [[<div class="set-hint">]] .. t("settings.gps_hint") .. [[</div></div>
-      <div class="set-input-row">
-        <input type="number" id="s-lat" placeholder="]] .. t("settings.placeholder_lat") .. [[" step="0.000001" class="set-input">
-        <input type="number" id="s-lon" placeholder="]] .. t("settings.placeholder_lon") .. [[" step="0.000001" class="set-input">
-        <button class="btn-sm" onclick="getGPS()">📍 Standort</button>
-      </div>
-    </div>
-    <div class="set-row">
       <div class="set-label">]] .. t("settings.parent_transformer") .. [[<div class="set-hint">]] .. t("settings.parent_hint") .. [[</div></div>
       <input type="text" id="s-parent" placeholder="]] .. t("settings.placeholder_parent") .. [[" class="set-input">
     </div>
@@ -867,7 +859,7 @@ document.addEventListener('DOMContentLoaded', updLoad);
       <label for="en-lat">Breitengrad</label><input id="en-lat" type="number" step="0.000001" placeholder="50.2856">
       <label for="en-lon">Längengrad</label><input id="en-lon" type="number" step="0.000001" placeholder="8.9455">
     </div>
-    <div class="set-hint" style="margin-top:6px">In die Karte klicken setzt den Standort – derselbe wie oben im Profil. <button type="button" class="btn-sm" id="en-gps">Mein Standort</button></div>
+    <div class="set-hint" style="margin-top:6px">In die Karte klicken setzt den Standort von Node und Zähler. <button type="button" class="btn-sm" id="en-gps">Mein Standort</button></div>
     <div id="en-karte"></div>
 
     <div class="en-abschnitt">Nachbarschaftshandel</div>
@@ -1346,12 +1338,6 @@ function onProtoChange() {
   document.getElementById('http-fields').style.display   = proto==='http' ? '' : 'none';
 }
 
-function getGPS() {
-  navigator.geolocation.getCurrentPosition(pos => {
-    document.getElementById('s-lat').value = pos.coords.latitude.toFixed(6);
-    document.getElementById('s-lon').value = pos.coords.longitude.toFixed(6);
-  }, () => alert('Standort nicht verfügbar'));
-}
 
 async function detectMeter() {
   const bar = document.getElementById('detect-status');
@@ -1381,22 +1367,13 @@ async function loadPorts() {
 }
 
 async function saveProfile() {
-  const lat = parseFloat(document.getElementById('s-lat').value)||0;
-  const lon = parseFloat(document.getElementById('s-lon').value)||0;
+  // R842: Der Standort wird unten auf der Karte gesetzt (gemeinsamer
+  // Standortspeicher). Hier nicht mehr mitschicken – sonst überschriebe ein
+  // Speichern ohne Koordinatenfelder den Standort mit 0/0.
   const feeEl = document.getElementById('s-fee');
   const msg = document.getElementById('profile-msg');
   msg.textContent = ST.saving_word || 'Speichere …'; msg.style.color='var(--muted)';
   try {
-    // Standort speichern — das ist der Kern und muss für jeden Node funktionieren.
-    const rLoc = await fetch('/api/v1/admin/location', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({lat: lat, lon: lon})
-    });
-    if (!rLoc.ok) {
-      const e = await rLoc.json().catch(()=>({}));
-      msg.textContent = '✗ ' + (e.error || (ST.error_word||'Fehler')); msg.style.color='var(--red)';
-      return;
-    }
     // Transit-Gebühr NUR versuchen, wenn ein Wert gesetzt ist. Sie gilt nur für
     // Trafostationen; bei anderen Node-Typen lehnt der Endpunkt ab — das darf die
     // Standort-Speicherung NICHT als Fehler erscheinen lassen.
@@ -1419,18 +1396,6 @@ async function saveProfile() {
   }
 }
 
-// Beim Öffnen der Einstellungen die gespeicherte Position ins Formular laden.
-async function loadOwnLocation() {
-  try {
-    const r = await fetch('/api/v1/admin/location');
-    if (!r.ok) return;
-    const d = await r.json();
-    const la = document.getElementById('s-lat'), lo = document.getElementById('s-lon');
-    if (la && d.lat) la.value = d.lat;
-    if (lo && d.lon) lo.value = d.lon;
-  } catch(e){}
-}
-loadOwnLocation();
 
 async function saveMeter() {
   const msg = document.getElementById('meter-msg');

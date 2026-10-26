@@ -9,6 +9,7 @@ const MS = (typeof METER_STRINGS !== "undefined") ? METER_STRINGS : {};
 const elKwh  = document.getElementById("live-kwh");
 const elWatt = document.getElementById("live-watt");
 const elTs   = document.getElementById("live-ts");
+const elFeed = document.getElementById("live-feed"); // R842
 const badge  = document.querySelector(".live-badge");
 
 // Letzter bekannter Zustand für einfache Trendanzeige
@@ -25,12 +26,16 @@ function connectSSE() {
         let data;
         try { data = JSON.parse(event.data); } catch { return; }
 
-        if (elKwh)  elKwh.textContent  = typeof data.kwh  === "number" ? data.kwh.toFixed(4)  + " kWh" : "–";
+        // R842: Zählerstände mit deutschem Komma; Bezug und Einspeisung gleich.
+        const kwh = (v) => typeof v === "number"
+            ? v.toLocaleString(MS.lang || "de", { minimumFractionDigits: 4, maximumFractionDigits: 4 }) + " kWh" : "–";
+        if (elKwh)  elKwh.textContent  = kwh(data.kwh);
+        if (elFeed) elFeed.textContent = kwh(data.kwh_feed);
         if (elWatt) {
             const w = typeof data.watt === "number" ? data.watt : null;
             if (w !== null) {
                 const arrow = lastWatt === null ? "" : w > lastWatt ? " ↑" : w < lastWatt ? " ↓" : "";
-                elWatt.textContent = w.toFixed(1) + " W" + arrow;
+                elWatt.textContent = w.toLocaleString(MS.lang || "de", { maximumFractionDigits: 0 }) + " W" + arrow;
                 lastWatt = w;
             }
         }
@@ -45,7 +50,7 @@ function connectSSE() {
         }
 
         // Kurze Aufblend-Animation bei jedem neuen Wert
-        [elKwh, elWatt, elTs].forEach(el => {
+        [elKwh, elFeed, elWatt, elTs].forEach(el => {
             if (!el) return;
             el.classList.remove("flash");
             void el.offsetWidth; // reflow

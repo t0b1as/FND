@@ -102,9 +102,9 @@ func (s *Server) streamMeterReadings(c *gin.Context) {
 				return
 			}
 			line := fmt.Sprintf(
-				"data: {\"timestamp\":%q,\"meter_id\":%q,\"kwh\":%.4f,\"watt\":%.1f}\n\n",
+				"data: {\"timestamp\":%q,\"meter_id\":%q,\"kwh\":%.4f,\"kwh_feed\":%.4f,\"watt\":%.1f}\n\n",
 				tok.Timestamp.UTC().Format(time.RFC3339),
-				tok.MeterID, tok.KWh, tok.WattNow,
+				tok.MeterID, tok.KWh, tok.KWhFeed, tok.WattNow, // R842: Einspeisung mit
 			)
 			c.Writer.WriteString(line)
 			c.Writer.Flush()
