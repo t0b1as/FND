@@ -118,6 +118,11 @@ for f in fundus-node.service fundus-helper.service fundus-automount@.service 99-
   [ -f "$TMP/s/$f" ] && cp "$TMP/s/$f" "$PREFIX/" && sed -i 's/\r$//' "$PREFIX/$f"
 done
 [ -f "$TMP/u/revision.txt" ] && cp "$TMP/u/revision.txt" "$PREFIX/"
+# Werkzeuge (R846) – u. a. setup-aeronautik.sh, das am Ende läuft.
+if [ -d "$TMP/s/tools" ]; then
+  rm -rf "$PREFIX/tools"; cp -a "$TMP/s/tools" "$PREFIX/tools"
+  find "$PREFIX/tools" -name '*.sh' -exec sed -i 's/\r$//' {} \; -exec chmod 755 {} \;
+fi
 chmod 755 "$PREFIX"; chmod 750 "$PREFIX/bin"
 chown -R root:$FUSER "$PREFIX"
 chown -R $FUSER:$FUSER "$PREFIX/data" "$PREFIX/chunks" /var/log/fundus
@@ -264,6 +269,12 @@ systemctl daemon-reload
 systemctl enable fundus-helper fundus-node >/dev/null 2>&1
 systemctl restart fundus-helper
 systemctl restart fundus-node
+
+# Aeronautik (R846): RTL-SDR-Stick erkennen und einrichten – nur was fehlt,
+# ohne Stick still übersprungen, bricht die Installation nie ab.
+if [ -f "$PREFIX/tools/setup-aeronautik.sh" ]; then
+  FUNDUS_DATA_DIR="$PREFIX/data" bash "$PREFIX/tools/setup-aeronautik.sh" --auto || true
+fi
 ok "fundus-node, fundus-helper"
 
 # ── 11. Prüfen ───────────────────────────────────────────────────────────────

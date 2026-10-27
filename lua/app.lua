@@ -66,6 +66,9 @@ local routes = {
     -- Energie-Token
     { method = "GET",  pattern = "^/energy$",
       handler = require "pages.energy" },
+    -- Aeronautik (R845): Flugverkehr aus Transpondertelegrammen
+    { method = "GET",  pattern = "^/aeronautik$",
+      handler = require "pages.aeronautik" },
 
     -- Zertifikate
     { method = "GET",  pattern = "^/certificates$",

@@ -10,6 +10,7 @@ local P = {
   home         = '<path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5V14h4v5.5"/>',
   listings     = '<circle cx="9" cy="20" r="1.4"/><circle cx="17" cy="20" r="1.4"/><path d="M2.5 4H5l2.2 10.3c.15.7.75 1.2 1.5 1.2h8.7c.7 0 1.3-.5 1.5-1.2L20.5 8H6.1"/>',
   energy       = '<path d="M13 2.5 4.5 13.5H11l-1 8 8.5-11H12.2z"/>',
+  aeronautik   = '<path d="M12 2.5c.8 0 1.3.9 1.3 2v5.2l7.2 4.3v2l-7.2-2.2v4.4l2.2 1.6v1.7L12 20.7l-3.5.8v-1.7l2.2-1.6v-4.4l-7.2 2.2v-2l7.2-4.3V4.5c0-1.1.5-2 1.3-2z"/>',
   certificates = '<circle cx="12" cy="9" r="5.5"/><path d="m8.8 13.6-1.3 7.9L12 19l4.5 2.5-1.3-7.9"/><path d="m10 9 1.5 1.5L14.5 7.5"/>',
   shop         = '<path d="M4 8h14"/><path d="m14.5 4.5 3.5 3.5-3.5 3.5"/><path d="M20 16H6"/><path d="m9.5 12.5-3.5 3.5 3.5 3.5"/>',
   -- Drive: Transportdienst (R635)

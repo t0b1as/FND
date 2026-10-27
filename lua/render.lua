@@ -260,6 +260,7 @@ function _M.header(title_key, active)
   <div class="drawer-section">]] .. t("nav.sec_marketplace") .. [[</div>
   <a href="/listings"     class="%s" data-nav-key="listings" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("listings") .. [[</span>]] .. t("nav.market") .. [[</a>
   <a href="/energy"       class="%s" data-nav-key="energy" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("energy") .. [[</span>]] .. t("nav.energy") .. [[<span class="wip-pill">BETA</span></a>
+  <a href="/aeronautik"   class="%s" data-nav-key="aeronautik" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("aeronautik") .. [[</span>Aeronautik</a>
   <a href="/certificates" class="%s" data-nav-key="certificates" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("certificates") .. [[</span>]] .. t("nav.certificates") .. [[<span class="wip-pill">BETA</span></a>
   <a href="/shop"         class="%s" data-nav-key="shop" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("shop") .. [[</span>]] .. t("nav.shop") .. [[</a>
   <a href="/drive"        class="%s" data-nav-key="drive" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("drive") .. [[</span>Drive</a>
@@ -296,6 +297,7 @@ function _M.header(title_key, active)
         -- Drawer: active classes for each link
         active == "listings"     and "active" or "",
         active == "energy"       and "active" or "",
+        active == "aeronautik"   and "active" or "",
         active == "certificates" and "active" or "",
         active == "shop"         and "active" or "",
         active == "drive"        and "active" or "",

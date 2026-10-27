@@ -1520,6 +1520,17 @@ if ($api -ne "fail" -and $api -ne "") {
 }
 
 # =============================================================================
+#  BLOCK L2 – Aeronautik: RTL-SDR-Stick erkennen und einrichten (R846)
+# =============================================================================
+# Das Skript prüft den tatsächlichen Zustand (Stick, Treibersperre, readsb,
+# Standort) und führt nur aus, was fehlt. Ohne Stick beendet es sich still.
+# Es bricht den Deploy nie ab. Nach dem Health-Check, weil es den Standort
+# vom laufenden Node erfragt.
+Write-Step "Aeronautik (RTL-SDR-Stick)..."
+$aero = Invoke-SSH-Safe "if [ -f $RemoteDir/tools/setup-aeronautik.sh ]; then sudo sed -i 's/\r$//' $RemoteDir/tools/setup-aeronautik.sh; sudo FUNDUS_DATA_DIR=$RemoteDir/data bash $RemoteDir/tools/setup-aeronautik.sh --auto 2>&1; else echo '   Skript fehlt im Paket – übersprungen.'; fi"
+foreach ($zeile in ($aero.Output -split "`n")) { if ($zeile.Trim()) { Write-Host $zeile -ForegroundColor DarkCyan } }
+
+# =============================================================================
 #  BLOCK M – Fee-Collector Verifikation
 # =============================================================================
 Write-Step "Fee-Collector prüfen..."

@@ -54,6 +54,7 @@ const (
 	RecordMarktZuteilung RecordType = "markt_zuteilung"   // Nachbarschaftshandel: Zuteilung eines Erzeugers je Viertelstunde (R832)
 	RecordMarktZahlung   RecordType = "markt_zahlung"     // NUR LOKAL: angenommene und bezahlte Zuteilungen (R832)
 	RecordMarktAnnahme   RecordType = "markt_annahme"     // Nachbarschaftshandel: was ein Verbraucher je Viertelstunde angenommen hat (R844)
+	RecordAeroEmpfaenger RecordType = "aero_empfaenger"   // Aeronautik: Node mit ADS-B-Empfänger und Standort (R845)
 	RecordMarktUeberweisung RecordType = "markt_ueberweisung" // NUR LOKAL: gebündelte Zahlung, fertig unterschrieben gespeichert (R844)
 	RecordZaehlerBeleg   RecordType = "zaehler_beleg"     // ÖFFENTLICH: signierte Ablesungen einer zertifizierten Periode (R827)
 	RecordZaehlerStand   RecordType = "zaehler_stand"     // NUR LOKAL: signierte Ablesung, die Endpunkt einer Periode wurde (R827)
@@ -596,6 +597,7 @@ var PublicRecordTypes = []RecordType{
 	RecordMarktViertel,
 	RecordMarktZuteilung,
 	RecordMarktAnnahme, // R844: für den Abgleich beim Erzeuger
+	RecordAeroEmpfaenger, // R845: Nodes ohne Stick finden den nächsten Empfänger
 	RecordJob,
 	// Kaufvermerke (R572): Der Kauf läuft auf dem Node des Käufers. Nur wenn
 	// dieser Vermerk im Netz landet, kennt auch der Verkäufer den Bestand.

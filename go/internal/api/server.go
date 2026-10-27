@@ -379,6 +379,8 @@ func (s *Server) registerRoutes() {
 	s.registerTxIndex(r)
 	// Nachbarschaftshandel, Variante A (R832) – siehe energiemarkt.go.
 	s.registerMarkt(r)
+	// Aeronautik (R845): Flugverkehr aus Transpondertelegrammen – siehe aeronautik.go.
+	s.registerAeronautik(r)
 	// Zähler-Zertifikate (R827): Telegramm → Chain – siehe zaehler.go.
 	s.registerZaehler(r)
 
@@ -513,7 +515,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R844"
+const NodeRevision = "R846"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

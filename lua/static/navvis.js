@@ -10,6 +10,7 @@
   window.NAV_ITEMS = [
     { key:"listings",     path:"/listings",     label:"Marktplatz",   icon:"🛒", color:"green",  defQuick:true },
     { key:"energy",       path:"/energy",       label:"Energie",      icon:"⚡", beta:true, color:"gold" },
+    { key:"aeronautik",   path:"/aeronautik",   label:"Aeronautik",   icon:"✈", color:"blue" },
     { key:"certificates", path:"/certificates", label:"Zertifikate",  icon:"📜", beta:true, color:"blue" },
     { key:"shop",         path:"/shop",         label:"FND/SOL",      icon:"💰", color:"green",  defQuick:true },
     { key:"drive",        path:"/drive",        label:"Drive",        icon:"🚗", color:"cyan" },
