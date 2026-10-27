@@ -954,6 +954,7 @@
   // Verweigert der Browser es, spielt das Video stumm weiter, statt stehen zu
   // bleiben. YouTube und Vimeo starten nicht von selbst – sie laden erst nach
   // einem Klick (Datenschutz, siehe R812).
+  let vb = null; // offene Vollbild-Ansicht (R854) – hier oben, weil abspielen() sie prüft
   const LS_TON = 'fundus_feed_ton';
   let tonModus = 'stumm';
   try { tonModus = localStorage.getItem(LS_TON) === 'ton' ? 'ton' : 'stumm'; } catch (e) {}
@@ -967,19 +968,48 @@
     // Berührung, danach darf der Browser hörbar abspielen.
     document.querySelectorAll('.feed-videos video').forEach((v) => { if (!v.paused) v.muted = tonModus !== 'ton'; });
   };
+  // R854: Verweigert der Browser den Ton, läuft das Video stumm weiter und wird
+  // als "zwangsstumm" gemerkt. Beim nächsten Tipp IRGENDWO wird es laut – eine
+  // Berührung erlaubt das in allen Browsern. Scrollen zählt nicht als Berührung.
+  let tonHinweis = null;
+  function tonHinweisZeigen(an) {
+    if (an && !tonHinweis) {
+      tonHinweis = document.createElement('div');
+      tonHinweis.className = 'feed-ton-hinweis';
+      tonHinweis.textContent = '🔇 Ton vom Browser blockiert – tippen';
+      document.body.appendChild(tonHinweis);
+    } else if (!an && tonHinweis) { tonHinweis.remove(); tonHinweis = null; }
+  }
+  function zwangsstummPruefen() {
+    tonHinweisZeigen(tonModus === 'ton' && !vb &&
+      !!document.querySelector('#feed-liste video[data-zwang]:not([data-pausiert])'));
+  }
   function abspielen(v) {
-    document.querySelectorAll('.feed-videos video').forEach((x) => { if (x !== v && !x.paused) x.pause(); });
+    if (vb) return; // Vollbild offen: der Feed spielt nichts ab
+    document.querySelectorAll('#feed-liste video').forEach((x) => { if (x !== v && !x.paused) x.pause(); });
     v.muted = tonModus !== 'ton';
+    delete v.dataset.pausiert;
     const p = v.play();
-    if (p && p.catch) p.catch(() => {
-      if (!v.muted) { v.muted = true; v.play().catch(() => {}); }
+    if (p && p.then) p.then(() => {
+      // Mit Ton gelungen: keine alte Zwangsmarkierung stehen lassen.
+      if (!v.muted && v.dataset.zwang) { delete v.dataset.zwang; zwangsstummPruefen(); }
+    }, () => {
+      if (!v.muted) { v.muted = true; v.dataset.zwang = '1'; v.play().catch(() => {}); zwangsstummPruefen(); }
     });
   }
+  function tonFreigeben() {
+    if (tonModus !== 'ton') return;
+    document.querySelectorAll('#feed-liste video[data-zwang]').forEach((v) => {
+      if (!v.paused) { v.muted = false; delete v.dataset.zwang; }
+    });
+    zwangsstummPruefen();
+  }
+  ['pointerdown', 'touchend', 'keydown'].forEach((t) => document.addEventListener(t, tonFreigeben, { capture: true, passive: true }));
   const sichtbar = 'IntersectionObserver' in window ? new IntersectionObserver((eintraege) => {
     eintraege.forEach((e) => {
       const v = e.target;
       if (e.isIntersecting && e.intersectionRatio >= 0.6) abspielen(v);
-      else if (!v.paused) v.pause();
+      else if (!v.paused) { v.pause(); v.dataset.pausiert = '1'; zwangsstummPruefen(); }
     });
   }, { threshold: [0, 0.6] }) : null;
   function videosBeobachten() {
@@ -991,7 +1021,160 @@
     });
   }
   // Neue Beiträge (Nachladen, Bearbeiten, Direktlink) automatisch erfassen.
-  new MutationObserver(videosBeobachten).observe($('feed-liste'), { childList: true, subtree: true });
+  new MutationObserver(() => { videosBeobachten(); vollbildKnoepfe(); }).observe($('feed-liste'), { childList: true, subtree: true });
+
+  // ── Vollbild mit Wischen (R854) ───────────────────────────────────────────
+  // Das eingebaute Vollbild lässt kein Wischen zu (auf dem iPhone fängt der
+  // Systemplayer alle Gesten ab). Deshalb eine eigene Ansicht: Hochwischen =
+  // nächster Videobeitrag, Runterwischen = voriger; am Ende werden ältere
+  // Beiträge nachgeladen. Ruft man das System-Vollbild auf, öffnet sich
+  // stattdessen diese Ansicht.
+  function feedVideos() {
+    return Array.from(document.querySelectorAll('#feed-liste .feed-videos video, #feed-liste .feed-video video.datei'));
+  }
+  function vbInfo(v) {
+    const art = v.closest('.feed-beitrag');
+    const name = art && art.querySelector('.feed-name') ? art.querySelector('.feed-name').textContent : '';
+    const text = art && art.querySelector('.feed-text') ? art.querySelector('.feed-text').textContent.trim() : '';
+    return '<b>' + esc(name) + '</b>' + (text ? '<div>' + esc(text.length > 160 ? text.slice(0, 160) + ' …' : text) + '</div>' : '');
+  }
+  function vbTonKnopf() { if (vb) vb.el.querySelector('.feed-vb-ton').textContent = tonModus === 'ton' ? '🔊' : '🔇'; }
+  function vbZeigen(quelle, richtung) {
+    const buehne = vb.el.querySelector('.feed-vb-buehne');
+    const alt = buehne.querySelector('video');
+    const v = document.createElement('video');
+    v.src = quelle.currentSrc || quelle.src;
+    v.loop = true; v.playsInline = true; v.setAttribute('playsinline', '');
+    v.muted = tonModus !== 'ton';
+    if (quelle.currentTime && quelle.dataset.vbStart !== '0') v.currentTime = quelle.currentTime;
+    v.style.transform = richtung ? 'translateY(' + (richtung > 0 ? 100 : -100) + '%)' : '';
+    buehne.appendChild(v);
+    vb.quelle = quelle;
+    vb.el.querySelector('.feed-vb-info').innerHTML = vbInfo(quelle);
+    const p = v.play();
+    if (p && p.catch) p.catch(() => { v.muted = true; v.play().catch(() => {}); });
+    if (richtung) {
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        v.style.transform = '';
+        if (alt) alt.style.transform = 'translateY(' + (richtung > 0 ? -100 : 100) + '%)';
+      }));
+      if (alt) setTimeout(() => { alt.pause(); alt.remove(); }, 320);
+    } else if (alt) { alt.pause(); alt.remove(); }
+    v.onclick = () => { if (v.paused) v.play().catch(() => {}); else v.pause(); };
+  }
+  function vbWeiter(d) {
+    if (!vb || vb.wechselt) return;
+    const liste = feedVideos();
+    const i = liste.indexOf(vb.quelle) + d;
+    const huepfen = () => { const b = vb.el.querySelector('.feed-vb-buehne'); b.classList.remove('feed-vb-ende'); void b.offsetWidth; b.classList.add('feed-vb-ende'); };
+    if (i < 0) return huepfen();
+    if (i < liste.length) { vb.wechselt = true; vbZeigen(liste[i], d); setTimeout(() => { if (vb) vb.wechselt = false; }, 340); return; }
+    if (!nochMehr) return huepfen();
+    // Am Ende: ältere Beiträge laden, dann weiter – oder hüpfen, wenn keine Videos kamen.
+    vb.wechselt = true;
+    const weiter = () => { if (!vb) return; vb.wechselt = false; const l = feedVideos(); if (i < l.length) vbWeiter(d); else if (nochMehr && !laedt) laden(false).then(nachLaden); else huepfen(); };
+    const nachLaden = () => { if (!vb) return; const l = feedVideos(); if (i < l.length) { vb.wechselt = false; vbWeiter(d); } else if (nochMehr) { setTimeout(weiter, 50); } else { vb.wechselt = false; huepfen(); } };
+    if (laedt) setTimeout(weiter, 400); else laden(false).then(nachLaden);
+  }
+  function vollbildOeffnen(quelle) {
+    if (vb || !quelle) return;
+    document.querySelectorAll('#feed-liste video').forEach((x) => { if (!x.paused) x.pause(); });
+    const el = document.createElement('div');
+    el.className = 'feed-vb';
+    el.innerHTML = '<div class="feed-vb-buehne"></div><div class="feed-vb-info"></div>' +
+      '<button type="button" class="feed-vb-zu" aria-label="Schließen">✕</button>' +
+      '<button type="button" class="feed-vb-ton" aria-label="Ton"></button>' +
+      '<div class="feed-vb-tipp">nach oben wischen: nächstes Video</div>';
+    document.body.appendChild(el);
+    document.documentElement.style.overflow = 'hidden';
+    vb = { el: el, quelle: quelle, wechselt: false, vollbild: false };
+    tonHinweisZeigen(false);
+    vbTonKnopf();
+    vbZeigen(quelle, 0);
+    el.querySelector('.feed-vb-zu').onclick = vollbildSchliessen;
+    el.querySelector('.feed-vb-ton').onclick = () => {
+      $('feed-ton').click(); // gleicher Schalter wie oben im Feed
+      const v = el.querySelector('.feed-vb-buehne video:last-child');
+      if (v) { v.muted = tonModus !== 'ton'; if (v.paused) v.play().catch(() => {}); }
+      vbTonKnopf();
+    };
+    // Wischen
+    let y0 = null, x0 = 0;
+    el.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; }, { passive: true });
+    el.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+    el.addEventListener('touchend', (e) => {
+      if (y0 === null) return;
+      const t = e.changedTouches[0], dy = t.clientY - y0, dx = t.clientX - x0;
+      y0 = null;
+      if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx)) vbWeiter(dy < 0 ? 1 : -1);
+    });
+    // Mausrad und Tasten (Rechner)
+    let radSperre = 0;
+    el.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      if (Date.now() < radSperre || Math.abs(e.deltaY) < 25) return;
+      radSperre = Date.now() + 650;
+      vbWeiter(e.deltaY > 0 ? 1 : -1);
+    }, { passive: false });
+    vb.tasten = (e) => {
+      if (e.key === 'Escape') vollbildSchliessen();
+      else if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); vbWeiter(1); }
+      else if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); vbWeiter(-1); }
+    };
+    document.addEventListener('keydown', vb.tasten);
+    // Echtes Vollbild, wo der Browser es für Elemente kann (nicht iPhone).
+    if (el.requestFullscreen) el.requestFullscreen().then(() => { if (vb) vb.vollbild = true; }).catch(() => {});
+    setTimeout(() => { const t = el.querySelector('.feed-vb-tipp'); if (t) t.classList.add('weg'); }, 2500);
+  }
+  function vollbildSchliessen() {
+    if (!vb) return;
+    const quelle = vb.quelle, el = vb.el;
+    document.removeEventListener('keydown', vb.tasten);
+    const imVollbild = document.fullscreenElement === el;
+    vb = null;
+    if (imVollbild && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    el.querySelectorAll('video').forEach((v) => v.pause());
+    el.remove();
+    document.documentElement.style.overflow = '';
+    // Im Feed dort weitermachen, wo man im Vollbild aufgehört hat.
+    const art = quelle && quelle.closest('.feed-beitrag');
+    if (art) art.scrollIntoView({ block: 'center' });
+  }
+  // Verlässt man das echte Vollbild (Zurück-Geste, Esc), schließt die Ansicht mit.
+  document.addEventListener('fullscreenchange', () => {
+    const fe = document.fullscreenElement;
+    if (vb && vb.vollbild && fe !== vb.el) { vollbildSchliessen(); return; }
+    // System-Vollbild eines Feed-Videos: stattdessen die eigene Ansicht.
+    if (fe && fe.tagName === 'VIDEO' && fe.closest('#feed-liste')) {
+      document.exitFullscreen().catch(() => {});
+      vollbildOeffnen(fe);
+    }
+  });
+  // iPhone: Der Systemplayer meldet sich mit webkitbeginfullscreen.
+  document.addEventListener('webkitbeginfullscreen', (e) => {
+    const v = e.target;
+    if (v && v.closest && v.closest('#feed-liste')) {
+      try { v.webkitExitFullscreen(); } catch (err) {}
+      setTimeout(() => vollbildOeffnen(v), 50);
+    }
+  }, true);
+  // Eigener Vollbild-Knopf auf jedem Video – öffnet direkt die Wisch-Ansicht.
+  function vollbildKnoepfe() {
+    feedVideos().forEach((v) => {
+      if (v.dataset.vbKnopf) return;
+      v.dataset.vbKnopf = '1';
+      const huelle = document.createElement('div');
+      huelle.className = 'feed-vb-huelle';
+      v.parentNode.insertBefore(huelle, v);
+      huelle.appendChild(v);
+      const k = document.createElement('button');
+      k.type = 'button'; k.className = 'feed-vb-auf'; k.setAttribute('aria-label', 'Vollbild'); k.title = 'Vollbild – wischen für nächstes Video';
+      k.textContent = '⛶';
+      k.onclick = (e) => { e.stopPropagation(); vollbildOeffnen(v); };
+      huelle.appendChild(k);
+    });
+  }
+  vollbildKnoepfe();
 
   filterAnzeigen();
   laden(true).then(direktlink);

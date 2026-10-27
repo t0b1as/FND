@@ -109,6 +109,21 @@ return function()
 .feed-video.datei { aspect-ratio:auto; }
 .feed-videos { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
 .feed-videos video { width:100%; max-height:560px; border-radius:10px; background:#000; display:block; }
+/* R854: Vollbild mit Wischen */
+.feed-vb-huelle { position:relative; }
+.feed-vb-auf { position:absolute; top:8px; right:8px; z-index:2; width:36px; height:36px; border-radius:9px; border:none; background:rgba(0,0,0,.55); color:#fff; font-size:18px; cursor:pointer; }
+.feed-vb { position:fixed; inset:0; z-index:2000; background:#000; touch-action:none; overscroll-behavior:contain; }
+.feed-vb-buehne { position:absolute; inset:0; overflow:hidden; }
+.feed-vb-buehne video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; transition:transform .3s ease; }
+.feed-vb-ende { animation:feed-vb-huepf .35s; }
+@keyframes feed-vb-huepf { 35% { transform:translateY(-3%); } }
+.feed-vb-info { position:absolute; left:14px; right:72px; bottom:calc(18px + env(safe-area-inset-bottom, 0px)); color:#fff; font-size:14px; line-height:1.4; text-shadow:0 1px 3px #000; pointer-events:none; }
+.feed-vb-zu, .feed-vb-ton { position:absolute; right:12px; width:44px; height:44px; border-radius:50%; border:none; background:rgba(0,0,0,.5); color:#fff; font-size:19px; cursor:pointer; }
+.feed-vb-zu { top:calc(12px + env(safe-area-inset-top, 0px)); }
+.feed-vb-ton { top:calc(64px + env(safe-area-inset-top, 0px)); }
+.feed-vb-tipp { position:absolute; left:50%; bottom:28%; transform:translateX(-50%); color:#fff; background:rgba(0,0,0,.55); padding:6px 14px; border-radius:14px; font-size:13px; white-space:nowrap; transition:opacity .6s; pointer-events:none; }
+.feed-vb-tipp.weg { opacity:0; }
+.feed-ton-hinweis { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(84px + env(safe-area-inset-bottom, 0px)); z-index:500; background:rgba(0,0,0,.82); color:#fff; padding:7px 14px; border-radius:16px; font-size:13px; pointer-events:none; }
 .feed-bearb { font-size:11.5px; color:var(--text-dim); font-style:italic; }
 .feed-kbearb textarea { width:100%; box-sizing:border-box; background:var(--sur); color:var(--text); border:1px solid var(--green);
   border-radius:8px; padding:6px 8px; font:inherit; font-size:14px; min-height:54px; resize:vertical; }
