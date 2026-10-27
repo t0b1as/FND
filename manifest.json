@@ -1,8 +1,8 @@
 {
-  "version": "R846",
-  "description": "FUNDUS R846 - Aeronautik",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R846/FND-R846-update.zip",
-  "node_argon2": "7721adc220f3ead3d446deda87a206a0a692da12fac863a1684be3fdf166b1e7",
-  "published_at": "2026-10-27T08:01:58.9760728Z",
-  "signature": "0xa58a509b9ecfa878c210f87fe75d6d8abbf7a33cc270ca15e587dca022f8145e5bed03dd0921050c46fe08550d115eb8e0ecaf5b5b1785bc3a9c6123d05494711b"
+  "version": "R849",
+  "description": "FUNDUS R849 - Aeronautik",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R849/FND-R849-update.zip",
+  "node_argon2": "0ee76e8d7544e99c7748b725e1a8a52cc76114eb85617f7022badb0c56bef99b",
+  "published_at": "2026-10-27T08:48:43.2020767Z",
+  "signature": "0x12fa3565601843bd92557e1aa63ae4c86bdd7eeabb72452621951c48ee379ea35cfc3f056772c536d14fab778b630f1f68ca060e4e7f5288648efc345a51bfb31c"
 }
