@@ -87,6 +87,9 @@ return function()
 .feed-vorschau button { position:absolute; top:3px; right:3px; width:22px; height:22px; border-radius:50%;
   border:none; background:rgba(0,0,0,.65); color:#fff; cursor:pointer; font-size:13px; line-height:1; }
 .feed-status { font-size:12.5px; color:var(--text-dim); margin-top:8px; min-height:1em; }
+/* R856: leere Statuszeile hält keinen Platz frei; unten derselbe Abstand wie links */
+.feed-status:empty { display:none; }
+.feed-composer { padding-bottom:16px; }
 
 .feed-kopf { display:flex; align-items:center; gap:10px; }
 .feed-av { width:38px; height:38px; border-radius:50%; object-fit:cover; flex-shrink:0; background:var(--sur2);
@@ -117,7 +120,7 @@ return function()
 .feed-vb-buehne video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; transition:transform .3s ease; }
 .feed-vb-ende { animation:feed-vb-huepf .35s; }
 @keyframes feed-vb-huepf { 35% { transform:translateY(-3%); } }
-.feed-vb-info { position:absolute; left:14px; right:72px; bottom:calc(18px + env(safe-area-inset-bottom, 0px)); color:#fff; font-size:14px; line-height:1.4; text-shadow:0 1px 3px #000; pointer-events:none; }
+.feed-vb-info { position:absolute; left:14px; right:72px; bottom:calc(22px + env(safe-area-inset-bottom, 0px)); color:#fff; font-size:14px; line-height:1.4; text-shadow:0 1px 3px #000; pointer-events:none; }
 .feed-vb-zu, .feed-vb-ton { position:absolute; right:12px; width:44px; height:44px; border-radius:50%; border:none; background:rgba(0,0,0,.5); color:#fff; font-size:19px; cursor:pointer; }
 .feed-vb-zu { top:calc(12px + env(safe-area-inset-top, 0px)); }
 .feed-vb-ton { top:calc(64px + env(safe-area-inset-top, 0px)); }
@@ -132,6 +135,12 @@ return function()
 .feed-vb-fort div { height:100%; width:0; background:#a763f7; }
 .feed-vb-stumm { position:absolute; left:50%; top:calc(14px + env(safe-area-inset-top, 0px)); transform:translateX(-50%); background:rgba(0,0,0,.75);
   color:#fff; padding:7px 14px; border-radius:16px; font-size:13px; white-space:nowrap; pointer-events:none; z-index:3; }
+/* R856: Fortschritt und Spulen im Vollbild */
+.feed-vb-leiste { position:absolute; left:0; right:0; bottom:env(safe-area-inset-bottom, 0px); height:4px; background:rgba(255,255,255,.2); pointer-events:none; z-index:2; transition:height .15s; }
+.feed-vb-leiste div { height:100%; width:0; background:#a763f7; }
+.feed-vb.spult .feed-vb-leiste { height:8px; }
+.feed-vb-zeit { position:absolute; left:50%; bottom:calc(70px + env(safe-area-inset-bottom, 0px)); transform:translateX(-50%); background:rgba(0,0,0,.7); color:#fff;
+  padding:6px 14px; border-radius:14px; font-size:16px; font-variant-numeric:tabular-nums; pointer-events:none; z-index:3; }
 .feed-ton-hinweis { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(84px + env(safe-area-inset-bottom, 0px)); z-index:500; background:rgba(0,0,0,.82); color:#fff; padding:7px 14px; border-radius:16px; font-size:13px; pointer-events:none; }
 .feed-bearb { font-size:11.5px; color:var(--text-dim); font-style:italic; }
 .feed-kbearb textarea { width:100%; box-sizing:border-box; background:var(--sur); color:var(--text); border:1px solid var(--green);

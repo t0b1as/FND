@@ -220,6 +220,20 @@
     laden(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
+  // R856: Tippen auf die Überschrift "Feed" – Filter weg, frisch laden, nach oben.
+  const titel = document.querySelector('.feed-titel');
+  if (titel) {
+    titel.style.cursor = 'pointer';
+    titel.title = 'Feed neu laden';
+    titel.addEventListener('click', () => {
+      const u = new URL(location.href);
+      const gefiltert = aktTag || u.searchParams.has('p') || u.searchParams.has('tag');
+      if (gefiltert) { tagSetzen(''); return; }   // setzt Adresse zurück, lädt, scrollt nach oben
+      aeltester = 0;
+      laden(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
   window.addEventListener('popstate', () => {
     tagSetzen((new URLSearchParams(location.search).get('tag') || '').toLowerCase(), true);
   });
@@ -1097,6 +1111,7 @@
     el.className = 'feed-vb';
     el.innerHTML = '<div class="feed-vb-buehne"><video playsinline loop></video><div class="feed-vb-mitte" aria-hidden="true">▶</div></div><div class="feed-vb-info"></div>' +
       '<div class="feed-vb-stumm" style="display:none">🔇 Ton vom Browser blockiert – tippen</div>' +
+      '<div class="feed-vb-leiste"><div></div></div><div class="feed-vb-zeit" style="display:none"></div>' +
       '<button type="button" class="feed-vb-zu" aria-label="Schließen">✕</button>' +
       '<button type="button" class="feed-vb-ton" aria-label="Ton"></button>' +
       '<div class="feed-vb-tipp">nach oben wischen: nächstes Video</div>';
@@ -1108,9 +1123,20 @@
     const mitte = el.querySelector('.feed-vb-mitte');
     vb.video.addEventListener('play', () => { mitte.style.opacity = '0'; });
     vb.video.addEventListener('pause', () => { mitte.style.opacity = '1'; });
+    // R856: Mitte = Abspielen/Anhalten; unteres Viertel = Spulbereich (Klick
+    // springt, waagerecht wischen spult); überall sonst = Vollbild verlassen.
     el.querySelector('.feed-vb-buehne').addEventListener('click', (e) => {
-      if (!tippInDerMitte(vb.video, e)) return;
-      if (vb.video.paused) vb.video.play().catch(() => {}); else vb.video.pause();
+      if (tippInDerMitte(vb.video, e)) {
+        if (vb.video.paused) vb.video.play().catch(() => {}); else vb.video.pause();
+      } else if (e.clientY > el.clientHeight * 0.75) {
+        const d = vb.video.duration;
+        if (d && isFinite(d)) vb.video.currentTime = Math.max(0, Math.min(1, e.clientX / el.clientWidth)) * d;
+      } else vollbildSchliessen();
+    });
+    const fuellung = el.querySelector('.feed-vb-leiste div');
+    vb.video.addEventListener('timeupdate', () => {
+      const d = vb && vb.video.duration;
+      if (d && isFinite(d)) fuellung.style.width = (vb.video.currentTime / d * 100) + '%';
     });
     tonHinweisZeigen(false);
     vbTonKnopf();
@@ -1123,10 +1149,35 @@
       vbTonKnopf(); vbTonHinweis();
     };
     // Wischen
-    let y0 = null, x0 = 0;
-    el.addEventListener('touchstart', (e) => { y0 = e.touches[0].clientY; x0 = e.touches[0].clientX; }, { passive: true });
-    el.addEventListener('touchmove', (e) => { e.preventDefault(); }, { passive: false });
+    let y0 = null, x0 = 0, spulen = null;
+    const zeitText = (t) => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+    el.addEventListener('touchstart', (e) => {
+      y0 = e.touches[0].clientY; x0 = e.touches[0].clientX;
+      const d = vb && vb.video.duration;
+      spulen = y0 > el.clientHeight * 0.75 && d && isFinite(d) ? { an: false, t0: vb.video.currentTime } : null;
+    }, { passive: true });
+    el.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (!spulen || !vb) return;
+      const t = e.touches[0], dx = t.clientX - x0, dy = t.clientY - y0;
+      if (!spulen.an && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) { spulen.an = true; el.classList.add('spult'); }
+      if (spulen.an) {
+        // Ganze Bildschirmbreite = ganze Länge des Videos.
+        const d = vb.video.duration;
+        const neu = Math.max(0, Math.min(d - 0.05, spulen.t0 + dx / el.clientWidth * d));
+        vb.video.currentTime = neu;
+        fuellung.style.width = (neu / d * 100) + '%';
+        const z = el.querySelector('.feed-vb-zeit');
+        z.textContent = zeitText(neu) + ' / ' + zeitText(d); z.style.display = '';
+      }
+    }, { passive: false });
     el.addEventListener('touchend', (e) => {
+      if (spulen && spulen.an) {           // gespult: kein Wischen zum nächsten Video
+        spulen = null; y0 = null; el.classList.remove('spult');
+        el.querySelector('.feed-vb-zeit').style.display = 'none';
+        return;
+      }
+      spulen = null;
       if (y0 === null) return;
       const t = e.changedTouches[0], dy = t.clientY - y0, dx = t.clientX - x0;
       y0 = null;
