@@ -1,8 +1,8 @@
 {
-  "version": "R844",
-  "description": "FUNDUS R844 - energy settlement",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R844/FND-R844-update.zip",
-  "node_argon2": "6e92caf980495024321958070f758af838a6490de2c6375a98321d366ea779ca",
-  "published_at": "2026-10-26T11:29:20.361244Z",
-  "signature": "0x94cb20d9ca9620b14e7e793e55e6b92c962b6b36a78b0e43f66f75de2f040d3c47e7f13905924c4e3e484cfc64d63c2cd20f12c5a118b05610ea396cce1b3cd91b"
+  "version": "R846",
+  "description": "FUNDUS R846 - Aeronautik",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R846/FND-R846-update.zip",
+  "node_argon2": "7721adc220f3ead3d446deda87a206a0a692da12fac863a1684be3fdf166b1e7",
+  "published_at": "2026-10-27T08:01:58.9760728Z",
+  "signature": "0xa58a509b9ecfa878c210f87fe75d6d8abbf7a33cc270ca15e587dca022f8145e5bed03dd0921050c46fe08550d115eb8e0ecaf5b5b1785bc3a9c6123d05494711b"
 }
