@@ -38,14 +38,33 @@ return function()
 .ae-flieger svg { width:26px; height:26px; filter:drop-shadow(0 0 3px rgba(0,0,0,.9)); transition:transform .8s linear; }
 .ae-hinweis { font-size:13px; color:var(--muted); line-height:1.5; }
 .ae-notfall { color:#ff5a5a; font-weight:800; }
+.ae-legende div { font-size:12.5px; line-height:1.6; color:var(--muted); }
+.ae-legende span { display:inline-block; width:18px; font-size:15px; }
+.ae-ein-kopf { display:flex; align-items:center; gap:10px; font-weight:700; }
+.ae-ein-kopf .dreh { width:16px; height:16px; border:2px solid rgba(94,200,255,.3); border-top-color:#5ec8ff; border-radius:50%; animation:ae-dreh 1s linear infinite; }
+@keyframes ae-dreh { to { transform:rotate(360deg); } }
+.ae-ein-schritte { display:flex; gap:6px; margin:10px 0 6px; flex-wrap:wrap; font-size:12px; }
+.ae-ein-schritte span { padding:2px 8px; border-radius:9px; border:1px solid var(--border); color:var(--muted); }
+.ae-ein-schritte span.ok { border-color:rgba(61,220,132,.5); color:#3ddc84; }
+.ae-ein-schritte span.jetzt { border-color:#5ec8ff; color:#5ec8ff; }
+.ae-ein-zeile { font-family:monospace; font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 #ae-karte .leaflet-tile { filter:brightness(.62) contrast(1.1) saturate(.6); }
 </style>
 <div class="top-bar" style="margin-bottom:14px"><h2 class="ae-titel"><span class="ico">]==] .. icons.svg("aeronautik") .. [==[</span>Aeronautik</h2>
   <span class="ae-stand" id="ae-stand">verbinde …</span></div>
+<div id="ae-einrichtung" class="ae-karte" style="display:none;margin-bottom:14px"></div>
 <div class="ae-wrap">
   <div id="ae-karte"></div>
   <div class="ae-seite">
     <div class="ae-karte ae-detail" id="ae-detail"><div class="ae-hinweis">Auf ein Flugzeug tippen – in der Karte oder in der Liste.</div></div>
+    <div class="ae-karte ae-legende"><h3>Farben</h3>
+      <div><span style="color:#3ddc84">✈</span> unter 3.000 m – Start, Landung, Kleinflugzeuge, Hubschrauber</div>
+      <div><span style="color:#ffc94d">✈</span> 3.000–8.000 m – Steig- und Sinkflug, kurze Strecken</div>
+      <div><span style="color:#5ec8ff">✈</span> über 8.000 m – Reiseflug</div>
+      <div><span style="color:#9aa0b4">✈</span> am Boden</div>
+      <div><span style="color:#ff3b3b">✈</span> Notfall-Code: 7500 Entführung, 7600 Funkausfall, 7700 Notfall</div>
+      <div style="margin-top:4px">⌂ dein Standort · Ringe 25, 50, 100, 200 km</div>
+    </div>
     <div class="ae-karte"><h3>Über dir</h3><div class="ae-liste" id="ae-liste"><div class="ae-hinweis">Warte auf Daten …</div></div></div>
   </div>
 </div>
@@ -109,12 +128,23 @@ return function()
   function zeichnen(d){
     letzte = d;
     var flieger = d.flugzeuge || [], da = {};
-    if (d.empfaenger && (d.empfaenger.lat || d.empfaenger.lon) && !ringe) {
+    // R849: eigener Standort mit Haus-Symbol, Ringe um DICH; der Empfänger
+    // nur gesondert, wenn er woanders steht (Bild von einem anderen Node).
+    var ich = d.standort && (d.standort.lat || d.standort.lon) ? d.standort : d.empfaenger;
+    if (ich && (ich.lat || ich.lon) && !ringe) {
       ringe = [25, 50, 100, 200].map(function(km){
-        return L.circle([d.empfaenger.lat, d.empfaenger.lon], { radius: km * 1000, color: '#5ec8ff', weight: 1, opacity: .25, fill: false, interactive: false }).addTo(karte);
+        return L.circle([ich.lat, ich.lon], { radius: km * 1000, color: '#5ec8ff', weight: 1, opacity: .25, fill: false, interactive: false }).addTo(karte)
+          .bindTooltip(km + ' km', { permanent: false });
       });
-      L.circleMarker([d.empfaenger.lat, d.empfaenger.lon], { radius: 5, color: '#5ec8ff', fillOpacity: 1 }).addTo(karte).bindTooltip(d.quelle === 'peer' ? 'Empfänger im Netz' : 'Dein Empfänger');
-      karte.setView([d.empfaenger.lat, d.empfaenger.lon], 9);
+      L.marker([ich.lat, ich.lon], { icon: L.divIcon({ className: 'ae-flieger', iconSize: [24, 24], iconAnchor: [12, 12],
+        html: '<svg viewBox="0 0 24 24" style="width:24px;height:24px"><path fill="#ffffff" stroke="#0b0d12" stroke-width="1" d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>' }),
+        zIndexOffset: 1000 }).addTo(karte).bindTooltip('Dein Standort');
+      var e = d.empfaenger;
+      if (d.quelle === 'peer' && e && (e.lat || e.lon)) {
+        L.circleMarker([e.lat, e.lon], { radius: 5, color: '#5ec8ff', fillOpacity: 1 }).addTo(karte)
+          .bindTooltip('Empfänger im Netz (' + zahl(d.peer_km, 1) + ' km entfernt)');
+      }
+      karte.setView([ich.lat, ich.lon], 9);
     }
     flieger.forEach(function(f){
       da[f.hex] = true;
@@ -146,6 +176,34 @@ return function()
     $('ae-stand').textContent = flieger.length + ' Flugzeuge · ' + (d.quelle === 'peer' ? 'Empfänger im Netz (' + zahl(d.peer_km, 1) + ' km entfernt)' : 'eigener Empfänger') +
       ' · ' + new Date((d.zeit || Date.now() / 1000) * 1000).toLocaleTimeString('de-DE');
   }
+
+  // R848: Fortschritt der Einrichtung im Hintergrund (setup-aeronautik.sh).
+  var SCHRITTE = [['treiber','Treiber'],['installieren','readsb übersetzen'],['standort','Standort'],['dienst','Start'],['fertig','bereit']];
+  function einrichtung(){
+    fetch('/api/v1/aeronautik/einrichtung', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(st){
+      var el = $('ae-einrichtung');
+      if (!st || !st.phase) { el.style.display = 'none'; return; }
+      var alter = Date.now() / 1000 - (st.stand || 0);
+      // Erfolgreich abgeschlossen und schon eine Weile her: kein Hinweis mehr.
+      if (st.fertig && !st.fehler && alter > 120) { el.style.display = 'none'; return; }
+      var min = Math.max(0, Math.round(((st.stand || 0) - (st.seit || 0)) / 60));
+      var idx = SCHRITTE.findIndex(function(x){ return x[0] === st.phase; });
+      var kopf = st.fehler ? '<span class="ae-notfall">✗ Einrichtung fehlgeschlagen</span>'
+        : st.haengt ? '<span class="ae-notfall">Einrichtung meldet sich seit über 10 Minuten nicht</span>'
+        : st.fertig ? '✓ Aeronautik eingerichtet'
+        : '<span class="dreh"></span>Aeronautik wird eingerichtet · ' + min + ' min';
+      el.innerHTML = '<div class="ae-ein-kopf">' + kopf + '</div>' +
+        '<div class="ae-ein-schritte">' + SCHRITTE.map(function(x, i){
+          var k = (st.fertig && !st.fehler) || i < idx ? 'ok' : i === idx && !st.fehler ? 'jetzt' : '';
+          return '<span class="' + k + '">' + x[1] + '</span>'; }).join('') + '</div>' +
+        '<div class="ae-hinweis">' + esc(st.text || '') +
+          (st.phase === 'installieren' && !st.fehler ? ' – auf einem Pi 4 etwa 5 Minuten, auf einem Pi 3 bis zu 20.' : '') + '</div>' +
+        (st.letzte ? '<div class="ae-ein-zeile" title="' + esc(st.letzte) + '">' + esc(st.letzte) + '</div>' : '') +
+        (st.fehler || st.haengt ? '<div class="ae-hinweis" style="margin-top:6px">Protokoll auf dem Pi: <code>' + esc(st.protokoll || '') + '</code></div>' : '');
+      el.style.display = '';
+    }).catch(function(){}).then(function(){ setTimeout(einrichtung, 5000); });
+  }
+  einrichtung();
 
   function laden(){
     fetch('/api/v1/aeronautik/live', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){

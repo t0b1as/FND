@@ -16,16 +16,40 @@
 # --auto: ohne Stick still beenden; Fehler nur melden, nie abbrechen – ein
 # Problem mit dem Stick soll keinen Fundus-Deploy scheitern lassen.
 
-AUTO=0
-if [ "${1:-}" = "--auto" ]; then AUTO=1; shift; fi
+# R848: --hintergrund – die eigentliche Einrichtung als eigener Dienst
+# (systemd-run), damit der Deploy nicht minutenlang wartet. Der Fortschritt
+# steht in $STATUS (für die Seite Aeronautik) und im Protokoll $LOG.
+AUTO=0; HINTERGRUND=0
+case "${1:-}" in
+  --auto) AUTO=1; shift ;;
+  --hintergrund) HINTERGRUND=1; AUTO=1; shift ;;
+esac
 LAT="${1:-}"; LON="${2:-}"
 DATA_DIR="${FUNDUS_DATA_DIR:-/opt/fundus/data}"
 SPERRE=/etc/modprobe.d/blacklist-rtl-sdr.conf
 READSB_CFG=/etc/default/readsb
+STATUS_DIR=/run/fundus-aeronautik
+STATUS=$STATUS_DIR/status.json
+LOG=/var/log/fundus-aeronautik-setup.log
+DIENST=fundus-aeronautik-setup
+START=$(date +%s)
+
+# status <phase> <text> [fertig] [fehler] – als JSON für den Node (lesbar für alle)
+status() {
+  [ "$HINTERGRUND" -eq 1 ] || return 0
+  mkdir -p "$STATUS_DIR"; chmod 755 "$STATUS_DIR"
+  local letzte=""
+  [ -f "$LOG" ] && letzte=$(grep -v '^[[:space:]]*$' "$LOG" | tail -1 | cut -c1-160)
+  esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\000-\037'; }
+  printf '{"phase":"%s","text":"%s","seit":%s,"stand":%s,"fertig":%s,"fehler":%s,"letzte":"%s","protokoll":"%s"}\n' \
+    "$(esc "$1")" "$(esc "$2")" "$START" "$(date +%s)" "${3:-false}" "${4:-false}" "$(esc "$letzte")" "$LOG" > "$STATUS.neu"
+  chmod 644 "$STATUS.neu"; mv "$STATUS.neu" "$STATUS"
+}
 
 fertig()  { echo "   $*"; }
 fehler()  {
   echo "   ✗ $*"
+  status "fehler" "$*" true true
   if [ "$AUTO" -eq 1 ]; then echo "   (Deploy läuft weiter – Aeronautik bei Bedarf von Hand: sudo bash $0)"; exit 0; fi
   exit 1
 }
@@ -75,7 +99,30 @@ if [ $((BRAUCHT_SPERRE + BRAUCHT_ENTLADEN + BRAUCHT_READSB + BRAUCHT_DIENST + BR
   exit 0
 fi
 
+# ── Lange Einrichtung nicht im Deploy abwarten (R848) ───────────────────────
+if [ "$AUTO" -eq 1 ] && [ "$HINTERGRUND" -eq 0 ] && [ "$BRAUCHT_READSB" -eq 1 ]; then
+  if systemctl is-active --quiet "$DIENST" 2>/dev/null; then
+    fertig "Einrichtung läuft bereits im Hintergrund – Fortschritt auf der Seite Aeronautik."
+    exit 0
+  fi
+  : > "$LOG"; chmod 644 "$LOG"
+  HINTERGRUND=1; status "start" "Einrichtung gestartet"; HINTERGRUND=0
+  if command -v systemd-run >/dev/null 2>&1; then
+    systemctl reset-failed "$DIENST" 2>/dev/null || true
+    systemd-run --unit="$DIENST" --description="Fundus Aeronautik: readsb einrichten" --collect \
+      --setenv=FUNDUS_DATA_DIR="$DATA_DIR" /bin/bash "$(readlink -f "$0")" --hintergrund $LAT $LON >/dev/null 2>&1 \
+      || fehler "Hintergrund-Einrichtung konnte nicht gestartet werden."
+  else
+    FUNDUS_DATA_DIR="$DATA_DIR" setsid nohup /bin/bash "$(readlink -f "$0")" --hintergrund $LAT $LON >/dev/null 2>&1 &
+  fi
+  fertig "readsb wird im Hintergrund installiert und übersetzt (Pi 4: ~5 min, Pi 3: bis ~20 min)."
+  fertig "Der Deploy läuft weiter. Fortschritt: Seite Aeronautik oder  tail -f $LOG"
+  exit 0
+fi
+[ "$HINTERGRUND" -eq 1 ] && exec >> "$LOG" 2>&1   # im Hintergrund alles ins Protokoll
+
 # ── Nur ausführen, was fehlt ────────────────────────────────────────────────
+status "treiber" "DVB-T-Treiber sperren"
 if [ "$BRAUCHT_SPERRE" -eq 1 ]; then
   mkdir -p "$(dirname "$SPERRE")"
   if printf '%s\n' "# Aeronautik: Stick für SDR-Software statt DVB-T" \
@@ -96,14 +143,23 @@ if [ "$BRAUCHT_ENTLADEN" -eq 1 ] || [ "$BRAUCHT_SPERRE" -eq 1 ]; then
 fi
 if [ "$BRAUCHT_READSB" -eq 1 ]; then
   fertig "readsb wird installiert (wiedehopf/adsb-scripts, dauert einige Minuten) …"
-  if ! bash -c "$(wget -qO - https://github.com/wiedehopf/adsb-scripts/raw/master/readsb-install.sh)" > /tmp/readsb-install.log 2>&1; then
-    fehler "Installation von readsb fehlgeschlagen – Protokoll: /tmp/readsb-install.log"
-  fi
-  command -v readsb >/dev/null 2>&1 || fehler "readsb nach der Installation nicht gefunden – Protokoll: /tmp/readsb-install.log"
+  status "installieren" "readsb wird installiert und auf dem Pi übersetzt"
+  # Während des langen Übersetzens alle 5 s den Status auffrischen – die
+  # Seite zeigt die jeweils letzte Protokollzeile, man sieht: es arbeitet.
+  ( while sleep 5; do status "installieren" "readsb wird installiert und auf dem Pi übersetzt"; done ) &
+  WAECHTER=$!
+  INSTALLER=$(wget -qO - https://github.com/wiedehopf/adsb-scripts/raw/master/readsb-install.sh) \
+    || { kill $WAECHTER 2>/dev/null; fehler "Installationsskript nicht ladbar (GitHub erreichbar?)"; }
+  if [ "$HINTERGRUND" -eq 1 ]; then bash -c "$INSTALLER"; else bash -c "$INSTALLER" >> "$LOG" 2>&1; fi
+  ERGEBNIS=$?
+  kill $WAECHTER 2>/dev/null; wait $WAECHTER 2>/dev/null
+  [ "$ERGEBNIS" -eq 0 ] || fehler "Installation von readsb fehlgeschlagen – Protokoll: $LOG"
+  command -v readsb >/dev/null 2>&1 || fehler "readsb nach der Installation nicht gefunden – Protokoll: $LOG"
   fertig "readsb installiert."
   BRAUCHT_DIENST=1
   [ "$STANDORT_OK" -eq 1 ] && BRAUCHT_ORT=1
 fi
+status "standort" "Standort eintragen"
 if [ "$BRAUCHT_ORT" -eq 1 ]; then
   if readsb-set-location "$LAT" "$LON" >/dev/null 2>&1; then
     fertig "Standort eingetragen: $LAT, $LON"
@@ -115,6 +171,7 @@ elif [ "$STANDORT_OK" -eq 0 ]; then
   fertig "Kein Standort bekannt – in Fundus unter Einstellungen auf der Karte setzen;"
   fertig "beim nächsten Deploy wird er dann automatisch eingetragen."
 fi
+status "dienst" "readsb starten"
 if [ "$BRAUCHT_DIENST" -eq 1 ]; then
   systemctl enable readsb >/dev/null 2>&1 || true
   systemctl restart readsb || fehler "readsb startet nicht – systemctl status readsb"
@@ -124,7 +181,9 @@ fi
 if [ -s /run/readsb/aircraft.json ]; then
   N=$(grep -o '"hex"' /run/readsb/aircraft.json | wc -l)
   fertig "Aeronautik bereit: readsb läuft, gerade $N Flugzeug(e) im Empfang."
+  status "fertig" "Aeronautik bereit – $N Flugzeug(e) im Empfang" true false
 else
+  status "fertig" "readsb läuft, hat aber noch nichts empfangen" true false
   fertig "readsb läuft, hat aber noch nichts geschrieben – systemctl status readsb"
 fi
 if [ "$AUTO" -eq 0 ]; then

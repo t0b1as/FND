@@ -1527,8 +1527,19 @@ if ($api -ne "fail" -and $api -ne "") {
 # Es bricht den Deploy nie ab. Nach dem Health-Check, weil es den Standort
 # vom laufenden Node erfragt.
 Write-Step "Aeronautik (RTL-SDR-Stick)..."
-$aero = Invoke-SSH-Safe "if [ -f $RemoteDir/tools/setup-aeronautik.sh ]; then sudo sed -i 's/\r$//' $RemoteDir/tools/setup-aeronautik.sh; sudo FUNDUS_DATA_DIR=$RemoteDir/data bash $RemoteDir/tools/setup-aeronautik.sh --auto 2>&1; else echo '   Skript fehlt im Paket – übersprungen.'; fi"
-foreach ($zeile in ($aero.Output -split "`n")) { if ($zeile.Trim()) { Write-Host $zeile -ForegroundColor DarkCyan } }
+# R847: Prüfung mit sudo – der Deploy setzt oben "chmod -R ...,o=" auf ganz
+# $RemoteDir; der SSH-Benutzer darf tools/ danach nicht betreten und hielt die
+# vorhandene Datei für fehlend.
+# Ausgabe als UTF-8 lesen: Das Skript schreibt Umlaute, die Windows-Konsole
+# liest die Ausgabe von ssh sonst in ihrer alten Codepage (ÔÇô statt –).
+$altKodierung = [Console]::OutputEncoding
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $aero = Invoke-SSH-Safe "if sudo test -f $RemoteDir/tools/setup-aeronautik.sh; then sudo sed -i 's/\r$//' $RemoteDir/tools/setup-aeronautik.sh; sudo FUNDUS_DATA_DIR=$RemoteDir/data bash $RemoteDir/tools/setup-aeronautik.sh --auto 2>&1; else echo '   Skript fehlt im Paket - uebersprungen.'; fi"
+} finally {
+    [Console]::OutputEncoding = $altKodierung
+}
+foreach ($zeile in ($aero.Output -split "`n")) { if ($zeile.Trim()) { Write-Host $zeile.TrimEnd() -ForegroundColor DarkCyan } }
 
 # =============================================================================
 #  BLOCK M – Fee-Collector Verifikation

@@ -797,16 +797,99 @@ document.addEventListener('DOMContentLoaded', updLoad);
   </div>
 </div>
 
-<!-- ── Zähler & Nachbarschaftshandel (R839) ──────────────────────────────── -->
+<!-- ── Standort (R849) – eigener Reiter. Gebraucht von Nachbarschaftshandel,
+     Aeronautik und der Zuordnung zum Netzbetreiber (Postleitzahl). ───────── -->
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" defer></script>
+<style>
+#ort-karte { height:320px; border-radius:10px; border:1px solid var(--border, #2e3348); margin-top:10px; }
+.ort-grid { display:grid; grid-template-columns: minmax(130px, 30%) 1fr; gap:8px 12px; align-items:center; }
+.ort-grid label { font-size:13px; color:var(--text-dim, #9aa0b4); }
+.ort-grid input { width:100%; box-sizing:border-box; }
+@media (max-width:560px) { .ort-grid { grid-template-columns: 1fr; } }
+</style>
+<div class="set-card" id="ort-card">
+  <div class="set-head"><h3>Standort</h3></div>
+  <div class="set-body">
+    <p class="set-hint" style="margin:0 0 10px">Wo dieser Node und sein Zähler stehen. Gebraucht vom Nachbarschaftshandel (Entfernung zu Nachbarn), von Aeronautik (Flugzeuge über dir) und zur Zuordnung des Netzbetreibers über die Postleitzahl.</p>
+    <div class="ort-grid">
+      <label for="ort-lat">Breitengrad</label><input id="ort-lat" type="number" step="0.000001" placeholder="50.2856">
+      <label for="ort-lon">Längengrad</label><input id="ort-lon" type="number" step="0.000001" placeholder="8.9455">
+      <label for="ort-plz">Postleitzahl</label><input id="ort-plz" inputmode="numeric" maxlength="10" placeholder="63674">
+    </div>
+    <div class="set-hint" style="margin-top:8px">In die Karte klicken setzt den Standort. <button type="button" class="btn-sm" id="ort-gps">Mein Standort</button></div>
+    <div id="ort-karte"></div>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary" id="ort-speichern" style="width:auto">Standort speichern</button>
+      <span id="ort-status" class="set-hint"></span>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var karte = null, marke = null;
+  function markeSetzen(lat, lon, schwenken){
+    if (!karte || !isFinite(lat) || !isFinite(lon)) return;
+    if (!marke) marke = L.marker([lat, lon]).addTo(karte); else marke.setLatLng([lat, lon]);
+    if (schwenken) karte.setView([lat, lon], Math.max(karte.getZoom(), 14));
+  }
+  function karteStarten(){
+    if (typeof L === 'undefined') { setTimeout(karteStarten, 200); return; }
+    var lat = parseFloat($('ort-lat').value), lon = parseFloat($('ort-lon').value);
+    var hat = isFinite(lat) && isFinite(lon) && (lat !== 0 || lon !== 0);
+    karte = L.map('ort-karte').setView(hat ? [lat, lon] : [51.1, 10.4], hat ? 15 : 6);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap' }).addTo(karte);
+    if (hat) markeSetzen(lat, lon, false);
+    // Leaflet kennt nur die Größe beim Anlegen. Liegt die Karte in einem
+    // verborgenen Reiter, ist sie dabei 0 × 0 – beim Sichtbarwerden neu messen.
+    [100, 400, 1200].forEach(function(ms){ setTimeout(function(){ karte.invalidateSize(); }, ms); });
+    if (window.ResizeObserver) new ResizeObserver(function(){
+      karte.invalidateSize();
+      var la = parseFloat($('ort-lat').value), lo = parseFloat($('ort-lon').value);
+      if (isFinite(la) && isFinite(lo) && (la || lo)) karte.setView([la, lo], karte.getZoom());
+    }).observe($('ort-karte'));
+    karte.on('click', function(e){
+      $('ort-lat').value = e.latlng.lat.toFixed(6);
+      $('ort-lon').value = e.latlng.lng.toFixed(6);
+      markeSetzen(e.latlng.lat, e.latlng.lng, false);
+    });
+  }
+  ['ort-lat','ort-lon'].forEach(function(id){
+    $(id).addEventListener('change', function(){ markeSetzen(parseFloat($('ort-lat').value), parseFloat($('ort-lon').value), true); });
+  });
+  $('ort-gps').onclick = function(){
+    if (!navigator.geolocation) { $('ort-status').textContent = 'Der Browser kennt keinen Standort.'; return; }
+    navigator.geolocation.getCurrentPosition(function(pos){
+      $('ort-lat').value = pos.coords.latitude.toFixed(6);
+      $('ort-lon').value = pos.coords.longitude.toFixed(6);
+      markeSetzen(pos.coords.latitude, pos.coords.longitude, true);
+    }, function(){ $('ort-status').textContent = 'Standort nicht verfügbar – bitte in die Karte klicken.'; });
+  };
+  fetch('/api/v1/admin/location', {credentials:'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(o){
+    if (o && (o.lat || o.lon)) { $('ort-lat').value = Number(o.lat).toFixed(6); $('ort-lon').value = Number(o.lon).toFixed(6); }
+    if (o && o.plz) $('ort-plz').value = o.plz;
+  }).catch(function(){}).then(karteStarten);
+  $('ort-speichern').onclick = function(){
+    var lat = parseFloat($('ort-lat').value), lon = parseFloat($('ort-lon').value);
+    if (!isFinite(lat) || !isFinite(lon)) { $('ort-status').textContent = 'Bitte einen Ort in der Karte wählen.'; return; }
+    $('ort-status').textContent = 'Speichere …';
+    fetch('/api/v1/admin/location', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ lat: lat, lon: lon, plz: $('ort-plz').value.trim() }) })
+      .then(function(r){ return r.json().then(function(d){ return [r.ok, d]; }); })
+      .then(function(x){ $('ort-status').textContent = x[0] ? '✓ Gespeichert – wirkt sofort.' : '✗ ' + (x[1].error || 'Fehler'); })
+      .catch(function(){ $('ort-status').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+})();
+</script>
+
+<!-- ── Zähler & Nachbarschaftshandel (R839) ──────────────────────────────── -->
 <style>
 .en-grid { display:grid; grid-template-columns: minmax(150px, 34%) 1fr; gap:8px 12px; align-items:center; }
 .en-grid label { font-size:13px; color:var(--text-dim, #9aa0b4); }
 .en-grid input, .en-grid select { width:100%; box-sizing:border-box; }
 .en-quelle { font-size:11px; color:var(--text-dim, #9aa0b4); }
 .en-abschnitt { margin:16px 0 8px; font-weight:600; font-size:14px; }
-#en-karte { height:260px; border-radius:10px; border:1px solid var(--border, #2e3348); margin-top:8px; }
 .en-test { font-size:13px; margin-top:6px; line-height:1.6; }
 @media (max-width:560px) { .en-grid { grid-template-columns: 1fr; } }
 </style>
@@ -847,13 +930,6 @@ document.addEventListener('DOMContentLoaded', updLoad);
       <div class="en-test" id="en-ha-erg"></div>
     </div>
 
-    <div class="en-abschnitt">Standort (Node und Zähler)</div>
-    <div class="en-grid">
-      <label for="en-lat">Breitengrad</label><input id="en-lat" type="number" step="0.000001" placeholder="50.2856">
-      <label for="en-lon">Längengrad</label><input id="en-lon" type="number" step="0.000001" placeholder="8.9455">
-    </div>
-    <div class="set-hint" style="margin-top:6px">In die Karte klicken setzt den Standort von Node und Zähler. <button type="button" class="btn-sm" id="en-gps">Mein Standort</button></div>
-    <div id="en-karte"></div>
 
     <div class="en-abschnitt">Nachbarschaftshandel</div>
     <div class="en-grid">
@@ -877,56 +953,13 @@ document.addEventListener('DOMContentLoaded', updLoad);
 (function(){
   var $ = function(id){ return document.getElementById(id); };
   var felder = Array.prototype.slice.call(document.querySelectorAll('#en-karte-card [data-k]'));
-  var karte = null, marke = null;
   var envProto = '';   // Zählerquelle aus der fundus.env, falls die Auswahl leer ist
   function sichtbar(){
     var p = $('en-proto').value || envProto;   // wirksame Quelle
     document.querySelectorAll('#en-karte-card .en-nur-ha').forEach(function(e){ e.style.display = p === 'homeassistant' ? '' : 'none'; });
     document.querySelectorAll('#en-karte-card .en-nur-mock').forEach(function(e){ e.style.display = p === 'mock' ? '' : 'none'; });
   }
-  function markeSetzen(lat, lon, schwenken){
-    if (!karte || !isFinite(lat) || !isFinite(lon)) return;
-    if (!marke) marke = L.marker([lat, lon]).addTo(karte); else marke.setLatLng([lat, lon]);
-    if (schwenken) karte.setView([lat, lon], Math.max(karte.getZoom(), 14));
-  }
-  function karteStarten(){
-    if (typeof L === 'undefined') { setTimeout(karteStarten, 200); return; }
-    var lat = parseFloat($('en-lat').value || $('en-lat').placeholder), lon = parseFloat($('en-lon').value || $('en-lon').placeholder);
-    var hat = isFinite(lat) && isFinite(lon) && (lat !== 0 || lon !== 0);
-    karte = L.map('en-karte').setView(hat ? [lat, lon] : [51.1, 10.4], hat ? 15 : 6);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19,
-      attribution: '&copy; OpenStreetMap' }).addTo(karte);
-    if (hat) markeSetzen(lat, lon, false);
-    // Leaflet kennt nur die Größe beim Anlegen. Verschiebt sich die Seite
-    // danach (andere Bereiche laden nach), bleiben Kacheln aus – deshalb bei
-    // jeder Größenänderung und kurz nach dem Start neu vermessen.
-    [100, 400, 1200].forEach(function(ms){ setTimeout(function(){ karte.invalidateSize(); }, ms); });
-    if (window.ResizeObserver) new ResizeObserver(function(){ karte.invalidateSize(); }).observe($('en-karte'));
-    karte.on('click', function(e){
-      $('en-lat').value = e.latlng.lat.toFixed(6);
-      $('en-lon').value = e.latlng.lng.toFixed(6);
-      markeSetzen(e.latlng.lat, e.latlng.lng, false);
-    });
-  }
-  ['en-lat','en-lon'].forEach(function(id){
-    $(id).addEventListener('change', function(){ markeSetzen(parseFloat($('en-lat').value), parseFloat($('en-lon').value), true); });
-  });
-  $('en-gps').onclick = function(){
-    if (!navigator.geolocation) { $('en-status').textContent = 'Der Browser kennt keinen Standort.'; return; }
-    navigator.geolocation.getCurrentPosition(function(pos){
-      $('en-lat').value = pos.coords.latitude.toFixed(6);
-      $('en-lon').value = pos.coords.longitude.toFixed(6);
-      markeSetzen(pos.coords.latitude, pos.coords.longitude, true);
-    }, function(){ $('en-status').textContent = 'Standort nicht verfügbar – bitte in die Karte klicken.'; });
-  };
-  $('en-proto').addEventListener('change', sichtbar);
 
-  var ortVorher = null, ortPLZ = '';
-  var ortGeladen = fetch('/api/v1/admin/location', {credentials:'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(o){
-    if (o && (o.lat || o.lon)) { $('en-lat').value = Number(o.lat).toFixed(6); $('en-lon').value = Number(o.lon).toFixed(6); }
-    ortPLZ = (o && o.plz) || '';
-    ortVorher = $('en-lat').value + '|' + $('en-lon').value;
-  }).catch(function(){});
   fetch('/api/v1/admin/energie', {credentials:'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(d){
     if (!d) return;
     var w = d.werte || {}, q = d.quelle || {};
@@ -948,8 +981,8 @@ document.addEventListener('DOMContentLoaded', updLoad);
       }
     });
     if (d.token_gesetzt) $('en-ha-token').placeholder = 'gesetzt – leer lassen, um ihn zu behalten';
-    sichtbar(); ortGeladen.then(karteStarten);
-  }).catch(function(){ sichtbar(); ortGeladen.then(karteStarten); });
+    sichtbar();
+  }).catch(function(){ sichtbar(); });
 
   $('en-ha-test').onclick = function(){
     var aus = $('en-ha-erg'); aus.textContent = 'Frage Home Assistant …';
@@ -976,15 +1009,8 @@ document.addEventListener('DOMContentLoaded', updLoad);
     var tok = $('en-ha-token').value.trim();
     if (tok) werte.FUNDUS_HA_TOKEN = tok;
     $('en-status').textContent = 'Speichere …';
-    var lat = parseFloat($('en-lat').value), lon = parseFloat($('en-lon').value);
-    var ort = (isFinite(lat) && isFinite(lon) && ($('en-lat').value + '|' + $('en-lon').value) !== ortVorher)
-      ? fetch('/api/v1/admin/location', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ lat: lat, lon: lon, plz: ortPLZ }) }).then(function(r){
-            if (!r.ok) throw new Error('Standort');
-            ortVorher = $('en-lat').value + '|' + $('en-lon').value; })
-      : Promise.resolve();
-    ort.then(function(){ return fetch('/api/v1/admin/energie', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ werte: werte }) }); }).then(function(r){ return r.json(); }).then(function(d){
+    fetch('/api/v1/admin/energie', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ werte: werte }) }).then(function(r){ return r.json(); }).then(function(d){
       if (d.error) { $('en-status').textContent = '✗ ' + d.error; return; }
       $('en-ha-token').value = '';
       $('en-status').textContent = d.neustart_noetig
@@ -1071,6 +1097,7 @@ document.addEventListener('DOMContentLoaded', updLoad);
   // Karten nach Überschrift einem Reiter zuordnen (deutsch + englisch).
   var TABS = [
     ['node',     'Node',        /update|chain|node|profil|profile|revision/i],
+    ['standort', 'Standort',    /^\s*standort/i],
     ['security', 'Sicherheit',  /sicherung|backup|admin|passwort|password/i],
     ['network',  'Netzwerk',    /solana|rpc|nat|port|wlan|wi-?fi|netz|network/i],
     ['storage',  'Speicher',    /speicher|storage|datei|file/i],

@@ -326,6 +326,7 @@ func (s *Server) aeroLokal() []byte {
 		flieger = []gin.H{}
 	}
 	bild, _ := json.Marshal(gin.H{"quelle": "lokal", "empfaenger": gin.H{"lat": lat, "lon": lon},
+		"standort": gin.H{"lat": lat, "lon": lon}, // R849: eigene Position = Empfänger
 		"zeit": int64(d.Now), "nachrichten": int64(d.Messages), "flugzeuge": flieger})
 	aeroBild, aeroBildZeit = bild, jetzt
 	return bild
@@ -400,6 +401,7 @@ func (s *Server) aeroVomNachbarn(ctx context.Context) []byte {
 			if json.Unmarshal(antw, &bild) == nil {
 				bild["quelle"] = "peer"
 				bild["peer_km"] = math.Round(k.km*10) / 10
+				aeroVonHierAus(bild, lat, lon)
 				aeroFremd, _ = json.Marshal(bild)
 				aeroFremdZeit = time.Now()
 				return aeroFremd
@@ -423,8 +425,30 @@ func (s *Server) aeroLive(c *gin.Context) {
 		"hinweis": fmt.Sprintf("Kein Empfänger: weder %s auf diesem Node noch ein anderer im Netz.", aeroQuelle())})
 }
 
+// GET /api/v1/aeronautik/einrichtung (R848): Fortschritt der Einrichtung, die
+// setup-aeronautik.sh im Hintergrund ausführt. Leer, wenn nie eingerichtet.
+func (s *Server) aeroEinrichtung(c *gin.Context) {
+	roh, err := os.ReadFile("/run/fundus-aeronautik/status.json")
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+	var st map[string]any
+	if json.Unmarshal(roh, &st) != nil {
+		c.JSON(http.StatusOK, gin.H{})
+		return
+	}
+	// Hängt sie? Beim Übersetzen frischt das Skript den Stand alle 5 s auf.
+	fertig, _ := st["fertig"].(bool)
+	if stand, ok := st["stand"].(float64); ok && !fertig && time.Since(time.Unix(int64(stand), 0)) > 10*time.Minute {
+		st["haengt"] = true
+	}
+	c.JSON(http.StatusOK, st)
+}
+
 func (s *Server) registerAeronautik(r *gin.Engine) {
 	r.GET("/api/v1/aeronautik/live", s.aeroLive)
+	r.GET("/api/v1/aeronautik/einrichtung", s.aeroEinrichtung)
 	if s.node != nil {
 		s.node.RegisterProtocol(aeroProtocol, func(peerID string, data []byte) []byte {
 			return s.aeroLokal()
@@ -432,4 +456,38 @@ func (s *Server) registerAeronautik(r *gin.Engine) {
 	}
 	go s.aeroNachschlagen()
 	go s.aeroAnkuendigen()
+}
+
+// aeroVonHierAus (R849): Entfernungen vom abfragenden Node aus, nicht vom
+// Empfänger – sonst zeigte "Über dir" auf dem 39er, wie weit ein Flugzeug vom
+// 71er entfernt ist. Danach neu nach Entfernung sortiert.
+func aeroVonHierAus(bild map[string]any, lat, lon float64) {
+	if lat == 0 && lon == 0 {
+		return
+	}
+	bild["standort"] = gin.H{"lat": lat, "lon": lon}
+	fl, ok := bild["flugzeuge"].([]any)
+	if !ok {
+		return
+	}
+	km := func(x any) float64 {
+		if f, ok := x.(map[string]any); ok {
+			if v, ok := f["km"].(float64); ok {
+				return v
+			}
+		}
+		return math.Inf(1)
+	}
+	for _, x := range fl {
+		f, ok := x.(map[string]any)
+		if !ok {
+			continue
+		}
+		fLat, ok1 := f["lat"].(float64)
+		fLon, ok2 := f["lon"].(float64)
+		if ok1 && ok2 {
+			f["km"] = math.Round(haversineKm(lat, lon, fLat, fLon)*10) / 10
+		}
+	}
+	sort.SliceStable(fl, func(i, j int) bool { return km(fl[i]) < km(fl[j]) })
 }
