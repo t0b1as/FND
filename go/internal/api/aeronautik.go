@@ -327,6 +327,7 @@ func (s *Server) aeroLokal() []byte {
 	}
 	bild, _ := json.Marshal(gin.H{"quelle": "lokal", "empfaenger": gin.H{"lat": lat, "lon": lon},
 		"standort": gin.H{"lat": lat, "lon": lon}, // R849: eigene Position = Empfänger
+		"node": aeroNodeName(),                     // R851: welcher Pi antwortet
 		"zeit": int64(d.Now), "nachrichten": int64(d.Messages), "flugzeuge": flieger})
 	aeroBild, aeroBildZeit = bild, jetzt
 	return bild
@@ -401,6 +402,11 @@ func (s *Server) aeroVomNachbarn(ctx context.Context) []byte {
 			if json.Unmarshal(antw, &bild) == nil {
 				bild["quelle"] = "peer"
 				bild["peer_km"] = math.Round(k.km*10) / 10
+				// R851: Standort und Name des EMPFÄNGERS nicht als die eigenen
+				// ausgeben – sonst stünde das Häuschen am Ort des Empfängers.
+				bild["empfaenger_node"] = bild["node"]
+				bild["node"] = aeroNodeName()
+				delete(bild, "standort")
 				aeroVonHierAus(bild, lat, lon)
 				aeroFremd, _ = json.Marshal(bild)
 				aeroFremdZeit = time.Now()
@@ -490,4 +496,13 @@ func aeroVonHierAus(bild map[string]any, lat, lon float64) {
 		}
 	}
 	sort.SliceStable(fl, func(i, j int) bool { return km(fl[i]) < km(fl[j]) })
+}
+
+// aeroNodeName: Rechnername dieses Pi – die Seite nennt ihn, damit klar ist,
+// welcher Pi antwortet (die Lastverteilung reicht die Schnittstelle weiter).
+func aeroNodeName() string {
+	if h, err := os.Hostname(); err == nil && h != "" {
+		return h
+	}
+	return "dieser Node"
 }

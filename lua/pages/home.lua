@@ -104,7 +104,15 @@ return function()
   }
   // R640: driveZahl() lief sofort – das Skript steht aber VOR den Kacheln,
   // das Feld gab es da noch nicht und die Funktion brach still ab.
-  function allesSetzen(){ setzen(); driveZahl(); gbZahl(); feedZahl(); }
+  // R850: Aeronautik-Kachel – Flugzeuge, die gerade empfangen werden.
+  function aeroZahl(){
+    var el = document.getElementById('tile-aero-count'); if (!el) return;
+    fetch('/api/v1/aeronautik/live', {credentials:'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){ el.textContent = d && d.quelle !== 'keine' ? (d.flugzeuge || []).length : '–'; })
+      .catch(function(){ el.textContent = '–'; });
+  }
+  function allesSetzen(){ setzen(); driveZahl(); gbZahl(); feedZahl(); aeroZahl(); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', allesSetzen);
   else allesSetzen();
   setTimeout(allesSetzen, 1200);
@@ -122,6 +130,12 @@ return function()
     <div class="tile-icon">]] .. require("icons").svg("energy") .. [[</div>
     <div class="tile-value">%d</div>
     <div class="tile-label">%s</div>
+  </a>
+  <a href="/aeronautik" class="tile tile-blue" data-nav-key="aeronautik" data-nav-zone="landing">
+    <div class="tile-glow"></div>
+    <div class="tile-icon">]] .. require("icons").svg("aeronautik") .. [[</div>
+    <div class="tile-value" id="tile-aero-count">–</div>
+    <div class="tile-label">Aeronautik</div>
   </a>
   <a href="/certificates" class="tile tile-blue wip" data-wip="BETA" data-nav-key="certificates" data-nav-zone="landing">
     <div class="tile-glow"></div>

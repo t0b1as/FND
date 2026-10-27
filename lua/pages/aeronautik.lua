@@ -19,6 +19,17 @@ return function()
 .ae-wrap { display:grid; grid-template-columns: 1fr 340px; gap:14px; }
 @media (max-width: 900px) { .ae-wrap { grid-template-columns: 1fr; } }
 #ae-karte { height:min(72vh, 680px); border-radius:12px; border:1px solid var(--border); }
+/* R850: Telefon – Karte in der oberen Hälfte, darunter Details und Liste.
+   svh = kleine Bildschirmhöhe: bleibt gleich, wenn die Adressleiste beim
+   Scrollen ein- und ausfährt (vh springt dabei). */
+@media (max-width: 900px) {
+  #ae-karte { height:50vh; height:50svh; }
+  .ae-liste { max-height:none; }
+  .ae-legende { order:3; }   /* Flugdaten zuerst, Legende ans Ende */
+}
+/* Kein Zoom per Doppeltipp: ein gezoomtes Fenster löst feste Leisten (untere
+   Navigation) vom Bildschirmrand. Kartenzoom per Zwei-Finger bleibt. */
+.ae-wrap, .ae-seite, #ae-einrichtung { touch-action: manipulation; }
 .ae-seite { display:flex; flex-direction:column; gap:14px; min-width:0; }
 .ae-karte { border:1px solid var(--border); border-radius:12px; padding:12px 14px; background:rgba(26,29,39,.2); }
 .ae-karte h3 { margin:0 0 8px; font-size:14px; }
@@ -53,6 +64,7 @@ return function()
 <div class="top-bar" style="margin-bottom:14px"><h2 class="ae-titel"><span class="ico">]==] .. icons.svg("aeronautik") .. [==[</span>Aeronautik</h2>
   <span class="ae-stand" id="ae-stand">verbinde …</span></div>
 <div id="ae-einrichtung" class="ae-karte" style="display:none;margin-bottom:14px"></div>
+<div id="ae-ort" class="ae-karte ae-hinweis" style="display:none;margin-bottom:14px"></div>
 <div class="ae-wrap">
   <div id="ae-karte"></div>
   <div class="ae-seite">
@@ -63,7 +75,7 @@ return function()
       <div><span style="color:#5ec8ff">✈</span> über 8.000 m – Reiseflug</div>
       <div><span style="color:#9aa0b4">✈</span> am Boden</div>
       <div><span style="color:#ff3b3b">✈</span> Notfall-Code: 7500 Entführung, 7600 Funkausfall, 7700 Notfall</div>
-      <div style="margin-top:4px">⌂ dein Standort · Ringe 25, 50, 100, 200 km</div>
+      <div style="margin-top:4px">⌂ Standort dieses Pi · Ringe 25, 50, 100, 200 km</div>
     </div>
     <div class="ae-karte"><h3>Über dir</h3><div class="ae-liste" id="ae-liste"><div class="ae-hinweis">Warte auf Daten …</div></div></div>
   </div>
@@ -71,7 +83,18 @@ return function()
 <script>
 (function(){
   var $ = function(id){ return document.getElementById(id); };
-  var karte = null, marker = {}, spuren = {}, gewaehlt = null, letzte = null, ringe = null;
+  var karte = null, marker = {}, spuren = {}, gewaehlt = null, letzte = null, listeAlt = '', detailAlt = '';
+  var haus = null, empfMarke = null, ringe = [], ringMitte = '', zentriert = false;
+  function ringeUm(m){
+    var schl = m.lat.toFixed(4) + ',' + m.lon.toFixed(4);
+    if (schl === ringMitte) return;
+    ringMitte = schl;
+    ringe.forEach(function(r){ karte.removeLayer(r); });
+    ringe = [25, 50, 100, 200].map(function(k){
+      return L.circle([m.lat, m.lon], { radius: k * 1000, color: '#5ec8ff', weight: 1, opacity: .25, fill: false, interactive: false }).addTo(karte);
+    });
+    if (!zentriert) { zentriert = true; karte.setView([m.lat, m.lon], 9); }
+  }
   var FLUGZEUG = '<svg viewBox="0 0 24 24"><path fill="FARBE" stroke="#0b0d12" stroke-width="0.8" d="M12 2.5c.8 0 1.3.9 1.3 2v5.2l7.2 4.3v2l-7.2-2.2v4.4l2.2 1.6v1.7L12 20.7l-3.5.8v-1.7l2.2-1.6v-4.4l-7.2 2.2v-2l7.2-4.3V4.5c0-1.1.5-2 1.3-2z"/></svg>';
   function farbe(f){
     if (f.notfall) return '#ff3b3b';
@@ -96,8 +119,9 @@ return function()
     laden();
   }
 
+  function detailSetzen(h){ if (h !== detailAlt) { detailAlt = h; $('ae-detail').innerHTML = h; } }
   function detail(f){
-    if (!f) { $('ae-detail').innerHTML = '<div class="ae-hinweis">Auf ein Flugzeug tippen – in der Karte oder in der Liste.</div>'; return; }
+    if (!f) { detailSetzen('<div class="ae-hinweis">Auf ein Flugzeug tippen – in der Karte oder in der Liste.</div>'); return; }
     var r = f.route || {}, z = f.flugzeug || {};
     var h = '<div class="flug">' + esc(f.flug || f.hex.toUpperCase()) + (f.notfall ? ' <span class="ae-notfall">NOTFALL ' + esc(f.squawk) + '</span>' : '') + '</div>';
     if (r.airline) h += '<div class="ae-hinweis">' + esc(r.airline) + '</div>';
@@ -114,7 +138,7 @@ return function()
       (z.halter ? '<span>Halter</span><span>' + esc(z.halter) + '</span>' : '') +
       '<span>Transponder</span><span>' + esc(f.hex.toUpperCase()) + (f.squawk ? ' · Squawk ' + esc(f.squawk) : '') + '</span>' +
       '</div>';
-    $('ae-detail').innerHTML = h;
+    detailSetzen(h);
   }
 
   function waehlen(hex){
@@ -128,23 +152,33 @@ return function()
   function zeichnen(d){
     letzte = d;
     var flieger = d.flugzeuge || [], da = {};
-    // R849: eigener Standort mit Haus-Symbol, Ringe um DICH; der Empfänger
-    // nur gesondert, wenn er woanders steht (Bild von einem anderen Node).
-    var ich = d.standort && (d.standort.lat || d.standort.lon) ? d.standort : d.empfaenger;
-    if (ich && (ich.lat || ich.lon) && !ringe) {
-      ringe = [25, 50, 100, 200].map(function(km){
-        return L.circle([ich.lat, ich.lon], { radius: km * 1000, color: '#5ec8ff', weight: 1, opacity: .25, fill: false, interactive: false }).addTo(karte)
-          .bindTooltip(km + ' km', { permanent: false });
-      });
-      L.marker([ich.lat, ich.lon], { icon: L.divIcon({ className: 'ae-flieger', iconSize: [24, 24], iconAnchor: [12, 12],
-        html: '<svg viewBox="0 0 24 24" style="width:24px;height:24px"><path fill="#ffffff" stroke="#0b0d12" stroke-width="1" d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>' }),
-        zIndexOffset: 1000 }).addTo(karte).bindTooltip('Dein Standort');
-      var e = d.empfaenger;
-      if (d.quelle === 'peer' && e && (e.lat || e.lon)) {
-        L.circleMarker([e.lat, e.lon], { radius: 5, color: '#5ec8ff', fillOpacity: 1 }).addTo(karte)
-          .bindTooltip('Empfänger im Netz (' + zahl(d.peer_km, 1) + ' km entfernt)');
-      }
-      karte.setView([ich.lat, ich.lon], 9);
+    // R851: Häuschen = Standort des Pi, der diese Seite bedient. Gesetzt oder
+    // verschoben, sobald eine Antwort ihn enthält – nicht nur bei der ersten.
+    var st = d.standort && (d.standort.lat || d.standort.lon) ? d.standort : null;
+    var e = d.empfaenger && (d.empfaenger.lat || d.empfaenger.lon) ? d.empfaenger : null;
+    if (st) {
+      if (!haus) haus = L.marker([st.lat, st.lon], { icon: L.divIcon({ className: 'ae-flieger', iconSize: [24, 24], iconAnchor: [12, 12],
+          html: '<svg viewBox="0 0 24 24" style="width:24px;height:24px"><path fill="#ffffff" stroke="#0b0d12" stroke-width="1" d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>' }),
+          zIndexOffset: 1000 }).addTo(karte);
+      else haus.setLatLng([st.lat, st.lon]);
+      haus.bindTooltip('Standort von ' + esc(d.node || 'diesem Node'));
+    }
+    if (d.quelle === 'peer' && e) {
+      if (!empfMarke) empfMarke = L.circleMarker([e.lat, e.lon], { radius: 5, color: '#5ec8ff', fillOpacity: 1 }).addTo(karte);
+      else empfMarke.setLatLng([e.lat, e.lon]);
+      empfMarke.bindTooltip('Empfänger ' + esc(d.empfaenger_node || '') + ' (' + zahl(d.peer_km, 1) + ' km entfernt)');
+    }
+    var mitte = st || e;
+    if (mitte) ringeUm(mitte);
+    // Fehlt der Standort, sagen WELCHEM Pi – die Lastverteilung reicht die
+    // Seite an einen festen Pi weiter, nicht unbedingt an den, den man aufruft.
+    var ort = $('ae-ort');
+    if (st) ort.style.display = 'none';
+    else {
+      ort.innerHTML = 'Dem Pi <b>' + esc(d.node || '?') + '</b>, der diese Seite bedient, fehlt der Standort – deshalb kein Häuschen und keine Entfernungen' +
+        (e ? '; die Ringe liegen ersatzweise um den Empfänger' : '') + '. Setzen auf diesem Pi unter Einstellungen → <a href="/settings#tab=standort">Standort</a>' +
+        ' (über seine Adresse im Heimnetz, falls du ihn von außen aufrufst).';
+      ort.style.display = '';
     }
     flieger.forEach(function(f){
       da[f.hex] = true;
@@ -166,12 +200,19 @@ return function()
     });
     // Liste: die nächsten 30, nach Entfernung
     var nah = flieger.slice(0, 30);
-    $('ae-liste').innerHTML = nah.length ? nah.map(function(f){
+    // R850: Nur neu aufbauen, wenn sich die Liste geändert hat. Jede Sekunde
+    // komplett neu zu bauen verschob auf Telefonen den Inhalt mitten im
+    // Scrollen – die Seite sprang, die untere Leiste schien mitzuwandern.
+    var listeNeu = nah.length ? nah.map(function(f){
       return '<div class="ae-zeile" data-hex="' + esc(f.hex) + '"><span style="color:' + farbe(f) + '">●</span>' +
         '<span class="fl">' + esc(f.flug || f.hex.toUpperCase()) + '</span><span class="rt">' + esc(routeText(f)) + '</span>' +
         '<span class="km">' + (f.km == null ? '' : zahl(f.km, 1) + ' km') + '</span></div>';
     }).join('') : '<div class="ae-hinweis">Gerade kein Flugzeug mit Position in Reichweite.</div>';
-    document.querySelectorAll('.ae-zeile').forEach(function(z){ z.onclick = function(){ waehlen(z.dataset.hex); var m = marker[z.dataset.hex]; if (m) karte.panTo(m.getLatLng()); }; });
+    if (listeNeu !== listeAlt) {
+      listeAlt = listeNeu;
+      $('ae-liste').innerHTML = listeNeu;
+      document.querySelectorAll('.ae-zeile').forEach(function(z){ z.onclick = function(){ waehlen(z.dataset.hex); var m = marker[z.dataset.hex]; if (m) karte.panTo(m.getLatLng()); }; });
+    }
     if (gewaehlt) waehlen(gewaehlt);
     $('ae-stand').textContent = flieger.length + ' Flugzeuge · ' + (d.quelle === 'peer' ? 'Empfänger im Netz (' + zahl(d.peer_km, 1) + ' km entfernt)' : 'eigener Empfänger') +
       ' · ' + new Date((d.zeit || Date.now() / 1000) * 1000).toLocaleTimeString('de-DE');
