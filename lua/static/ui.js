@@ -90,22 +90,40 @@
   // alles, passiert nichts. Bei offener Tastatur wird sie ausgeblendet, statt
   // über der Tastatur zu schweben.
   function leisteVerankern() {
+    // R857: Nur noch bei echtem Zoom verschieben. R852 verschob bei JEDER
+    // Abweichung zwischen Fensterhöhe und sichtbarem Ausschnitt – Safari meldet
+    // beim Ein- und Ausfahren der Adressleiste beide Höhen aber nicht
+    // gleichzeitig, und die Leiste blieb um die Höhe der Adressleiste
+    // verschoben stehen. Ohne Zoom verankert der Browser die Leiste selbst.
     var nav = document.getElementById("bottom-nav"), vv = window.visualViewport;
     if (!nav || !vv) return;
-    var geplant = 0;
+    var geplant = 0, ruhe = 0;
+    function eingabeAktiv() {
+      var a = document.activeElement;
+      return !!a && (a.tagName === "INPUT" || a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.isContentEditable);
+    }
     function setzen() {
       geplant = 0;
+      var gezoomt = vv.scale > 1.01;
       var luecke = window.innerHeight - (vv.offsetTop + vv.height);
-      var tastatur = luecke > 150 && vv.scale <= 1.01;
+      // Tastatur: nur wenn wirklich ein Eingabefeld den Fokus hat.
+      var tastatur = !gezoomt && eingabeAktiv() && luecke > 150;
       nav.style.visibility = tastatur ? "hidden" : "";
-      nav.style.transform = !tastatur && Math.abs(luecke) > 1 ? "translateY(" + (-luecke) + "px)" : "";
+      nav.style.transform = gezoomt && Math.abs(luecke) > 1 ? "translateY(" + (-luecke) + "px)" : "";
     }
-    function bald() { if (!geplant) geplant = requestAnimationFrame(setzen); }
+    function bald() {
+      if (!geplant) geplant = requestAnimationFrame(setzen);
+      // Nach dem Ende der Bewegung einmal nachrechnen – kein Zwischenstand bleibt stehen.
+      clearTimeout(ruhe); ruhe = setTimeout(setzen, 200);
+    }
     vv.addEventListener("resize", bald);
     vv.addEventListener("scroll", bald);
     window.addEventListener("scroll", bald, { passive: true });
+    document.addEventListener("focusin", bald);
+    document.addEventListener("focusout", bald);
     setzen();
   }
+
 
   // Prüfansicht: ?leiste=pruefen zeigt live, was der Browser misst – für ein
   // Bildschirmfoto, wenn die Leiste auf einem Gerät doch wandert.

@@ -1859,6 +1859,19 @@ select option { background:var(--surface); color:var(--fg); }
   #filter-mount { flex-wrap: wrap; }
   #filter-mount .filter-text { flex: 1 1 100%; }
 }
+/* R858: Auswahllisten ohne Systemaussehen – Safari ignoriert sonst Höhe und
+   Mindesthöhe, die Listen blieben flacher als die Zahlenfelder daneben.
+   Eigener Pfeil statt des Systempfeils. */
+#filter-mount select, .filter-bar select {
+  -webkit-appearance: none; appearance: none; padding-right: 26px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%239aa0b4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 9px center; background-size: 11px 8px;
+}
+/* Auf dem Telefon mindestens 16 px: darunter zoomt Safari beim Antippen die
+   ganze Seite heran – und ein gezoomtes Fenster lässt die untere Leiste rutschen. */
+@media (max-width: 720px) {
+  #filter-mount input, #filter-mount select, .filter-bar input, .filter-bar select { font-size: 16px; }
+}
 
 /* Profil-Popup: Galerie wie in der eigenen Profil-Vorschau */
 .mp-gallery {
