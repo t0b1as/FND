@@ -107,7 +107,8 @@ return function()
   function ort(a){ return a ? '<span class="code">' + esc(a.code || '?') + '</span><span class="ort">' + esc([a.stadt, a.land].filter(Boolean).join(', ')) + '</span>' : '<span class="code">?</span>'; }
   function routeText(f){
     if (!f.route || !f.route.von) return f.flug ? 'Route unbekannt' : 'ohne Rufzeichen';
-    return (f.route.von.code || '?') + ' → ' + (f.route.nach && f.route.nach.code || '?');
+    // R853: passt die Route nicht zu Position und Kurs, mit Fragezeichen
+    return (f.route.von.code || '?') + ' → ' + (f.route.nach && f.route.nach.code || '?') + (f.route_zweifel ? ' ?' : '');
   }
 
   function starten(){
@@ -125,7 +126,8 @@ return function()
     var r = f.route || {}, z = f.flugzeug || {};
     var h = '<div class="flug">' + esc(f.flug || f.hex.toUpperCase()) + (f.notfall ? ' <span class="ae-notfall">NOTFALL ' + esc(f.squawk) + '</span>' : '') + '</div>';
     if (r.airline) h += '<div class="ae-hinweis">' + esc(r.airline) + '</div>';
-    h += r.von ? '<div class="ae-route"><div>' + ort(r.von) + '</div><div>→</div><div>' + ort(r.nach) + '</div></div>'
+    h += r.von ? '<div class="ae-route"' + (f.route_zweifel ? ' style="opacity:.55"' : '') + '><div>' + ort(r.von) + '</div><div>→</div><div>' + ort(r.nach) + '</div></div>' +
+                 (f.route_zweifel ? '<div class="ae-hinweis" style="margin:-2px 0 8px">Laut Datenbank – passt aber nicht zu Position und Kurs. Vermutlich wird das Rufzeichen gerade für eine andere Strecke verwendet.</div>' : '')
                : '<div class="ae-hinweis" style="margin:8px 0">' + (f.flug ? 'Für dieses Rufzeichen ist keine Route bekannt – oft bei Charter- und Privatflügen.' : 'Sendet kein Rufzeichen.') + '</div>';
     h += '<div class="ae-werte">' +
       '<span>Höhe</span><span>' + (f.am_boden ? 'am Boden' : zahl(f.hoehe_m) + ' m') + '</span>' +
@@ -137,6 +139,7 @@ return function()
       (z.kennzeichen ? '<span>Kennzeichen</span><span>' + esc(z.kennzeichen) + '</span>' : '') +
       (z.halter ? '<span>Halter</span><span>' + esc(z.halter) + '</span>' : '') +
       '<span>Transponder</span><span>' + esc(f.hex.toUpperCase()) + (f.squawk ? ' · Squawk ' + esc(f.squawk) : '') + '</span>' +
+      (r.quelle ? '<span>Route laut</span><span>' + esc(r.quelle) + '</span>' : '') +
       '</div>';
     detailSetzen(h);
   }
@@ -205,7 +208,7 @@ return function()
     // Scrollen – die Seite sprang, die untere Leiste schien mitzuwandern.
     var listeNeu = nah.length ? nah.map(function(f){
       return '<div class="ae-zeile" data-hex="' + esc(f.hex) + '"><span style="color:' + farbe(f) + '">●</span>' +
-        '<span class="fl">' + esc(f.flug || f.hex.toUpperCase()) + '</span><span class="rt">' + esc(routeText(f)) + '</span>' +
+        '<span class="fl">' + esc(f.flug || f.hex.toUpperCase()) + '</span><span class="rt"' + (f.route_zweifel ? ' style="opacity:.55"' : '') + '>' + esc(routeText(f)) + '</span>' +
         '<span class="km">' + (f.km == null ? '' : zahl(f.km, 1) + ' km') + '</span></div>';
     }).join('') : '<div class="ae-hinweis">Gerade kein Flugzeug mit Position in Reichweite.</div>';
     if (listeNeu !== listeAlt) {

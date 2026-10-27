@@ -50,16 +50,20 @@ func aeroQuelle() string {
 // ── Nachschlagen: Route und Flugzeug ─────────────────────────────────────────
 
 type aeroFlughafen struct {
-	Code  string `json:"code"`
-	Name  string `json:"name"`
-	Stadt string `json:"stadt"`
-	Land  string `json:"land"`
+	Code  string  `json:"code"`
+	Name  string  `json:"name"`
+	Stadt string  `json:"stadt"`
+	Land  string  `json:"land"`
+	Lat   float64 `json:"lat,omitempty"` // R853: für die Plausibilitätsprüfung
+	Lon   float64 `json:"lon,omitempty"`
 }
 
 type aeroRoute struct {
-	Von     *aeroFlughafen `json:"von,omitempty"`
-	Nach    *aeroFlughafen `json:"nach,omitempty"`
-	Airline string         `json:"airline,omitempty"`
+	Von     *aeroFlughafen   `json:"von,omitempty"`
+	Nach    *aeroFlughafen   `json:"nach,omitempty"`
+	Airline string           `json:"airline,omitempty"`
+	Quelle  string           `json:"quelle,omitempty"` // R853: welcher Anbieter
+	Etappen []*aeroFlughafen `json:"-"`                // alle Flughäfen der Route, in Reihenfolge
 }
 
 type aeroFlugzeug struct {
@@ -100,74 +104,69 @@ func aeroFlughafenAus(m map[string]any) *aeroFlughafen {
 	if code == "" {
 		code = aeroText(m, "icao_code")
 	}
-	return &aeroFlughafen{Code: code, Name: aeroText(m, "name"),
+	f := &aeroFlughafen{Code: code, Name: aeroText(m, "name"),
 		Stadt: aeroText(m, "municipality"), Land: aeroText(m, "country_name")}
+	f.Lat, _ = aeroZahl(m, "latitude")
+	f.Lon, _ = aeroZahl(m, "longitude")
+	return f
 }
 
+// aeroNachschlagen: Flugzeugdaten (Typ, Kennzeichen) – adsbdb.com, sonst
+// hexdb.io. Routen: aeronautik_routen.go (R853). Gedrosselt oder gestört =
+// Anbieter pausiert und Auftrag zurück in die Warteschlange, NICHT "unbekannt".
 func (s *Server) aeroNachschlagen() {
 	defer func() {
 		if r := recover(); r != nil && s.log != nil {
 			s.log.Error("Aeronautik: Nachschlagen abgebrochen", zap.Any("grund", r))
 		}
 	}()
-	client := &http.Client{Timeout: 6 * time.Second}
-	holen := func(url string) (map[string]any, int) {
-		req, err := http.NewRequest(http.MethodGet, url, nil)
-		if err != nil {
-			return nil, 0
-		}
-		req.Header.Set("User-Agent", "Fundus-Aeronautik/1.0 (+https://fnd.resolve.bar)")
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, 0
-		}
-		defer resp.Body.Close()
-		var d map[string]any
-		_ = json.NewDecoder(io.LimitReader(resp.Body, 256*1024)).Decode(&d)
-		return d, resp.StatusCode
-	}
 	for auftrag := range aeroWarte {
-		art, schl := auftrag[:1], auftrag[2:]
-		var eintrag aeroEintrag
-		if art == "r" {
-			d, code := holen("https://api.adsbdb.com/v0/callsign/" + schl)
-			eintrag.bis = time.Now().Add(3 * time.Hour)
-			if code == http.StatusOK {
-				if resp, ok := d["response"].(map[string]any); ok {
-					if fr, ok := resp["flightroute"].(map[string]any); ok {
-						r := &aeroRoute{}
-						r.Von = aeroFlughafenAus(mapAus(fr["origin"]))
-						r.Nach = aeroFlughafenAus(mapAus(fr["destination"]))
-						if al := mapAus(fr["airline"]); al != nil {
-							r.Airline = aeroText(al, "name")
-						}
-						eintrag.route = r
-						eintrag.bis = time.Now().Add(12 * time.Hour)
-					}
+		hex := auftrag[2:]
+		var fz *aeroFlugzeug
+		verbindlich := false
+		if aeroAnbieterFrei("adsbdb") {
+			d, _, code, ok := aeroHolen(http.MethodGet, "https://api.adsbdb.com/v0/aircraft/"+hex, nil)
+			if !ok {
+				aeroAnbieterFehler("adsbdb")
+			} else {
+				aeroAnbieterOK("adsbdb")
+				verbindlich = true
+				if ac := mapAus(mapAus(d["response"])["aircraft"]); code == http.StatusOK && ac != nil {
+					fz = &aeroFlugzeug{Typ: aeroText(ac, "type"), Hersteller: aeroText(ac, "manufacturer"),
+						Kennzeichen: aeroText(ac, "registration"), Halter: aeroText(ac, "registered_owner")}
 				}
 			}
-			aeroMu.Lock()
-			aeroRouten[schl] = eintrag
-			delete(aeroInArbeit, auftrag)
-			aeroMu.Unlock()
-		} else {
-			d, code := holen("https://api.adsbdb.com/v0/aircraft/" + schl)
-			eintrag.bis = time.Now().Add(3 * time.Hour)
-			if code == http.StatusOK {
-				if resp, ok := d["response"].(map[string]any); ok {
-					if ac, ok := resp["aircraft"].(map[string]any); ok {
-						eintrag.flugzeug = &aeroFlugzeug{Typ: aeroText(ac, "type"), Hersteller: aeroText(ac, "manufacturer"),
-							Kennzeichen: aeroText(ac, "registration"), Halter: aeroText(ac, "registered_owner")}
-						eintrag.bis = time.Now().Add(7 * 24 * time.Hour)
-					}
-				}
-			}
-			aeroMu.Lock()
-			aeroGeraete[schl] = eintrag
-			delete(aeroInArbeit, auftrag)
-			aeroMu.Unlock()
+			time.Sleep(1500 * time.Millisecond)
 		}
-		time.Sleep(1500 * time.Millisecond) // höflich bleiben: höchstens eine Anfrage alle 1,5 s
+		if fz == nil && aeroAnbieterFrei("hexdb") {
+			d, _, code, ok := aeroHolen(http.MethodGet, "https://hexdb.io/api/v1/aircraft/"+hex, nil)
+			if !ok {
+				aeroAnbieterFehler("hexdb")
+			} else {
+				aeroAnbieterOK("hexdb")
+				verbindlich = true
+				if code == http.StatusOK && d != nil && aeroText(d, "Registration") != "" {
+					fz = &aeroFlugzeug{Typ: aeroText(d, "Type"), Hersteller: aeroText(d, "Manufacturer"),
+						Kennzeichen: aeroText(d, "Registration"), Halter: aeroText(d, "RegisteredOwners")}
+				}
+			}
+			time.Sleep(1500 * time.Millisecond)
+		}
+		aeroMu.Lock()
+		switch {
+		case fz != nil:
+			aeroGeraete[hex] = aeroEintrag{flugzeug: fz, bis: time.Now().Add(7 * 24 * time.Hour)}
+		case verbindlich:
+			aeroGeraete[hex] = aeroEintrag{bis: time.Now().Add(3 * time.Hour)}
+		default:
+			// Beide Anbieter pausiert oder gestört: später erneut versuchen.
+			aeroGeraete[hex] = aeroEintrag{bis: time.Now().Add(2 * time.Minute)}
+		}
+		delete(aeroInArbeit, auftrag)
+		aeroMu.Unlock()
+		if !verbindlich && fz == nil {
+			time.Sleep(5 * time.Second)
+		}
 	}
 }
 
@@ -298,9 +297,14 @@ func (s *Server) aeroLokal() []byte {
 		// Route und Flugzeug aus dem Zwischenspeicher, sonst vormerken.
 		if flug != "" {
 			if r, ok := aeroRouten[flug]; ok && r.route != nil {
-				e["route"] = r.route
+				// R853: die zur Position passende Etappe – oder als zweifelhaft markiert
+				anzeige, zweifel := aeroRoutePruefen(r.route, pLat, pLon, e["kurs"])
+				e["route"] = anzeige
+				if zweifel {
+					e["route_zweifel"] = true
+				}
 			}
-			aeroVormerken("r", flug, aeroRouten)
+			aeroRouteVormerken(flug, pLat, pLon)
 		}
 		if g, ok := aeroGeraete[hex]; ok && g.flugzeug != nil {
 			e["flugzeug"] = g.flugzeug
@@ -461,6 +465,7 @@ func (s *Server) registerAeronautik(r *gin.Engine) {
 		})
 	}
 	go s.aeroNachschlagen()
+	go s.aeroRoutenSchleife() // R853
 	go s.aeroAnkuendigen()
 }
 
