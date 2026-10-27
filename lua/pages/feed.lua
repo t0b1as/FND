@@ -123,6 +123,15 @@ return function()
 .feed-vb-ton { top:calc(64px + env(safe-area-inset-top, 0px)); }
 .feed-vb-tipp { position:absolute; left:50%; bottom:28%; transform:translateX(-50%); color:#fff; background:rgba(0,0,0,.55); padding:6px 14px; border-radius:14px; font-size:13px; white-space:nowrap; transition:opacity .6s; pointer-events:none; }
 .feed-vb-tipp.weg { opacity:0; }
+/* R855: Tippbereiche – Mitte Abspielen/Anhalten, unten Fortschritt, sonst Vollbild */
+.feed-vb-huelle video { cursor:pointer; }
+.feed-vb-mitte { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:64px; height:64px; border-radius:50%;
+  background:rgba(0,0,0,.5); color:#fff; font-size:26px; display:flex; align-items:center; justify-content:center; padding-left:4px;
+  box-sizing:border-box; pointer-events:none; transition:opacity .2s; z-index:1; }
+.feed-vb-fort { position:absolute; left:0; right:0; bottom:0; height:4px; background:rgba(255,255,255,.18); z-index:1; pointer-events:none; }
+.feed-vb-fort div { height:100%; width:0; background:#a763f7; }
+.feed-vb-stumm { position:absolute; left:50%; top:calc(14px + env(safe-area-inset-top, 0px)); transform:translateX(-50%); background:rgba(0,0,0,.75);
+  color:#fff; padding:7px 14px; border-radius:16px; font-size:13px; white-space:nowrap; pointer-events:none; z-index:3; }
 .feed-ton-hinweis { position:fixed; left:50%; transform:translateX(-50%); bottom:calc(84px + env(safe-area-inset-bottom, 0px)); z-index:500; background:rgba(0,0,0,.82); color:#fff; padding:7px 14px; border-radius:16px; font-size:13px; pointer-events:none; }
 .feed-bearb { font-size:11.5px; color:var(--text-dim); font-style:italic; }
 .feed-kbearb textarea { width:100%; box-sizing:border-box; background:var(--sur); color:var(--text); border:1px solid var(--green);

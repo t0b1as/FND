@@ -68,14 +68,14 @@
   function videosHtml(liste) {
     if (!liste || !liste.length) return '';
     return '<div class="feed-videos">' + liste.map((h) =>
-      '<video controls loop playsinline preload="metadata" src="/api/v1/files/download/' + encodeURIComponent(h) + '"></video>').join('') + '</div>';
+      '<video loop playsinline preload="metadata" src="/api/v1/files/download/' + encodeURIComponent(h) + '"></video>').join('') + '</div>';
   }
   function videoHtml(p) {
     const link = p.link && p.link.url && videoErkennen(p.link.url) ? p.link : null;
     const v = videoErkennen(p.video || (link && link.url) || (!p.link ? ersterVideoLink(p.text) : ''));
     if (!v) return '';
     if (v.art === 'datei') {
-      return '<div class="feed-video datei"><video class="datei" controls playsinline preload="metadata" src="' + esc(v.url) + '"></video></div>';
+      return '<div class="feed-video datei"><video class="datei" playsinline preload="metadata" src="' + esc(v.url) + '"></video></div>';
     }
     const anbieter = v.art === 'youtube' ? 'YouTube' : 'Vimeo';
     // R814: Vorschaubild und Titel kommen aus der beim Erstellen geholten
@@ -986,6 +986,7 @@
   }
   function abspielen(v) {
     if (vb) return; // Vollbild offen: der Feed spielt nichts ab
+    if (v.dataset.angehalten) return; // R855: selbst angehalten – nicht von allein starten
     document.querySelectorAll('#feed-liste video').forEach((x) => { if (x !== v && !x.paused) x.pause(); });
     v.muted = tonModus !== 'ton';
     delete v.dataset.pausiert;
@@ -1002,6 +1003,7 @@
     document.querySelectorAll('#feed-liste video[data-zwang]').forEach((v) => {
       if (!v.paused) { v.muted = false; delete v.dataset.zwang; }
     });
+    if (vb && vb.zwang && vb.video) { vb.video.muted = false; vb.zwang = false; vbTonHinweis(); }
     zwangsstummPruefen();
   }
   ['pointerdown', 'touchend', 'keydown'].forEach((t) => document.addEventListener(t, tonFreigeben, { capture: true, passive: true }));
@@ -1009,7 +1011,10 @@
     eintraege.forEach((e) => {
       const v = e.target;
       if (e.isIntersecting && e.intersectionRatio >= 0.6) abspielen(v);
-      else if (!v.paused) { v.pause(); v.dataset.pausiert = '1'; zwangsstummPruefen(); }
+      else {
+        if (!v.paused) { v.pause(); v.dataset.pausiert = '1'; zwangsstummPruefen(); }
+        if (!e.isIntersecting) delete v.dataset.angehalten; // aus dem Bild: beim Wiederkommen wieder automatisch
+      }
     });
   }, { threshold: [0, 0.6] }) : null;
   function videosBeobachten() {
@@ -1039,28 +1044,37 @@
     return '<b>' + esc(name) + '</b>' + (text ? '<div>' + esc(text.length > 160 ? text.slice(0, 160) + ' …' : text) + '</div>' : '');
   }
   function vbTonKnopf() { if (vb) vb.el.querySelector('.feed-vb-ton').textContent = tonModus === 'ton' ? '🔊' : '🔇'; }
+  // R855: EIN Videoelement für die ganze Ansicht. Safari erteilt die Erlaubnis
+  // für Ton je Element; einmal per Tipp mit Ton gestartet, behält es sie –
+  // auch wenn das nächste Video erst nachgeladen werden muss und play() nicht
+  // mehr direkt in der Berührung läuft. Beim Wischen wechselt nur die Quelle,
+  // das Hereingleiten ist reine Optik.
+  function vbTonHinweis() {
+    if (!vb) return;
+    const h = vb.el.querySelector('.feed-vb-stumm');
+    h.style.display = vb.zwang && tonModus === 'ton' ? '' : 'none';
+  }
   function vbZeigen(quelle, richtung) {
-    const buehne = vb.el.querySelector('.feed-vb-buehne');
-    const alt = buehne.querySelector('video');
-    const v = document.createElement('video');
+    const v = vb.video;
     v.src = quelle.currentSrc || quelle.src;
-    v.loop = true; v.playsInline = true; v.setAttribute('playsinline', '');
     v.muted = tonModus !== 'ton';
-    if (quelle.currentTime && quelle.dataset.vbStart !== '0') v.currentTime = quelle.currentTime;
-    v.style.transform = richtung ? 'translateY(' + (richtung > 0 ? 100 : -100) + '%)' : '';
-    buehne.appendChild(v);
     vb.quelle = quelle;
     vb.el.querySelector('.feed-vb-info').innerHTML = vbInfo(quelle);
+    if (!richtung && quelle.currentTime) { try { v.currentTime = quelle.currentTime; } catch (e) {} }
     const p = v.play();
-    if (p && p.catch) p.catch(() => { v.muted = true; v.play().catch(() => {}); });
+    if (p && p.then) p.then(() => { if (!v.muted) { vb && (vb.zwang = false); vbTonHinweis(); } }, () => {
+      if (!vb || v.muted) return;
+      v.muted = true; vb.zwang = true; v.play().catch(() => {}); vbTonHinweis();
+    });
     if (richtung) {
+      v.style.transition = 'none';
+      v.style.transform = 'translateY(' + (richtung > 0 ? 35 : -35) + '%)';
+      v.style.opacity = '0';
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        v.style.transform = '';
-        if (alt) alt.style.transform = 'translateY(' + (richtung > 0 ? -100 : 100) + '%)';
+        v.style.transition = 'transform .25s ease-out, opacity .2s ease-out';
+        v.style.transform = ''; v.style.opacity = '';
       }));
-      if (alt) setTimeout(() => { alt.pause(); alt.remove(); }, 320);
-    } else if (alt) { alt.pause(); alt.remove(); }
-    v.onclick = () => { if (v.paused) v.play().catch(() => {}); else v.pause(); };
+    }
   }
   function vbWeiter(d) {
     if (!vb || vb.wechselt) return;
@@ -1068,7 +1082,7 @@
     const i = liste.indexOf(vb.quelle) + d;
     const huepfen = () => { const b = vb.el.querySelector('.feed-vb-buehne'); b.classList.remove('feed-vb-ende'); void b.offsetWidth; b.classList.add('feed-vb-ende'); };
     if (i < 0) return huepfen();
-    if (i < liste.length) { vb.wechselt = true; vbZeigen(liste[i], d); setTimeout(() => { if (vb) vb.wechselt = false; }, 340); return; }
+    if (i < liste.length) { vb.wechselt = true; vbZeigen(liste[i], d); setTimeout(() => { if (vb) vb.wechselt = false; }, 260); return; }
     if (!nochMehr) return huepfen();
     // Am Ende: ältere Beiträge laden, dann weiter – oder hüpfen, wenn keine Videos kamen.
     vb.wechselt = true;
@@ -1081,22 +1095,32 @@
     document.querySelectorAll('#feed-liste video').forEach((x) => { if (!x.paused) x.pause(); });
     const el = document.createElement('div');
     el.className = 'feed-vb';
-    el.innerHTML = '<div class="feed-vb-buehne"></div><div class="feed-vb-info"></div>' +
+    el.innerHTML = '<div class="feed-vb-buehne"><video playsinline loop></video><div class="feed-vb-mitte" aria-hidden="true">▶</div></div><div class="feed-vb-info"></div>' +
+      '<div class="feed-vb-stumm" style="display:none">🔇 Ton vom Browser blockiert – tippen</div>' +
       '<button type="button" class="feed-vb-zu" aria-label="Schließen">✕</button>' +
       '<button type="button" class="feed-vb-ton" aria-label="Ton"></button>' +
       '<div class="feed-vb-tipp">nach oben wischen: nächstes Video</div>';
     document.body.appendChild(el);
     document.documentElement.style.overflow = 'hidden';
-    vb = { el: el, quelle: quelle, wechselt: false, vollbild: false };
+    vb = { el: el, quelle: quelle, wechselt: false, vollbild: false, zwang: false, video: el.querySelector('.feed-vb-buehne video') };
+    vb.video.setAttribute('playsinline', '');
+    // Mitte = Abspielen/Anhalten (R855); das Symbol zeigt den Zustand.
+    const mitte = el.querySelector('.feed-vb-mitte');
+    vb.video.addEventListener('play', () => { mitte.style.opacity = '0'; });
+    vb.video.addEventListener('pause', () => { mitte.style.opacity = '1'; });
+    el.querySelector('.feed-vb-buehne').addEventListener('click', (e) => {
+      if (!tippInDerMitte(vb.video, e)) return;
+      if (vb.video.paused) vb.video.play().catch(() => {}); else vb.video.pause();
+    });
     tonHinweisZeigen(false);
     vbTonKnopf();
     vbZeigen(quelle, 0);
     el.querySelector('.feed-vb-zu').onclick = vollbildSchliessen;
     el.querySelector('.feed-vb-ton').onclick = () => {
       $('feed-ton').click(); // gleicher Schalter wie oben im Feed
-      const v = el.querySelector('.feed-vb-buehne video:last-child');
-      if (v) { v.muted = tonModus !== 'ton'; if (v.paused) v.play().catch(() => {}); }
-      vbTonKnopf();
+      const v = vb && vb.video;
+      if (v) { v.muted = tonModus !== 'ton'; vb.zwang = false; if (v.paused) v.play().catch(() => {}); }
+      vbTonKnopf(); vbTonHinweis();
     };
     // Wischen
     let y0 = null, x0 = 0;
@@ -1158,6 +1182,34 @@
       setTimeout(() => vollbildOeffnen(v), 50);
     }
   }, true);
+  // R855: Tippbereiche. Mitte (ein Fünftel um den Mittelpunkt in beiden
+  // Richtungen) = Abspielen/Anhalten, unterer Rand = Fortschritt (springen),
+  // überall sonst = Vollbild. Die eingebauten Bedienelemente sind dafür aus:
+  // auf Telefonen fangen sie jeden Tipp ab, um sich einzublenden.
+  function tippInDerMitte(v, e) {
+    const r = v.getBoundingClientRect();
+    return Math.abs((e.clientX - r.left) / r.width - 0.5) <= 0.2 && Math.abs((e.clientY - r.top) / r.height - 0.5) <= 0.2;
+  }
+  function feedTippen(v, e) {
+    if (e.target.closest('.feed-vb-auf')) return;
+    const r = v.getBoundingClientRect();
+    if (e.clientY >= r.bottom - 26) {             // Fortschrittsleiste
+      if (v.duration) v.currentTime = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * v.duration;
+      return;
+    }
+    if (tippInDerMitte(v, e)) {
+      if (v.paused) {
+        delete v.dataset.angehalten;
+        document.querySelectorAll('#feed-liste video').forEach((x) => { if (x !== v && !x.paused) x.pause(); });
+        v.muted = tonModus !== 'ton'; delete v.dataset.zwang;   // ein Tipp: Ton erlaubt
+        v.play().catch(() => {});
+      } else { v.pause(); v.dataset.angehalten = '1'; }
+      zwangsstummPruefen();
+      return;
+    }
+    vollbildOeffnen(v);
+  }
+
   // Eigener Vollbild-Knopf auf jedem Video – öffnet direkt die Wisch-Ansicht.
   function vollbildKnoepfe() {
     feedVideos().forEach((v) => {
@@ -1172,6 +1224,18 @@
       k.textContent = '⛶';
       k.onclick = (e) => { e.stopPropagation(); vollbildOeffnen(v); };
       huelle.appendChild(k);
+      // Großes ▶ in der Mitte, solange angehalten; dünne Fortschrittsleiste unten.
+      const m = document.createElement('div');
+      m.className = 'feed-vb-mitte'; m.textContent = '▶'; m.setAttribute('aria-hidden', 'true');
+      huelle.appendChild(m);
+      const leiste = document.createElement('div');
+      leiste.className = 'feed-vb-fort'; leiste.innerHTML = '<div></div>';
+      huelle.appendChild(leiste);
+      const fuellung = leiste.firstChild;
+      v.addEventListener('timeupdate', () => { if (v.duration) fuellung.style.width = (v.currentTime / v.duration * 100) + '%'; });
+      v.addEventListener('play', () => { m.style.opacity = '0'; });
+      v.addEventListener('pause', () => { m.style.opacity = '1'; });
+      huelle.addEventListener('click', (e) => feedTippen(v, e));
     });
   }
   vollbildKnoepfe();
