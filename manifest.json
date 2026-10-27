@@ -1,8 +1,8 @@
 {
-  "version": "R851",
-  "description": "FUNDUS R851 - Aeronautik",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R851/FND-R851-update.zip",
-  "node_argon2": "e575e8039a55002b680add3c2071d2e0e3f0348df1a0d568f53d9bfa3f0e9947",
-  "published_at": "2026-10-27T09:26:26.7466497Z",
-  "signature": "0x49f1e078b30da1ee8ee3ffc31aeeaa44557a5610fa9502ebf2e519faf246784a2d8149a4962d16e7d827c2dab47510c87c113d0c98976f8a3e23388ed4ebce8c1b"
+  "version": "R852",
+  "description": "FUNDUS R852 - display bug",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R852/FND-R852-update.zip",
+  "node_argon2": "b1b9ca2b395b2b0b53b5b7a01d779b6394811b8065be173af700723c3d24a3a9",
+  "published_at": "2026-10-27T10:00:15.4450571Z",
+  "signature": "0x6c5c4f93c00e8dc57ad69120807a0fb3b779009bb8ae5eee7c222eaeb7ec95c272e9327bc2da3090bc8a2610bdaee7671019d6cd4c11a7c4b14ac52675b0dd801b"
 }
