@@ -81,6 +81,55 @@
     }
   }
 
+  // ── 3b. Leiste am SICHTBAREN Bildschirm halten (R852) ────────────────────
+  // Manche mobilen Browser verankern position:fixed am Layout-Fenster statt am
+  // sichtbaren Ausschnitt – nach Zoom, beim Ein- und Ausfahren der Adressleiste
+  // oder bei eigenen Scroll-Eigenheiten wandert die Leiste dann mit dem Inhalt.
+  // visualViewport kennt den Ausschnitt, den man wirklich sieht: Weicht dessen
+  // Unterkante ab, wird die Leiste um genau diese Differenz verschoben. Stimmt
+  // alles, passiert nichts. Bei offener Tastatur wird sie ausgeblendet, statt
+  // über der Tastatur zu schweben.
+  function leisteVerankern() {
+    var nav = document.getElementById("bottom-nav"), vv = window.visualViewport;
+    if (!nav || !vv) return;
+    var geplant = 0;
+    function setzen() {
+      geplant = 0;
+      var luecke = window.innerHeight - (vv.offsetTop + vv.height);
+      var tastatur = luecke > 150 && vv.scale <= 1.01;
+      nav.style.visibility = tastatur ? "hidden" : "";
+      nav.style.transform = !tastatur && Math.abs(luecke) > 1 ? "translateY(" + (-luecke) + "px)" : "";
+    }
+    function bald() { if (!geplant) geplant = requestAnimationFrame(setzen); }
+    vv.addEventListener("resize", bald);
+    vv.addEventListener("scroll", bald);
+    window.addEventListener("scroll", bald, { passive: true });
+    setzen();
+  }
+
+  // Prüfansicht: ?leiste=pruefen zeigt live, was der Browser misst – für ein
+  // Bildschirmfoto, wenn die Leiste auf einem Gerät doch wandert.
+  function leistePruefen() {
+    if (!/[?&]leiste=pruefen\b/.test(location.search)) return;
+    var nav = document.getElementById("bottom-nav"), vv = window.visualViewport;
+    var feld = document.createElement("pre");
+    feld.style.cssText = "position:fixed;top:70px;left:8px;right:8px;z-index:9999;margin:0;padding:8px 10px;" +
+      "font:11px/1.45 monospace;color:#fff;background:rgba(0,0,0,.82);border:1px solid #5ec8ff;border-radius:8px;white-space:pre-wrap;pointer-events:none";
+    document.body.appendChild(feld);
+    function zeigen() {
+      var r = nav ? nav.getBoundingClientRect() : null, cs = nav ? getComputedStyle(nav) : null;
+      feld.textContent =
+        "Browser   " + navigator.userAgent.replace(/^Mozilla\/5\.0 /, "").slice(0, 140) + "\n" +
+        "Fenster   innerHeight " + window.innerHeight + " · scrollY " + Math.round(window.scrollY) + "\n" +
+        (vv ? "Sichtbar  höhe " + Math.round(vv.height) + " · oben " + Math.round(vv.offsetTop) + " · zoom " + vv.scale.toFixed(2) + "\n" : "Sichtbar  (kein visualViewport)\n") +
+        (r ? "Leiste    unterkante " + Math.round(r.bottom) + " · position " + cs.position + " · verschoben " + (nav.style.transform || "nein") : "Leiste    nicht vorhanden") +
+        "\nStandalone " + (window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true ? "ja (Home-Bildschirm)" : "nein");
+    }
+    window.addEventListener("scroll", zeigen, { passive: true });
+    if (vv) { vv.addEventListener("resize", zeigen); vv.addEventListener("scroll", zeigen); }
+    setInterval(zeigen, 500); zeigen();
+  }
+
   // ── 4. Seitenübergänge (R581) ─────────────────────────────────────────────
   // Beim Klick auf einen internen Link den Inhalt kurz ausblenden, dann laden.
   function pageTransitions() {
@@ -140,7 +189,7 @@
     new MutationObserver(function () { decorateEmpty(); }).observe(document.documentElement, { childList: true, subtree: true });
   }
 
-  function init() { markLoading(); bottomNav(); pageTransitions(); haptics(); decorateEmpty(); }
+  function init() { markLoading(); bottomNav(); leisteVerankern(); leistePruefen(); pageTransitions(); haptics(); decorateEmpty(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();
 })();
