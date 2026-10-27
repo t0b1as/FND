@@ -1,8 +1,8 @@
 {
-  "version": "R852",
-  "description": "FUNDUS R852 - display bug",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R852/FND-R852-update.zip",
-  "node_argon2": "b1b9ca2b395b2b0b53b5b7a01d779b6394811b8065be173af700723c3d24a3a9",
-  "published_at": "2026-10-27T10:00:15.4450571Z",
-  "signature": "0x6c5c4f93c00e8dc57ad69120807a0fb3b779009bb8ae5eee7c222eaeb7ec95c272e9327bc2da3090bc8a2610bdaee7671019d6cd4c11a7c4b14ac52675b0dd801b"
+  "version": "R853",
+  "description": "FUNDUS R853 - Aero route providers",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R853/FND-R853-update.zip",
+  "node_argon2": "58b4774eb2e5bb6c49f1401bccf183d9ee77216780f7259bcf6d385def1c4da5",
+  "published_at": "2026-10-27T13:12:48.8195877Z",
+  "signature": "0x4f88d3981f8b9a7608a121195c04a506331ac55f26429b19936d2cfaa166dcb75454dc58f211b47db44541288bc9a13a553a7761b2780ccf807757d659d2f7ed1b"
 }
