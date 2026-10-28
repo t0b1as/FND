@@ -75,11 +75,22 @@ if [ -n "$LAT" ] && [ -n "$LON" ] && [ "$LAT" != "0" ] && [ "$LON" != "0" ]; the
 
 # ── Zustand prüfen ──────────────────────────────────────────────────────────
 BRAUCHT_SPERRE=0; BRAUCHT_ENTLADEN=0; BRAUCHT_READSB=0; BRAUCHT_DIENST=0; BRAUCHT_ORT=0
+# R859: weitere Dekoder und die Umschaltung zwischen ihnen
+BRAUCHT_VDL2=0; BRAUCHT_AIS=0; BRAUCHT_EINHEITEN=0
+VDL2_BIN=${VDL2_BIN:-/usr/local/bin/dumpvdl2}; AIS_BIN=${AIS_BIN:-/usr/local/bin/AIS-catcher}
+WERKZEUGE="$(dirname "$(readlink -f "$0")")"
+MODUS=$(tr -dc 'a-z0-9' < "$DATA_DIR/funk-modus" 2>/dev/null); [ -n "$MODUS" ] || MODUS=adsb
+[ -x "$VDL2_BIN" ] || BRAUCHT_VDL2=1
+[ -x "$AIS_BIN" ] || BRAUCHT_AIS=1
 [ -f "$SPERRE" ] && grep -q dvb_usb_rtl28xxu "$SPERRE" || BRAUCHT_SPERRE=1
 lsmod 2>/dev/null | grep -q '^dvb_usb_rtl28xxu' && BRAUCHT_ENTLADEN=1
 command -v readsb >/dev/null 2>&1 || BRAUCHT_READSB=1
 if [ "$BRAUCHT_READSB" -eq 0 ]; then
-  systemctl is-enabled --quiet readsb 2>/dev/null && systemctl is-active --quiet readsb 2>/dev/null || BRAUCHT_DIENST=1
+  # Nur im Flugzeug-Modus muss readsb laufen – hört der Stick gerade auf
+  # Schiffe oder Funknachrichten, ist ein gestoppter readsb richtig (R859).
+  if [ "$MODUS" = adsb ]; then
+    systemctl is-active --quiet readsb 2>/dev/null || BRAUCHT_DIENST=1
+  fi
 fi
 if [ "$STANDORT_OK" -eq 1 ]; then
   IST_LAT=$(sed -n 's/.*--lat[ =]\([-0-9.]*\).*/\1/p' "$READSB_CFG" 2>/dev/null | head -1)
@@ -92,15 +103,58 @@ if [ "$STANDORT_OK" -eq 1 ]; then
   fi
 fi
 
-if [ $((BRAUCHT_SPERRE + BRAUCHT_ENTLADEN + BRAUCHT_READSB + BRAUCHT_DIENST + BRAUCHT_ORT)) -eq 0 ]; then
+# Units der Umschaltung: vorhanden und aktuell?
+einheit() { # name inhalt – schreibt nur bei Abweichung; Rückgabe 0 = geändert
+  local ziel=/etc/systemd/system/$1
+  if [ "$(cat "$ziel" 2>/dev/null)" != "$2" ]; then printf '%s\n' "$2" > "$ziel"; return 0; fi
+  return 1
+}
+E_VDL2="[Unit]
+Description=Fundus Funk: VDL2-Funknachrichten (dumpvdl2)
+After=network.target
+[Service]
+ExecStart=$VDL2_BIN --rtlsdr 0 --gain 40 --output decoded:json:udp:address=127.0.0.1,port=5555 136725000 136775000 136875000 136975000
+Restart=on-failure
+RestartSec=10"
+E_AIS="[Unit]
+Description=Fundus Funk: Schiffe (AIS-catcher)
+After=network.target
+[Service]
+ExecStart=$AIS_BIN -d:0 -u 127.0.0.1 10110 -q
+Restart=on-failure
+RestartSec=10"
+E_FUNK="[Unit]
+Description=Fundus Funk: Modus des RTL-SDR-Sticks anwenden
+After=network.target readsb.service
+[Service]
+Type=oneshot
+Environment=FUNDUS_DATA_DIR=$DATA_DIR
+ExecStart=/bin/bash $WERKZEUGE/funk-modus.sh
+[Install]
+WantedBy=multi-user.target"
+E_PFAD="[Unit]
+Description=Fundus Funk: Moduswechsel überwachen
+[Path]
+PathModified=$DATA_DIR/funk-modus
+Unit=fundus-funk.service
+[Install]
+WantedBy=multi-user.target"
+for n in fundus-vdl2.service fundus-ais.service fundus-funk.service fundus-funk.path; do
+  case $n in fundus-vdl2.service) i="$E_VDL2";; fundus-ais.service) i="$E_AIS";; fundus-funk.service) i="$E_FUNK";; *) i="$E_PFAD";; esac
+  [ "$(cat /etc/systemd/system/$n 2>/dev/null)" = "$i" ] || BRAUCHT_EINHEITEN=1
+done
+systemctl is-enabled --quiet fundus-funk.path 2>/dev/null || BRAUCHT_EINHEITEN=1
+
+if [ $((BRAUCHT_SPERRE + BRAUCHT_ENTLADEN + BRAUCHT_READSB + BRAUCHT_DIENST + BRAUCHT_ORT + BRAUCHT_VDL2 + BRAUCHT_AIS + BRAUCHT_EINHEITEN)) -eq 0 ]; then
   N=$(grep -o '"hex"' /run/readsb/aircraft.json 2>/dev/null | wc -l)
-  fertig "Aeronautik ist eingerichtet – nichts zu tun ($N Flugzeug(e) im Empfang)."
+  if [ "$MODUS" = adsb ]; then fertig "Aeronautik ist eingerichtet – nichts zu tun ($N Flugzeug(e) im Empfang)."
+  else fertig "Empfänger eingerichtet – nichts zu tun (Modus: $MODUS)."; fi
   [ "$STANDORT_OK" -eq 1 ] || fertig "Hinweis: Standort fehlt – in Fundus unter Einstellungen auf der Karte setzen."
   exit 0
 fi
 
 # ── Lange Einrichtung nicht im Deploy abwarten (R848) ───────────────────────
-if [ "$AUTO" -eq 1 ] && [ "$HINTERGRUND" -eq 0 ] && [ "$BRAUCHT_READSB" -eq 1 ]; then
+if [ "$AUTO" -eq 1 ] && [ "$HINTERGRUND" -eq 0 ] && [ $((BRAUCHT_READSB + BRAUCHT_VDL2 + BRAUCHT_AIS)) -gt 0 ]; then
   if systemctl is-active --quiet "$DIENST" 2>/dev/null; then
     fertig "Einrichtung läuft bereits im Hintergrund – Fortschritt auf der Seite Aeronautik."
     exit 0
@@ -159,6 +213,45 @@ if [ "$BRAUCHT_READSB" -eq 1 ]; then
   BRAUCHT_DIENST=1
   [ "$STANDORT_OK" -eq 1 ] && BRAUCHT_ORT=1
 fi
+# ── R859: Dekoder für Funknachrichten und Schiffe ──────────────────────────
+bauen() { # titel phase befehle…  (mit Lebenszeichen wie bei readsb)
+  local titel="$1" phase="$2"; shift 2
+  fertig "$titel wird übersetzt (dauert einige Minuten) …"
+  status "$phase" "$titel wird auf dem Pi übersetzt"
+  ( while sleep 5; do status "$phase" "$titel wird auf dem Pi übersetzt"; done ) &
+  local w=$!
+  if [ "$HINTERGRUND" -eq 1 ]; then bash -c "$*"; else bash -c "$*" >> "$LOG" 2>&1; fi
+  local e=$?
+  kill $w 2>/dev/null; wait $w 2>/dev/null
+  return $e
+}
+BAU=/tmp/fundus-funk-bau
+if [ "$BRAUCHT_VDL2" -eq 1 ] || [ "$BRAUCHT_AIS" -eq 1 ]; then
+  status "pakete" "Bauwerkzeuge und Bibliotheken installieren"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -q build-essential cmake git pkg-config librtlsdr-dev \
+    libglib2.0-dev libjansson-dev libxml2-dev zlib1g-dev libsqlite3-dev libzmq3-dev >> "$LOG" 2>&1 \
+    || fehler "Pakete für die Dekoder konnten nicht installiert werden – Protokoll: $LOG"
+fi
+if [ "$BRAUCHT_VDL2" -eq 1 ]; then
+  bauen "dumpvdl2 (Funknachrichten)" "vdl2" "set -e; rm -rf $BAU; mkdir -p $BAU; cd $BAU
+    git clone --depth 1 https://github.com/szpajder/libacars.git
+    cmake -S libacars -B libacars/build -DCMAKE_BUILD_TYPE=Release && cmake --build libacars/build -j2 && cmake --install libacars/build && ldconfig
+    git clone --depth 1 https://github.com/szpajder/dumpvdl2.git
+    cmake -S dumpvdl2 -B dumpvdl2/build -DCMAKE_BUILD_TYPE=Release -DRTLSDR=TRUE && cmake --build dumpvdl2/build -j2
+    install -m 755 dumpvdl2/build/src/dumpvdl2 $VDL2_BIN" \
+    || fehler "dumpvdl2 ließ sich nicht übersetzen – Protokoll: $LOG"
+  fertig "dumpvdl2 installiert."
+fi
+if [ "$BRAUCHT_AIS" -eq 1 ]; then
+  bauen "AIS-catcher (Schiffe)" "ais" "set -e; mkdir -p $BAU; cd $BAU; rm -rf AIS-catcher
+    git clone --depth 1 https://github.com/jvde-github/AIS-catcher.git
+    cmake -S AIS-catcher -B AIS-catcher/build -DCMAKE_BUILD_TYPE=Release && cmake --build AIS-catcher/build -j2
+    install -m 755 AIS-catcher/build/AIS-catcher $AIS_BIN" \
+    || fehler "AIS-catcher ließ sich nicht übersetzen – Protokoll: $LOG"
+  fertig "AIS-catcher installiert."
+fi
+rm -rf "$BAU"
+
 status "standort" "Standort eintragen"
 if [ "$BRAUCHT_ORT" -eq 1 ]; then
   if readsb-set-location "$LAT" "$LON" >/dev/null 2>&1; then
@@ -171,14 +264,30 @@ elif [ "$STANDORT_OK" -eq 0 ]; then
   fertig "Kein Standort bekannt – in Fundus unter Einstellungen auf der Karte setzen;"
   fertig "beim nächsten Deploy wird er dann automatisch eingetragen."
 fi
-status "dienst" "readsb starten"
-if [ "$BRAUCHT_DIENST" -eq 1 ]; then
-  systemctl enable readsb >/dev/null 2>&1 || true
-  systemctl restart readsb || fehler "readsb startet nicht – systemctl status readsb"
-  sleep 5
+status "dienst" "Empfänger starten"
+GEAENDERT=0
+einheit fundus-vdl2.service "$E_VDL2" && GEAENDERT=1
+einheit fundus-ais.service "$E_AIS" && GEAENDERT=1
+einheit fundus-funk.service "$E_FUNK" && GEAENDERT=1
+einheit fundus-funk.path "$E_PFAD" && GEAENDERT=1
+if [ "$GEAENDERT" -eq 1 ] || [ "$BRAUCHT_EINHEITEN" -eq 1 ]; then
+  systemctl daemon-reload
+  systemctl enable fundus-funk.service fundus-funk.path >/dev/null 2>&1
+  systemctl start fundus-funk.path 2>/dev/null
+  fertig "Umschaltung eingerichtet (Flugzeuge / Funknachrichten / Schiffe)."
+fi
+[ -f "$DATA_DIR/funk-modus" ] || { echo adsb > "$DATA_DIR/funk-modus"; chown --reference="$DATA_DIR" "$DATA_DIR/funk-modus" 2>/dev/null; chmod 664 "$DATA_DIR/funk-modus"; }
+# readsb bleibt beim Systemstart aktiv; fundus-funk.service hält ihn an, wenn
+# ein anderer Modus gewählt ist. Angewandt wird der gewählte Modus jetzt.
+systemctl enable readsb >/dev/null 2>&1 || true
+if [ "$BRAUCHT_DIENST" -eq 1 ] || [ "$GEAENDERT" -eq 1 ] || [ "$BRAUCHT_VDL2" -eq 1 ] || [ "$BRAUCHT_AIS" -eq 1 ]; then
+  FUNDUS_DATA_DIR="$DATA_DIR" bash "$WERKZEUGE/funk-modus.sh" | sed 's/^/   /'
 fi
 
-if [ -s /run/readsb/aircraft.json ]; then
+if [ "$MODUS" != adsb ]; then
+  fertig "Empfänger bereit – Modus: $MODUS."
+  status "fertig" "Empfänger bereit – Modus: $MODUS" true false
+elif [ -s /run/readsb/aircraft.json ]; then
   N=$(grep -o '"hex"' /run/readsb/aircraft.json | wc -l)
   fertig "Aeronautik bereit: readsb läuft, gerade $N Flugzeug(e) im Empfang."
   status "fertig" "Aeronautik bereit – $N Flugzeug(e) im Empfang" true false

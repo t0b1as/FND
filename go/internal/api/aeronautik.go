@@ -343,7 +343,8 @@ func (s *Server) aeroAnkuendigen() {
 	defer func() { _ = recover() }()
 	time.Sleep(40 * time.Second)
 	for {
-		if s.aeroLokal() != nil && s.node != nil {
+		// R859: auch ankündigen, wenn der Stick gerade Schiffe oder Funknachrichten hört
+		if (s.aeroLokal() != nil || funkHatStick()) && s.node != nil {
 			lat, lon := s.marktPosition()
 			rec := &storage.Record{ID: s.nodeID(), Type: storage.RecordAeroEmpfaenger,
 				Data: map[string]any{"peer": s.nodeID(), "lat": lat, "lon": lon, "zeit": time.Now().Unix()}}

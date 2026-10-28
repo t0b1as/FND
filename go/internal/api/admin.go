@@ -40,6 +40,7 @@ func (s *Server) registerAdminRoutes() {
 		g.GET("/energie",          s.energieEinstellungenGet) // R839: Zähler, Home Assistant, Position, Handel
 		g.POST("/energie",         s.energieEinstellungenSet)
 		g.POST("/energie/ha-test", s.energieHATest)
+		g.POST("/funk/modus",      s.funkModusSetzen) // R859: Empfänger umschalten (Flugzeuge/Funknachrichten/Schiffe)
 		g.POST("/update/check",    s.updateCheck)
 		g.POST("/update/apply",    s.updateApply)
 		g.POST("/update/auto",     s.updateAutoSet)   // Automatik umschalten (R664)

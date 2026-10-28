@@ -49,6 +49,20 @@ return function()
 .ae-flieger svg { width:26px; height:26px; filter:drop-shadow(0 0 3px rgba(0,0,0,.9)); transition:transform .8s linear; }
 .ae-hinweis { font-size:13px; color:var(--muted); line-height:1.5; }
 .ae-notfall { color:#ff5a5a; font-weight:800; }
+/* R859: Reiter und Empfänger-Modus */
+.ae-reiter { display:flex; gap:6px; margin:0 0 10px; flex-wrap:wrap; }
+.ae-reiter button { padding:7px 14px; border-radius:18px; border:1px solid var(--border); background:rgba(26,29,39,.4); color:var(--muted); cursor:pointer; font-size:13.5px; }
+.ae-reiter button.aktiv { border-color:#5ec8ff; color:#5ec8ff; background:rgba(94,200,255,.1); }
+.ae-modus { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 12px; margin:0 0 12px; border-radius:10px;
+  border:1px solid var(--border); font-size:13px; color:var(--muted); background:rgba(26,29,39,.25); }
+.ae-modus b { color:var(--text); }
+.ae-modus button { padding:5px 12px; border-radius:14px; border:1px solid #5ec8ff; background:none; color:#5ec8ff; cursor:pointer; font-size:12.5px; }
+.ae-modus.anders { border-color:rgba(255,201,77,.5); }
+.ae-nachr { border-bottom:1px solid var(--border); padding:9px 2px; font-size:13px; }
+.ae-nachr .kopf { display:flex; gap:10px; flex-wrap:wrap; align-items:baseline; }
+.ae-nachr .kopf b { font-size:14px; }
+.ae-nachr .kopf span { color:var(--muted); font-size:12px; }
+.ae-nachr pre { margin:5px 0 0; white-space:pre-wrap; word-break:break-word; font-size:12px; color:var(--text); font-family:ui-monospace,monospace; }
 .ae-legende div { font-size:12.5px; line-height:1.6; color:var(--muted); }
 .ae-legende span { display:inline-block; width:18px; font-size:15px; }
 .ae-ein-kopf { display:flex; align-items:center; gap:10px; font-weight:700; }
@@ -63,9 +77,16 @@ return function()
 </style>
 <div class="top-bar" style="margin-bottom:14px"><h2 class="ae-titel"><span class="ico">]==] .. icons.svg("aeronautik") .. [==[</span>Aeronautik</h2>
   <span class="ae-stand" id="ae-stand">verbinde …</span></div>
+<div class="ae-reiter" id="ae-reiter">
+  <button type="button" data-a="flug" class="aktiv">✈ Flugzeuge</button>
+  <button type="button" data-a="nachrichten">💬 Funknachrichten</button>
+  <button type="button" data-a="schiffe">🚢 Schiffe</button>
+</div>
+<div id="ae-modus" class="ae-modus" style="display:none"></div>
 <div id="ae-einrichtung" class="ae-karte" style="display:none;margin-bottom:14px"></div>
 <div id="ae-ort" class="ae-karte ae-hinweis" style="display:none;margin-bottom:14px"></div>
-<div class="ae-wrap">
+<div id="ae-nachrichten" class="ae-karte" style="display:none"><div class="ae-hinweis">Warte auf Funknachrichten …</div></div>
+<div class="ae-wrap" id="ae-wrap">
   <div id="ae-karte"></div>
   <div class="ae-seite">
     <div class="ae-karte ae-detail" id="ae-detail"><div class="ae-hinweis">Auf ein Flugzeug tippen – in der Karte oder in der Liste.</div></div>
@@ -249,8 +270,141 @@ return function()
   }
   einrichtung();
 
+  // ── R859: Ansichten, Empfänger-Modus, Schiffe, Funknachrichten ──────────
+  var ansicht = /^#(nachrichten|schiffe)$/.test(location.hash) ? location.hash.slice(1) : 'flug';
+  var MODUS_FUER = { flug: 'adsb', nachrichten: 'vdl2', schiffe: 'ais' };
+  var MODUS_NAME = { adsb: 'Flugzeuge', vdl2: 'Funknachrichten', ais: 'Schiffe' };
+  var funkStatus = null, umschaltenSeit = 0, schiffMarker = {}, schiffGewaehlt = null, letzteSchiffe = [], nachrAlt = '';
+  function ansichtSetzen(a){
+    ansicht = a;
+    history.replaceState(null, '', a === 'flug' ? location.pathname : '#' + a);
+    document.querySelectorAll('#ae-reiter button').forEach(function(b){ b.classList.toggle('aktiv', b.dataset.a === a); });
+    $('ae-nachrichten').style.display = a === 'nachrichten' ? '' : 'none';
+    $('ae-wrap').style.display = a === 'nachrichten' ? 'none' : '';
+    // Ebenen der anderen Ansicht von der Karte nehmen
+    if (karte) {
+      if (a !== 'flug') { Object.keys(marker).forEach(function(h){ karte.removeLayer(marker[h]); karte.removeLayer(spuren[h]); delete marker[h]; delete spuren[h]; }); }
+      if (a !== 'schiffe') { Object.keys(schiffMarker).forEach(function(m){ karte.removeLayer(schiffMarker[m]); delete schiffMarker[m]; }); }
+      setTimeout(function(){ karte.invalidateSize(); }, 50);
+    }
+    listeAlt = ''; detailAlt = ''; nachrAlt = ''; gewaehlt = null; schiffGewaehlt = null;
+    detail(null);
+    modusZeigen();
+  }
+  document.querySelectorAll('#ae-reiter button').forEach(function(b){ b.onclick = function(){ ansichtSetzen(b.dataset.a); }; });
+
+  function modusZeigen(){
+    var el = $('ae-modus'), st = funkStatus;
+    if (!st || (!st.stick && !st.empfaenger_stick)) { el.style.display = 'none'; return; }
+    var an = st.angewandt || {}, aktuell = an.modus || st.gewaehlt, gewollt = MODUS_FUER[ansicht];
+    var vorh = st.vorhanden || {};
+    var h = 'Empfänger ' + (st.node ? '<b>' + esc(st.node) + '</b> ' : '') + 'hört gerade auf <b>' + esc(MODUS_NAME[aktuell] || aktuell) + '</b>';
+    if (an.fehler) h += ' – <span class="ae-notfall">' + esc(an.fehler) + '</span>';
+    var umschaltend = Date.now() - umschaltenSeit < 15000 && st.gewaehlt !== aktuell;
+    if (umschaltend) h += ' · schaltet um auf ' + esc(MODUS_NAME[st.gewaehlt]) + ' …';
+    else if (aktuell !== gewollt) {
+      if (!st.stick) h += ' · Umschalten auf dem Pi mit dem Stick';
+      else if (vorh[gewollt] === false) h += ' · Der Dekoder für ' + esc(MODUS_NAME[gewollt]) + ' wird beim nächsten Deploy installiert.';
+      else h += '<button type="button" id="ae-umschalten">Auf ' + esc(MODUS_NAME[gewollt]) + ' umschalten</button>';
+    }
+    el.innerHTML = h;
+    el.classList.toggle('anders', aktuell !== gewollt);
+    el.style.display = '';
+    var k = $('ae-umschalten');
+    if (k) k.onclick = function(){
+      k.disabled = true; k.textContent = 'schalte um …';
+      fetch('/api/v1/admin/funk/modus', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modus: gewollt }) }).then(function(r){ return r.json(); }).then(function(d){
+          if (d.error) { k.textContent = d.error; return; }
+          umschaltenSeit = Date.now(); if (funkStatus) funkStatus.gewaehlt = gewollt; modusZeigen(); setTimeout(funkStatusLaden, 4000);
+        }).catch(function(){ k.textContent = 'Umschalten fehlgeschlagen'; });
+    };
+  }
+  function funkStatusLaden(){
+    fetch('/api/v1/funk/status', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(st){
+      funkStatus = st; modusZeigen();
+    }).catch(function(){});
+  }
+  setInterval(funkStatusLaden, 5000);
+
+  // Schiffe
+  var SCHIFF = '<svg viewBox="0 0 24 24"><path fill="FARBE" stroke="#0b0d12" stroke-width="0.9" d="M12 2.5 15.5 8v12.5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V8z"/></svg>';
+  var NAVSTATUS = { 0:'unterwegs mit Maschine', 1:'vor Anker', 2:'manövrierunfähig', 3:'eingeschränkt manövrierfähig', 5:'festgemacht', 7:'beim Fischen', 8:'unter Segeln' };
+  function schiffFarbe(s){
+    return { 'Frachtschiff':'#3ddc84', 'Tanker':'#ff6b6b', 'Fahrgastschiff':'#5ec8ff', 'Sportboot':'#b48cff', 'Segelboot':'#b48cff',
+      'Schlepper':'#ffb84d', 'Lotse':'#ffb84d', 'Polizei':'#ffffff', 'Seenotrettung':'#ff3b3b' }[s.art] || '#9aa0b4';
+  }
+  function schiffDetail(s){
+    if (!s) { detailSetzen('<div class="ae-hinweis">Auf ein Schiff tippen – in der Karte oder in der Liste.</div>'); return; }
+    detailSetzen('<div class="flug">' + esc(s.name || 'MMSI ' + s.mmsi) + '</div>' +
+      (s.art ? '<div class="ae-hinweis">' + esc(s.art) + '</div>' : '') +
+      (s.ziel ? '<div class="ae-route"><div>→</div><div><span class="code">' + esc(s.ziel) + '</span></div></div>' : '') +
+      '<div class="ae-werte">' +
+      '<span>Geschwindigkeit</span><span>' + (s.kmh < 0 ? '–' : zahl(s.kmh, 1) + ' km/h') + '</span>' +
+      '<span>Kurs</span><span>' + (s.kurs < 0 ? '–' : zahl(s.kurs) + '°') + '</span>' +
+      (NAVSTATUS[s.status] ? '<span>Status</span><span>' + NAVSTATUS[s.status] + '</span>' : '') +
+      '<span>Entfernung</span><span>' + (s.km == null ? '–' : zahl(s.km, 1) + ' km') + '</span>' +
+      (s.rufzeichen ? '<span>Rufzeichen</span><span>' + esc(s.rufzeichen) + '</span>' : '') +
+      '<span>MMSI</span><span>' + esc(s.mmsi) + '</span>' +
+      '<span>Zuletzt</span><span>vor ' + zahl(s.alter_s) + ' s</span></div>');
+  }
+  function schiffeZeichnen(d){
+    var liste = d.schiffe || [], da = {};
+    letzteSchiffe = liste;
+    var st = d.standort && (d.standort.lat || d.standort.lon) ? d.standort : null;
+    if (st) ringeUm(st);
+    liste.forEach(function(s){
+      da[s.mmsi] = true;
+      var icon = L.divIcon({ className: 'ae-flieger', iconSize: [22, 22], iconAnchor: [11, 11],
+        html: '<div style="transform:rotate(' + (s.kurs < 0 ? 0 : s.kurs) + 'deg)">' + SCHIFF.replace('FARBE', schiffFarbe(s)) + '</div>' });
+      if (!schiffMarker[s.mmsi]) schiffMarker[s.mmsi] = L.marker([s.lat, s.lon], { icon: icon }).addTo(karte)
+        .on('click', (function(m){ return function(){ schiffGewaehlt = m; schiffDetail(letzteSchiffe.find(function(x){ return x.mmsi === m; })); }; })(s.mmsi));
+      else schiffMarker[s.mmsi].setLatLng([s.lat, s.lon]).setIcon(icon);
+      schiffMarker[s.mmsi].bindTooltip(esc(s.name || s.mmsi) + (s.ziel ? ' → ' + esc(s.ziel) : ''), { direction: 'top', offset: [0, -10] });
+    });
+    Object.keys(schiffMarker).forEach(function(m){ if (!da[m]) { karte.removeLayer(schiffMarker[m]); delete schiffMarker[m]; } });
+    var neu = liste.length ? liste.slice(0, 40).map(function(s){
+      return '<div class="ae-zeile" data-mmsi="' + esc(s.mmsi) + '"><span style="color:' + schiffFarbe(s) + '">●</span>' +
+        '<span class="fl">' + esc(s.name || s.mmsi) + '</span><span class="rt">' + esc([s.art, s.ziel ? '→ ' + s.ziel : ''].filter(Boolean).join(' ')) + '</span>' +
+        '<span class="km">' + (s.km == null ? '' : zahl(s.km, 1) + ' km') + '</span></div>';
+    }).join('') : '<div class="ae-hinweis">Gerade kein Schiff mit Position in Reichweite.' +
+      (d.zuletzt > 0 ? '' : ' Auf dem Main senden Binnenschiffe AIS – ob sie hier ankommen, hängt von Lage und Antenne ab.') + '</div>';
+    if (neu !== listeAlt) {
+      listeAlt = neu; $('ae-liste').innerHTML = neu;
+      document.querySelectorAll('.ae-zeile[data-mmsi]').forEach(function(z){ z.onclick = function(){
+        schiffGewaehlt = z.dataset.mmsi; schiffDetail(letzteSchiffe.find(function(x){ return x.mmsi === schiffGewaehlt; }));
+        var m = schiffMarker[schiffGewaehlt]; if (m) karte.panTo(m.getLatLng()); }; });
+    }
+    if (schiffGewaehlt) schiffDetail(liste.find(function(x){ return x.mmsi === schiffGewaehlt; }));
+    $('ae-stand').textContent = liste.length + ' Schiffe · ' + (d.quelle === 'peer' ? 'Empfänger im Netz' : 'eigener Empfänger');
+  }
+  function nachrichtenZeichnen(d){
+    var liste = d.nachrichten || [];
+    var h = liste.length ? liste.slice(0, 150).map(function(n){
+      return '<div class="ae-nachr"><div class="kopf"><b>' + esc(n.flug || n.von || '?') + '</b>' +
+        (n.kennzeichen ? '<span>' + esc(n.kennzeichen) + '</span>' : '') +
+        (n.label ? '<span>Label ' + esc(n.label) + '</span>' : '') +
+        '<span>' + new Date(n.zeit * 1000).toLocaleTimeString('de-DE') + (n.mhz ? ' · ' + zahl(n.mhz, 3) + ' MHz' : '') + '</span></div>' +
+        (n.text ? '<pre>' + esc(n.text) + '</pre>' : '') + '</div>';
+    }).join('') : '<div class="ae-hinweis">Noch keine Funknachrichten. Flugzeuge funken nicht ununterbrochen – in der Nähe eines Flughafens kommen meist mehrere pro Minute.</div>';
+    if (h !== nachrAlt) { nachrAlt = h; $('ae-nachrichten').innerHTML = h; }
+    $('ae-stand').textContent = liste.length + ' Nachrichten · ' + (d.quelle === 'peer' ? 'Empfänger im Netz' : 'eigener Empfänger') + ' · nur im Arbeitsspeicher';
+  }
+  function funkLaden(){
+    if (ansicht === 'flug') { setTimeout(funkLaden, 1000); return; }
+    var art = ansicht;
+    fetch('/api/v1/funk/' + art, { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+      if (ansicht !== art) return;
+      if (d.status) { funkStatus = Object.assign(funkStatus || {}, d.status); if (d.quelle === 'peer') funkStatus.empfaenger_stick = true; modusZeigen(); }
+      if (art === 'schiffe') { if (karte) schiffeZeichnen(d); } else nachrichtenZeichnen(d);
+    }).catch(function(){ $('ae-stand').textContent = 'Verbindung unterbrochen …'; })
+      .then(function(){ setTimeout(funkLaden, 3000); });
+  }
+
   function laden(){
+    if (ansicht !== 'flug') { setTimeout(laden, 1000); return; } // R859: andere Ansicht aktiv
     fetch('/api/v1/aeronautik/live', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+      if (ansicht !== 'flug') return; // inzwischen andere Ansicht
       if (d.quelle === 'keine') {
         $('ae-stand').textContent = 'kein Empfänger';
         $('ae-liste').innerHTML = '<div class="ae-hinweis">Kein Empfänger erreichbar. Mit einem RTL-SDR-Stick (z. B. Terratec T Stick) auf einem Pi das Skript <code>tools/setup-aeronautik.sh</code> aus dem Fundus-Paket mit <code>sudo bash</code> ausführen.</div>';
@@ -259,6 +413,9 @@ return function()
       .then(function(){ setTimeout(laden, 1000); });
   }
   starten();
+  funkStatusLaden();
+  funkLaden();
+  if (ansicht !== 'flug') setTimeout(function(){ ansichtSetzen(ansicht); }, 0);
 })();
 </script>
 ]==])
