@@ -1,8 +1,8 @@
 {
-  "version": "R858",
-  "description": "FUNDUS R858 - Feed",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R858/FND-R858-update.zip",
-  "node_argon2": "11ab4859234a8c6235cad5b1dbd9767dfe3e264b74e42d43a2fda9f6093eb1df",
-  "published_at": "2026-10-27T16:39:17.8624165Z",
-  "signature": "0x23d6be9266e21282eedaa5b95b6aed061ce7663539e17faf84768c0f95aacc4f248e5f505d3a5b542118e03b653c8922a7fa4e4515972cd747fe91847b8dea501c"
+  "version": "R859",
+  "description": "FUNDUS R859 - VDL2 Support",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R859/FND-R859-update.zip",
+  "node_argon2": "b811036181f02ebb611d9ba817a708df1db1c4fda46dd2e9aa98ba1c0de595d5",
+  "published_at": "2026-10-28T09:21:58.3959432Z",
+  "signature": "0xdd7fb95fbb20ec52f08e4a3d790197fbfb927c8358dbb4bef4b5abeec8ad5308567e356f1c2d4f695fad1efca5637f41e5aa147d272f70ba2c6334b444d912d91c"
 }
