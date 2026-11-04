@@ -1,8 +1,8 @@
 {
-  "version": "R859",
-  "description": "FUNDUS R859 - VDL2 Support",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R859/FND-R859-update.zip",
-  "node_argon2": "b811036181f02ebb611d9ba817a708df1db1c4fda46dd2e9aa98ba1c0de595d5",
-  "published_at": "2026-10-28T09:21:58.3959432Z",
-  "signature": "0xdd7fb95fbb20ec52f08e4a3d790197fbfb927c8358dbb4bef4b5abeec8ad5308567e356f1c2d4f695fad1efca5637f41e5aa147d272f70ba2c6334b444d912d91c"
+  "version": "R864",
+  "description": "FUNDUS R864 - Aeronautik",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R864/FND-R864-update.zip",
+  "node_argon2": "1fa749f386481f2f3669b6b2f0a66ca7cdffbd465137dca165fcddd7c8ba4beb",
+  "published_at": "2026-11-04T14:13:22.3330328Z",
+  "signature": "0x0815ff2d44a35c5be399373cc6de8e286e82dc0e222de064b40ff66ca6927bfb673388a50d3d7b10fee569b0211d7669506bfb09d0b4687e635fb7ff8277e53e1c"
 }
