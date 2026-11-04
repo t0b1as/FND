@@ -270,6 +270,10 @@ try {
 # -- 4. Update-Paket ----------------------------------------------------------
 Step "Update-Paket schnueren"
 Copy-Item -Recurse -Force (Join-Path $src "lua") (Join-Path $bund "lua") -ErrorAction Stop
+# R860: Werkzeuge mit ins signierte Paket - der Update-Helfer spielt sie ein
+# und richtet damit z.B. den Funkempfang (setup-aeronautik.sh) ohne SSH ein.
+$tools = Join-Path $src "tools"
+if (Test-Path $tools) { Copy-Item -Recurse -Force $tools (Join-Path $bund "tools") -ErrorAction Stop }
 foreach ($f in @("revision.txt", "MANUAL.md", "README.md")) {
     $p = Join-Path $src $f
     if (Test-Path $p) { Copy-Item -Force $p $bund }

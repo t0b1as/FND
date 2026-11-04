@@ -404,6 +404,19 @@ func applyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 			logf("Update: %d Laufzeitdatei(en) aus dem bisherigen Stand übernommen", n)
 		}
 	}
+	// R860: Werkzeuge (tools/) wie die Oberfläche tauschen – mit Rücknahme bei
+	// Fehlern. Sie stammen aus demselben signierten Paket wie das Programm.
+	toolsNeu := false
+	if fileExists(filepath.Join(staging, "tools")) {
+		toolsDir := filepath.Join(opt.InstallDir, "tools")
+		if err := tx.swapDir(filepath.Join(staging, "tools"), toolsDir); err != nil {
+			return fail(fmt.Errorf("Werkzeuge tauschen: %w", err))
+		}
+		if err := werkzeugeVorbereiten(toolsDir); err != nil {
+			return fail(fmt.Errorf("Werkzeuge vorbereiten: %w", err))
+		}
+		toolsNeu = true
+	}
 	fundusGID := groupID("fundus")
 	if err := tx.swapFile(nodeBin, filepath.Join(opt.InstallDir, "bin", "fundus-node"), 0o750, 0, fundusGID); err != nil {
 		return fail(fmt.Errorf("Node-Binary tauschen: %w", err))
@@ -473,8 +486,47 @@ func applyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 			}
 		}
 	}
+	// R860: Einrichtung nachziehen (z.B. Dekoder für den Funkempfang) – als
+	// eigenständiger Dienst: Der Helfer startet sich gleich selbst neu, ein
+	// Kindprozess würde dabei mitbeendet. Ein Fehler hier bricht das Update
+	// NICHT ab; ohne Stick beendet sich das Skript sofort.
+	if toolsNeu {
+		skript := filepath.Join(opt.InstallDir, "tools", "setup-aeronautik.sh")
+		if fileExists(skript) {
+			out, err := exec.Command("systemd-run", "--unit=fundus-einrichtung-nach-update", "--collect",
+				"--setenv=FUNDUS_DATA_DIR="+filepath.Join(opt.InstallDir, "data"),
+				"/bin/bash", skript, "--auto").CombinedOutput()
+			if err != nil {
+				logf("Update: Einrichtung nicht angestoßen (%v: %s) – beim nächsten Update erneut", err, strings.TrimSpace(string(out)))
+			} else {
+				logf("Update: Einrichtung angestoßen (journalctl -u fundus-einrichtung-nach-update)")
+			}
+		}
+	}
 	_ = exec.Command("systemctl", "restart", "--no-block", "fundus-helper").Run()
 	return nil
+}
+
+// werkzeugeVorbereiten: Windows-Zeilenenden aus den Skripten entfernen (aus
+// einem unter Windows geschnürten Paket scheitert bash sonst an "\r") und sie
+// ausführbar machen – ZIP-Dateien aus Windows tragen keine Ausführungsrechte.
+func werkzeugeVorbereiten(dir string) error {
+	return filepath.Walk(dir, func(pfad string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(pfad, ".sh") {
+			return err
+		}
+		daten, err := os.ReadFile(pfad)
+		if err != nil {
+			return err
+		}
+		sauber := strings.ReplaceAll(string(daten), "\r\n", "\n")
+		if sauber != string(daten) {
+			if err := os.WriteFile(pfad, []byte(sauber), 0o755); err != nil {
+				return err
+			}
+		}
+		return os.Chmod(pfad, 0o755)
+	})
 }
 
 // ── Austausch mit Rollback ──────────────────────────────────────────────────

@@ -59,6 +59,15 @@ return function()
 .ae-modus button { padding:5px 12px; border-radius:14px; border:1px solid #5ec8ff; background:none; color:#5ec8ff; cursor:pointer; font-size:12.5px; }
 .ae-modus.anders { border-color:rgba(255,201,77,.5); }
 .ae-nachr { border-bottom:1px solid var(--border); padding:9px 2px; font-size:13px; }
+/* R863: Wettersatelliten */
+.ae-wetter-kopf { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:0 0 12px; font-size:13.5px; }
+.ae-wetter-tab { width:100%; border-collapse:collapse; font-size:13px; }
+.ae-wetter-tab td, .ae-wetter-tab th { padding:6px 8px; border-bottom:1px solid var(--border); text-align:left; }
+.ae-wetter-tab th { color:var(--muted); font-weight:500; font-size:12px; }
+.ae-galerie { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
+.ae-ueberflug .bilder { display:flex; gap:6px; margin-top:8px; overflow-x:auto; }
+.ae-ueberflug .bilder img { height:150px; border-radius:6px; background:#000; display:block; }
+
 .ae-nachr .kopf { display:flex; gap:10px; flex-wrap:wrap; align-items:baseline; }
 .ae-nachr .kopf b { font-size:14px; }
 .ae-nachr .kopf span { color:var(--muted); font-size:12px; }
@@ -81,11 +90,16 @@ return function()
   <button type="button" data-a="flug" class="aktiv">✈ Flugzeuge</button>
   <button type="button" data-a="nachrichten">💬 Funknachrichten</button>
   <button type="button" data-a="schiffe">🚢 Schiffe</button>
+  <button type="button" data-a="wetter">🛰 Wetter</button>
+  <button type="button" id="ae-ausst-knopf" style="margin-left:auto;display:none">⚙ Ausstattung</button>
 </div>
+<div id="ae-ausstattung" class="ae-karte" style="display:none;margin-bottom:12px"></div>
+<div id="ae-aus" class="ae-karte" style="display:none"></div>
 <div id="ae-modus" class="ae-modus" style="display:none"></div>
 <div id="ae-einrichtung" class="ae-karte" style="display:none;margin-bottom:14px"></div>
 <div id="ae-ort" class="ae-karte ae-hinweis" style="display:none;margin-bottom:14px"></div>
 <div id="ae-nachrichten" class="ae-karte" style="display:none"><div class="ae-hinweis">Warte auf Funknachrichten …</div></div>
+<div id="ae-wetter" style="display:none"><div class="ae-hinweis">Lade Wettersatelliten …</div></div>
 <div class="ae-wrap" id="ae-wrap">
   <div id="ae-karte"></div>
   <div class="ae-seite">
@@ -243,7 +257,8 @@ return function()
   }
 
   // R848: Fortschritt der Einrichtung im Hintergrund (setup-aeronautik.sh).
-  var SCHRITTE = [['treiber','Treiber'],['installieren','readsb übersetzen'],['standort','Standort'],['dienst','Start'],['fertig','bereit']];
+  var SCHRITTE = [['treiber','Treiber'],['installieren','readsb'],['pakete','Pakete'],['vdl2','dumpvdl2'],['ais','AIS-catcher'],
+    ['satdump','SatDump'],['standort','Standort'],['dienst','Start'],['fertig','bereit']];
   function einrichtung(){
     fetch('/api/v1/aeronautik/einrichtung', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(st){
       var el = $('ae-einrichtung');
@@ -262,7 +277,7 @@ return function()
           var k = (st.fertig && !st.fehler) || i < idx ? 'ok' : i === idx && !st.fehler ? 'jetzt' : '';
           return '<span class="' + k + '">' + x[1] + '</span>'; }).join('') + '</div>' +
         '<div class="ae-hinweis">' + esc(st.text || '') +
-          (st.phase === 'installieren' && !st.fehler ? ' – auf einem Pi 4 etwa 5 Minuten, auf einem Pi 3 bis zu 20.' : '') + '</div>' +
+          (/^(installieren|vdl2|ais)$/.test(st.phase) && !st.fehler ? ' – auf einem Pi 4 etwa 5 Minuten, auf einem Pi 3 bis zu 20.' : st.phase === 'satdump' && !st.fehler ? ' – das größte Programm: auf einem Pi 4 rund eine Stunde, auf einem Pi 3 mehrere Stunden. Der Pi bleibt dabei bedienbar.' : '') + '</div>' +
         (st.letzte ? '<div class="ae-ein-zeile" title="' + esc(st.letzte) + '">' + esc(st.letzte) + '</div>' : '') +
         (st.fehler || st.haengt ? '<div class="ae-hinweis" style="margin-top:6px">Protokoll auf dem Pi: <code>' + esc(st.protokoll || '') + '</code></div>' : '');
       el.style.display = '';
@@ -271,7 +286,7 @@ return function()
   einrichtung();
 
   // ── R859: Ansichten, Empfänger-Modus, Schiffe, Funknachrichten ──────────
-  var ansicht = /^#(nachrichten|schiffe)$/.test(location.hash) ? location.hash.slice(1) : 'flug';
+  var ansicht = /^#(nachrichten|schiffe|wetter)$/.test(location.hash) ? location.hash.slice(1) : 'flug';
   var MODUS_FUER = { flug: 'adsb', nachrichten: 'vdl2', schiffe: 'ais' };
   var MODUS_NAME = { adsb: 'Flugzeuge', vdl2: 'Funknachrichten', ais: 'Schiffe' };
   var funkStatus = null, umschaltenSeit = 0, schiffMarker = {}, schiffGewaehlt = null, letzteSchiffe = [], nachrAlt = '';
@@ -279,8 +294,7 @@ return function()
     ansicht = a;
     history.replaceState(null, '', a === 'flug' ? location.pathname : '#' + a);
     document.querySelectorAll('#ae-reiter button').forEach(function(b){ b.classList.toggle('aktiv', b.dataset.a === a); });
-    $('ae-nachrichten').style.display = a === 'nachrichten' ? '' : 'none';
-    $('ae-wrap').style.display = a === 'nachrichten' ? 'none' : '';
+    bereicheZeigen();
     // Ebenen der anderen Ansicht von der Karte nehmen
     if (karte) {
       if (a !== 'flug') { Object.keys(marker).forEach(function(h){ karte.removeLayer(marker[h]); karte.removeLayer(spuren[h]); delete marker[h]; delete spuren[h]; }); }
@@ -293,13 +307,71 @@ return function()
   }
   document.querySelectorAll('#ae-reiter button').forEach(function(b){ b.onclick = function(){ ansichtSetzen(b.dataset.a); }; });
 
+  // ── R864: Ausstattung ────────────────────────────────────────────────────
+  var KOMP_FUER = { nachrichten: 'vdl2', schiffe: 'ais', wetter: 'meteor' };
+  var KOMP_INFO = {
+    vdl2: ['💬 Funknachrichten (VDL2)', 'Antenne: Stab etwa 55 cm, senkrecht.'],
+    ais: ['🚢 Schiffe (AIS)', 'Antenne: Stab etwa 46 cm, senkrecht, freie Sicht Richtung Fluss.'],
+    meteor: ['🛰 Wettersatelliten (Meteor-M)', 'Antenne: waagerechter Dipol 2 × 53 cm, Nord-Süd, freier Himmel.']
+  };
+  function abgeschaltet(){
+    var k = KOMP_FUER[ansicht], st = funkStatus;
+    return !!(k && st && st.stick && st.komponenten && !st.komponenten[k]);
+  }
+  function bereicheZeigen(){
+    var aus = abgeschaltet();
+    $('ae-aus').style.display = aus ? '' : 'none';
+    $('ae-nachrichten').style.display = !aus && ansicht === 'nachrichten' ? '' : 'none';
+    $('ae-wetter').style.display = !aus && ansicht === 'wetter' ? '' : 'none';
+    $('ae-wrap').style.display = !aus && (ansicht === 'flug' || ansicht === 'schiffe') ? '' : 'none';
+    if (aus) {
+      var k = KOMP_FUER[ansicht], i = KOMP_INFO[k];
+      $('ae-aus').innerHTML = '<h3>' + i[0] + ' ist nicht zugeschaltet</h3><div class="ae-hinweis">' + i[1] +
+        ' Erst nach dem Zuschalten wird der Dekoder auf dem Pi installiert.' + speicherHinweis(k) + '</div>' +
+        '<button type="button" class="btn btn-primary" style="width:auto;margin-top:10px" id="ae-aus-auf">Ausstattung öffnen</button>';
+      $('ae-aus-auf').onclick = function(){ ausstattungZeigen(true); };
+    }
+  }
+  function speicherHinweis(k){
+    var st = funkStatus || {};
+    if (k !== 'meteor' || (st.vorhanden && st.vorhanden.meteor)) return '';
+    return st.ram_mb && st.ram_mb < 2000 ? ' <b>Auf diesem Pi (' + zahl(st.ram_mb) + ' MB Arbeitsspeicher) wird SatDump nur installiert, wenn es ein fertiges Paket gibt – Übersetzen braucht mindestens 2 GB.</b>' : ' SatDump ist groß: Übersetzen dauert auf einem Pi 4 rund eine Stunde.';
+  }
+  function ausstattungZeigen(auf){
+    var el = $('ae-ausstattung'), st = funkStatus || {}, k = st.komponenten || {};
+    if (!auf) { el.style.display = 'none'; return; }
+    el.innerHTML = '<h3>Empfänger-Ausstattung</h3><div class="ae-hinweis" style="margin-bottom:8px">✈ Flugzeuge sind immer dabei. Alles andere braucht eine eigene Antenne und wird erst nach dem Zuschalten installiert.</div>' +
+      ['vdl2', 'ais', 'meteor'].map(function(n){
+        return '<label style="display:block;margin:8px 0"><input type="checkbox" data-k="' + n + '"' + (k[n] ? ' checked' : '') + '> <b>' + KOMP_INFO[n][0] + '</b>' +
+          '<div class="ae-hinweis" style="margin-left:24px">' + KOMP_INFO[n][1] + speicherHinweis(n) + '</div></label>';
+      }).join('') +
+      '<div style="display:flex;gap:10px;align-items:center;margin-top:10px"><button type="button" class="btn btn-primary" style="width:auto" id="ae-ausst-speichern">Übernehmen</button>' +
+      '<button type="button" class="btn-sm" id="ae-ausst-zu">Schließen</button><span class="ae-hinweis" id="ae-ausst-status"></span></div>';
+    el.style.display = '';
+    $('ae-ausst-zu').onclick = function(){ ausstattungZeigen(false); };
+    $('ae-ausst-speichern').onclick = function(){
+      var w = {}; el.querySelectorAll('input[data-k]').forEach(function(c){ w[c.dataset.k] = c.checked; });
+      $('ae-ausst-status').textContent = 'Speichere …';
+      fetch('/api/v1/admin/funk/komponenten', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(w) }).then(function(r){ return r.json(); }).then(function(d){
+          if (d.error) { $('ae-ausst-status').textContent = '✗ ' + d.error; return; }
+          if (funkStatus) funkStatus.komponenten = { vdl2: !!w.vdl2, ais: !!w.ais, meteor: !!w.meteor };
+          $('ae-ausst-status').textContent = '✓ Übernommen – die Einrichtung startet jetzt im Hintergrund. Fortschritt im Reiter Flugzeuge.';
+          bereicheZeigen();
+        }).catch(function(){ $('ae-ausst-status').textContent = '✗ Speichern fehlgeschlagen.'; });
+    };
+  }
+  $('ae-ausst-knopf').onclick = function(){ ausstattungZeigen($('ae-ausstattung').style.display === 'none'); };
+
   function modusZeigen(){
     var el = $('ae-modus'), st = funkStatus;
     if (!st || (!st.stick && !st.empfaenger_stick)) { el.style.display = 'none'; return; }
+    if (ansicht === 'wetter' || abgeschaltet()) { el.style.display = 'none'; return; } // Planer schaltet selbst / nicht zugeschaltet
     var an = st.angewandt || {}, aktuell = an.modus || st.gewaehlt, gewollt = MODUS_FUER[ansicht];
     var vorh = st.vorhanden || {};
     var h = 'Empfänger ' + (st.node ? '<b>' + esc(st.node) + '</b> ' : '') + 'hört gerade auf <b>' + esc(MODUS_NAME[aktuell] || aktuell) + '</b>';
     if (an.fehler) h += ' – <span class="ae-notfall">' + esc(an.fehler) + '</span>';
+    if (an.wartet) h += ' · <b>Wettersatellit</b> belegt den Stick – danach ' + esc(MODUS_NAME[an.modus] || an.modus);
     var umschaltend = Date.now() - umschaltenSeit < 15000 && st.gewaehlt !== aktuell;
     if (umschaltend) h += ' · schaltet um auf ' + esc(MODUS_NAME[st.gewaehlt]) + ' …';
     else if (aktuell !== gewollt) {
@@ -323,6 +395,8 @@ return function()
   function funkStatusLaden(){
     fetch('/api/v1/funk/status', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(st){
       funkStatus = st; modusZeigen();
+      $('ae-ausst-knopf').style.display = st.stick ? '' : 'none';
+      bereicheZeigen();
     }).catch(function(){});
   }
   setInterval(funkStatusLaden, 5000);
@@ -390,8 +464,58 @@ return function()
     if (h !== nachrAlt) { nachrAlt = h; $('ae-nachrichten').innerHTML = h; }
     $('ae-stand').textContent = liste.length + ' Nachrichten · ' + (d.quelle === 'peer' ? 'Empfänger im Netz' : 'eigener Empfänger') + ' · nur im Arbeitsspeicher';
   }
+  // ── R863: Wettersatelliten ──────────────────────────────────────────────
+  var wetterAlt = '';
+  function uhr(t){ var d = new Date(t * 1000); return d.toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }); }
+  function bildRang(n){ n = n.toLowerCase(); return /natural|221|rgb/.test(n) ? 0 : /123|125|ir/.test(n) ? 1 : 2; }
+  function wetterZeichnen(d){
+    var h = '';
+    if (!d.stick) h += '<div class="ae-karte ae-hinweis">Wetterbilder entstehen auf dem Pi mit dem Stick' + (d.node ? '' : '') + ' – diese Seite über dessen Adresse öffnen.</div>';
+    else if (!d.satdump) h += '<div class="ae-karte ae-hinweis">SatDump fehlt noch – es wird beim nächsten Deploy oder Update installiert. Den Fortschritt zeigt der Reiter Flugzeuge.</div>';
+    else h += '<div class="ae-wetter-kopf"><label><input type="checkbox" id="ae-wauto"' + (d.automatik ? ' checked' : '') + '> Bei Überflügen automatisch aufnehmen</label>' +
+      '<span class="ae-hinweis">Der Stick wechselt dafür für einen Überflug auf 137,9 MHz und danach zurück. Antenne: waagerechter Dipol, 2 × 53 cm, Nord-Süd.</span></div>';
+    if (d.laeuft) h += '<div class="ae-modus anders">🛰 Aufnahme läuft: <b>' + esc(d.laeuft.sat || '') + '</b> bis ' + esc(new Date((d.laeuft.los || 0) * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })) + '</div>';
+    var plan = d.plan || {}, kommend = plan.ueberfluege || [];
+    h += '<div class="ae-karte" style="margin-bottom:12px"><h3>Nächste Überflüge' + (plan.min_el ? ' <span class="ae-hinweis">(ab ' + zahl(plan.min_el) + '° Höhe)</span>' : '') + '</h3>';
+    if (plan.fehler) h += '<div class="ae-hinweis ae-notfall">' + esc(plan.fehler) + '</div>';
+    h += kommend.length ? '<table class="ae-wetter-tab"><tr><th>Satellit</th><th>Zeit</th><th>Höhe</th><th>Richtung</th></tr>' + kommend.map(function(p){
+        return '<tr><td>' + esc(p.sat) + '</td><td>' + uhr(p.aos) + '–' + new Date(p.los * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + '</td><td>' + zahl(p.max_el) + '°</td><td>' + esc(p.von) + ' → ' + esc(p.nach) + '</td></tr>';
+      }).join('') + '</table>' : '<div class="ae-hinweis">' + (d.satdump ? 'Noch kein Plan – der Planer rechnet nach dem Start und dann alle 30 Minuten.' : 'Der Plan entsteht, sobald SatDump installiert ist.') + '</div>';
+    h += '</div>';
+    var fl = d.ueberfluege || [];
+    h += '<div class="ae-karte"><h3>Letzte Überflüge</h3>' + (fl.length ? '<div class="ae-galerie">' + fl.map(function(u){
+        var bilder = (u.bilder || []).slice().sort(function(a, b){ return bildRang(a) - bildRang(b); }).slice(0, 4);
+        var zustand = u.zustand === 'aufnahme' ? 'Aufnahme läuft …' : u.zustand === 'dekodiert' ? 'wird dekodiert …' :
+          bilder.length ? bilder.length + ' Bild(er)' : 'keine Bilder – Signal zu schwach? Antenne und Ausrichtung prüfen';
+        return '<div class="ae-ueberflug"><b>' + esc(u.sat || '') + '</b> <span class="ae-hinweis">' + (u.aos ? uhr(u.aos) : esc(u.ordner)) +
+          (u.max_el ? ' · ' + zahl(u.max_el) + '°' : '') + (u.von ? ' · ' + esc(u.von) + ' → ' + esc(u.nach) : '') + '</span>' +
+          '<div class="ae-hinweis">' + zustand + '</div>' +
+          (bilder.length ? '<div class="bilder">' + bilder.map(function(b){
+            var url = '/api/v1/funk/wetter/bild/' + encodeURIComponent(u.ordner) + '/' + b.split('/').map(encodeURIComponent).join('/');
+            return '<a href="' + url + '" target="_blank" rel="noopener"><img loading="lazy" src="' + url + '" alt="' + esc(b) + '"></a>';
+          }).join('') + '</div>' : '') + '</div>';
+      }).join('') + '</div>' : '<div class="ae-hinweis">Noch keine Überflüge aufgenommen.</div>') + '</div>';
+    if (h !== wetterAlt) {
+      wetterAlt = h; $('ae-wetter').innerHTML = h;
+      var k = $('ae-wauto');
+      if (k) k.onchange = function(){
+        fetch('/api/v1/admin/funk/wetter', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ automatik: k.checked }) }).then(function(r){ return r.json(); })
+          .then(function(x){ if (x.error) { alert(x.error); k.checked = !k.checked; } })
+          .catch(function(){ k.checked = !k.checked; });
+      };
+    }
+    $('ae-stand').textContent = kommend.length ? 'nächster Überflug ' + uhr(kommend[0].aos) : 'Wettersatelliten';
+  }
+
   function funkLaden(){
     if (ansicht === 'flug') { setTimeout(funkLaden, 1000); return; }
+    if (ansicht === 'wetter') {
+      fetch('/api/v1/funk/wetter', { credentials: 'same-origin' }).then(function(r){ return r.json(); })
+        .then(function(d){ if (ansicht === 'wetter') wetterZeichnen(d); })
+        .catch(function(){}).then(function(){ setTimeout(funkLaden, 10000); });
+      return;
+    }
     var art = ansicht;
     fetch('/api/v1/funk/' + art, { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
       if (ansicht !== art) return;

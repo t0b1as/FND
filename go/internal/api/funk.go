@@ -68,7 +68,10 @@ func (s *Server) funkStatusDaten() gin.H {
 		vorhanden[m] = err == nil
 	}
 	vorhanden["adsb"] = true
+	vorhanden["meteor"] = wetterSatDumpDa()
 	h["vorhanden"] = vorhanden
+	h["komponenten"] = s.funkKomponenten()
+	h["ram_mb"] = funkRAMMB()
 	funkMu.Lock()
 	h["nachrichten"], h["schiffe"] = len(funkNachrichten), len(funkSchiffe)
 	funkMu.Unlock()
@@ -491,6 +494,8 @@ func (s *Server) registerFunk(r *gin.Engine) {
 	r.GET("/api/v1/funk/status", s.funkStatus)
 	r.GET("/api/v1/funk/schiffe", func(c *gin.Context) { s.funkAntwort(c, "schiffe") })
 	r.GET("/api/v1/funk/nachrichten", func(c *gin.Context) { s.funkAntwort(c, "nachrichten") })
+	r.GET("/api/v1/funk/wetter", s.wetterStatus) // R863: Wettersatelliten
+	r.GET("/api/v1/funk/wetter/bild/:ordner/*datei", s.wetterBild)
 	if s.node != nil {
 		s.node.RegisterProtocol(funkProtocol, func(peerID string, data []byte) []byte {
 			var req struct{ Art string }
@@ -510,4 +515,76 @@ func (s *Server) registerFunk(r *gin.Engine) {
 			funkNMEA(z)
 		}
 	})
+}
+
+// ── Ausstattung (R864) ───────────────────────────────────────────────────────
+// Nur Flugzeuge sind Standard. Was eine eigene Antenne braucht, wird
+// zugeschaltet; ein systemd-Pfadwächter (fundus-komponenten.path) richtet es
+// danach sofort ein – ohne Deploy.
+
+func (s *Server) funkKomponentenDatei() string { return filepath.Join(s.cfg.DataDir, "funk-komponenten") }
+
+func (s *Server) funkKomponenten() gin.H {
+	k := gin.H{"vdl2": false, "ais": false, "meteor": false}
+	if b, err := os.ReadFile(s.funkKomponentenDatei()); err == nil {
+		for _, w := range strings.Fields(string(b)) {
+			if _, ok := k[w]; ok {
+				k[w] = true
+			}
+		}
+	}
+	return k
+}
+
+func funkRAMMB() int {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for _, z := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(z, "MemTotal:") {
+			if f := strings.Fields(z); len(f) >= 2 {
+				kb, _ := strconv.Atoi(f[1])
+				return kb / 1024
+			}
+		}
+	}
+	return 0
+}
+
+// POST /api/v1/admin/funk/komponenten {vdl2, ais, meteor}
+func (s *Server) funkKomponentenSetzen(c *gin.Context) {
+	var req struct{ Vdl2, Ais, Meteor bool }
+	if c.ShouldBindJSON(&req) != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
+		return
+	}
+	if !funkHatStick() {
+		c.JSON(http.StatusConflict, gin.H{"error": "Dieser Pi hat keinen Empfänger."})
+		return
+	}
+	var liste []string
+	for name, an := range map[string]bool{"vdl2": req.Vdl2, "ais": req.Ais, "meteor": req.Meteor} {
+		if an {
+			liste = append(liste, name)
+		}
+	}
+	sort.Strings(liste)
+	pfad := s.funkKomponentenDatei()
+	if err := os.WriteFile(pfad+".neu", []byte(strings.Join(liste, " ")+"\n"), 0o664); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
+		return
+	}
+	if err := os.Rename(pfad+".neu", pfad); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
+		return
+	}
+	// Abgeschaltet, aber gerade gewählt? Stick zurück auf Flugzeuge.
+	if b, err := os.ReadFile(s.funkModusDatei()); err == nil {
+		m := strings.TrimSpace(string(b))
+		if (m == "vdl2" && !req.Vdl2) || (m == "ais" && !req.Ais) {
+			_ = os.WriteFile(s.funkModusDatei(), []byte("adsb\n"), 0o664)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "komponenten": liste})
 }

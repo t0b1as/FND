@@ -24,6 +24,16 @@ case "$modus" in
   *)    modus=adsb; dienst=readsb ;;
 esac
 
+# R863: Läuft gerade ein Satelliten-Überflug, gehört der Stick dem Planer.
+# Den Wunsch nur vermerken – fundus-meteor.py wendet ihn nach dem Überflug an.
+if [ -f "$STATUS_DIR/meteor.lock" ]; then
+  printf '{"modus":"%s","dienst":"%s","aktiv":false,"seit":%s,"fehler":"","wartet":"Wettersatellit – danach"}\n' \
+    "$modus" "$dienst" "$(date +%s)" > "$STATUS_DIR/status.json.neu"
+  chmod 644 "$STATUS_DIR/status.json.neu"; mv "$STATUS_DIR/status.json.neu" "$STATUS_DIR/status.json"
+  echo "Funkmodus: $modus vorgemerkt – Wettersatellit belegt den Stick bis Ende des Überflugs"
+  exit 0
+fi
+
 # Alle anderen anhalten – der Stick kann nur einem Programm gehören.
 for d in readsb fundus-vdl2 fundus-ais; do
   [ "$d" = "$dienst" ] || systemctl stop "$d" 2>/dev/null
