@@ -1,8 +1,8 @@
 {
-  "version": "R864",
-  "description": "FUNDUS R864 - Aeronautik",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R864/FND-R864-update.zip",
-  "node_argon2": "1fa749f386481f2f3669b6b2f0a66ca7cdffbd465137dca165fcddd7c8ba4beb",
-  "published_at": "2026-11-04T14:13:22.3330328Z",
-  "signature": "0x0815ff2d44a35c5be399373cc6de8e286e82dc0e222de064b40ff66ca6927bfb673388a50d3d7b10fee569b0211d7669506bfb09d0b4687e635fb7ff8277e53e1c"
+  "version": "R867",
+  "description": "FUNDUS R867 - Hotspot Feature",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R867/FND-R867-update.zip",
+  "node_argon2": "feceb44b6c2ca09cdeaef8ff5dbee26d5f639c022cbe61d5139caae70e5e7f3e",
+  "published_at": "2026-11-12T19:21:22.4795112Z",
+  "signature": "0x7d8042974910221efe1a8809be64e1df4d7bdc94a7bbfd5a8381103b58b332cf7b303f52861853652b0d8e795f3992b3efcb7e29086bb2a2db62fb26c245afd31c"
 }
