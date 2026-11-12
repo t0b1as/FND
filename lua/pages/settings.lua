@@ -1021,6 +1021,133 @@ document.addEventListener('DOMContentLoaded', updLoad);
 })();
 </script>
 
+<!-- ── WLAN-Hotspot (R865) – eigener Reiter ──────────────────────────────── -->
+<style>
+.hs-tab { width:100%; border-collapse:collapse; font-size:13px; }
+.hs-tab th { text-align:left; color:var(--text-dim,#9aa0b4); font-weight:500; padding:4px; font-size:12px; }
+.hs-tab td { padding:3px 4px; }
+.hs-tab input { width:100%; box-sizing:border-box; }
+.hs-grid { display:grid; grid-template-columns:minmax(140px,30%) 1fr; gap:8px 12px; align-items:center; }
+.hs-grid label { font-size:13px; color:var(--text-dim,#9aa0b4); }
+.hs-grid input, .hs-grid select { width:100%; box-sizing:border-box; }
+.hs-abschnitt { margin:16px 0 8px; font-weight:600; font-size:14px; }
+@media (max-width:560px) { .hs-grid { grid-template-columns:1fr; } .hs-tab { font-size:12px; } }
+</style>
+<div class="set-card" id="hs-card">
+  <div class="set-head"><h3>WLAN-Hotspot</h3></div>
+  <div class="set-body">
+    <div id="hs-status" class="set-hint" style="margin:0 0 10px">Lade …</div>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="hs-aktiv"> Hotspot einschalten</label>
+    <p class="set-hint" style="margin:6px 0 0">Läuft nur, wenn dieser Pi über Kabel oder einen zweiten WLAN-Adapter online ist – das eingebaute WLAN wird dann zum Hotspot. Wer Internetzugang gegen Geld anbietet, muss das in der Regel bei der Bundesnetzagentur melden.</p>
+
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px"><input type="checkbox" id="hs-mitbenutzen" style="margin-top:4px">
+      <span><b>Eingebautes WLAN mitbenutzen</b>, wenn kein Kabel und kein zweiter Adapter da ist<br>
+      <span class="set-hint">Der Pi bleibt mit deinem WLAN verbunden und spannt zusätzlich den Hotspot auf – auf dem Kanal deines Routers. Die Geschwindigkeit teilen sich Verbindung und Gäste: rechne mit 10–40 Mbit/s für alle zusammen. Reißt die Verbindung des Pi dabei ab, baut er den Hotspot sofort wieder ab; nach drei Fehlschlägen bleibt die Option aus.</span></span></label>
+
+    <div class="hs-abschnitt">Netz</div>
+    <div class="hs-grid">
+      <label for="hs-ssid">Netzname (SSID)</label><input id="hs-ssid" maxlength="32">
+      <label for="hs-kanal">Kanal</label><select id="hs-kanal"><option value="1">1</option><option value="6">6</option><option value="11">11</option></select>
+    </div>
+
+    <div class="hs-abschnitt">Stufen</div>
+    <table class="hs-tab"><thead><tr><th>Name</th><th>↓ Mbit/s</th><th>↑ Mbit/s</th><th>Dauer (h)</th><th>Preis € (0 = gratis)</th></tr></thead><tbody id="hs-stufen"></tbody></table>
+    <p class="set-hint" style="margin:6px 0 0">Bis 1000 Mbit/s einstellbar. Das WLAN eines Pi schafft im Hotspot realistisch 50–150 Mbit/s – darüber ist praktisch ungedrosselt. Preise inklusive Umsatzsteuer.</p>
+
+    <div class="hs-abschnitt">Verbund mehrerer Knoten</div>
+    <div class="hs-grid">
+      <label for="hs-verbund">Verbund-Schlüssel</label>
+      <div style="display:flex;gap:6px"><input id="hs-verbund" type="password" autocomplete="off" style="flex:1" placeholder="leer = Zugänge gelten nur auf diesem Knoten">
+        <button type="button" class="btn-sm" id="hs-verbund-zeigen">Zeigen</button><button type="button" class="btn-sm" id="hs-verbund-neu">Erzeugen</button></div>
+    </div>
+    <p class="set-hint" style="margin:6px 0 0">Trag auf allen Hotspot-Knoten denselben Netznamen und denselben Schlüssel ein. Dann gilt ein Zugang auf jedem dieser Knoten, und Telefone wechseln von selbst zum stärkeren – nach wenigen Sekunden sind sie dort wieder online. Ins Fundus-Netz geht dabei nur ein mit dem Schlüssel gebildeter Prüfwert, nie die Geräteadresse; ohne Schlüssel kann niemand Zugänge für deine Knoten ausstellen.</p>
+
+    <div class="hs-abschnitt">PayPal</div>
+    <div class="hs-grid">
+      <label for="hs-pp-id">Client-ID</label><input id="hs-pp-id" autocomplete="off" placeholder="aus developer.paypal.com → Apps &amp; Credentials">
+      <label for="hs-pp-secret">Secret</label><input id="hs-pp-secret" type="password" autocomplete="new-password">
+      <label for="hs-pp-modus">Modus</label><select id="hs-pp-modus"><option value="sandbox">Sandbox (Test, kein echtes Geld)</option><option value="live">Live</option></select>
+    </div>
+    <p class="set-hint" style="margin:6px 0 0">Das Geld geht direkt auf dein PayPal-Konto. Zum Ausprobieren erst Sandbox-Zugangsdaten verwenden, dann auf Live umstellen.</p>
+
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary" id="hs-speichern" style="width:auto">Speichern</button>
+      <span id="hs-meldung" class="set-hint"></span>
+    </div>
+
+    <div class="hs-abschnitt">Aktive Zugänge</div>
+    <div id="hs-zugaenge" class="set-hint">–</div>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function zeile(st, i){
+    return '<tr data-i="' + i + '"><td><input data-f="name" value="' + esc(st.name) + '"></td>' +
+      '<td><input data-f="down" type="number" min="1" max="1000" value="' + esc(st.down) + '"></td>' +
+      '<td><input data-f="up" type="number" min="1" max="1000" value="' + esc(st.up) + '"></td>' +
+      '<td><input data-f="stunden" type="number" min="0.25" step="0.25" value="' + esc(st.stunden) + '"></td>' +
+      '<td><input data-f="preis" type="number" min="0" step="0.01" value="' + esc(st.preis) + '"></td></tr>';
+  }
+  // nurZustand: beim regelmäßigen Auffrischen die Eingaben NICHT überschreiben.
+  function laden(nurZustand){
+    fetch('/api/v1/admin/hotspot', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+      var c = d.config || {}, pp = d.paypal || {}, st = d.status || null;
+      if (!nurZustand) {
+      $('hs-aktiv').checked = !!c.aktiv;
+      $('hs-ssid').value = c.ssid || '';
+      $('hs-mitbenutzen').checked = !!c.mitbenutzen;
+      $('hs-verbund').value = (d.verbund && d.verbund.schluessel) || '';
+      $('hs-kanal').value = String(c.kanal || 6);
+      $('hs-stufen').innerHTML = (c.stufen || []).map(zeile).join('');
+      $('hs-pp-id').value = pp.client_id || '';
+      $('hs-pp-secret').value = '';
+      $('hs-pp-secret').placeholder = pp.secret_gesetzt ? 'gesetzt – leer lassen, um es zu behalten' : 'Secret der PayPal-App';
+      $('hs-pp-modus').value = pp.modus || 'sandbox';
+      }
+      $('hs-status').innerHTML = !st ? 'Der Hotspot-Dienst läuft auf diesem Pi noch nicht – er wird beim nächsten Deploy oder Update eingerichtet.'
+        : st.laeuft ? '<b style="color:#3ddc84">● Läuft</b> auf ' + esc(st.ap) + ', online über ' + esc(st.uplink) + ' · ' + esc(st.geraete) + ' Gerät(e) freigeschaltet · Anmeldeseite: http://10.42.0.1:3088' +
+          (st.grund && st.grund !== 'läuft' ? '<br>' + esc(st.grund.replace(/^läuft – /, '')) : '')
+        : '<b>○ Aus</b> – ' + esc(st.grund);
+      var z = d.zugaenge || [];
+      $('hs-zugaenge').innerHTML = z.length ? '<table class="hs-tab"><thead><tr><th>Gerät</th><th>Stufe</th><th>bis</th><th>Art</th></tr></thead><tbody>' +
+        z.map(function(x){ return '<tr><td>' + esc(x.mac.slice(0, 8)) + ':…</td><td>' + esc(x.name) + '</td><td>' +
+          new Date(x.bis * 1000).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) +
+          '</td><td>' + (x.quelle === 'paypal' ? 'bezahlt' : x.quelle === 'verbund' ? 'von anderem Knoten' : 'gratis') + '</td></tr>'; }).join('') + '</tbody></table>' : 'Keine.';
+    }).catch(function(){ $('hs-status').textContent = 'Einstellungen nicht ladbar.'; });
+  }
+  $('hs-speichern').onclick = function(){
+    var stufen = [].map.call(document.querySelectorAll('#hs-stufen tr'), function(tr){
+      var w = function(f){ return tr.querySelector('[data-f="' + f + '"]').value; };
+      return { name: w('name').trim(), down: +w('down'), up: +w('up'), stunden: +w('stunden'), preis: +w('preis') };
+    });
+    $('hs-meldung').textContent = 'Speichere …';
+    fetch('/api/v1/admin/hotspot', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config: { aktiv: $('hs-aktiv').checked, mitbenutzen: $('hs-mitbenutzen').checked, ssid: $('hs-ssid').value.trim(), kanal: +$('hs-kanal').value, stufen: stufen },
+        verbund: { schluessel: $('hs-verbund').value.trim() },
+        paypal: { client_id: $('hs-pp-id').value.trim(), secret: $('hs-pp-secret').value.trim(), modus: $('hs-pp-modus').value } }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) { $('hs-meldung').textContent = '✗ ' + d.error; return; }
+        $('hs-meldung').textContent = '✓ Gespeichert · ' + d.paypal;
+        laden();
+      }).catch(function(){ $('hs-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+  $('hs-verbund-zeigen').onclick = function(){
+    var f = $('hs-verbund'); f.type = f.type === 'password' ? 'text' : 'password';
+    this.textContent = f.type === 'password' ? 'Zeigen' : 'Verbergen';
+  };
+  $('hs-verbund-neu').onclick = function(){
+    if ($('hs-verbund').value && !confirm('Neuen Schlüssel erzeugen? Bestehende Zugänge gelten dann auf anderen Knoten nicht mehr, bis du ihn dort auch einträgst.')) return;
+    var z = new Uint8Array(24); crypto.getRandomValues(z);
+    $('hs-verbund').value = btoa(String.fromCharCode.apply(null, z)).replace(/\+/g, '-').replace(/\//g, '_');
+    $('hs-verbund').type = 'text'; $('hs-verbund-zeigen').textContent = 'Verbergen';
+  };
+  laden();
+  setInterval(function(){ if (document.getElementById('hs-card').offsetParent) laden(true); }, 15000);
+})();
+</script>
+
 <!-- ── Filesharing / Storage ────────────────────────────────── -->
 <div class="set-card">
   <div class="set-head"><h3>]] .. t("settings.storage_head") .. [[</h3></div>
@@ -1098,6 +1225,7 @@ document.addEventListener('DOMContentLoaded', updLoad);
   var TABS = [
     ['node',     'Node',        /update|chain|node|profil|profile|revision/i],
     ['standort', 'Standort',    /^\s*standort/i],
+    ['hotspot',  'Hotspot',     /^\s*wlan-hotspot/i],
     ['security', 'Sicherheit',  /sicherung|backup|admin|passwort|password/i],
     ['network',  'Netzwerk',    /solana|rpc|nat|port|wlan|wi-?fi|netz|network/i],
     ['storage',  'Speicher',    /speicher|storage|datei|file/i],

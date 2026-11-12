@@ -56,6 +56,12 @@ fehler()  {
 
 [ "$(id -u)" -eq 0 ] || fehler "Bitte mit sudo ausführen."
 
+# R865: WLAN-Hotspot einrichten (Dienste; Pakete erst beim Einschalten). Steht
+# hier vorn, weil der Rest ohne RTL-SDR-Stick früh endet.
+if [ "$HINTERGRUND" -eq 0 ] && [ -f "$(dirname "$(readlink -f "$0")")/setup-hotspot.sh" ]; then
+  FUNDUS_DATA_DIR="$DATA_DIR" bash "$(dirname "$(readlink -f "$0")")/setup-hotspot.sh" --auto || true
+fi
+
 # ── Stick vorhanden? ────────────────────────────────────────────────────────
 # R862: Erkennung über die Geräte-IDs, die librtlsdr selbst als kompatibel
 # führt (rtl-sdr.c, known_devices) – nicht mehr über den Herstellernamen.
