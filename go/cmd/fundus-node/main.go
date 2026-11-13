@@ -250,7 +250,7 @@ func main() {
 	// -------------------------------------------------------------------------
 	var analyzer *llm.Analyzer
 	if cfg.LLMEnabled {
-		analyzer = llm.New("http://127.0.0.1:11434", cfg.LLMModel, cfg.LLMTextModel, log)
+		analyzer = llm.New(cfg.LLMURL, cfg.LLMModel, cfg.LLMTextModel, log)
 		analyzer.Configure(cfg.LLMVision, cfg.LLMKeepAlive)
 
 		pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -258,7 +258,7 @@ func main() {
 			log.Warn("Ollama not reachable – LLM disabled", zap.Error(err))
 			analyzer = nil
 		} else {
-			log.Info("Ollama reachable", zap.String("model", cfg.LLMModel))
+			log.Info("Ollama reachable", zap.String("model", cfg.LLMModel), zap.String("url", cfg.LLMURL))
 			go func() {
 				pullCtx, pullCancel := context.WithTimeout(
 					context.Background(), 30*time.Minute)
@@ -917,6 +917,12 @@ func main() {
 	}
 
 	log.Info("Fundus node stopped cleanly")
+	// R868: Neustart aus der Oberfläche – Exitcode ≠ 0, damit systemd
+	// (Restart=on-failure) den Node wieder startet.
+	if api.NeustartGewuenscht.Load() {
+		log.Info("Neustart angefordert – systemd startet den Node neu")
+		os.Exit(75)
+	}
 }
 
 // tokenToRecord wandelt einen Meter-Token in einen speicherbaren Record um.

@@ -1021,6 +1021,141 @@ document.addEventListener('DOMContentLoaded', updLoad);
 })();
 </script>
 
+<!-- ── KI (Ollama) (R868) – eigener Reiter ───────────────────────────────── -->
+<div class="set-card" id="ki-card">
+  <div class="set-head"><h3>KI (Ollama)</h3></div>
+  <div class="set-body">
+    <div id="ki-zustand" class="set-hint" style="margin:0 0 10px">Lade …</div>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="ki-aktiv"> KI-Funktionen einschalten</label>
+    <p class="set-hint" style="margin:6px 0 10px">Fundus nutzt Ollama, um Fotos und Texte von Angeboten auszuwerten. Ollama kann auf diesem Pi laufen oder auf einem Rechner mit Grafikkarte im Heimnetz – dort ist es um ein Vielfaches schneller.</p>
+    <style>
+    .ki-hilfe { margin:0 0 12px; border:1px solid var(--border,#2a2f3a); border-radius:10px; padding:2px 12px; }
+    .ki-hilfe summary { cursor:pointer; padding:8px 0; font-weight:600; font-size:13.5px; }
+    .ki-hilfe ol { margin:4px 0 10px; padding-left:20px; font-size:13px; line-height:1.55; }
+    .ki-hilfe li { margin:0 0 10px; }
+    .ki-cmd { display:flex; gap:6px; align-items:stretch; margin:5px 0 2px; }
+    .ki-cmd code { flex:1; display:block; padding:7px 9px; border-radius:7px; background:rgba(127,127,127,.12); font-size:12px; white-space:pre-wrap; word-break:break-all; }
+    .ki-cmd button { flex:0 0 auto; }
+    </style>
+    <details class="ki-hilfe">
+      <summary>ℹ Anleitung: Ollama auf einem Windows-PC im Heimnetz einrichten</summary>
+      <ol>
+        <li><b>Ollama installieren</b> von ollama.com (Download für Windows) und einmal starten. Im Infobereich der Taskleiste erscheint ein Lama-Symbol.</li>
+        <li><b>Im Heimnetz erreichbar machen</b> – in einer PowerShell:
+          <div class="ki-cmd"><code>[Environment]::SetEnvironmentVariable("OLLAMA_HOST", "0.0.0.0", "User")</code><button type="button" class="btn-sm">Kopieren</button></div>
+          Danach Ollama neu starten: Lama-Symbol in der Taskleiste → Rechtsklick → <i>Quit</i>, dann im Startmenü wieder <i>Ollama</i> öffnen.</li>
+        <li><b>Netzwerk als „Privat“ führen</b> (sonst greift die Firewall-Regel nicht) – Einstellungen → Netzwerk und Internet → deine Verbindung → Netzwerkprofil <i>Privat</i>.</li>
+        <li><b>Firewall nur für das Heimnetz öffnen</b> – in einer PowerShell <i>als Administrator</i> (Rechtsklick auf PowerShell → Als Administrator ausführen):
+          <div class="ki-cmd"><code>New-NetFirewallRule -DisplayName "Ollama (Heimnetz)" -Direction Inbound -Protocol TCP -LocalPort 11434 -Action Allow -Profile Private -RemoteAddress LocalSubnet</code><button type="button" class="btn-sm">Kopieren</button></div>
+          <b>Keine Portweiterleitung im Router einrichten</b> – Ollama hat keine Anmeldung und darf nie aus dem Internet erreichbar sein.</li>
+        <li><b>Modell herunterladen</b> – in einer <i>neuen</i> PowerShell (eine schon offene kennt die geänderte Einstellung nicht):
+          <div class="ki-cmd"><code>ollama pull qwen3.5:9b</code><button type="button" class="btn-sm">Kopieren</button></div>
+          Für Grafikkarten mit 8 GB. Gut für Fotos und deutschen Text in einem Modell. Mit weniger Grafikspeicher: <code>gemma3:4b</code>.</li>
+        <li><b>Prüfen, ob Ollama im Heimnetz lauscht:</b>
+          <div class="ki-cmd"><code>Get-NetTCPConnection -LocalPort 11434 -State Listen | Select-Object LocalAddress</code><button type="button" class="btn-sm">Kopieren</button></div>
+          Richtig ist <code>0.0.0.0</code> oder <code>::</code>. Steht dort <code>127.0.0.1</code>, Ollama noch einmal beenden und neu starten; notfalls einmal ab- und wieder anmelden.</li>
+        <li><b>Adresse des PCs herausfinden:</b>
+          <div class="ki-cmd"><code>ipconfig</code><button type="button" class="btn-sm">Kopieren</button></div>
+          Die Zeile <i>IPv4-Adresse</i> deines WLAN- oder Ethernet-Adapters, etwa <code>192.168.1.20</code>. Sie sollte im Router fest vergeben sein, sonst ändert sie sich irgendwann.</li>
+        <li><b>Hier in Fundus eintragen:</b> Adresse <code>http://192.168.1.20:11434</code> (mit deiner IP), <i>Verbindung testen</i>, Modell antippen, <i>Im Speicher halten</i> auf 30 Minuten, <i>Speichern</i> und den Node neu starten.</li>
+        <li><b>Energiesparen:</b> Solange der PC als KI-Rechner dient, darf er nicht in den Ruhezustand gehen. Ist er aus, ruhen die KI-Funktionen.</li>
+      </ol>
+    </details>
+    <div class="hs-grid">
+      <label for="ki-url">Adresse</label><input id="ki-url" placeholder="http://127.0.0.1:11434 – oder z.B. http://192.168.1.20:11434">
+      <label for="ki-modell">Bildmodell</label><input id="ki-modell" placeholder="moondream" autocapitalize="off">
+      <label for="ki-textmodell">Textmodell</label><input id="ki-textmodell" placeholder="leer = dasselbe wie das Bildmodell" autocapitalize="off">
+      <label for="ki-halten">Im Speicher halten</label><select id="ki-halten"><option value="1m">1 Minute (Pi, wenig Speicher)</option><option value="10m">10 Minuten</option><option value="30m">30 Minuten (Rechner mit Grafikkarte)</option><option value="2h">2 Stunden</option></select>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="ki-fotos"> Fotos auswerten (braucht ein Bildmodell)</label>
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn-sm" id="ki-test">Verbindung testen</button>
+      <button type="button" class="btn btn-primary" id="ki-speichern" style="width:auto">Speichern</button>
+      <button type="button" class="btn-sm" id="ki-neustart" style="display:none">Node jetzt neu starten</button>
+      <span id="ki-meldung" class="set-hint"></span>
+    </div>
+    <div id="ki-modelle" style="margin-top:10px"></div>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  var klein = function(id){ var f = $(id); f.value = f.value.trim().toLowerCase(); return f.value; };
+  fetch('/api/v1/admin/llm', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(z){
+    $('ki-aktiv').checked = !!z.eingeschaltet;
+    $('ki-url').value = z.url || '';
+    $('ki-modell').value = z.modell || '';
+    $('ki-textmodell').value = z.textmodell || '';
+    $('ki-fotos').checked = !!z.fotos;
+    if ([].some.call($('ki-halten').options, function(o){ return o.value === z.keep_alive; })) $('ki-halten').value = z.keep_alive;
+    $('ki-zustand').innerHTML = z.aktiv ? '<b style="color:#3ddc84">● Aktiv</b> – ' + esc(z.modell) + ' über ' + esc(z.url)
+      : z.eingeschaltet ? '<b>○ Eingeschaltet, aber Ollama war beim Start nicht erreichbar</b> – Adresse und Rechner prüfen, dann neu starten.'
+      : '○ Aus';
+  }).catch(function(){ $('ki-zustand').textContent = 'Zustand nicht ladbar.'; });
+
+  // Kopieren-Knöpfe der Anleitung
+  [].forEach.call(document.querySelectorAll('#ki-card .ki-cmd button'), function(b){
+    b.onclick = function(){
+      var text = b.previousElementSibling.textContent;
+      var fertig = function(){ b.textContent = '✓ Kopiert'; setTimeout(function(){ b.textContent = 'Kopieren'; }, 1500); };
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(fertig, function(){ markieren(b); });
+      else markieren(b);
+    };
+  });
+  // Ohne Zwischenablage-Zugriff (http): Text markieren, damit Strg+C reicht.
+  function markieren(b){
+    var r = document.createRange(); r.selectNodeContents(b.previousElementSibling);
+    var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    b.textContent = 'Strg+C drücken';
+  }
+
+  $('ki-test').onclick = function(){
+    $('ki-meldung').textContent = 'Prüfe …'; $('ki-modelle').innerHTML = '';
+    fetch('/api/v1/admin/llm/test', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: $('ki-url').value.trim(), modell: klein('ki-modell') }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) { $('ki-meldung').textContent = '✗ ' + d.error; return; }
+        if (!d.ok) { $('ki-meldung').textContent = '✗ ' + d.fehler; return; }
+        $('ki-meldung').textContent = '✓ Ollama erreichbar · ' + d.modelle.length + ' Modell(e)' +
+          (d.gesucht ? (d.modell_vorhanden ? ' · „' + d.gesucht + '“ ist vorhanden' : ' · „' + d.gesucht + '“ fehlt dort – auf dem Rechner: ollama pull ' + d.gesucht) : '');
+        $('ki-modelle').innerHTML = d.modelle.length ? '<div class="set-hint" style="margin-bottom:4px">Antippen, um als Bildmodell zu übernehmen:</div>' +
+          d.modelle.map(function(m){ return '<button type="button" class="btn-sm" style="margin:0 6px 6px 0" data-m="' + esc(m.name) + '">' + esc(m.name) + ' <span class="set-hint">' + m.gb.toFixed(1) + ' GB</span></button>'; }).join('') : '';
+        [].forEach.call($('ki-modelle').querySelectorAll('[data-m]'), function(b){ b.onclick = function(){ $('ki-modell').value = b.dataset.m; }; });
+      }).catch(function(){ $('ki-meldung').textContent = '✗ Test fehlgeschlagen.'; });
+  };
+
+  $('ki-speichern').onclick = function(){
+    $('ki-meldung').textContent = 'Speichere …';
+    var w = { FUNDUS_LLM_ENABLED: String($('ki-aktiv').checked), FUNDUS_LLM_URL: $('ki-url').value.trim().replace(/\/+$/, ''),
+      FUNDUS_LLM_MODEL: klein('ki-modell'), FUNDUS_LLM_TEXT_MODEL: klein('ki-textmodell'),
+      FUNDUS_LLM_VISION: String($('ki-fotos').checked), FUNDUS_LLM_KEEP_ALIVE: $('ki-halten').value };
+    fetch('/api/v1/admin/energie', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ werte: w }) }).then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) { $('ki-meldung').textContent = '✗ ' + d.error; return; }
+        $('ki-meldung').textContent = d.neustart_noetig ? '✓ Gespeichert – wirkt nach einem Neustart des Nodes.' : '✓ Gespeichert.';
+        $('ki-neustart').style.display = d.neustart_noetig ? '' : 'none';
+      }).catch(function(){ $('ki-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+
+  $('ki-neustart').onclick = function(){
+    if (!confirm('Node jetzt neu starten? Er ist für etwa 20 Sekunden nicht erreichbar.')) return;
+    $('ki-neustart').disabled = true;
+    fetch('/api/v1/admin/neustart', { method: 'POST', credentials: 'same-origin' }).then(function(){
+      $('ki-meldung').textContent = 'Startet neu …';
+      var versuche = 0;
+      var warten = setInterval(function(){
+        versuche++;
+        fetch('/api/v1/admin/llm', { credentials: 'same-origin', cache: 'no-store' }).then(function(r){
+          if (r.ok && versuche > 3) { clearInterval(warten); location.reload(); }
+        }).catch(function(){});
+        if (versuche > 60) { clearInterval(warten); $('ki-meldung').textContent = 'Der Node meldet sich nicht zurück – bitte Seite neu laden.'; }
+      }, 2000);
+    }).catch(function(){ $('ki-neustart').disabled = false; $('ki-meldung').textContent = '✗ Neustart fehlgeschlagen.'; });
+  };
+})();
+</script>
+
 <!-- ── WLAN-Hotspot (R865) – eigener Reiter ──────────────────────────────── -->
 <style>
 .hs-tab { width:100%; border-collapse:collapse; font-size:13px; }
@@ -1226,6 +1361,7 @@ document.addEventListener('DOMContentLoaded', updLoad);
     ['node',     'Node',        /update|chain|node|profil|profile|revision/i],
     ['standort', 'Standort',    /^\s*standort/i],
     ['hotspot',  'Hotspot',     /^\s*wlan-hotspot/i],
+    ['ki',       'KI',          /^\s*ki\b/i],
     ['security', 'Sicherheit',  /sicherung|backup|admin|passwort|password/i],
     ['network',  'Netzwerk',    /solana|rpc|nat|port|wlan|wi-?fi|netz|network/i],
     ['storage',  'Speicher',    /speicher|storage|datei|file/i],

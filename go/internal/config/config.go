@@ -35,6 +35,7 @@ type Config struct {
 	LLMTextModel string // optionales eigenes Textmodell; leer = Bildmodell auch für reine Textanalyse
 	LLMVision    bool   // Fotos analysieren? false = nur Text (Pi 3: Bildmodelle zu groß)
 	LLMKeepAlive string // wie lange Ollama das Modell im Speicher hält ("1m"; Pi 3: RAM knapp)
+	LLMURL       string // R868: Adresse von Ollama – auch ein anderer Rechner im Heimnetz (z.B. PC mit Grafikkarte)
 
 	// Smartmeter
 	MeterProtocol  string
@@ -160,6 +161,7 @@ func Load(log *zap.Logger) *Config {
 		LLMTextModel: envStr("FUNDUS_LLM_TEXT_MODEL", ""), // leer = dasselbe Modell wie für Fotos
 		LLMVision:    envBool("FUNDUS_LLM_VISION", true),
 		LLMKeepAlive: envStr("FUNDUS_LLM_KEEP_ALIVE", "1m"),
+		LLMURL:       envStr("FUNDUS_LLM_URL", "http://127.0.0.1:11434"),
 
 		MeterProtocol: envStr("FUNDUS_METER_PROTOCOL", ""),
 		MeterPort:     envStr("FUNDUS_METER_PORT", "/dev/ttyUSB0"),

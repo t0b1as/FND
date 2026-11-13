@@ -224,6 +224,7 @@ type ollamaRequest struct {
 	Images  []string `json:"images,omitempty"` // Base64-kodierte Bilder
 	Stream  bool     `json:"stream"`
 	KeepAlive string `json:"keep_alive,omitempty"` // Speicher nach Gebrauch freigeben (Pi 3: RAM knapp)
+	Think     *bool  `json:"think,omitempty"`      // R868: bei Denkmodellen false – sonst langsam, und das Nachdenken frisst die Antwortlänge
 	Options struct {
 		Temperature float64 `json:"temperature"`
 		NumPredict  int     `json:"num_predict"`
@@ -248,6 +249,10 @@ func (a *Analyzer) callOllama(ctx context.Context, model, prompt string, images 
 		Images: images,
 		Stream: false,
 		KeepAlive: a.keepAlive,
+	}
+	if denkmodell(model) {
+		aus := false
+		body.Think = &aus
 	}
 	body.Options.Temperature = 0.3  // niedrig = konsistentere Ausgaben
 	body.Options.NumPredict  = 1024 // max Token
@@ -367,4 +372,20 @@ func buildPriceQuery(r *AnalysisResult) string {
 		return strings.Join(kw, " ")
 	}
 	return ""
+}
+
+// denkmodell: Modelle, die vor jeder Antwort ausführlich „nachdenken“
+// (Qwen 3, 3.5, Qwen3-VL, DeepSeek-R1, gpt-oss …). Für Produktanalysen ist
+// das nur langsamer – und mit begrenzter Antwortlänge (num_predict) kann das
+// Nachdenken die eigentliche Antwort ganz verdrängen. Andere Modelle bekommen
+// kein "think"-Feld, damit ältere Ollama-Versionen und Modelle ohne diese
+// Fähigkeit nicht stolpern.
+func denkmodell(model string) bool {
+	m := strings.ToLower(model)
+	for _, p := range []string{"qwen3", "deepseek-r1", "gpt-oss", "magistral", "phi4-reasoning"} {
+		if strings.Contains(m, p) {
+			return true
+		}
+	}
+	return false
 }

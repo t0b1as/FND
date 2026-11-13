@@ -76,7 +76,27 @@ var energieSchluessel = map[string]func(string) bool{
 	"FUNDUS_NETZ_GRUND":         zahlZwischen(0, 1000),
 	"FUNDUS_NETZ_JE_KM":         zahlZwischen(0, 1000),
 	"FUNDUS_NETZENTGELT_WALLET": reWallet.MatchString,
+	// R868: KI (Ollama) – auch auf einem anderen Rechner im Heimnetz
+	"FUNDUS_LLM_ENABLED":    jaNein,
+	"FUNDUS_LLM_URL":        reOllamaURL.MatchString,
+	"FUNDUS_LLM_MODEL":      reOllamaModell.MatchString,
+	"FUNDUS_LLM_TEXT_MODEL": reOllamaModell.MatchString,
+	"FUNDUS_LLM_VISION":     jaNein,
+	"FUNDUS_LLM_KEEP_ALIVE": reKeepAlive.MatchString,
 }
+
+var (
+	reOllamaURL    = regexp.MustCompile(`^https?://[A-Za-z0-9.\-\[\]:]{1,100}(:[0-9]{1,5})?/?$`)
+	reOllamaModell = regexp.MustCompile(`^[a-z0-9][a-z0-9._:/\-]{0,79}$`)
+	reKeepAlive    = regexp.MustCompile(`^(-1|0|[0-9]{1,4}[smh])$`)
+)
+
+func jaNein(v string) bool { return v == "true" || v == "false" }
+
+// Diese Einstellungen wirken erst nach einem Neustart: der Zählerleser und
+// der KI-Analyzer werden beim Start angelegt.
+var neustartSchluessel = []string{"FUNDUS_METER_PROTOCOL", "FUNDUS_LLM_ENABLED", "FUNDUS_LLM_URL",
+	"FUNDUS_LLM_MODEL", "FUNDUS_LLM_TEXT_MODEL", "FUNDUS_LLM_VISION", "FUNDUS_LLM_KEEP_ALIVE"}
 
 func zahlZwischen(min, max float64) func(string) bool {
 	return func(v string) bool {
@@ -144,6 +164,25 @@ func EnergieEinstellungenLaden(cfg *config.Config) {
 func energieInKonfig(cfg *config.Config) {
 	if v, ok := os.LookupEnv("FUNDUS_METER_PROTOCOL"); ok {
 		cfg.MeterProtocol = v
+	}
+	// R868: KI-Einstellungen aus der Oberfläche
+	if v, ok := os.LookupEnv("FUNDUS_LLM_ENABLED"); ok && jaNein(v) {
+		cfg.LLMEnabled = v == "true"
+	}
+	if v := os.Getenv("FUNDUS_LLM_URL"); v != "" {
+		cfg.LLMURL = strings.TrimRight(v, "/")
+	}
+	if v := os.Getenv("FUNDUS_LLM_MODEL"); v != "" {
+		cfg.LLMModel = v
+	}
+	if v, ok := os.LookupEnv("FUNDUS_LLM_TEXT_MODEL"); ok {
+		cfg.LLMTextModel = v
+	}
+	if v, ok := os.LookupEnv("FUNDUS_LLM_VISION"); ok && jaNein(v) {
+		cfg.LLMVision = v == "true"
+	}
+	if v := os.Getenv("FUNDUS_LLM_KEEP_ALIVE"); v != "" {
+		cfg.LLMKeepAlive = v
 	}
 }
 
@@ -225,8 +264,13 @@ func (s *Server) energieEinstellungenSet(c *gin.Context) {
 	}
 	protokollVorher := s.cfg.MeterProtocol
 	energieAnwenden(neu)
-	// Die Zählerquelle wirkt erst nach dem Neustart, alles andere sofort.
+	// Zählerquelle und KI wirken erst nach dem Neustart, alles andere sofort.
 	neustart := os.Getenv("FUNDUS_METER_PROTOCOL") != protokollVorher
+	for _, k := range neustartSchluessel[1:] {
+		if alt[k] != neu[k] {
+			neustart = true
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "neustart_noetig": neustart})
 }
 
