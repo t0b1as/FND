@@ -1,8 +1,8 @@
 {
-  "version": "R870",
-  "description": "FUNDUS R870 - AI server support",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R870/FND-R870-update.zip",
-  "node_argon2": "cfee914547a849f822220d390e6ea5b8b71bf33c0280b340beafdb5de2f2c679",
-  "published_at": "2026-11-13T07:49:28.3702487Z",
-  "signature": "0xb0ca6105d6f6e9ced3e90280db08a865e576c5dec6fe629f82834f314e5910b97849b79a9731c24908abcd7d43d11435359d2c0781df133bc6005f1886c233831b"
+  "version": "R872",
+  "description": "FUNDUS R872 - AI search support",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R872/FND-R872-update.zip",
+  "node_argon2": "de4c270efb7bce40ec45c7335acce037a8013d106c2f44d5e46de260a9f89205",
+  "published_at": "2026-11-13T10:34:39.7604329Z",
+  "signature": "0x60f1f8c0ea5008a9cb9aa819ad2870d7d18afdfe83da5de4aaacaf63be70f30a783b64e6006393f5f2fe8123ce513ef0771df01c1926d52c5284edaef80ad9151c"
 }
