@@ -21,6 +21,11 @@ return function()
 .kc-n code { font-size:13px; background:rgba(127,127,127,.18); padding:1px 4px; border-radius:4px; }
 .kc-n pre code { background:none; padding:0; }
 .kc-n.fehler { border-color:var(--danger,#e5484d); }
+.kc-schritte { font-size:12.5px; color:var(--text-dim,#9aa0b4); margin:0 0 6px; }
+.kc-schritte div { margin:1px 0; }
+.kc-quellen { margin-top:9px; padding-top:7px; border-top:1px solid var(--border,#2a2f3a); font-size:12.5px; }
+.kc-quellen a { display:block; color:var(--text-dim,#9aa0b4); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.kc-quellen a:hover { color:var(--text,#e6e8ee); text-decoration:underline; }
 .kc-tippt::after { content:"▍"; animation:kc-blink 1s steps(2) infinite; }
 @keyframes kc-blink { 50% { opacity:0; } }
 .kc-leer { margin:auto; text-align:center; color:var(--text-dim,#9aa0b4); font-size:14px; max-width:440px; }
@@ -70,14 +75,47 @@ return function()
       return;
     }
     el.innerHTML = verlauf.map(function(n){
-      return '<div class="kc-n ' + (n.rolle === 'user' ? 'user' : 'assistant') + (n.fehler ? ' fehler' : '') + '">' +
-        (n.bild ? '<img alt="angehängtes Foto" src="data:image/jpeg;base64,' + n.bild + '">' : '') + format(n.text) + '</div>';
+      return '<div class="kc-n ' + (n.rolle === 'user' ? 'user' : 'assistant') + (n.fehler ? ' fehler' : '') + '">' + inneres(n) + '</div>';
     }).join('');
     el.scrollTop = el.scrollHeight;
   }
 
+  function inneres(n){
+    var h = n.bild ? '<img alt="angehängtes Foto" src="data:image/jpeg;base64,' + n.bild + '">' : '';
+    if (n.schritte && n.schritte.length) h += '<div class="kc-schritte">' + n.schritte.map(function(x){ return '<div>' + esc(x) + '</div>'; }).join('') + '</div>';
+    h += format(n.text);
+    if (n.quellen && n.quellen.length) h += '<div class="kc-quellen"><div style="margin-bottom:3px">Quellen</div>' + n.quellen.map(function(q){
+      var host = ''; try { host = new URL(q.url).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
+      if (!/^https?:/.test(q.url)) return '';
+      return '<a href="' + esc(q.url) + '" target="_blank" rel="noopener noreferrer" title="' + esc(q.url) + '">' + esc(host) + ' – ' + esc(q.titel || q.url) + '</a>';
+    }).join('') + '</div>';
+    return h;
+  }
+  // Steuerbotschaften des Nodes stehen zwischen zwei Zeichen 0x1E. Sie können
+  // an einer Paketgrenze zerschnitten ankommen – deshalb immer den GESAMTEN
+  // Rohtext auswerten und einen unvollständigen Rest abschneiden.
+  function auswerten(roh, n){
+    var text = '', i = 0, schritte = [], quellen = null;
+    while (true) {
+      var a = roh.indexOf('\x1e', i);
+      if (a < 0) { text += roh.slice(i); break; }
+      var b = roh.indexOf('\x1e', a + 1);
+      text += roh.slice(i, a);
+      if (b < 0) break; // Botschaft noch nicht vollständig
+      try {
+        var s = JSON.parse(roh.slice(a + 1, b));
+        if (s.suche) schritte.push('🔎 Suche: ' + s.suche);
+        if (s.liest) { var h = s.liest; try { h = new URL(s.liest).hostname; } catch (e) {} schritte.push('📄 Lese: ' + h); }
+        if (s.hinweis) schritte.push('⚠ ' + s.hinweis);
+        if (s.quellen) quellen = s.quellen;
+      } catch (e) { /* defekte Botschaft überspringen */ }
+      i = b + 1;
+    }
+    n.text = text.replace(/^\s+/, ''); n.schritte = schritte; if (quellen) n.quellen = quellen;
+  }
+
   fetch('/api/v1/ki/status', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
-    $('kc-modell').textContent = d.aktiv ? 'Modell: ' + d.modell : 'KI ist aus – Einstellungen → KI';
+    $('kc-modell').textContent = d.aktiv ? 'Modell: ' + d.modell + (d.websuche ? ' · mit Websuche' : '') : 'KI ist aus – Einstellungen → KI';
     if (!d.fotos) $('kc-bild').style.display = 'none';
   }).catch(function(){ $('kc-modell').textContent = ''; });
 
@@ -130,12 +168,13 @@ return function()
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nachrichten: nachrichten }) })
       .then(function(r){
         if (!r.ok) return r.json().catch(function(){ return {}; }).then(function(d){ throw new Error(d.error || ('Fehler ' + r.status)); });
-        var leser = r.body.getReader(), dek = new TextDecoder();
+        var leser = r.body.getReader(), dek = new TextDecoder(), roh = '';
         function lesen(){
           return leser.read().then(function(x){
             if (x.done) return;
-            antwort.text += dek.decode(x.value, { stream: true });
-            blase.innerHTML = format(antwort.text);
+            roh += dek.decode(x.value, { stream: true });
+            auswerten(roh, antwort);
+            blase.innerHTML = inneres(antwort);
             var v = $('kc-verlauf'); if (v.scrollHeight - v.scrollTop - v.clientHeight < 160) v.scrollTop = v.scrollHeight;
             return lesen();
           });

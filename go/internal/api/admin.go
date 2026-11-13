@@ -48,6 +48,8 @@ func (s *Server) registerAdminRoutes() {
 		g.GET("/llm",              s.llmZustand) // R868: KI (Ollama), auch im Heimnetz
 		g.POST("/llm/test",        s.llmTest)
 		g.POST("/neustart",        s.adminNeustart) // R868: Node neu starten (für Einstellungen, die erst danach wirken)
+		g.GET("/ki/suche",         s.kiSucheGet) // R871: Websuche für den KI-Chat
+		g.POST("/ki/suche",        s.kiSucheSet)
 		g.POST("/update/check",    s.updateCheck)
 		g.POST("/update/apply",    s.updateApply)
 		g.POST("/update/auto",     s.updateAutoSet)   // Automatik umschalten (R664)

@@ -1075,6 +1075,41 @@ document.addEventListener('DOMContentLoaded', updLoad);
       <span id="ki-meldung" class="set-hint"></span>
     </div>
     <div id="ki-modelle" style="margin-top:10px"></div>
+
+    <div class="hs-abschnitt" style="margin-top:20px">Websuche im KI-Chat</div>
+    <p class="set-hint" style="margin:0 0 8px">Jedes Modell kennt die Welt nur bis zu seinem Trainingsende. Mit Websuche sucht es selbst im Internet, wenn eine Frage aktuelles Wissen braucht, und zeigt die Quellen an. Braucht ein Modell, das Werkzeuge bedienen kann – qwen3.5:9b kann das.</p>
+    <div class="hs-grid">
+      <label for="ks-anbieter">Suchdienst</label><select id="ks-anbieter"><option value="">Aus</option><option value="ollama">Ollama-Websuche (kostenloses Ollama-Konto)</option><option value="searxng">SearXNG (selbst betrieben, privat)</option></select>
+      <label for="ks-key" class="ks-ollama">API-Schlüssel</label><input id="ks-key" class="ks-ollama" type="password" autocomplete="new-password">
+      <label for="ks-searx" class="ks-searx">SearXNG-Adresse</label><input id="ks-searx" class="ks-searx" placeholder="http://192.168.1.20:8080">
+    </div>
+    <details class="ki-hilfe" style="margin-top:10px">
+      <summary>ℹ So richtest du den Suchdienst ein</summary>
+      <ol>
+        <li><b>Ollama-Websuche</b> – am schnellsten eingerichtet: auf ollama.com ein kostenloses Konto anlegen, in den Kontoeinstellungen einen API-Schlüssel erzeugen und hier eintragen. Die Suchanfragen gehen dabei an Ollama; das kostenlose Kontingent reicht für den Hausgebrauch.</li>
+        <li><b>SearXNG</b> – privat und ohne Konto. Läuft auf dem Windows-PC in Docker:
+          <ol style="margin-top:6px">
+            <li><b>Docker Desktop installieren</b> von docker.com und starten. Beim ersten Start richtet es WSL2 ein und will danach einen Neustart. In Docker Desktop unter <i>Settings → General</i> „Start Docker Desktop when you sign in“ anhaken, damit die Suche nach jedem Neustart wieder läuft.</li>
+            <li><b>Einstellungen anlegen</b> – in einer PowerShell. Legt <code>C:\searxng\settings.yml</code> an, mit eingeschaltetem JSON-Format (ohne das kann Fundus die Ergebnisse nicht lesen) und einem zufälligen Geheimschlüssel (ohne den startet SearXNG nicht):
+              <div class="ki-cmd"><code>New-Item -ItemType Directory -Force C:\searxng | Out-Null
+$geheim = -join (1..48 | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
+$inhalt = "use_default_settings: true`nserver:`n  secret_key: `"$geheim`"`n  limiter: false`n  image_proxy: false`nsearch:`n  formats:`n    - html`n    - json`n"
+[IO.File]::WriteAllText("C:\searxng\settings.yml", $inhalt)</code><button type="button" class="btn-sm">Kopieren</button></div></li>
+            <li><b>SearXNG starten</b> – lädt beim ersten Mal das Programm herunter. Die erste Zeile entfernt einen früher angelegten Container gleichen Namens; eine Fehlermeldung, dass es keinen gibt, ist harmlos:
+              <div class="ki-cmd"><code>docker rm -f searxng
+docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/searxng searxng/searxng</code><button type="button" class="btn-sm">Kopieren</button></div></li>
+            <li><b>Prüfen</b> – im Browser auf dem PC <code>http://localhost:8080</code> öffnen: Es erscheint eine Suchseite. Die Adresse <code>http://localhost:8080/search?q=test&amp;format=json</code> muss Text mit <code>"results"</code> zeigen; kommt „403 Forbidden“, fehlt das JSON-Format – Schritt 2 wiederholen, dann <code>docker restart searxng</code>.</li>
+            <li><b>Firewall nur fürs Heimnetz öffnen</b> – in einer PowerShell <i>als Administrator</i>:
+              <div class="ki-cmd"><code>New-NetFirewallRule -DisplayName "SearXNG (Heimnetz)" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow -Profile Private -RemoteAddress LocalSubnet</code><button type="button" class="btn-sm">Kopieren</button></div></li>
+            <li><b>Hier eintragen:</b> Suchdienst <i>SearXNG</i>, Adresse <code>http://192.168.1.20:8080</code> (mit der IP des PCs, siehe <code>ipconfig</code>), <i>Websuche speichern</i>. Fundus macht dabei eine Probesuche und meldet die Zahl der Treffer.</li>
+          </ol>
+          Auf einem Pi mit Docker geht es genauso – dort mit <code>-v /opt/searxng:/etc/searxng</code> und der Datei unter <code>/opt/searxng/settings.yml</code>.</li>
+      </ol>
+    </details>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary" id="ks-speichern" style="width:auto">Websuche speichern</button>
+      <span id="ks-meldung" class="set-hint"></span>
+    </div>
   </div>
 </div>
 <script>
@@ -1109,6 +1144,31 @@ document.addEventListener('DOMContentLoaded', updLoad);
     var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
     b.textContent = 'Strg+C drücken';
   }
+
+  // ── Websuche (R871) ──
+  function ksZeigen(){
+    var a = $('ks-anbieter').value;
+    [].forEach.call(document.querySelectorAll('#ki-card .ks-ollama'), function(e){ e.style.display = a === 'ollama' ? '' : 'none'; });
+    [].forEach.call(document.querySelectorAll('#ki-card .ks-searx'), function(e){ e.style.display = a === 'searxng' ? '' : 'none'; });
+  }
+  $('ks-anbieter').onchange = ksZeigen;
+  fetch('/api/v1/admin/ki/suche', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+    $('ks-anbieter').value = d.anbieter || '';
+    $('ks-searx').value = d.searxng || '';
+    $('ks-key').placeholder = d.schluessel_gesetzt ? 'gesetzt – leer lassen, um ihn zu behalten' : 'API-Schlüssel aus deinem Ollama-Konto';
+    ksZeigen();
+  }).catch(function(){ ksZeigen(); });
+  $('ks-speichern').onclick = function(){
+    $('ks-meldung').textContent = 'Speichere und suche zur Probe …';
+    fetch('/api/v1/admin/ki/suche', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ anbieter: $('ks-anbieter').value, ollama_key: $('ks-key').value.trim(), searxng: $('ks-searx').value.trim() }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) { $('ks-meldung').textContent = '✗ ' + d.error; return; }
+        $('ks-key').value = '';
+        if (d.pruefung && d.pruefung.indexOf('✗') !== 0) $('ks-key').placeholder = 'gesetzt – leer lassen, um ihn zu behalten';
+        $('ks-meldung').textContent = d.pruefung || '✓ Gespeichert.';
+      }).catch(function(){ $('ks-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
 
   $('ki-test').onclick = function(){
     $('ki-meldung').textContent = 'Prüfe …'; $('ki-modelle').innerHTML = '';
