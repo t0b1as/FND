@@ -1,8 +1,8 @@
 {
-  "version": "R867",
-  "description": "FUNDUS R867 - Hotspot Feature",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R867/FND-R867-update.zip",
-  "node_argon2": "feceb44b6c2ca09cdeaef8ff5dbee26d5f639c022cbe61d5139caae70e5e7f3e",
-  "published_at": "2026-11-12T19:21:22.4795112Z",
-  "signature": "0x7d8042974910221efe1a8809be64e1df4d7bdc94a7bbfd5a8381103b58b332cf7b303f52861853652b0d8e795f3992b3efcb7e29086bb2a2db62fb26c245afd31c"
+  "version": "R869",
+  "description": "FUNDUS R869 - AI server support",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R869/FND-R869-update.zip",
+  "node_argon2": "bd50b4ac359637c43bef68e0e8386435709f45889afcdfac42ed9161d9e88199",
+  "published_at": "2026-11-13T07:20:40.1659125Z",
+  "signature": "0xd2505f031f20fd0049439c0959d938a620ad428b68738d336b2106a2370c307c704ca25aca8d638e0e7dacbd62a388ff8dc61031dd381756981f36ebf5b109aa1c"
 }
