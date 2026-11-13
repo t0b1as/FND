@@ -1110,6 +1110,40 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       <button type="button" class="btn btn-primary" id="ks-speichern" style="width:auto">Websuche speichern</button>
       <span id="ks-meldung" class="set-hint"></span>
     </div>
+
+    <div class="hs-abschnitt" style="margin-top:20px">Bilderzeugung im KI-Chat (ComfyUI)</div>
+    <p class="set-hint" style="margin:0 0 8px">Mit ComfyUI auf einem Rechner mit Grafikkarte kann der Chat auf Wunsch Bilder malen. Das Sprachmodell schreibt dafür eine Bildbeschreibung und ruft ComfyUI auf.</p>
+    <div class="hs-grid">
+      <label for="kb-url">ComfyUI-Adresse</label><input id="kb-url" placeholder="http://192.168.1.20:8188">
+      <label for="kb-modell">Bildmodell</label><input id="kb-modell" placeholder="sd_xl_base_1.0.safetensors">
+      <label for="kb-schritte">Schritte</label><select id="kb-schritte"><option value="15">15 (schneller)</option><option value="25">25 (ausgewogen)</option><option value="40">40 (feiner)</option></select>
+    </div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="kb-teilen" style="margin-top:4px">
+      <span>Grafikkarte mit Ollama teilen<br><span class="set-hint">Vor jedem Bild wird das Sprachmodell aus der Grafikkarte genommen, danach das Bildmodell. Nötig bei 8 GB Grafikspeicher, kostet je Bild einige Sekunden. Laufen Ollama und ComfyUI auf demselben Rechner, geschieht das ohnehin.</span></span></label>
+    <details class="ki-hilfe" style="margin-top:10px">
+      <summary>ℹ Anleitung: ComfyUI und SDXL auf einem Windows-PC einrichten</summary>
+      <ol>
+        <li><b>7-Zip installieren</b> von 7-zip.org – ComfyUI kommt als <code>.7z</code>-Archiv, das Windows 10 nicht selbst öffnen kann.</li>
+        <li><b>ComfyUI herunterladen:</b> auf github.com/comfyanonymous/ComfyUI unter <i>Releases</i> die portable Fassung für NVIDIA (<code>ComfyUI_windows_portable_nvidia.7z</code>). Mit 7-Zip entpacken, etwa nach <code>C:\ComfyUI_windows_portable</code>. Sie bringt alles mit – kein Python, keine Installation. Nicht „Source code“ herunterladen: Dem fehlt der Ordner <code>python_embeded</code>.</li>
+        <li><b>Bildmodell SDXL herunterladen:</b> auf huggingface.co die Seite <i>stabilityai/stable-diffusion-xl-base-1.0</i> öffnen, unter <i>Files</i> die Datei <code>sd_xl_base_1.0.safetensors</code> (6,9 GB) laden und in diesen Ordner legen:
+          <div class="ki-cmd"><code>C:\ComfyUI_windows_portable\ComfyUI\models\checkpoints\</code><button type="button" class="btn-sm">Kopieren</button></div>
+          SDXL darf auch gewerblich genutzt werden, mit den Einschränkungen seiner Lizenz.</li>
+        <li><b>Im Heimnetz erreichbar machen:</b> die Datei <code>run_nvidia_gpu.bat</code> <b>direkt im entpackten Ordner</b> mit dem Editor öffnen (Rechtsklick → Bearbeiten) – also <code>C:\ComfyUI_windows_portable\run_nvidia_gpu.bat</code>, neben den Ordnern <code>ComfyUI</code> und <code>python_embeded</code>. Nicht die gleichnamige Vorlage unter <code>ComfyUI\.ci\…</code>: Mit der meldet Windows „Das System kann den angegebenen Pfad nicht finden“. An die Zeile mit <code>main.py</code> hinten <code>--listen 0.0.0.0</code> anhängen. Die Zeile sieht dann etwa so aus:
+          <div class="ki-cmd"><code>.\python_embeded\python.exe -s ComfyUI\main.py --windows-standalone-build --listen 0.0.0.0</code><button type="button" class="btn-sm">Kopieren</button></div></li>
+        <li><b>Starten:</b> <code>run_nvidia_gpu.bat</code> doppelklicken. Ein schwarzes Fenster öffnet sich und muss offen bleiben. Im Browser auf dem PC <code>http://localhost:8188</code> öffnen, oben links im Baustein <i>Load Checkpoint</i> das SDXL-Modell wählen und auf <i>Run</i> klicken – nach einigen Sekunden erscheint ein Bild.</li>
+        <li><b>Firewall nur fürs Heimnetz öffnen</b> – PowerShell <i>als Administrator</i>:
+          <div class="ki-cmd"><code>New-NetFirewallRule -DisplayName "ComfyUI (Heimnetz)" -Direction Inbound -Protocol TCP -LocalPort 8188 -Action Allow -Profile Private -RemoteAddress LocalSubnet</code><button type="button" class="btn-sm">Kopieren</button></div>
+          ComfyUI hat keine Anmeldung – <b>keine Portweiterleitung im Router</b>.</li>
+        <li><b>Mit Windows starten</b> (optional): <kbd>Win</kbd>+<kbd>R</kbd>, <code>shell:startup</code> eingeben und dort eine Verknüpfung zu <code>run_nvidia_gpu.bat</code> anlegen.</li>
+        <li><b>Hier eintragen:</b> Adresse <code>http://192.168.1.20:8188</code> (IP des PCs), <i>Verbindung testen</i>, das Modell antippen, <i>Bilderzeugung speichern</i>. Im Chat dann etwa: „Mal mir einen Leuchtturm bei Sturm.“</li>
+      </ol>
+    </details>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn-sm" id="kb-test">Verbindung testen</button>
+      <button type="button" class="btn btn-primary" id="kb-speichern" style="width:auto">Bilderzeugung speichern</button>
+      <span id="kb-meldung" class="set-hint"></span>
+    </div>
+    <div id="kb-modelle" style="margin-top:10px"></div>
   </div>
 </div>
 <script>
@@ -1124,8 +1158,9 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     $('ki-textmodell').value = z.textmodell || '';
     $('ki-fotos').checked = !!z.fotos;
     if ([].some.call($('ki-halten').options, function(o){ return o.value === z.keep_alive; })) $('ki-halten').value = z.keep_alive;
-    $('ki-zustand').innerHTML = z.aktiv ? '<b style="color:#3ddc84">● Aktiv</b> – ' + esc(z.modell) + ' über ' + esc(z.url)
-      : z.eingeschaltet ? '<b>○ Eingeschaltet, aber Ollama war beim Start nicht erreichbar</b> – Adresse und Rechner prüfen, dann neu starten.'
+    $('ki-zustand').innerHTML = z.aktiv && z.erreichbar ? '<b style="color:#3ddc84">● Aktiv</b> – ' + esc(z.modell) + ' über ' + esc(z.url)
+      : z.aktiv ? '<b>○ Ollama gerade nicht erreichbar</b> unter ' + esc(z.url) + ' – ist der Rechner an und Ollama gestartet? Fundus versucht es von selbst weiter, ein Neustart ist nicht nötig.'
+      : z.eingeschaltet ? '<b>○ Eingeschaltet</b> – wirkt nach einem Neustart des Nodes.'
       : '○ Aus';
   }).catch(function(){ $('ki-zustand').textContent = 'Zustand nicht ladbar.'; });
 
@@ -1168,6 +1203,31 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
         if (d.pruefung && d.pruefung.indexOf('✗') !== 0) $('ks-key').placeholder = 'gesetzt – leer lassen, um ihn zu behalten';
         $('ks-meldung').textContent = d.pruefung || '✓ Gespeichert.';
       }).catch(function(){ $('ks-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+
+  // ── Bilderzeugung (R873) ──
+  fetch('/api/v1/admin/ki/bild', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+    $('kb-url').value = d.comfy_url || ''; $('kb-modell').value = d.modell || '';
+    $('kb-schritte').value = String([15, 25, 40].indexOf(d.schritte) >= 0 ? d.schritte : 25);
+    $('kb-teilen').checked = d.teilen !== false;
+  }).catch(function(){});
+  $('kb-test').onclick = function(){
+    $('kb-meldung').textContent = 'Prüfe …'; $('kb-modelle').innerHTML = '';
+    fetch('/api/v1/admin/ki/bild/test', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comfy_url: $('kb-url').value.trim() }) }).then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) { $('kb-meldung').textContent = '✗ ' + d.error; return; }
+        if (!d.ok) { $('kb-meldung').textContent = '✗ ' + d.fehler; return; }
+        $('kb-meldung').textContent = d.modelle.length ? '✓ ComfyUI erreichbar · ' + d.modelle.length + ' Modell(e)' : '✓ ComfyUI erreichbar, aber noch kein Modell in models/checkpoints – siehe Anleitung Schritt 3.';
+        $('kb-modelle').innerHTML = d.modelle.map(function(m){ return '<button type="button" class="btn-sm" style="margin:0 6px 6px 0" data-km="' + esc(m) + '">' + esc(m) + '</button>'; }).join('');
+        [].forEach.call($('kb-modelle').querySelectorAll('[data-km]'), function(b){ b.onclick = function(){ $('kb-modell').value = b.dataset.km; }; });
+      }).catch(function(){ $('kb-meldung').textContent = '✗ Test fehlgeschlagen.'; });
+  };
+  $('kb-speichern').onclick = function(){
+    fetch('/api/v1/admin/ki/bild', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ comfy_url: $('kb-url').value.trim(), modell: $('kb-modell').value.trim(), schritte: +$('kb-schritte').value, teilen: $('kb-teilen').checked }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        $('kb-meldung').textContent = d.error ? '✗ ' + d.error : ($('kb-url').value.trim() && $('kb-modell').value.trim() ? '✓ Gespeichert – der Chat kann jetzt Bilder malen.' : '✓ Gespeichert – Bilderzeugung aus.');
+      }).catch(function(){ $('kb-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
   };
 
   $('ki-test').onclick = function(){

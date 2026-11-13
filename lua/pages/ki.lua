@@ -23,6 +23,9 @@ return function()
 .kc-n.fehler { border-color:var(--danger,#e5484d); }
 .kc-schritte { font-size:12.5px; color:var(--text-dim,#9aa0b4); margin:0 0 6px; }
 .kc-schritte div { margin:1px 0; }
+.kc-bild { margin-top:8px; }
+.kc-bild img { max-width:100%; max-height:520px; border-radius:10px; display:block; background:#000; }
+.kc-bild-leiste { display:flex; gap:10px; align-items:center; font-size:12.5px; color:var(--text-dim,#9aa0b4); margin-top:5px; }
 .kc-quellen { margin-top:9px; padding-top:7px; border-top:1px solid var(--border,#2a2f3a); font-size:12.5px; }
 .kc-quellen a { display:block; color:var(--text-dim,#9aa0b4); text-decoration:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .kc-quellen a:hover { color:var(--text,#e6e8ee); text-decoration:underline; }
@@ -84,6 +87,11 @@ return function()
     var h = n.bild ? '<img alt="angehängtes Foto" src="data:image/jpeg;base64,' + n.bild + '">' : '';
     if (n.schritte && n.schritte.length) h += '<div class="kc-schritte">' + n.schritte.map(function(x){ return '<div>' + esc(x) + '</div>'; }).join('') + '</div>';
     h += format(n.text);
+    (n.bilder || []).forEach(function(b){
+      if (!/^\/api\/v1\/ki\/bild\/[0-9a-f]{24}\.png$/.test(b.url)) return;
+      h += '<div class="kc-bild"><a href="' + b.url + '" target="_blank" rel="noopener"><img alt="' + esc(b.text) + '" src="' + b.url + '"></a>' +
+        '<div class="kc-bild-leiste"><a class="btn-sm" href="' + b.url + '" download="ki-bild.png">Speichern</a><span>KI-erzeugt</span></div></div>';
+    });
     if (n.quellen && n.quellen.length) h += '<div class="kc-quellen"><div style="margin-bottom:3px">Quellen</div>' + n.quellen.map(function(q){
       var host = ''; try { host = new URL(q.url).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
       if (!/^https?:/.test(q.url)) return '';
@@ -95,7 +103,7 @@ return function()
   // an einer Paketgrenze zerschnitten ankommen – deshalb immer den GESAMTEN
   // Rohtext auswerten und einen unvollständigen Rest abschneiden.
   function auswerten(roh, n){
-    var text = '', i = 0, schritte = [], quellen = null;
+    var text = '', i = 0, schritte = [], quellen = null, bilder = [];
     while (true) {
       var a = roh.indexOf('\x1e', i);
       if (a < 0) { text += roh.slice(i); break; }
@@ -108,14 +116,16 @@ return function()
         if (s.liest) { var h = s.liest; try { h = new URL(s.liest).hostname; } catch (e) {} schritte.push('📄 Lese: ' + h); }
         if (s.hinweis) schritte.push('⚠ ' + s.hinweis);
         if (s.quellen) quellen = s.quellen;
+        if (s.malt) schritte.push('🎨 Erzeuge Bild …');
+        if (s.bild) bilder.push(s.bild);
       } catch (e) { /* defekte Botschaft überspringen */ }
       i = b + 1;
     }
-    n.text = text.replace(/^\s+/, ''); n.schritte = schritte; if (quellen) n.quellen = quellen;
+    n.text = text.replace(/^\s+/, ''); n.schritte = schritte; n.bilder = bilder; if (quellen) n.quellen = quellen;
   }
 
   fetch('/api/v1/ki/status', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
-    $('kc-modell').textContent = d.aktiv ? 'Modell: ' + d.modell + (d.websuche ? ' · mit Websuche' : '') : 'KI ist aus – Einstellungen → KI';
+    $('kc-modell').textContent = d.aktiv ? 'Modell: ' + d.modell + (d.websuche ? ' · mit Websuche' : '') + (d.bilder ? ' · malt Bilder' : '') : 'KI ist aus – Einstellungen → KI';
     if (!d.fotos) $('kc-bild').style.display = 'none';
   }).catch(function(){ $('kc-modell').textContent = ''; });
 

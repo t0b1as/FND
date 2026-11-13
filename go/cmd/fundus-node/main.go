@@ -253,22 +253,34 @@ func main() {
 		analyzer = llm.New(cfg.LLMURL, cfg.LLMModel, cfg.LLMTextModel, log)
 		analyzer.Configure(cfg.LLMVision, cfg.LLMKeepAlive)
 
-		pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
-		if err := analyzer.Ping(pingCtx); err != nil {
-			log.Warn("Ollama not reachable – LLM disabled", zap.Error(err))
-			analyzer = nil
-		} else {
-			log.Info("Ollama reachable", zap.String("model", cfg.LLMModel), zap.String("url", cfg.LLMURL))
-			go func() {
-				pullCtx, pullCancel := context.WithTimeout(
-					context.Background(), 30*time.Minute)
-				defer pullCancel()
-				if err := analyzer.EnsureModel(pullCtx); err != nil {
-					log.Warn("Model pull incomplete", zap.Error(err))
+		// R873: Ollama darf SPÄTER kommen – ein PC im Heimnetz wacht vielleicht
+		// erst auf, oder Ollama startet nach dem Pi. Vorher reichte EIN
+		// fehlgeschlagener Versuch beim Start, um die KI bis zum nächsten
+		// Neustart abzuschalten. Jetzt: weiter versuchen, alle 30 s.
+		go func() {
+			for versuch := 0; ; versuch++ {
+				pingCtx, pingCancel := context.WithTimeout(ctx, 5*time.Second)
+				err := analyzer.Ping(pingCtx)
+				pingCancel()
+				if err == nil {
+					log.Info("Ollama reachable", zap.String("model", cfg.LLMModel), zap.String("url", cfg.LLMURL))
+					pullCtx, pullCancel := context.WithTimeout(context.Background(), 30*time.Minute)
+					if err := analyzer.EnsureModel(pullCtx); err != nil {
+						log.Warn("Model pull incomplete", zap.Error(err))
+					}
+					pullCancel()
+					return
 				}
-			}()
-		}
-		pingCancel()
+				if versuch == 0 {
+					log.Warn("Ollama noch nicht erreichbar – versuche alle 30 s weiter", zap.String("url", cfg.LLMURL), zap.Error(err))
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+			}
+		}()
 	}
 
 	// -------------------------------------------------------------------------

@@ -66,9 +66,20 @@ func (s *Server) llmTest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "modelle": modelle, "modell_vorhanden": gefunden, "gesucht": gesucht})
 }
 
-// GET /api/v1/admin/llm – was gerade läuft
+// GET /api/v1/admin/llm – was gerade läuft. „erreichbar“ wird LIVE geprüft
+// (R873), nicht aus dem Moment des Starts übernommen.
 func (s *Server) llmZustand(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"aktiv": s.analyzer != nil, "url": s.cfg.LLMURL, "modell": s.cfg.LLMModel,
+	erreichbar, fehler := false, ""
+	if s.analyzer != nil {
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+		if err := s.analyzer.Ping(ctx); err != nil {
+			fehler = err.Error()
+		} else {
+			erreichbar = true
+		}
+		cancel()
+	}
+	c.JSON(http.StatusOK, gin.H{"aktiv": s.analyzer != nil, "erreichbar": erreichbar, "fehler": fehler, "url": s.cfg.LLMURL, "modell": s.cfg.LLMModel,
 		"textmodell": s.cfg.LLMTextModel, "fotos": s.cfg.LLMVision, "keep_alive": s.cfg.LLMKeepAlive,
 		"eingeschaltet": s.cfg.LLMEnabled})
 }

@@ -27,6 +27,7 @@ import (
 func (s *Server) registerKIChat() {
 	s.router.GET("/api/v1/ki/status", s.kiStatus)
 	s.router.POST("/api/v1/ki/chat", s.kiChat)
+	s.router.GET("/api/v1/ki/bild/:datei", s.kiBildAusliefern) // R873
 }
 
 func (s *Server) kiModell(mitBild bool) string {
@@ -39,7 +40,7 @@ func (s *Server) kiModell(mitBild bool) string {
 // GET /api/v1/ki/status
 func (s *Server) kiStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"aktiv": s.analyzer != nil, "modell": s.kiModell(false),
-		"bildmodell": s.kiModell(true), "fotos": s.cfg.LLMVision, "websuche": s.kiSucheLesen().aktiv()})
+		"bildmodell": s.kiModell(true), "fotos": s.cfg.LLMVision, "websuche": s.kiSucheLesen().aktiv(), "bilder": s.kiBildLesen().aktiv()})
 }
 
 // POST /api/v1/ki/chat {nachrichten: [{rolle, text, bild?}]}
@@ -79,6 +80,19 @@ func (s *Server) kiChat(c *gin.Context) {
 			"lesen. Nutze die Suche für alles, was sich seit deinem Training geändert haben kann – Nachrichten, Preise, " +
 			"Versionen, Termine, wer ein Amt innehat – und stütze dich dann auf die Ergebnisse statt auf dein Gedächtnis. " +
 			"Liste keine Quellen auf, die Oberfläche zeigt sie an."
+	}
+	bild := s.kiBildLesen()
+	if bild.aktiv() {
+		system += " Mit dem Werkzeug bild_erzeugen kannst du ein Bild malen lassen – nur wenn der Nutzer ausdrücklich " +
+			"ein Bild möchte. Schreib die Beschreibung auf Englisch und konkret: Motiv, Stil, Licht, Perspektive. Das " +
+			"Bild sieht der Nutzer direkt; beschreib es danach nicht noch einmal ausführlich."
+	}
+	var werkzeuge []map[string]any
+	if suche.aktiv() {
+		werkzeuge = append(werkzeuge, kiWerkzeuge...)
+	}
+	if bild.aktiv() {
+		werkzeuge = append(werkzeuge, kiBildWerkzeug)
 	}
 	msgs := []map[string]any{{"role": "system", "content": system}}
 	gesamt, bilder := 0, 0
@@ -122,8 +136,8 @@ func (s *Server) kiChat(c *gin.Context) {
 		}
 	}
 	var quellen []kiTreffer
-	runden := 1
-	if suche.aktiv() {
+	runden, bilderGemalt := 1, 0
+	if len(werkzeuge) > 0 {
 		runden = 5 // bis zu 4 Werkzeug-Runden, dann die Antwort
 	}
 	for runde := 1; runde <= runden; runde++ {
@@ -132,8 +146,8 @@ func (s *Server) kiChat(c *gin.Context) {
 		if llm.IstDenkmodell(modell) {
 			anfrage["think"] = false
 		}
-		if suche.aktiv() && runde < runden {
-			anfrage["tools"] = kiWerkzeuge
+		if len(werkzeuge) > 0 && runde < runden {
+			anfrage["tools"] = werkzeuge
 		}
 		inhalt, aufrufe, fehler, ok := s.kiRunde(c, anfrage, start)
 		if !ok {
@@ -157,8 +171,28 @@ func (s *Server) kiChat(c *gin.Context) {
 			name, args := kiAufruf(a)
 			start()
 			var ergebnis string
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+			frist := 20 * time.Second
+			if name == "bild_erzeugen" {
+				frist = 5 * time.Minute
+			}
+			ctx, cancel := context.WithTimeout(c.Request.Context(), frist)
 			switch name {
+			case "bild_erzeugen":
+				beschr := kiKuerzen(fmt.Sprint(args["beschreibung"]), 900)
+				if !bild.aktiv() || bilderGemalt >= 2 {
+					ergebnis = "Bilderzeugung nicht verfügbar."
+					break
+				}
+				bilderGemalt++
+				kiSignal(c, gin.H{"malt": kiKuerzen(beschr, 160)})
+				id, err := s.kiBildErzeugen(ctx, bild, beschr, fmt.Sprint(args["format"]), modell)
+				if err != nil {
+					ergebnis = "Bild konnte nicht erzeugt werden: " + err.Error()
+					kiSignal(c, gin.H{"hinweis": ergebnis})
+				} else {
+					kiSignal(c, gin.H{"bild": gin.H{"url": "/api/v1/ki/bild/" + id + ".png", "text": beschr}})
+					ergebnis = "Das Bild wurde erzeugt und dem Nutzer angezeigt."
+				}
 			case "websuche":
 				q := kiKuerzen(fmt.Sprint(args["anfrage"]), 200)
 				kiSignal(c, gin.H{"suche": q})
@@ -216,6 +250,16 @@ var kiWerkzeuge = []map[string]any{
 			"properties": map[string]any{"url": map[string]any{"type": "string", "description": "vollständige Adresse mit https://"}}},
 	}},
 }
+
+var kiBildWerkzeug = map[string]any{"type": "function", "function": map[string]any{
+	"name":        "bild_erzeugen",
+	"description": "Malt ein Bild nach einer Beschreibung und zeigt es dem Nutzer. Nur verwenden, wenn ausdrücklich ein Bild gewünscht ist.",
+	"parameters": map[string]any{"type": "object", "required": []string{"beschreibung"},
+		"properties": map[string]any{
+			"beschreibung": map[string]any{"type": "string", "description": "englische Bildbeschreibung: Motiv, Stil, Licht, Perspektive"},
+			"format":       map[string]any{"type": "string", "enum": []string{"quadrat", "hoch", "quer"}, "description": "Bildformat"},
+		}},
+}}
 
 // kiSignal: Steuerbotschaft an die Seite, eingerahmt von ASCII 0x1E – kommt
 // in normalem Text nicht vor.
