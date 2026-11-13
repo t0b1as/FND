@@ -1307,7 +1307,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
 
     <div class="hs-abschnitt">Stufen</div>
     <table class="hs-tab"><thead><tr><th>Name</th><th>↓ Mbit/s</th><th>↑ Mbit/s</th><th>Dauer (h)</th><th>Preis € (0 = gratis)</th></tr></thead><tbody id="hs-stufen"></tbody></table>
-    <p class="set-hint" style="margin:6px 0 0">Bis 1000 Mbit/s einstellbar. Das WLAN eines Pi schafft im Hotspot realistisch 50–150 Mbit/s – darüber ist praktisch ungedrosselt. Preise inklusive Umsatzsteuer.</p>
+    <p class="set-hint" style="margin:6px 0 0">Bis 1000 Mbit/s einstellbar. Das WLAN eines Pi schafft im Hotspot realistisch 50–150 Mbit/s – darüber ist praktisch ungedrosselt. Preise inklusive Umsatzsteuer. Geänderte Geschwindigkeiten gelten nach dem Speichern binnen Sekunden auch für bereits freigeschaltete Geräte; Preis und Dauer nur für neue Zugänge.</p>
 
     <div class="hs-abschnitt">Verbund mehrerer Knoten</div>
     <div class="hs-grid">
@@ -1365,6 +1365,10 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
         : st.laeuft ? '<b style="color:#3ddc84">● Läuft</b> auf ' + esc(st.ap) + ', online über ' + esc(st.uplink) + ' · ' + esc(st.geraete) + ' Gerät(e) freigeschaltet · Anmeldeseite: http://10.42.0.1:3088' +
           (st.grund && st.grund !== 'läuft' ? '<br>' + esc(st.grund.replace(/^läuft – /, '')) : '')
         : '<b>○ Aus</b> – ' + esc(st.grund);
+      if (d.letzter_fehler) {
+        $('hs-status').innerHTML += '<br><span style="color:var(--danger,#e5484d)">Letzter Zahlungsfehler (' +
+          new Date(d.letzter_fehler.zeit * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + '): ' + esc(d.letzter_fehler.text) + '</span>';
+      }
       var z = d.zugaenge || [];
       $('hs-zugaenge').innerHTML = z.length ? '<table class="hs-tab"><thead><tr><th>Gerät</th><th>Stufe</th><th>bis</th><th>Art</th></tr></thead><tbody>' +
         z.map(function(x){ return '<tr><td>' + esc(x.mac.slice(0, 8)) + ':…</td><td>' + esc(x.name) + '</td><td>' +

@@ -73,9 +73,18 @@ footer { margin-top:24px; font-size:12.5px; color:var(--leise); }
             .catch(function(e){ b.disabled = false; b.textContent = 'Kostenlos verbinden'; fehler(b.dataset.stufe, e.message); });
         };
       });
-      if (pp.bereit && pp.client_id) paypalLaden(pp.client_id, d.stufen || []);
+      if (pp.bereit && pp.client_id) {
+        paypalLaden(pp.client_id, d.stufen || []);
+        if ((d.stufen || []).some(function(s){ return s.preis > 0; })) {
+          var h = document.createElement('div'); h.className = 'leise'; h.style.marginTop = '10px';
+          h.innerHTML = 'Öffnet sich das PayPal-Fenster nicht? Manche Telefone zeigen diese Seite in einem eingeschränkten Fenster. ' +
+            'Dann den Browser öffnen und <b>' + location.host + '</b> aufrufen.';
+          $('stufen').appendChild(h);
+        }
+      }
     }).catch(function(){ $('stufen').innerHTML = '<div class="status">Angebot nicht ladbar – bitte Seite neu laden.</div>'; });
   }
+  var letzter = '';
   function paypalLaden(clientId, stufen){
     var sk = document.createElement('script');
     sk.src = 'https://www.paypal.com/sdk/js?client-id=' + encodeURIComponent(clientId) + '&currency=EUR&intent=capture&components=buttons&locale=de_DE';
@@ -83,14 +92,25 @@ footer { margin-top:24px; font-size:12.5px; color:var(--leise); }
       stufen.filter(function(s){ return s.preis > 0; }).forEach(function(s){
         window.paypal.Buttons({
           style: { layout: 'horizontal', tagline: false, height: 44 },
-          createOrder: function(){ return post('/api/bestellung', { stufe: s.id }).then(function(d){ return d.id; }); },
+          createOrder: function(){
+            letzter = '';
+            return post('/api/bestellung', { stufe: s.id }).then(function(d){ return d.id; })
+              .catch(function(e){ letzter = e.message; throw e; });
+          },
           onApprove: function(data){
             fehler(s.id, 'Zahlung wird bestätigt …');
             return post('/api/abschluss', { id: data.orderID }).then(function(x){
               fehler(s.id, ''); statusZeigen(x.zugang);
             }).catch(function(e){ fehler(s.id, e.message); });
           },
-          onError: function(){ fehler(s.id, 'Die Zahlung hat nicht geklappt. Es wurde nichts abgebucht.'); }
+          onCancel: function(){ letzter = ''; fehler(s.id, 'Zahlung abgebrochen – es wurde nichts abgebucht.'); },
+          onError: function(err){
+            // R875: den tatsächlichen Grund zeigen und dem Node melden.
+            var grund = letzter || String((err && (err.message || err)) || 'unbekannt').slice(0, 200);
+            letzter = ''; // nicht beim nächsten, andersartigen Fehler wieder anzeigen
+            fehler(s.id, 'Die Zahlung hat nicht geklappt: ' + grund + ' Es wurde nichts abgebucht.');
+            post('/api/fehler', { stufe: s.id, text: grund }).catch(function(){});
+          }
         }).render('#pp-' + s.id);
       });
     };

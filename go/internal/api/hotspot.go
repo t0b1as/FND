@@ -327,6 +327,7 @@ func (s *Server) hotspotPortalStarten() {
 	r.POST("/api/gratis", s.hotspotGratis)
 	r.POST("/api/bestellung", s.hotspotBestellung)
 	r.POST("/api/abschluss", s.hotspotAbschluss)
+	r.POST("/api/fehler", s.hotspotBrowserFehler) // R875: Fehler des PayPal-Skripts im Telefon
 	// Erkennungsanfragen der Telefone (generate_204, hotspot-detect …) und
 	// jede andere Adresse: zur Anmeldeseite.
 	r.NoRoute(func(c *gin.Context) { c.Redirect(http.StatusFound, "http://"+hotspotGW+hotspotPortal+"/") })
@@ -388,10 +389,19 @@ func (s *Server) hotspotBestellung(c *gin.Context) {
 	})
 	id, _ := d["id"].(string)
 	if err != nil || code/100 != 2 || id == "" {
-		if s.log != nil {
-			s.log.Warn("Hotspot: PayPal-Bestellung fehlgeschlagen", zap.Int("status", code), zap.Error(err))
+		// R875: PayPals eigenen Grund weitergeben, statt „nicht erreichbar“ zu
+		// behaupten – lehnt PayPal inhaltlich ab, steht der Grund in der Antwort.
+		grund := "PayPal ist gerade nicht erreichbar."
+		if err == nil {
+			grund = "PayPal lehnt die Bestellung ab: " + paypalGrund(d, code)
+		} else if strings.Contains(err.Error(), "PayPal-Anmeldung") {
+			grund = err.Error()
 		}
-		c.JSON(http.StatusBadGateway, gin.H{"error": "PayPal ist gerade nicht erreichbar."})
+		hotspotFehlerMerken("Bestellung: " + grund)
+		if s.log != nil {
+			s.log.Warn("Hotspot: PayPal-Bestellung fehlgeschlagen", zap.Int("status", code), zap.String("grund", grund), zap.Error(err))
+		}
+		c.JSON(http.StatusBadGateway, gin.H{"error": grund})
 		return
 	}
 	hotspotMu.Lock()
@@ -479,6 +489,11 @@ func (s *Server) hotspotEinstellungen(c *gin.Context) {
 		aktiv = []hotspotZugang{}
 	}
 	h["zugaenge"] = aktiv
+	hotspotMu.Lock()
+	if hotspotLetzterFehler != "" {
+		h["letzter_fehler"] = gin.H{"text": hotspotLetzterFehler, "zeit": hotspotLetzterFehlerZeit.Unix()}
+	}
+	hotspotMu.Unlock()
 	c.JSON(http.StatusOK, h)
 }
 
@@ -546,6 +561,7 @@ func (s *Server) hotspotSpeichern(c *gin.Context) {
 	hotspotMu.Lock()
 	hotspotToken = "" // neue Zugangsdaten: neu anmelden
 	hotspotMu.Unlock()
+	go s.hotspotAbgleich() // geänderte Geschwindigkeiten sofort an den Wächter
 	// Zugangsdaten gleich prüfen, damit Fehler hier auffallen und nicht beim Kunden.
 	pruefung := "ohne PayPal"
 	if pp.ClientID != "" && pp.Secret != "" {
@@ -604,6 +620,13 @@ func passSignatur(schluessel, h string, down, up float64, bis int64, ref string)
 	return hmacHex(schluessel, fmt.Sprintf("fundus-hotspot-pass-v1|%s|%g|%g|%d|%s", h, down, up, bis, ref))
 }
 
+// R876: v2 unterschreibt auch die Stufe – damit gilt auf jedem Knoten die
+// AKTUELLE Geschwindigkeit dieser Stufe, und niemand kann unterwegs aus
+// „basis“ ein „premium“ machen.
+func passSignaturV2(schluessel, h, stufe string, down, up float64, bis int64, ref string) string {
+	return hmacHex(schluessel, fmt.Sprintf("fundus-hotspot-pass-v2|%s|%s|%g|%g|%d|%s", h, stufe, down, up, bis, ref))
+}
+
 func (s *Server) hotspotPassAusstellen(z hotspotZugang) {
 	k := s.hotspotVerbundSchluessel()
 	if k == "" {
@@ -615,18 +638,31 @@ func (s *Server) hotspotPassAusstellen(z hotspotZugang) {
 		ref = z.Quelle
 	}
 	s.marktVeroeffentlichen(&storage.Record{ID: fmt.Sprintf("%s-%d", h[:24], z.Bis), Type: storage.RecordHotspotPass,
-		Data: map[string]any{"h": h, "down": z.Down, "up": z.Up, "bis": z.Bis, "name": z.Name, "ref": ref,
-			"sig": passSignatur(k, h, z.Down, z.Up, z.Bis, ref)}})
+		Data: map[string]any{"h": h, "stufe": z.Stufe, "down": z.Down, "up": z.Up, "bis": z.Bis, "name": z.Name, "ref": ref,
+			"sig": passSignaturV2(k, h, z.Stufe, z.Down, z.Up, z.Bis, ref)}})
 }
 
 // hotspotAktuell: lokale Zugänge + Pässe des Verbunds für Geräte, die gerade
 // bei diesem Knoten verbunden sind (aus den Leases der Adressvergabe).
 func (s *Server) hotspotAktuell() []hotspotZugang {
 	jetzt := time.Now().Unix()
+	// R876: maßgeblich ist die AKTUELLE Geschwindigkeit der Stufe – nicht die
+	// Kopie vom Zeitpunkt der Freischaltung. Sonst wirkte eine geänderte
+	// Stufe erst, wenn die bestehenden Zugänge abgelaufen waren.
+	stufen := map[string]hotspotStufe{}
+	for _, st := range s.hotspotConfigLesen().Stufen {
+		stufen[st.ID] = st
+	}
+	aktuell := func(z hotspotZugang) hotspotZugang {
+		if st, ok := stufen[z.Stufe]; ok {
+			z.Down, z.Up, z.Name = st.Down, st.Up, st.Name
+		}
+		return z
+	}
 	jeMAC := map[string]hotspotZugang{}
 	for _, z := range s.hotspotZugaenge() {
 		if z.Bis > jetzt {
-			jeMAC[z.MAC] = z
+			jeMAC[z.MAC] = aktuell(z)
 		}
 	}
 	k := s.hotspotVerbundSchluessel()
@@ -638,6 +674,7 @@ func (s *Server) hotspotAktuell() []hotspotZugang {
 				continue
 			}
 			h, _ := r.Data["h"].(string)
+			stufe, _ := r.Data["stufe"].(string)
 			ref, _ := r.Data["ref"].(string)
 			sig, _ := r.Data["sig"].(string)
 			name, _ := r.Data["name"].(string)
@@ -651,11 +688,15 @@ func (s *Server) hotspotAktuell() []hotspotZugang {
 				}
 				continue
 			}
-			if !hmac.Equal([]byte(sig), []byte(passSignatur(k, h, d, u, bis, ref))) {
+			erwartet := passSignatur(k, h, d, u, bis, ref) // v1 (R866)
+			if stufe != "" {
+				erwartet = passSignaturV2(k, h, stufe, d, u, bis, ref)
+			}
+			if !hmac.Equal([]byte(sig), []byte(erwartet)) {
 				continue // nicht von einem Knoten dieses Verbunds
 			}
 			if alt, ok := pass[h]; !ok || bis > alt.Bis {
-				pass[h] = hotspotZugang{Name: name, Down: d, Up: u, Bis: bis, Quelle: "verbund", Ref: ref}
+				pass[h] = aktuell(hotspotZugang{Stufe: stufe, Name: name, Down: d, Up: u, Bis: bis, Quelle: "verbund", Ref: ref})
 			}
 		}
 		if len(pass) > 0 {
@@ -710,4 +751,62 @@ func (s *Server) hotspotAbgleich() {
 	if os.WriteFile(pfad+".neu", b, 0o644) == nil {
 		_ = os.Rename(pfad+".neu", pfad)
 	}
+}
+
+// ── Fehlerdiagnose (R875) ────────────────────────────────────────────────────
+
+var (
+	hotspotLetzterFehler     string
+	hotspotLetzterFehlerZeit time.Time
+)
+
+func hotspotFehlerMerken(t string) {
+	hotspotMu.Lock()
+	hotspotLetzterFehler, hotspotLetzterFehlerZeit = kiKuerzen(t, 300), time.Now()
+	hotspotMu.Unlock()
+}
+
+// paypalGrund: lesbarer Grund aus einer PayPal-Fehlerantwort
+// ({name, message, details:[{issue, description}]}).
+func paypalGrund(d map[string]any, code int) string {
+	name, _ := d["name"].(string)
+	msg, _ := d["message"].(string)
+	teile := []string{}
+	if name != "" {
+		teile = append(teile, name)
+	}
+	for _, x := range anyListe(d["details"]) {
+		m := mapAus(x)
+		if i := aeroText(m, "issue"); i != "" {
+			teile = append(teile, i)
+		}
+		if t := aeroText(m, "description"); t != "" {
+			teile = append(teile, t)
+		}
+		break
+	}
+	if len(teile) == 0 && msg != "" {
+		teile = append(teile, msg)
+	}
+	if len(teile) == 0 {
+		return fmt.Sprintf("Status %d", code)
+	}
+	return strings.Join(teile, " – ")
+}
+
+// POST /api/fehler {stufe, text} – vom PayPal-Skript im Telefon. Nur für
+// die Diagnose in den Einstellungen; begrenzt, damit niemand das Protokoll flutet.
+func (s *Server) hotspotBrowserFehler(c *gin.Context) {
+	var req struct{ Stufe, Text string }
+	_ = c.ShouldBindJSON(&req)
+	if !extRateAllow("hotspotfehler:"+c.ClientIP(), 10) {
+		c.Status(http.StatusTooManyRequests)
+		return
+	}
+	t := "PayPal im Telefon: " + kiKuerzen(req.Text, 200)
+	hotspotFehlerMerken(t)
+	if s.log != nil {
+		s.log.Warn("Hotspot: Fehler im PayPal-Skript", zap.String("stufe", kiKuerzen(req.Stufe, 20)), zap.String("text", kiKuerzen(req.Text, 200)))
+	}
+	c.Status(http.StatusNoContent)
 }
