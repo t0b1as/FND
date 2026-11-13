@@ -1,8 +1,8 @@
 {
-  "version": "R872",
-  "description": "FUNDUS R872 - AI search support",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R872/FND-R872-update.zip",
-  "node_argon2": "de4c270efb7bce40ec45c7335acce037a8013d106c2f44d5e46de260a9f89205",
-  "published_at": "2026-11-13T10:34:39.7604329Z",
-  "signature": "0x60f1f8c0ea5008a9cb9aa819ad2870d7d18afdfe83da5de4aaacaf63be70f30a783b64e6006393f5f2fe8123ce513ef0771df01c1926d52c5284edaef80ad9151c"
+  "version": "R874",
+  "description": "FUNDUS R874 - AI image support",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R874/FND-R874-update.zip",
+  "node_argon2": "2d686185331873af039c780f5720201a2bf1d290effea975ca03fcf6db417c90",
+  "published_at": "2026-11-13T14:09:37.700622Z",
+  "signature": "0x1120e68ea3f228030108339a0ffd42b76b386cdd72946d0cb83bab01f37240d239be1b0e56a3f4da4f8c5cbb7329d6a34cca5bc2d5e352ca15da4b996b9ba1ae1c"
 }
