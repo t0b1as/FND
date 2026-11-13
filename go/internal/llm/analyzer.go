@@ -389,3 +389,6 @@ func denkmodell(model string) bool {
 	}
 	return false
 }
+
+// IstDenkmodell: für andere Pakete (KI-Chat, R870).
+func IstDenkmodell(model string) bool { return denkmodell(model) }

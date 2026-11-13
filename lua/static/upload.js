@@ -535,9 +535,32 @@ function toggleRecording() {
     state.recording ? stopRecording() : startRecording();
 }
 
+// R870: robust gegen „lässt sich nicht beenden“:
+//  - Der Zustand gilt SOFORT beim Klick als „läuft“ – nicht erst, wenn der
+//    Browser onstart meldet. Sonst startete ein zweiter Klick (etwa während
+//    der Mikrofon-Abfrage) eine zweite Erkennung, und die erste lief
+//    unerreichbar weiter.
+//  - Jede Erkennung reagiert nur auf ihre EIGENEN Ereignisse. Vorher rief eine
+//    ausklingende alte Erkennung in onend erneut stopRecording() auf und
+//    beendete dabei eine inzwischen neu gestartete.
+//  - Nach dem Stoppen werden nur noch fertige Sätze übernommen, keine
+//    Zwischenstände; antwortet der Browser nicht binnen 1,5 s, wird hart
+//    abgebrochen (abort).
+function micAnzeige(laeuft, hinweis) {
+    const micBtn   = document.getElementById("mic-btn");
+    const micIcon  = document.getElementById("mic-icon");
+    const micLabel = document.getElementById("mic-label");
+    const micHint  = document.getElementById("mic-hint");
+    micBtn?.classList.toggle("recording", laeuft);
+    if (micIcon)  micIcon.textContent  = laeuft ? "⏹" : "●";
+    if (micLabel) micLabel.textContent = str(laeuft ? "mic_stop" : "mic_start");
+    if (micHint && hinweis !== undefined) micHint.textContent = hinweis;
+}
+
 function startRecording() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert(str("mic_unsupported")); return; }
+    if (state.recognition) return; // läuft bereits
 
     const rec = new SR();
     // Sprache aus den injizierten Strings nehmen (z.B. "de" → "de-DE")
@@ -545,29 +568,20 @@ function startRecording() {
     rec.lang            = langCode.length === 2 ? langCode + "-" + langCode.toUpperCase() : langCode;
     rec.continuous      = true;
     rec.interimResults  = true;
+    rec._ausklang       = false;
 
-    const micBtn   = document.getElementById("mic-btn");
-    const micIcon  = document.getElementById("mic-icon");
-    const micLabel = document.getElementById("mic-label");
-    const micHint  = document.getElementById("mic-hint");
     const textarea = document.getElementById("voice-text");
-
-    rec.onstart = () => {
-        state.recording = true;
-        micBtn?.classList.add("recording");
-        if (micIcon)  micIcon.textContent  = "⏹";
-        if (micLabel) micLabel.textContent = str("mic_stop");
-        if (micHint)  micHint.textContent  = "…";
-    };
+    const eigene = () => state.recognition === rec;
 
     rec.onresult = event => {
+        if (!eigene() && !rec._ausklang) return;
         let interim = "";
         let final   = state.transcript;
         for (let i = event.resultIndex; i < event.results.length; i++) {
             const txt = event.results[i][0].transcript;
             if (event.results[i].isFinal) {
                 final += (final ? " " : "") + txt;
-            } else {
+            } else if (!rec._ausklang) {
                 interim = txt;
             }
         }
@@ -577,34 +591,35 @@ function startRecording() {
     };
 
     rec.onerror = event => {
+        if (event.error === "aborted" || !eigene()) return;
         const msg = event.error === "not-allowed"
             ? str("mic_no_permission")
             : str("mic_error", { error: event.error });
-        if (micHint) micHint.textContent = msg;
-        stopRecording();
+        stopRecording(msg);
     };
 
-    rec.onend = () => stopRecording();
+    rec.onend = () => { if (eigene()) stopRecording(); };
 
     state.recognition = rec;
-    rec.start();
+    state.recording   = true;
+    micAnzeige(true, "…");
+    try {
+        rec.start();
+    } catch (e) {
+        stopRecording(str("mic_error", { error: e.message }));
+    }
 }
 
-function stopRecording() {
-    state.recognition?.stop();
+function stopRecording(hinweis) {
+    const rec = state.recognition;
     state.recognition = null;
     state.recording   = false;
-
-    const micBtn   = document.getElementById("mic-btn");
-    const micIcon  = document.getElementById("mic-icon");
-    const micLabel = document.getElementById("mic-label");
-    const micHint  = document.getElementById("mic-hint");
-
-    micBtn?.classList.remove("recording");
-    if (micIcon)  micIcon.textContent  = "●";
-    if (micLabel) micLabel.textContent = str("mic_start");
-    if (micHint)  micHint.textContent  = str("mic_done");
-
+    if (rec) {
+        rec._ausklang = true;
+        try { rec.stop(); } catch (e) { /* schon beendet */ }
+        setTimeout(() => { try { rec.abort(); } catch (e) { /* schon beendet */ } }, 1500);
+    }
+    micAnzeige(false, typeof hinweis === "string" ? hinweis : str("mic_done"));
     const textarea = document.getElementById("voice-text");
     if (textarea && state.transcript) textarea.value = state.transcript;
     updateAnalyzeButton();

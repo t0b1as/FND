@@ -69,6 +69,8 @@ local routes = {
     -- Aeronautik (R845): Flugverkehr aus Transpondertelegrammen
     { method = "GET",  pattern = "^/aeronautik$",
       handler = require "pages.aeronautik" },
+    { method = "GET",  pattern = "^/ki$",
+      handler = require "pages.ki" },
 
     -- Zertifikate
     { method = "GET",  pattern = "^/certificates$",
