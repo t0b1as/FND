@@ -128,9 +128,64 @@
   // Ein Dokument so einrichten, dass JEDE Textausgabe und Breitenmessung durch
   // sicher() läuft – an einer Stelle, damit kein Feld vergessen wird.
   var RAND = 3; // mm Beschnitt für die Druckerei (R889)
+  // ── Druckfarben (R893) ───────────────────────────────────────────────
+  // Tabellen aus quartett-farben.js (vom Ghostscript-CMYK-Profil berechnet).
+  var DF = null;
+  function druckTabellen() {
+    if (DF || !window.FundusDruckFarben) return DF;
+    var q = window.FundusDruckFarben, b = function (s) { var r = atob(s), u = new Uint8Array(r.length); for (var i = 0; i < r.length; i++) u[i] = r.charCodeAt(i); return u; };
+    DF = { n: q.n, cmyk: b(q.cmyk), foto: b(q.foto) };
+    return DF;
+  }
+  // Trilinear zwischen den Gitterpunkten; kanaele 4 (CMYK) oder 3 (Vorab-RGB).
+  function nachschlagen(tab, kanaele, r, g, b, aus) {
+    var n = DF.n, s = (n - 1) / 255;
+    var fr = r * s, fg = g * s, fb = b * s;
+    var r0 = Math.min(n - 2, fr | 0), g0 = Math.min(n - 2, fg | 0), b0 = Math.min(n - 2, fb | 0);
+    var tr = fr - r0, tg = fg - g0, tb = fb - b0;
+    for (var k = 0; k < kanaele; k++) aus[k] = 0;
+    for (var dr = 0; dr < 2; dr++) for (var dg = 0; dg < 2; dg++) for (var db = 0; db < 2; db++) {
+      var w = (dr ? tr : 1 - tr) * (dg ? tg : 1 - tg) * (db ? tb : 1 - tb);
+      if (!w) continue;
+      var o = (((r0 + dr) * n + (g0 + dg)) * n + (b0 + db)) * kanaele;
+      for (var k2 = 0; k2 < kanaele; k2++) aus[k2] += w * tab[o + k2];
+    }
+    return aus;
+  }
+  // RGB → CMYK (0…1) für Vektoren: Grau → reines K, Weiß → keine Farbe.
+  function druckCMYK(r, g, b) {
+    if (Math.max(r, g, b) - Math.min(r, g, b) <= 24) {
+      var grau = (r + g + b) / 3;
+      return grau >= 250 ? [0, 0, 0, 0] : [0, 0, 0, Math.round((1 - grau / 255) * 1000) / 1000];
+    }
+    var c = nachschlagen(DF.cmyk, 4, r, g, b, [0, 0, 0, 0]);
+    return c.map(function (v) { return Math.round(v / 255 * 1000) / 1000; });
+  }
+  // Bild für den Druck: jeden Bildpunkt durch die Fototabelle (R893).
+  function bildDruckfarben(g, w, h) {
+    if (!druckTabellen()) return;
+    var d = g.getImageData(0, 0, w, h), p = d.data, z = [0, 0, 0];
+    for (var i = 0; i < p.length; i += 4) {
+      nachschlagen(DF.foto, 3, p[i], p[i + 1], p[i + 2], z);
+      p[i] = z[0] + 0.5 | 0; p[i + 1] = z[1] + 0.5 | 0; p[i + 2] = z[2] + 0.5 | 0;
+    }
+    g.putImageData(d, 0, 0);
+  }
+
   function sicherMachen(doc, opt) {
     var text = doc.text, breite = doc.getTextWidth;
-    if (opt && opt.neutral) {
+    if (opt && opt.druck && druckTabellen()) {
+      // Alle Vektorfarben direkt als CMYK – Ghostscript lässt CMYK unverändert.
+      ["setFillColor", "setDrawColor", "setTextColor"].forEach(function (name) {
+        var orig = doc[name];
+        doc[name] = function (r, g, b) {
+          if (arguments.length === 1 && typeof r === "number") { g = r; b = r; }
+          else if (arguments.length < 3 || typeof r !== "number") return orig.apply(this, arguments);
+          var c = druckCMYK(r, g, b);
+          return orig.call(this, c[0], c[1], c[2], c[3]);
+        };
+      });
+    } else if (opt && opt.neutral) {
       // Graue Schrift auf reines Grau ziehen: nach der Umwandlung mit vollem
       // Unterfarbenersatz wird sie reines Schwarz (K) – ohne Spuren von C, M, Y.
       var farbe = doc.setTextColor;
@@ -506,12 +561,13 @@
 
   // deckend (R891): Bild auf eine Grundfarbe legen und als JPEG ausgeben –
   // ohne Alphakanal, also ohne Transparenz im PDF.
-  function deckend(daten, grund) {
+  function deckend(daten, grund, druckfarben) {
     return new Promise(function (ok) {
       var img = new Image();
       img.onload = function () {
         var cv = document.createElement("canvas"); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
         var g = cv.getContext("2d"); g.fillStyle = grund || "#ffffff"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0);
+        if (druckfarben) bildDruckfarben(g, cv.width, cv.height);
         ok({ daten: cv.toDataURL("image/jpeg", 0.92), w: cv.width, h: cv.height });
       };
       img.onerror = function () { ok(null); };
@@ -559,13 +615,13 @@
       return silhouetteBild(kl, "#1f2a3a", false).then(function (b) {
         // Druckformate: Silhouette auf die Bildfeld-Farbe, ohne Alphakanal (R891)
         if (!druck) { bilder[kl] = b; return; }
-        return deckend(b, "#e8f1fa").then(function (d) { bilder[kl] = d ? d.daten : b; });
+        return deckend(b, "#e8f1fa", true).then(function (d) { bilder[kl] = d ? d.daten : b; });
       });
     });
     karten.forEach(function (k) {
       if (k.foto && k.foto.url) vorbereiten.push(fotoLaden(k.foto.url).then(function (f) {
-        if (!f || !druck || f.format === "JPEG") { k._foto = f; return; }
-        return deckend(f.daten).then(function (d) {
+        if (!f || !druck) { k._foto = f; return; }
+        return deckend(f.daten, "#ffffff", true).then(function (d) {
           k._foto = d ? { daten: d.daten, format: "JPEG", w: d.w, h: d.h, alias: f.alias + "-j" } : f;
         });
       }));
@@ -583,7 +639,7 @@
         // Streifen (2 × Kartenhöhe) × Kartenbreite: Rückseite links (liegend,
         // Kopf zur Falzlinie), Vorderseite rechts, um 90° gegen den Uhrzeiger-
         // sinn – ihre Oberkante liegt an der Falzlinie.
-        doc = sicherMachen(new jsPDF({ unit: "mm", format: "a4" }), { neutral: druck });
+        doc = sicherMachen(new jsPDF({ unit: "mm", format: "a4" }), { neutral: druck, druck: druck });
         if (druck) doc._deckend = true; // PDF/X-1a: keine Transparenz (R892)
         // y0 = 22: unterster Streifen endet ≥ 5 mm vor dem Blattrand (R888).
         var proSeite = 4, abstand = 6, x0 = (210 - 2 * H) / 2, y0 = 22;
@@ -629,7 +685,7 @@
         // mindestens 3 mm innerhalb der Schnittkante. Bei "druckerei" macht der
         // Node danach CMYK, Farbdeckung, Schriften als Pfade und PDF/X-1a.
         var PB = B + 2 * RAND, PH = H + 2 * RAND;
-        doc = sicherMachen(new jsPDF({ unit: "mm", format: [PB, PH] }), { neutral: true });
+        doc = sicherMachen(new jsPDF({ unit: "mm", format: [PB, PH] }), { neutral: true, druck: true });
         doc._deckend = true; // keine Transparenz (R891)
         // Endformat- und Beschnittrahmen je Seite: geschnitten wird an der
         // TrimBox (3 mm innen); Ghostscript übernimmt die Rahmen unverändert.

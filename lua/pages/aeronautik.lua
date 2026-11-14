@@ -837,7 +837,7 @@ return function()
         if (d.error) throw new Error(d.error);
         if (!d.karten || !d.karten.length) throw new Error(d.hinweis || 'Keine Daten für diesen Zeitraum.');
         $('ae-q-meldung').textContent = 'Erzeuge PDF …';
-        return skript('/static/jspdf.umd.min.js').then(function(){ return skript('/static/quartett.js'); }).then(function(){
+        return skript('/static/jspdf.umd.min.js').then(function(){ return skript('/static/quartett-farben.js'); }).then(function(){ return skript('/static/quartett.js'); }).then(function(){
           return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; }, { groesse: groesse });
         }).then(function(doc){
           var name = 'FlightQuad' + (d.anzahl || anzahl) + '-' + d.code + '-' + groesse;
