@@ -85,6 +85,11 @@ func (a flugFernAnfrage) pfad() (string, bool) {
 			q.Set("bekannt", "1")
 		}
 		return "/api/v1/aeronautik/quartett?" + q.Encode(), true
+	case "typen":
+		if !reFlugTag.MatchString(a.Datum) {
+			return "", false
+		}
+		return "/api/v1/aeronautik/quartett/typen?" + url.Values{"zeitraum": {a.Zeitraum}, "datum": {a.Datum}}.Encode(), true
 	case "spur":
 		if !reFlugTag.MatchString(a.Tag) || !reHHMM.MatchString(a.Von) || !reHHMM.MatchString(a.Bis) {
 			return "", false
@@ -123,6 +128,8 @@ func (s *Server) flugFernBearbeiten(peerID string, data []byte) []byte {
 		s.flugUebersicht(c)
 	case "quartett":
 		s.flugQuartett(c)
+	case "typen":
+		s.quartettTypen(c)
 	case "spur":
 		s.flugSpur(c)
 	case "typbild":
@@ -200,6 +207,9 @@ func (s *Server) flugWeiterleiten(c *gin.Context, a flugFernAnfrage, frist time.
 				if a.Art == "quartett" && (a.KIBilder || a.Bilder == "fotos_ki" || a.Bilder == "ki") {
 					s.quartettKIHier(m) // R884
 				}
+				if a.Art == "typen" {
+					s.typenKIHier(m) // KI-Bilder, die auf DIESEM Pi liegen, gehen vor
+				}
 				if a.Art == "uebersicht" {
 					if z := kiTypZustandLesen(); z.Offen > 0 || z.Fertig > 0 || z.Fehler != "" {
 						m["ki_bilder"] = z // malt dieser Pi selbst, zählt seine Warteschlange
@@ -253,5 +263,21 @@ func (s *Server) quartettKIHier(m map[string]any) {
 		m["ki_ausstehend"] = ausstehend
 		m["ki_hinweis"] = ""
 		m["ki_hier"] = aeroNodeName()
+	}
+}
+
+// typenKIHier: In der Typenliste vom Empfänger die KI-Bilder einsetzen, die
+// dieser Pi selbst gemalt hat (sie liegen nur hier).
+func (s *Server) typenKIHier(m map[string]any) {
+	typen, _ := m["typen"].([]any)
+	for _, x := range typen {
+		e, _ := x.(map[string]any)
+		if e == nil {
+			continue
+		}
+		q, _ := e["suche"].(string)
+		if ki := s.kiTypBildCache(q); ki != nil {
+			e["ki"] = map[string]any{"url": "/api/v1/aeronautik/typbild/" + ki.Datei, "beschreibung": ki.Artikel, "ort": aeroNodeName()}
+		}
 	}
 }

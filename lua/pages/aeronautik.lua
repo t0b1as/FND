@@ -63,6 +63,15 @@ return function()
 .ae-panel select, .ae-panel input[type=date], .ae-panel input[type=number] { padding:6px 8px; border-radius:8px; font-size:14px; }
 .ae-wg-regler { flex:1; min-width:180px; }
 .ae-wg-zeit { font-variant-numeric:tabular-nums; font-weight:600; min-width:70px; }
+/* R887: Typenliste mit Foto und KI-Bild */
+.ae-typen { max-height:440px; overflow-y:auto; border:1px solid var(--border); border-radius:10px; margin-top:8px; }
+.ae-typ { display:grid; grid-template-columns:96px 96px 1fr auto; gap:10px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--border); font-size:13px; }
+.ae-typ:last-child { border-bottom:0; }
+.ae-typ .bild { width:96px; height:54px; border-radius:6px; background:rgba(127,127,127,.12); display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:11px; color:var(--muted); text-align:center; }
+.ae-typ .bild img { width:100%; height:100%; object-fit:cover; cursor:zoom-in; }
+.ae-typ .tasten { display:flex; flex-direction:column; gap:4px; }
+.ae-typ .klein { font-size:11.5px; color:var(--muted); }
+@media (max-width:640px) { .ae-typ { grid-template-columns:72px 72px 1fr; } .ae-typ .bild { width:72px; height:42px; } .ae-typ .tasten { grid-column:1 / -1; flex-direction:row; } }
 .ae-modus { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 12px; margin:0 0 12px; border-radius:10px;
   border:1px solid var(--border); font-size:13px; color:var(--muted); background:rgba(26,29,39,.25); }
 .ae-modus b { color:var(--text); }
@@ -147,7 +156,7 @@ return function()
 </div>
 <div id="ae-p-quartett" class="ae-karte ae-panel" style="display:none">
   <h3>Flugquartett</h3>
-  <div class="ae-hinweis" style="margin-bottom:6px">64 Karten aus den aufgezeichneten Rekorden: je acht Flugzeuge mit der größten und kleinsten Höhe, Geschwindigkeit, Steig- bzw. Sinkrate und Entfernung. Die Spielwerte sind die Höchstwerte jedes Flugzeugs, jeweils mit Zeitstempel.</div>
+  <div class="ae-hinweis" style="margin-bottom:6px">64 Karten aus den aufgezeichneten Rekorden: je acht Flugzeuge mit der größten und kleinsten Höhe, Geschwindigkeit, Steig- bzw. Sinkrate und Entfernung. Jede Karte zeigt zu allen vier Werten Minimum und Maximum, jeweils mit Zeitstempel.</div>
   <div class="zeile"><select id="ae-q-zeitraum"><option value="tag">Tag</option><option value="woche">Woche</option><option value="monat">Monat</option><option value="jahr">Jahr</option></select>
     <input type="date" id="ae-q-datum">
     <select id="ae-q-format"><option value="karten">Spielkarten 63 × 88 mm</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option></select>
@@ -161,6 +170,12 @@ return function()
     <label><input type="checkbox" id="ae-q-bekannt"> Unbekannte Flugzeugtypen ausblenden</label></div>
   <div class="ae-hinweis" style="margin:-2px 0 4px">Freie Fotos: nur frei lizenziert, Urheber steht auf der Karte. KI-Bilder: vom Sprachmodell beschrieben und von ComfyUI gemalt, je Typ einmal im Hintergrund, auf der Karte als „KI-erzeugt, kein Foto“ gekennzeichnet. Fehlt ein Bild, bleibt die Silhouette.</div>
   <div class="ae-hinweis" id="ae-q-meldung"></div>
+  <div class="zeile" style="margin-top:10px"><button type="button" class="btn-sm" id="ae-q-typen-auf">Typen &amp; Bilder durchsehen</button>
+    <span id="ae-q-typen-leiste" style="display:none;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="search" id="ae-q-typen-suche" placeholder="Typ suchen …" style="padding:6px 8px;border-radius:8px;font-size:14px;width:150px">
+      <select id="ae-q-typen-filter"><option value="alle">alle Typen</option><option value="ki">mit KI-Bild</option><option value="ohnefoto">ohne Foto</option><option value="ohne">ohne jedes Bild</option></select>
+      <span class="ae-hinweis" id="ae-q-typen-info"></span></span></div>
+  <div class="ae-typen" id="ae-q-typen" style="display:none"></div>
 </div>
 </div>
 <div class="ae-wrap" id="ae-wrap">
@@ -827,6 +842,69 @@ return function()
       }).catch(function(e){ $('ae-q-meldung').textContent = '✗ ' + e.message; })
       .then(function(){ knopf.disabled = false; });
   };
+  // ── R887: Typen des Zeitraums mit Foto und KI-Bild; misslungene KI-Bilder löschen ──
+  var typen = [];
+  function typenLaden(){
+    var datum = $('ae-q-datum').value.replace(/-/g, '');
+    $('ae-q-typen-info').textContent = 'lade …';
+    fetch('/api/v1/aeronautik/quartett/typen?zeitraum=' + $('ae-q-zeitraum').value + '&datum=' + datum, { credentials: 'same-origin' })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) throw new Error(d.error);
+        typen = d.typen || [];
+        $('ae-q-typen-info').textContent = d.titel + ': ' + typen.length + ' Typen, ' + d.flugzeuge + ' Flugzeuge' + (d.unbekannt ? ', ' + d.unbekannt + ' ohne Typ' : '') + (d.fern ? ' · vom Empfänger ' + (d.empfaenger_node || '') : '');
+        typenZeichnen();
+      }).catch(function(e){ $('ae-q-typen-info').textContent = '✗ ' + e.message; });
+  }
+  function bildZelle(b, art){
+    if (!b) return '<div class="bild">' + (art === 'ki' ? 'kein KI-Bild' : 'kein Foto') + '</div>';
+    return '<div class="bild"><img loading="lazy" src="' + esc(b.url) + '" alt="" title="' + esc(art === 'ki' ? 'KI-Bild' + (b.ort ? ' (auf ' + b.ort + ')' : '') + (b.beschreibung ? ': ' + b.beschreibung : '') : (b.credit || 'Foto')) + '" data-gross="' + esc(b.url) + '"></div>';
+  }
+  function typenZeichnen(){
+    var such = $('ae-q-typen-suche').value.trim().toLowerCase(), filter = $('ae-q-typen-filter').value;
+    var liste = typen.filter(function(t){
+      if (such && (t.name + ' ' + t.icao).toLowerCase().indexOf(such) < 0) return false;
+      if (filter === 'ki') return !!t.ki;
+      if (filter === 'ohnefoto') return !t.foto;
+      if (filter === 'ohne') return !t.foto && !t.ki;
+      return true;
+    });
+    $('ae-q-typen').innerHTML = liste.length ? liste.map(function(t, i){
+      return '<div class="ae-typ" data-i="' + typen.indexOf(t) + '">' + bildZelle(t.foto, 'foto') + bildZelle(t.ki, 'ki') +
+        '<div><b>' + esc(t.name) + '</b> <span class="klein">' + esc(t.icao || '') + '</span><div class="klein">' + t.anzahl + ' Flugzeug(e)' +
+        (t.ki_offen ? ' · KI malt gerade …' : '') + '</div></div>' +
+        '<div class="tasten">' + (t.ki ? '<button type="button" class="btn-sm" data-aktion="loeschen">KI-Bild löschen</button>' : '') +
+        '<button type="button" class="btn-sm" data-aktion="neu"' + (t.ki_offen ? ' disabled' : '') + '>' + (t.ki ? 'Neu malen' : 'KI-Bild malen') + '</button></div></div>';
+    }).join('') : '<div class="ae-hinweis" style="padding:12px">Keine passenden Typen.</div>';
+  }
+  $('ae-q-typen-auf').onclick = function(){
+    var auf = $('ae-q-typen').style.display === 'none';
+    $('ae-q-typen').style.display = auf ? '' : 'none';
+    $('ae-q-typen-leiste').style.display = auf ? 'inline-flex' : 'none';
+    this.textContent = auf ? 'Typenliste schließen' : 'Typen & Bilder durchsehen';
+    if (auf) typenLaden();
+  };
+  $('ae-q-typen-suche').oninput = typenZeichnen;
+  $('ae-q-typen-filter').onchange = typenZeichnen;
+  $('ae-q-typen').onclick = function(e){
+    var img = e.target.closest('img[data-gross]');
+    if (img) { window.open(img.dataset.gross, '_blank', 'noopener'); return; }
+    var knopf = e.target.closest('button[data-aktion]');
+    if (!knopf) return;
+    var t = typen[+knopf.closest('.ae-typ').dataset.i];
+    if (knopf.dataset.aktion === 'loeschen' && !confirm('KI-Bild für „' + t.name + '“ löschen?')) return;
+    knopf.disabled = true;
+    fetch('/api/v1/admin/aeronautik/kibild', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suche: t.suche, aktion: knopf.dataset.aktion, hersteller: t.hersteller, typ: t.typ, icao: t.icao }) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ return [r, d]; }); }).then(function(x){
+        var r = x[0], d = x[1];
+        if (r.status === 401 || r.status === 403) throw new Error('Nur der Eigentümer dieses Nodes kann das.');
+        if (d.error) throw new Error(d.error);
+        if (knopf.dataset.aktion === 'loeschen') t.ki = null; else { t.ki = null; t.ki_offen = true; }
+        typenZeichnen();
+        $('ae-q-typen-info').textContent = knopf.dataset.aktion === 'loeschen' ? '✓ KI-Bild für „' + t.name + '“ gelöscht.' : '✓ „' + t.name + '“ wird neu gemalt (etwa 20 s) – Liste später neu öffnen.';
+      }).catch(function(e){ knopf.disabled = false; $('ae-q-typen-info').textContent = '✗ ' + e.message; });
+  };
+
   uebersichtLaden();
   setInterval(function(){ if (ansicht === 'flug') uebersichtLaden(); }, 60000);
 

@@ -882,6 +882,7 @@ func (s *Server) registerFlugdaten(r *gin.Engine) {
 	r.GET("/api/v1/aeronautik/aufzeichnung", s.flugUebersicht)
 	r.GET("/api/v1/aeronautik/aufzeichnung/spur", s.flugSpur)
 	r.GET("/api/v1/aeronautik/quartett", s.flugQuartett)
+	r.GET("/api/v1/aeronautik/quartett/typen", s.quartettTypen) // R887
 	r.GET("/api/v1/aeronautik/typbild/:datei", s.typBildAusliefern)
 	s.flugStarten()
 	s.flugFernStarten() // R879: Anfragen von Pis ohne Empfänger beantworten

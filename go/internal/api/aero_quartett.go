@@ -58,26 +58,9 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		Bilder: c.Query("bilder"), Bekannt: c.Query("bekannt") == "1"}, 90*time.Second) {
 		return // R879: vom Pi mit Empfänger
 	}
-	tag, err := time.ParseInLocation("20060102", datum, time.Local)
-	if !reFlugTag.MatchString(datum) || err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "datum=JJJJMMTT"})
-		return
-	}
-	schl := flugSchluessel(tag)
-	monate := []string{"Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"}
-	var tabelle, titel, code string
-	switch zeitraum {
-	case "tag":
-		tabelle, titel, code = schl[0], "Tag "+tag.Format("02.01.2006"), datum
-	case "woche":
-		j, w := tag.ISOWeek()
-		tabelle, titel, code = schl[1], fmt.Sprintf("KW %d/%d", w, j), fmt.Sprintf("%04dW%02d", j, w)
-	case "monat":
-		tabelle, titel, code = schl[2], monate[tag.Month()-1]+" "+tag.Format("2006"), datum[:6]
-	case "jahr":
-		tabelle, titel, code = schl[3], "Jahr "+tag.Format("2006"), datum[:4]
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "zeitraum=tag, woche, monat oder jahr"})
+	tabelle, titel, code, ok := quartettZeitraum(zeitraum, datum)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "zeitraum=tag, woche, monat oder jahr; datum=JJJJMMTT"})
 		return
 	}
 	alle := s.flugTabelle(tabelle)
@@ -89,21 +72,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 	// R885: Typen erst aus dem Zwischenspeicher ergänzen – ein Typ, den der Node
 	// längst kennt, soll nicht als „unbekannt“ herausfallen. Dann ggf. ausblenden.
 	nurBekannte := c.Query("bekannt") == "1"
-	aeroMu.Lock()
-	for hex, su := range alle {
-		if su.Typ == "" && su.ICAO == "" {
-			if g, ok := aeroGeraete[hex]; ok && g.flugzeug != nil {
-				su.Typ, su.ICAO = g.flugzeug.Typ, g.flugzeug.ICAO
-				if su.Hersteller == "" {
-					su.Hersteller = g.flugzeug.Hersteller
-				}
-				if su.Kennzeichen == "" {
-					su.Kennzeichen = g.flugzeug.Kennzeichen
-				}
-			}
-		}
-	}
-	aeroMu.Unlock()
+	typenErgaenzen(alle)
 	ausgeblendet := 0
 	if nurBekannte {
 		for hex, su := range alle {
@@ -471,4 +440,170 @@ func quartettBildModus(c *gin.Context) string {
 		return "fotos"
 	}
 	return "keine"
+}
+
+// quartettZeitraum: Tabelle, Titel und Code eines Zeitraums – gemeinsam für
+// Quartett und Typenliste.
+func quartettZeitraum(zeitraum, datum string) (tabelle, titel, code string, ok bool) {
+	tag, err := time.ParseInLocation("20060102", datum, time.Local)
+	if !reFlugTag.MatchString(datum) || err != nil {
+		return "", "", "", false
+	}
+	schl := flugSchluessel(tag)
+	monate := []string{"Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"}
+	switch zeitraum {
+	case "tag":
+		return schl[0], "Tag " + tag.Format("02.01.2006"), datum, true
+	case "woche":
+		j, w := tag.ISOWeek()
+		return schl[1], fmt.Sprintf("KW %d/%d", w, j), fmt.Sprintf("%04dW%02d", j, w), true
+	case "monat":
+		return schl[2], monate[tag.Month()-1] + " " + tag.Format("2006"), datum[:6], true
+	case "jahr":
+		return schl[3], "Jahr " + tag.Format("2006"), datum[:4], true
+	}
+	return "", "", "", false
+}
+
+// typenErgaenzen: Typen aus dem Zwischenspeicher nachtragen (vor Auswahl/Liste).
+func typenErgaenzen(alle map[string]*flugSumme) {
+	aeroMu.Lock()
+	defer aeroMu.Unlock()
+	for hex, su := range alle {
+		if su.Typ == "" && su.ICAO == "" {
+			if g, ok := aeroGeraete[hex]; ok && g.flugzeug != nil {
+				su.Typ, su.ICAO = g.flugzeug.Typ, g.flugzeug.ICAO
+				if su.Hersteller == "" {
+					su.Hersteller = g.flugzeug.Hersteller
+				}
+				if su.Kennzeichen == "" {
+					su.Kennzeichen = g.flugzeug.Kennzeichen
+				}
+			}
+		}
+	}
+}
+
+// GET /api/v1/aeronautik/quartett/typen?zeitraum&datum – Flugzeugtypen des
+// Zeitraums mit Foto und KI-Bild, zum Durchsehen (R887). Je TYP, weil ein
+// KI-Bild für alle Flugzeuge eines Typs gilt.
+func (s *Server) quartettTypen(c *gin.Context) {
+	zeitraum, datum := c.Query("zeitraum"), c.Query("datum")
+	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "typen", Zeitraum: zeitraum, Datum: datum}, 20*time.Second) {
+		return
+	}
+	tabelle, titel, _, ok := quartettZeitraum(zeitraum, datum)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "zeitraum=tag, woche, monat oder jahr; datum=JJJJMMTT"})
+		return
+	}
+	alle := s.flugTabelle(tabelle)
+	typenErgaenzen(alle)
+	type gruppe struct {
+		suche, name, icao, klasse, hersteller, typ string
+		anzahl                                     int
+		foto                                       *flugFoto
+	}
+	jeTyp := map[string]*gruppe{}
+	unbekannt := 0
+	for _, su := range alle {
+		q := typBildSuche(su.Hersteller, su.Typ, su.ICAO)
+		if q == "" {
+			unbekannt++
+			continue
+		}
+		g := jeTyp[q]
+		if g == nil {
+			name := strings.TrimSpace(su.Hersteller + " " + su.Typ)
+			if name == "" {
+				name = su.ICAO
+			}
+			g = &gruppe{suche: q, name: name, icao: su.ICAO, klasse: aeroKlasse(su.ICAO, su.Typ), hersteller: su.Hersteller, typ: su.Typ}
+			jeTyp[q] = g
+		}
+		g.anzahl++
+		if g.foto == nil && su.Foto != nil && !strings.HasPrefix(su.Foto.Credit, "KI-erzeugt") {
+			g.foto = su.Foto
+		}
+	}
+	liste := make([]*gruppe, 0, len(jeTyp))
+	for _, g := range jeTyp {
+		liste = append(liste, g)
+	}
+	sort.Slice(liste, func(i, j int) bool {
+		if liste[i].anzahl != liste[j].anzahl {
+			return liste[i].anzahl > liste[j].anzahl
+		}
+		return liste[i].name < liste[j].name
+	})
+	offen := map[string]bool{}
+	kiTypMu.Lock()
+	for q := range kiTypInArbeit {
+		offen[q] = true
+	}
+	kiTypMu.Unlock()
+	typen := make([]gin.H, 0, len(liste))
+	for _, g := range liste {
+		e := gin.H{"suche": g.suche, "name": g.name, "icao": g.icao, "klasse": g.klasse, "anzahl": g.anzahl,
+			"hersteller": g.hersteller, "typ": g.typ, "ki_offen": offen[g.suche]}
+		foto := g.foto
+		if foto == nil {
+			if b := s.typBildCache(g.suche); b != nil && b.Datei != "" && !b.KI {
+				foto = &flugFoto{Datei: b.Datei, Credit: b.Credit()}
+			}
+		}
+		if foto != nil {
+			e["foto"] = gin.H{"url": "/api/v1/aeronautik/typbild/" + foto.Datei, "credit": foto.Credit}
+		}
+		if ki := s.kiTypBildCache(g.suche); ki != nil {
+			e["ki"] = gin.H{"url": "/api/v1/aeronautik/typbild/" + ki.Datei, "beschreibung": ki.Artikel, "ort": aeroNodeName()}
+		}
+		typen = append(typen, e)
+	}
+	c.JSON(http.StatusOK, gin.H{"titel": titel, "typen": typen, "unbekannt": unbekannt, "flugzeuge": len(alle), "node": aeroNodeName()})
+}
+
+// POST /api/v1/admin/aeronautik/kibild {suche, aktion: loeschen|neu, hersteller, typ, icao}
+// Ein misslungenes KI-Bild löschen – und auf Wunsch neu malen lassen (R887).
+func (s *Server) quartettKIBildAendern(c *gin.Context) {
+	var req struct{ Suche, Aktion, Hersteller, Typ, ICAO string }
+	if c.ShouldBindJSON(&req) != nil || req.Suche == "" || (req.Aktion != "loeschen" && req.Aktion != "neu") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
+		return
+	}
+	schl := s.kiTypSchluessel(req.Suche)
+	datei := schl + ".png"
+	geloescht := false
+	for _, endung := range []string{".png", ".json"} {
+		if os.Remove(filepath.Join(s.typBildOrdner(), schl+endung)) == nil {
+			geloescht = true
+		}
+	}
+	if !geloescht && req.Aktion == "loeschen" && !s.flugLokal() {
+		c.JSON(http.StatusConflict, gin.H{"error": "Dieses KI-Bild liegt auf dem Empfänger – dort löschen (über dessen Adresse im Heimnetz)."})
+		return
+	}
+	// Verweise in den laufenden Tabellen lösen; in abgeschlossenen Tabellen
+	// zeigt der Verweis ins Leere und gilt damit als „kein Bild“.
+	flugMu.Lock()
+	for _, tab := range flugTabellen {
+		for _, su := range tab {
+			if su.KIFoto != nil && su.KIFoto.Datei == datei {
+				su.KIFoto = nil
+			}
+			if su.Foto != nil && su.Foto.Datei == datei {
+				su.Foto = nil
+			}
+		}
+	}
+	flugMu.Unlock()
+	if req.Aktion == "neu" {
+		if !s.kiBildLesen().aktiv() {
+			c.JSON(http.StatusConflict, gin.H{"error": "ComfyUI ist auf " + aeroNodeName() + " nicht eingerichtet."})
+			return
+		}
+		s.kiTypBildVormerken(kiTypAuftrag{Suche: req.Suche, Hersteller: req.Hersteller, Typ: req.Typ, ICAO: req.ICAO,
+			Klasse: aeroKlasse(req.ICAO, req.Typ)})
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "geloescht": geloescht})
 }

@@ -137,7 +137,7 @@
   function schein(doc, s, x, y, pt, farbe) {
     var mm = pt * 0.3528;
     doc.setDrawColor(255, 255, 255); doc.setLineJoin("round");
-    [[0.42, 0.22], [0.27, 0.42], [0.15, 0.9]].forEach(function (st) {
+    [[0.62, 0.28], [0.42, 0.5], [0.24, 1]].forEach(function (st) {   // R887: kräftiger
       doc.setGState(new doc.GState({ opacity: st[1], "stroke-opacity": st[1] }));
       doc.setLineWidth(mm * st[0]);
       doc.text(s, x, y, { renderingMode: "stroke" });
@@ -146,14 +146,18 @@
     doc.setTextColor(farbe[0], farbe[1], farbe[2]);
     doc.text(s, x, y);
   }
-  // Wie das Bild ins Feld darf: „füllen“ (frei zuschneidbar), „zugeschnitten“
-  // (CC BY: Bearbeitung mit Hinweis) oder „ganz“ (CC BY-SA: ungeschnitten).
-  function bildArt(k) {
+  // Bearbeitungshinweis (R887): Das Bild füllt immer die Kartenbreite und
+  // trägt Text – beides ist eine Bearbeitung. Gemeinfrei, CC0 und KI: kein
+  // Hinweis nötig. CC BY: „bearbeitet“. CC BY-SA: „bearbeitet, CC BY-SA“ – die
+  // bearbeitete Fassung steht wieder unter derselben Lizenz.
+  function bearbeitung(k) {
     var c = (k.foto && k.foto.credit) || "";
-    if ((k.foto && k.foto.ki) || /^KI-erzeugt/.test(c)) return "fuellen";
-    if (/·\s*(CC0[^·]*|Public domain|PD[^·]*)\s*·/i.test(c)) return "fuellen";
-    if (/·\s*CC BY(?!-SA)[^·]*·/i.test(c)) return "zugeschnitten";
-    return "ganz";
+    if ((k.foto && k.foto.ki) || /^KI-erzeugt/.test(c)) return "";
+    if (/·\s*(CC0[^·]*|Public domain|PD[^·]*)\s*·/i.test(c)) return "";
+    var sa = c.match(/·\s*(CC BY-SA[^·]*?)\s*·/i);
+    if (sa) return "bearbeitet, " + sa[1].trim();
+    if (/·\s*CC BY[^·]*·/i.test(c)) return "bearbeitet";
+    return "bearbeitet";
   }
   // Grundlinie für Text, der in einem Feld (oben, Höhe) senkrecht mittig steht:
   // halbe Feldhöhe plus halbe Großbuchstabenhöhe (≈ 0,7 der Schriftgröße).
@@ -207,37 +211,38 @@
     doc.setFillColor(232, 241, 250); doc.rect(fx, fy, fw, fh, "F");
     var credit = k.foto ? k.foto.credit : "";
     if (k._foto) {
-      var art = bildArt(k);
-      var sc = art === "ganz" ? Math.min(fw / k._foto.w, fh / k._foto.h) : Math.max(fw / k._foto.w, fh / k._foto.h);
-      var bw = k._foto.w * sc, bhh = k._foto.h * sc;
+      // Immer auf volle Kartenbreite (R887); Überstand oben/unten mittig abgeschnitten.
+      var sc = Math.max(fw / k._foto.w, fh / k._foto.h), bw = k._foto.w * sc, bhh = k._foto.h * sc;
       doc.saveGraphicsState(); doc.rect(fx, fy, fw, fh, null); doc.clip(); doc.discardPath();
       doc.addImage(k._foto.daten, k._foto.format, fx + (fw - bw) / 2, fy + (fh - bhh) / 2, bw, bhh, k._foto.alias, "FAST");
       doc.restoreGraphicsState();
-      if (art === "zugeschnitten") credit += " · zugeschnitten";
+      var hinweis = bearbeitung(k);
+      if (hinweis) credit += " · " + hinweis;
     } else {
-      // Silhouette groß, im unteren Teil – oben steht der Text.
-      doc.addImage(bild, "PNG", fx + 4, fy + 11, 54, 20.25, "silh-" + (k.klasse || "unbekannt"), "FAST");
+      // Silhouette groß, mittig zwischen Typ oben und Route unten.
+      doc.addImage(bild, "PNG", fx + 4, fy + 9.5, 54, 17.5, "silh-" + (k.klasse || "unbekannt"), "FAST");
     }
-    // Typ, Kennzeichen, Rufzeichen, Betreiber – mit Schein auf dem Bild
+    // Typ, Kennzeichen, Rufzeichen, Betreiber – oben, mit Schein
     var typ = k.typ || (k.icao ? "Typ " + k.icao : "Unbekannter Typ");
     if (k.hersteller && typ.toUpperCase().indexOf(k.hersteller.toUpperCase().split(" ")[0]) < 0 && k.hersteller.length < 18) typ = k.hersteller.split(" ")[0] + " " + typ;
     doc.setFont("helvetica", "bold"); doc.setFontSize(8.6);
     schein(doc, kuerzen(doc, typ, B - 8), x + 4, fy + 4.8, 8.6, [20, 23, 30]);
     doc.setFont("helvetica", "normal"); doc.setFontSize(5.6);
     schein(doc, kuerzen(doc, [k.kennzeichen, k.flug, k.betreiber || k.airline].filter(Boolean).join(" · ") || "ohne Kennzeichen", B - 8), x + 4, fy + 8.0, 5.6, [45, 50, 62]);
+    // Flugverbindung am unteren Bildrand (R887), darunter die Urheberzeile
     if (k.von && k.nach) {
       doc.setFont("helvetica", "bold"); doc.setFontSize(6.4);
-      schein(doc, k.von.code + "  ›  " + k.nach.code, x + 4, fy + 11.4, 6.4, [30, 36, 48]);
+      schein(doc, k.von.code + "  ›  " + k.nach.code, x + 4, fy + fh - 6.2, 6.4, [30, 36, 48]);
       doc.setFont("helvetica", "normal"); doc.setFontSize(4.1);
-      schein(doc, kuerzen(doc, flughafenLang(k.von) + "  ›  " + flughafenLang(k.nach), B - 8), x + 4, fy + 13.9, 4.1, [55, 60, 72]);
+      schein(doc, kuerzen(doc, flughafenLang(k.von) + "  ›  " + flughafenLang(k.nach), B - 8), x + 4, fy + fh - 3.7, 4.1, [55, 60, 72]);
     } else {
       doc.setFont("helvetica", "normal"); doc.setFontSize(4.8);
-      schein(doc, k.route || "Route unbekannt", x + 4, fy + 11.4, 4.8, [90, 95, 108]);
+      schein(doc, k.route || "Route unbekannt", x + 4, fy + fh - 3.9, 4.8, [90, 95, 108]);
     }
     if (credit) {
       doc.setFont("helvetica", "normal"); doc.setFontSize(3.3);
       var cz = urheberZeile(doc, credit, B - 8);
-      schein(doc, cz, x + B - 4 - doc.getTextWidth(cz), fy + fh - 1.1, 3.3, [60, 65, 78]);
+      schein(doc, cz, x + B - 4 - doc.getTextWidth(cz), fy + fh - 1.0, 3.3, [60, 65, 78]);
     }
     // Rekord
     var ry = fy + fh + 0.9;
@@ -332,13 +337,19 @@
       g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 4; g.beginPath();
       if (g.roundRect) g.roundRect(40, 40, w - 80, h - 80, 20); else g.rect(40, 40, w - 80, h - 80);
       g.stroke();
-      var groesse = 380, ly = 170;
+      // R888: oben FUNDUS · Logo · FLIGHT QUAD 64 · „Best of“ mit Zeitraum · TKM x HELIX
+      function zeile(text, y, pt, abstand, farbe) {
+        g.font = "bold " + pt + "px Helvetica, Arial, sans-serif"; g.fillStyle = farbe; g.textAlign = "center";
+        if ("letterSpacing" in g) g.letterSpacing = abstand + "px";
+        g.fillText(text, w / 2 + (("letterSpacing" in g) ? abstand / 2 : 0), y);
+        if ("letterSpacing" in g) g.letterSpacing = "0px";
+      }
+      zeile("FUNDUS", 132, 56, 14, "#ffffff");
+      var groesse = 330, ly = 175;
       if (logo) g.drawImage(logo, (w - groesse) / 2, ly, groesse, groesse);
-      g.fillStyle = "#ffffff"; g.textAlign = "center";
-      g.font = "bold 58px Helvetica, Arial, sans-serif";
-      g.fillText("FLIGHT QUAD 64", w / 2, ly + groesse + 95);
-      g.font = "bold 40px Helvetica, Arial, sans-serif"; g.fillStyle = "rgba(255,255,255,.85)";
-      g.fillText(kontext.code || "", w / 2, ly + groesse + 155);
+      zeile("FLIGHT QUAD 64", ly + groesse + 88, 54, 0, "#ffffff");
+      zeile("Best of " + (kontext.code || ""), ly + groesse + 148, 38, 0, "rgba(255,255,255,.88)");
+      zeile("TKM x HELIX", 782, 30, 6, "rgba(255,255,255,.75)");
       return cv.toDataURL("image/png");
     });
   }
@@ -396,7 +407,8 @@
         // Vorderseite rechts, um 90° gegen den Uhrzeigersinn – ihre Oberkante
         // liegt an der Falzlinie.
         doc = sicherMachen(new jsPDF({ unit: "mm", format: "a4" }));
-        var proSeite = 4, abstand = 6, x0 = (210 - 2 * H) / 2, y0 = 24;
+        // y0 = 22: unterster Streifen endet 5 mm vor dem Blattrand (R888, vorher 3 mm).
+        var proSeite = 4, abstand = 6, x0 = (210 - 2 * H) / 2, y0 = 22;
         var seiten = Math.ceil(karten.length / proSeite);
         karten.forEach(function (k, i) {
           var reihe = i % proSeite;
