@@ -1,8 +1,8 @@
 {
-  "version": "R876",
-  "description": "FUNDUS R876 - Hotspot live speed update",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R876/FND-R876-update.zip",
-  "node_argon2": "c7684c84c45f2103f13d5f06ce2593a5a84ac1fe12d5b5a7ec1afec3c0946777",
-  "published_at": "2026-11-13T17:26:38.7978257Z",
-  "signature": "0xe0097cec978edffaf74700635f925ddb682d4fe993565fa123612f668d2e925d66852d39155ca7189f77b292d1ca7519e7ec727685db8edea3c26a1314776a0e1b"
+  "version": "R878",
+  "description": "FUNDUS R878 - Flight Quartett 64",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R878/FND-R878-update.zip",
+  "node_argon2": "2d223432b5a71b747234b624c120442327184147236ba3ea5fd3c2b840905524",
+  "published_at": "2026-11-14T08:14:51.7570117Z",
+  "signature": "0xb4d9b03352d267e004903ab1a752112c917184a21af6024b6ba886fc581a82c372fdf52e50dd9ce890e12c83ff16891f4a22d87c64387beb8a4e4caa1e7eb97b1b"
 }
