@@ -17,6 +17,69 @@
     hoehe_max: [192, 57, 43], hoehe_min: [230, 126, 34], geschw_max: [41, 98, 192], geschw_min: [52, 152, 219],
     steig_max: [39, 154, 96], sink_max: [22, 160, 133], km_max: [125, 60, 152], km_min: [155, 89, 182]
   };
+  // ── Sprache (R894): Deutsch oder Englisch für alles auf den Karten ──────
+  var SPR = "de";
+  var EN = {
+    "Höhe": "Altitude", "Geschwindigkeit": "Speed", "Sinken/Steigen": "Descent/Climb", "Entfernung": "Distance",
+    "MINIMUM": "MINIMUM", "MAXIMUM": "MAXIMUM", "Rekord · ": "Record · ", "am Boden": "on ground",
+    "Beim Rekord: ": "At record: ", "Kurs ": "Track ", "Halter ": "Owner ", "Airline ": "Airline ", "Erfasst ": "Seen ",
+    " Meldungen": " messages", "Quellen: ": "Sources: ", "Empfang": "Reception", "Flugzeug": "Aircraft", "Route": "Route",
+    "Route unbekannt": "Route unknown", "ohne Kennzeichen": "no registration", "Unbekannter Typ": "Unknown type", "Typ ": "Type ",
+    "Standort unbekannt": "Location unknown", "Die Quartette": "The quartets", "Spielregeln": "How to play",
+    " Flugzeuge aufgezeichnet · ADS-B-Empfang ": " aircraft recorded · ADS-B receiver ",
+    "Typen adsbdb/hexdb · Routen adsb.lol": "Types adsbdb/hexdb · Routes adsb.lol",
+    "bearbeitet": "modified", "bearbeitet, ": "modified, ", "zugeschnitten": "cropped",
+    "SBS-Datenstrom": "SBS stream",
+    "regeln": "Shuffle and deal all cards; each player keeps a face-down pile. On your turn, name a value of your top card " +
+      "and its column, e.g. \u201cAltitude, maximum\u201d. For maximum the highest value wins, for minimum the lowest, for " +
+      "descent/climb the stronger one. The winner takes all revealed cards and plays next. Whoever collects all cards wins. " +
+      "Quartet variant: collect four cards of one number (A\u2013D).",
+    "a4kopf": "Cards at actual size {B} × {H} mm. Cut at the corners, fold back along the dashed top edge, glue together.",
+    "seite": "Page {n} of {m}",
+    // Kategorien
+    "hoehe_max": "Highest altitude", "hoehe_min": "Lowest altitude", "geschw_max": "Fastest", "geschw_min": "Slowest",
+    "steig_max": "Strongest climb", "sink_max": "Strongest descent", "km_max": "Farthest", "km_min": "Closest",
+    // Bauarten
+    "grossraum": "Wide-body jet", "vierstrahler": "Four-engine jet", "mittelstrecke": "Narrow-body jet", "heckjet": "Rear-engine jet",
+    "turboprop": "Turboprop", "geschaeftsjet": "Business jet", "kleinflugzeug": "Light aircraft", "hubschrauber": "Helicopter",
+    "militaer": "Military jet", "unbekannt": "Aircraft"
+  };
+  var DE = {
+    "regeln": "Karten mischen und gleichmäßig verteilen; jeder hält seinen Stapel verdeckt. Wer am Zug ist, nennt einen Wert " +
+      "seiner obersten Karte und die Spalte, etwa „Höhe, Maximum“. Bei Maximum gewinnt der größte Wert, bei Minimum der kleinste, " +
+      "bei Sinken/Steigen jeweils der stärkere. Der Gewinner bekommt alle aufgedeckten Karten und ist wieder am Zug. " +
+      "Wer alle Karten hat, gewinnt. Quartett-Variante: vier Karten einer Nummer (A–D) sammeln.",
+    "a4kopf": "Karten in Originalgröße {B} × {H} mm. An den Ecken ausschneiden, an der gestrichelten Oberkante nach hinten falten, zusammenkleben.",
+    "seite": "Seite {n} von {m}",
+    "hoehe_max": "Höchste Höhe", "hoehe_min": "Niedrigste Höhe", "geschw_max": "Schnellstes", "geschw_min": "Langsamstes",
+    "steig_max": "Stärkstes Steigen", "sink_max": "Stärkstes Sinken", "km_max": "Weiteste Entfernung", "km_min": "Nächste Entfernung"
+  };
+  // T: Text in der gewählten Sprache; Schlüssel ist der deutsche Text.
+  function T(s, werte) {
+    var r = SPR === "en" ? (EN[s] != null ? EN[s] : s) : (DE[s] != null ? DE[s] : s);
+    if (werte) Object.keys(werte).forEach(function (k) { r = r.split("{" + k + "}").join(werte[k]); });
+    return r;
+  }
+  function katTitel(schl, ersatz) { return T(schl) !== schl ? T(schl) : (ersatz || schl); }
+  // Zeitraumtitel aus dem Code: 20261114 · 2026W46 · 202611 · 2026
+  var MONATE = { de: ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
+    en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"] };
+  function zeitraumTitel(code, ersatz) {
+    code = String(code || ""); var en = SPR === "en", m;
+    if (/^\d{8}$/.test(code)) return en ? (+code.slice(6)) + " " + MONATE.en[+code.slice(4, 6) - 1].slice(0, 3) + " " + code.slice(0, 4) : "Tag " + code.slice(6) + "." + code.slice(4, 6) + "." + code.slice(0, 4);
+    if ((m = code.match(/^(\d{4})W(\d{2})$/))) return (en ? "Week " : "KW ") + (+m[2]) + "/" + m[1];
+    if (/^\d{6}$/.test(code)) return MONATE[en ? "en" : "de"][+code.slice(4) - 1] + " " + code.slice(0, 4);
+    if (/^\d{4}$/.test(code)) return (en ? "Year " : "Jahr ") + code;
+    return ersatz || code;
+  }
+  // Texte vom Node (Urheberzeile, Quellen) auf Englisch
+  function nodeText(s) {
+    if (SPR !== "en" || !s) return s;
+    return String(s).replace(/^Foto: /, "Photo: ").replace(/^KI-erzeugt, kein Foto/, "AI-generated, not a photo")
+      .replace(/ · bearbeitet, /, " · modified, ").replace(/ · bearbeitet$/, " · modified").replace(/ · zugeschnitten$/, " · cropped")
+      .replace("SBS-Datenstrom", "SBS stream").replace("unbekannt", "unknown");
+  }
+
   var KLASSE_NAME = {
     grossraum: "Großraumjet", vierstrahler: "Vierstrahliger Jet", mittelstrecke: "Mittelstreckenjet", heckjet: "Jet mit Hecktriebwerken",
     turboprop: "Turboprop", geschaeftsjet: "Geschäftsreisejet", kleinflugzeug: "Kleinflugzeug", hubschrauber: "Hubschrauber",
@@ -71,8 +134,8 @@
   }
 
   // ── Formatierung ─────────────────────────────────────────────────────────
-  function tausend(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, "."); }
-  function komma(n, st) { return n.toFixed(st).replace(".", ","); }
+  function tausend(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, SPR === "en" ? "," : "."); }
+  function komma(n, st) { return SPR === "en" ? n.toFixed(st) : n.toFixed(st).replace(".", ","); }
   function wertText(art, w) {
     if (!w) return "–";
     switch (art) {
@@ -86,9 +149,9 @@
   }
   function rekordText(k) {
     var v = (k.moment || {}).v, e = k.einheit || "";
-    if (v == null) return k.kategorie_titel;
+    if (v == null) return katTitel(k.kategorie, k.kategorie_titel);
     var s = e === "m" || e === "km/h" ? tausend(v) : e === "m/s" ? (v > 0 ? "+" : "–") + komma(Math.abs(v), 1) : komma(v, 1);
-    return k.kategorie_titel + " " + s + " " + e;
+    return katTitel(k.kategorie, k.kategorie_titel) + " " + s + " " + e;
   }
   function kuerzen(doc, t, breite) {
     t = String(t || "");
@@ -236,9 +299,9 @@
     if ((k.foto && k.foto.ki) || /^KI-erzeugt/.test(c)) return "";
     if (/·\s*(CC0[^·]*|Public domain|PD[^·]*)\s*·/i.test(c)) return "";
     var sa = c.match(/·\s*(CC BY-SA[^·]*?)\s*·/i);
-    if (sa) return "bearbeitet, " + sa[1].trim();
-    if (/·\s*CC BY[^·]*·/i.test(c)) return "bearbeitet";
-    return "bearbeitet";
+    if (sa) return T("bearbeitet, ") + sa[1].trim();
+    if (/·\s*CC BY[^·]*·/i.test(c)) return T("bearbeitet");
+    return T("bearbeitet");
   }
   // Grundlinie für Text, der in einem Feld (oben, Höhe) senkrecht mittig steht:
   // halbe Feldhöhe plus halbe Großbuchstabenhöhe (≈ 0,7 der Schriftgröße).
@@ -250,7 +313,10 @@
   function mitte(doc, s, x, y) { doc.text(s, x - doc.getTextWidth(s) / 2, y); }
 
   // ── Vorderseite (Vektor) ─────────────────────────────────────────────────
-  function koordinate(v, pos, neg) { return v == null ? "" : komma(Math.abs(v), 4) + "° " + (v >= 0 ? pos : neg); }
+  function koordinate(v, pos, neg) {
+    if (SPR === "en") { pos = pos === "O" ? "E" : pos; neg = neg === "O" ? "E" : neg; }
+    return v == null ? "" : komma(Math.abs(v), 4) + "° " + (v >= 0 ? pos : neg);
+  }
   // Flughafen kurz (Code) und lesbar (Name, Stadt, Land) – R882.
   function flughafenLang(f) {
     if (!f) return "";
@@ -258,7 +324,7 @@
     var zusatz = [f.stadt && f.name && f.name.indexOf(f.stadt) < 0 ? f.stadt : "", f.land || ""].filter(Boolean).join(", ");
     return name + (zusatz ? " (" + zusatz + ")" : "");
   }
-  var QUELLE_NAME = { empfang: "Empfang", flugzeug: "Flugzeug", route: "Route" };
+  var QUELLE_NAME = { empfang: "Empfang", flugzeug: "Flugzeug", route: "Route" }; // über T() übersetzt
 
   // Ein Feld der Wertetabelle: Wert rechtsbündig, Zeitstempel klein darunter.
   function zelle(doc, art, w, rechtsX, zy, hervor, f) {
@@ -288,9 +354,9 @@
     }
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(15);
     doc.text(k.nr, x + 4, y + 9);
-    doc.setFontSize(6.2); rechts(doc, k.kategorie_titel.toUpperCase(), x + B - 4, y + 5.2);
+    doc.setFontSize(6.2); rechts(doc, katTitel(k.kategorie, k.kategorie_titel).toUpperCase(), x + B - 4, y + 5.2);
     doc.setFont("helvetica", "normal"); doc.setFontSize(5.4);
-    rechts(doc, KLASSE_NAME[k.klasse] || "Flugzeug", x + B - 4, y + 9.2);
+    rechts(doc, SPR === "en" ? T(k.klasse || "unbekannt") : (KLASSE_NAME[k.klasse] || "Flugzeug"), x + B - 4, y + 9.2);
     // ── Bildfeld (R886): das Bild als Hintergrund der oberen Hälfte, der Text
     // darauf mit hellem Schein. Zuschneiden ist eine Bearbeitung: Gemeinfreie,
     // CC0- und KI-Bilder füllen das Feld; CC BY ebenfalls, mit „zugeschnitten“
@@ -299,7 +365,7 @@
     // Bildfeld 33 mm bei 88 mm Kartenhöhe; jede zusätzliche Höhe geht ins Bild (R890).
     var fx = rand ? x - rand : x + 0.6, fy = y + 11.6, fw = rand ? B + 2 * rand : B - 1.2, fh = 33 + (H - 88);
     doc.setFillColor(232, 241, 250); doc.rect(fx, fy, fw, fh, "F");
-    var credit = k.foto ? k.foto.credit : "";
+    var credit = k.foto ? nodeText(k.foto.credit) : "";
     if (k._foto) {
       // Immer auf volle Kartenbreite (R887); Überstand oben/unten mittig abgeschnitten.
       var sc = Math.max(fw / k._foto.w, fh / k._foto.h), bw = k._foto.w * sc, bhh = k._foto.h * sc;
@@ -314,12 +380,12 @@
       doc.addImage(bild, /^data:image\/jpeg/.test(bild) ? "JPEG" : "PNG", x + (B - sw) / 2, fy + 9.5 + (fh - 33) / 2, sw, sh, "silh-" + (k.klasse || "unbekannt"), "FAST");
     }
     // Typ, Kennzeichen, Rufzeichen, Betreiber – oben, mit Schein
-    var typ = k.typ || (k.icao ? "Typ " + k.icao : "Unbekannter Typ");
+    var typ = k.typ || (k.icao ? T("Typ ") + k.icao : T("Unbekannter Typ"));
     if (k.hersteller && typ.toUpperCase().indexOf(k.hersteller.toUpperCase().split(" ")[0]) < 0 && k.hersteller.length < 18) typ = k.hersteller.split(" ")[0] + " " + typ;
     doc.setFont("helvetica", "bold"); doc.setFontSize(8.6);
     schein(doc, kuerzen(doc, typ, B - 8), x + 4, fy + 4.8, 8.6, [20, 23, 30]);
     doc.setFont("helvetica", "normal"); doc.setFontSize(5.6);
-    schein(doc, kuerzen(doc, [k.kennzeichen, k.flug, k.betreiber || k.airline].filter(Boolean).join(" · ") || "ohne Kennzeichen", B - 8), x + 4, fy + 8.0, 5.6, [45, 50, 62]);
+    schein(doc, kuerzen(doc, [k.kennzeichen, k.flug, k.betreiber || k.airline].filter(Boolean).join(" · ") || T("ohne Kennzeichen"), B - 8), x + 4, fy + 8.0, 5.6, [45, 50, 62]);
     // Flugverbindung am unteren Bildrand (R887), darunter die Urheberzeile
     if (k.von && k.nach) {
       doc.setFont("helvetica", "bold"); doc.setFontSize(6.4);
@@ -328,7 +394,7 @@
       schein(doc, kuerzen(doc, flughafenLang(k.von) + "  ›  " + flughafenLang(k.nach), B - 8), x + 4, fy + fh - 3.7, 4.1, [55, 60, 72]);
     } else {
       doc.setFont("helvetica", "normal"); doc.setFontSize(4.8);
-      schein(doc, k.route || "Route unbekannt", x + 4, fy + fh - 3.9, 4.8, [90, 95, 108]);
+      schein(doc, k.route || T("Route unbekannt"), x + 4, fy + fh - 3.9, 4.8, [90, 95, 108]);
     }
     if (credit) {
       doc.setFont("helvetica", "normal"); doc.setFontSize(3.3);
@@ -339,7 +405,7 @@
     var ry = fy + fh + 0.9;
     doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 3, ry, B - 6, 4.4, 1.2, 1.2, "F");
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5.4);
-    mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k), B - 8), x + B / 2, senkrechtMitte(ry, 4.4, 5.4));
+    mitte(doc, kuerzen(doc, T("Rekord · ") + rekordText(k), B - 8), x + B / 2, senkrechtMitte(ry, 4.4, 5.4));
     // Wertetabelle: Minimum und Maximum mit Zeitstempel (Steigen/Sinken: beide Richtungen)
     var ty = ry + 5.0, spMin = x + B - 23, spMax = x + B - 4.5, zh = 5.6;
     doc.setFont("helvetica", "bold"); doc.setFontSize(3.8); doc.setTextColor(130, 135, 148);
@@ -352,7 +418,7 @@
       doc.setFont("helvetica", "bold"); doc.setFontSize(5.8);
       var aktiv = k.kategorie === z[2] || k.kategorie === z[3];
       if (aktiv) doc.setTextColor(f[0], f[1], f[2]); else doc.setTextColor(45, 48, 58);
-      doc.text(z[0] === "steig" ? "Sinken/Steigen" : z[1], x + 4.5, zy + 3.6);
+      doc.text(T(z[0] === "steig" ? "Sinken/Steigen" : z[1]), x + 4.5, zy + 3.6);
       zelle(doc, z[0], w.min, spMin, zy, k.kategorie === z[2], f);
       zelle(doc, z[0], w.max, spMax, zy, k.kategorie === z[3], f);
     });
@@ -360,11 +426,11 @@
     var my = ty + 2.2 + 4 * zh + 2.0;
     doc.setFont("helvetica", "normal"); doc.setFontSize(3.9); doc.setTextColor(70, 76, 90);
     var zeilenMeta = [
-      "Beim Rekord: " + ([m.kurs != null ? "Kurs " + Math.round(m.kurs) + "°" : "", m.squawk ? "Squawk " + m.squawk : "",
+      T("Beim Rekord: ") + ([m.kurs != null ? T("Kurs ") + Math.round(m.kurs) + "°" : "", m.squawk ? "Squawk " + m.squawk : "",
         m.lat != null ? koordinate(m.lat, "N", "S") + " " + koordinate(m.lon, "O", "W") : ""].filter(Boolean).join(" · ") || "–"),
-      [k.halter ? "Halter " + k.halter + (k.land ? " (" + k.land + ")" : "") : "", k.airline && k.airline !== k.betreiber ? "Airline " + k.airline : ""].filter(Boolean).join(" · "),
-      k.erste ? "Erfasst " + k.erste + " – " + k.letzte + (k.meldungen ? " · " + tausend(k.meldungen) + " Meldungen" : "") : "",
-      "Quellen: " + (Object.keys(k.quellen || {}).sort().map(function (q) { return (QUELLE_NAME[q] || q) + " " + k.quellen[q]; }).join(" · ") || "–")
+      [k.halter ? T("Halter ") + k.halter + (k.land ? " (" + k.land + ")" : "") : "", k.airline && k.airline !== k.betreiber ? "Airline " + k.airline : ""].filter(Boolean).join(" · "),
+      k.erste ? T("Erfasst ") + k.erste + " – " + k.letzte + (k.meldungen ? " · " + tausend(k.meldungen) + T(" Meldungen") : "") : "",
+      T("Quellen: ") + (Object.keys(k.quellen || {}).sort().map(function (q) { return T(QUELLE_NAME[q] || q) + " " + nodeText(k.quellen[q]); }).join(" · ") || "–")
     ].filter(Boolean);
     zeilenMeta.forEach(function (zl, i) { doc.text(kuerzen(doc, zl, B - 8), x + 4, my + i * 1.85); });
     // Fuß (R889): aufnehmender Knoten mit seinen Fundus-Koordinaten; 3,4 mm vom
@@ -372,7 +438,7 @@
     doc.setFont("helvetica", "normal"); doc.setFontSize(3.9); doc.setTextColor(130, 135, 148);
     doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 3.4);
     var auf = k.aufnahme || kontext.aufnahme || {};
-    var ort = auf.lat != null && (auf.lat !== 0 || auf.lon !== 0) ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") : "Standort unbekannt";
+    var ort = auf.lat != null && (auf.lat !== 0 || auf.lon !== 0) ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") : T("Standort unbekannt");
     rechts(doc, kuerzen(doc, (auf.node ? auf.node + " · " : "") + ort, B - 26), x + B - 4, y + H - 3.4);
   }
 
@@ -520,35 +586,32 @@
     }
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(13);
     mitte(doc, kontext.spiel, x + B / 2, y + 9.6);
-    doc.setFontSize(6.4); mitte(doc, "Best of " + (kontext.code || "") + " · " + (kontext.titel || ""), x + B / 2, y + 14.6);
+    doc.setFontSize(6.4); mitte(doc, "Best of " + (kontext.code || "") + " · " + zeitraumTitel(kontext.code, kontext.titel), x + B / 2, y + 14.6);
     doc.setFont("helvetica", "normal"); doc.setFontSize(4.6); mitte(doc, "FUNDUS · TKM x HELIX", x + B / 2, y + 19.0);
     // Die acht Quartette
     var qy = y + 27;
     doc.setFont("helvetica", "bold"); doc.setFontSize(6.2); doc.setTextColor(30, 30, 30);
-    doc.text("Die Quartette", x + 4, qy);
+    doc.text(T("Die Quartette"), x + 4, qy);
     KATEGORIEN.forEach(function (kat, i) {
       var zy = qy + 2.2 + i * 4.0, f = KAT_FARBE[kat[0]] || [80, 80, 80];
       doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 4, zy + 0.4, 9, 3.0, 0.8, 0.8, "F");
       doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5);
       mitte(doc, kontext.anzahl === 32 ? String(i + 1) : (2 * i + 1) + "·" + (2 * i + 2), x + 8.5, zy + 2.6);
       doc.setTextColor(40, 40, 40); doc.setFontSize(5.6); doc.setFont("helvetica", "normal");
-      doc.text(kat[1], x + 15, zy + 2.7);
+      doc.text(katTitel(kat[0], kat[1]), x + 15, zy + 2.7);
     });
     // Spielregeln
     var ry = qy + 2.2 + 8 * 4.0 + 3.4;
     doc.setFont("helvetica", "bold"); doc.setFontSize(6.2); doc.setTextColor(30, 30, 30);
-    doc.text("Spielregeln", x + 4, ry);
+    doc.text(T("Spielregeln"), x + 4, ry);
     doc.setFont("helvetica", "normal"); doc.setFontSize(4.5); doc.setTextColor(50, 50, 50);
-    var regeln = "Karten mischen und gleichmäßig verteilen; jeder hält seinen Stapel verdeckt. Wer am Zug ist, nennt einen Wert " +
-      "seiner obersten Karte und die Spalte, etwa „Höhe, Maximum“. Bei Maximum gewinnt der größte Wert, bei Minimum der kleinste, " +
-      "bei Sinken/Steigen jeweils der stärkere. Der Gewinner bekommt alle aufgedeckten Karten und ist wieder am Zug. " +
-      "Wer alle Karten hat, gewinnt. Quartett-Variante: vier Karten einer Nummer (A–D) sammeln.";
+    var regeln = T("regeln");
     doc.splitTextToSize(sicher(regeln), B - 8).forEach(function (zl, i) { doc.text(zl, x + 4, ry + 2.6 + i * 1.95); });
     // Herkunft der Daten
     var auf = kontext.aufnahme || {};
     doc.setFontSize(3.9); doc.setTextColor(120, 120, 120);
-    doc.text(kuerzen(doc, (kontext.flugzeuge ? tausend(kontext.flugzeuge) + " Flugzeuge aufgezeichnet · " : "") + "ADS-B-Empfang " + (auf.node || kontext.node || ""), B - 8), x + 4, y + H - 5.4);
-    doc.text(kuerzen(doc, auf.lat != null ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") + " · Typen adsbdb/hexdb · Routen adsb.lol" : "Typen adsbdb/hexdb · Routen adsb.lol", B - 8), x + 4, y + H - 3.4);
+    doc.text(kuerzen(doc, (kontext.flugzeuge ? tausend(kontext.flugzeuge) + T(" Flugzeuge aufgezeichnet · ADS-B-Empfang ") : "ADS-B " ) + (auf.node || kontext.node || ""), B - 8), x + 4, y + H - 5.4);
+    doc.text(kuerzen(doc, auf.lat != null ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") + " · " + T("Typen adsbdb/hexdb · Routen adsb.lol") : T("Typen adsbdb/hexdb · Routen adsb.lol"), B - 8), x + 4, y + H - 3.4);
   }
 
   function schnittmarken(doc, x, y, w, h) {
@@ -602,6 +665,7 @@
   function erzeugen(daten, format, fortschritt, opt) {
     var jsPDF = window.jspdf.jsPDF;
     var masse = { "63x88": [63, 88], "59x91": [59, 91] }[(opt && opt.groesse) || "63x88"] || [63, 88];
+    SPR = opt && opt.sprache === "en" ? "en" : "de"; // R894
     B = masse[0]; H = masse[1];
     var karten = daten.karten || [];
     var anzahl = daten.anzahl === 32 || (!daten.anzahl && karten.length <= 32) ? 32 : 64;
@@ -649,8 +713,8 @@
           if (i > 0 && reihe === 0) doc.addPage("a4");
           if (reihe === 0) {
             doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(110);
-            doc.text(kontext.spiel + " · " + daten.code + " · " + daten.titel + " · Seite " + (Math.floor(i / proSeite) + 1) + " von " + seiten, 105, 12, { align: "center" });
-            doc.text("Karten in Originalgröße " + B + " × " + H + " mm. An den Ecken ausschneiden, an der gestrichelten Oberkante nach hinten falten, zusammenkleben.", 105, 17, { align: "center" });
+            doc.text(kontext.spiel + " · " + daten.code + " · " + zeitraumTitel(daten.code, daten.titel) + " · " + T("seite", { n: Math.floor(i / proSeite) + 1, m: seiten }), 105, 12, { align: "center" });
+            doc.text(T("a4kopf", { B: B, H: H }), 105, 17, { align: "center" });
           }
           var y = y0 + reihe * (B + abstand), falz = x0 + H;
           if (druck && reihe === 0) {

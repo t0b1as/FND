@@ -167,6 +167,7 @@ return function()
     <input type="date" id="ae-q-datum">
     <select id="ae-q-anzahl"><option value="64">FLIGHT QUAD 64 (64 Karten)</option><option value="32">FLIGHT QUAD 32 (32 Karten)</option></select>
     <select id="ae-q-groesse"><option value="63x88">63 × 88 mm</option><option value="59x91">59 × 91 mm</option></select>
+    <select id="ae-q-sprache" title="Sprache der Karten"><option value="de">Deutsch</option><option value="en">English</option></select>
     <select id="ae-q-format"><option value="karten">Einzelkarten mit 3 mm Beschnitt (RGB)</option><option value="druckerei">Druckerei: wie Einzelkarten, PDF/X-1a (CMYK)</option><option value="a4">DIN A4 zum Ausschneiden und Falten (RGB)</option><option value="a4_druck">DIN A4 zum Ausschneiden und Falten, PDF/X-1a (CMYK)</option></select>
     <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button>
     <button type="button" class="btn-sm" id="ae-q-abbrechen" style="display:none">Umwandlung abbrechen</button>
@@ -827,7 +828,7 @@ return function()
 
   $('ae-q-los').onclick = function(){
     var knopf = this, datum = $('ae-q-datum').value.replace(/-/g, ''), zeitraum = $('ae-q-zeitraum').value, format = $('ae-q-format').value;
-    var anzahl = $('ae-q-anzahl').value, groesse = $('ae-q-groesse').value;
+    var anzahl = $('ae-q-anzahl').value, groesse = $('ae-q-groesse').value, sprache = $('ae-q-sprache').value;
     if (!/^\d{8}$/.test(datum)) { $('ae-q-meldung').textContent = 'Bitte ein Datum wählen.'; return; }
     knopf.disabled = true; $('ae-q-meldung').textContent = 'Werte Rekorde aus und schlage Flugzeugtypen nach …';
     var bilder = $('ae-q-bilder').value, bekannt = $('ae-q-bekannt').checked;
@@ -838,9 +839,9 @@ return function()
         if (!d.karten || !d.karten.length) throw new Error(d.hinweis || 'Keine Daten für diesen Zeitraum.');
         $('ae-q-meldung').textContent = 'Erzeuge PDF …';
         return skript('/static/jspdf.umd.min.js').then(function(){ return skript('/static/quartett-farben.js'); }).then(function(){ return skript('/static/quartett.js'); }).then(function(){
-          return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; }, { groesse: groesse });
+          return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; }, { groesse: groesse, sprache: sprache });
         }).then(function(doc){
-          var name = 'FlightQuad' + (d.anzahl || anzahl) + '-' + d.code + '-' + groesse;
+          var name = 'FlightQuad' + (d.anzahl || anzahl) + '-' + d.code + '-' + groesse + (sprache === 'en' ? '-EN' : '');
           if (format === 'druckerei' || format === 'a4_druck') return druckdatei(doc, d, name + (format === 'a4_druck' ? '-A4' : ''), groesse, format);
           doc.save(name + (format === 'a4' ? '-A4' : '') + '.pdf');
           return '';
@@ -939,6 +940,8 @@ return function()
     this.textContent = auf ? 'Typenliste schließen' : 'Typen & Bilder durchsehen';
     if (auf) typenLaden();
   };
+  // R894: Kartensprache – voreingestellt wie die Oberfläche
+  if (/^en/i.test(document.documentElement.lang || '')) $('ae-q-sprache').value = 'en';
   $('ae-q-abbrechen').onclick = function(){
     var id = this.dataset.id; if (!id) return;
     fetch('/api/v1/admin/aeronautik/druckdatei/' + id + '/abbrechen', { method: 'POST', credentials: 'same-origin' });
