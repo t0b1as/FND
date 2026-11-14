@@ -53,6 +53,7 @@ func (s *Server) registerAdminRoutes() {
 		g.GET("/ki/bild",          s.kiBildGet) // R873: Bilderzeugung (ComfyUI)
 		g.POST("/ki/bild",         s.kiBildSet)
 		g.POST("/ki/bild/test",    s.kiBildTest)
+		g.POST("/aeronautik/aufzeichnung", s.flugEinstellen) // R877: Flugdaten aufzeichnen
 		g.POST("/update/check",    s.updateCheck)
 		g.POST("/update/apply",    s.updateApply)
 		g.POST("/update/auto",     s.updateAutoSet)   // Automatik umschalten (R664)

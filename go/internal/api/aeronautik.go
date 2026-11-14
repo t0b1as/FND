@@ -68,6 +68,7 @@ type aeroRoute struct {
 
 type aeroFlugzeug struct {
 	Typ         string `json:"typ,omitempty"`
+	ICAO        string `json:"icao,omitempty"` // R877: ICAO-Typcode (A320, B738, EC35) – für die Silhouette auf Quartettkarten
 	Hersteller  string `json:"hersteller,omitempty"`
 	Kennzeichen string `json:"kennzeichen,omitempty"`
 	Halter      string `json:"halter,omitempty"`
@@ -132,7 +133,7 @@ func (s *Server) aeroNachschlagen() {
 				aeroAnbieterOK("adsbdb")
 				verbindlich = true
 				if ac := mapAus(mapAus(d["response"])["aircraft"]); code == http.StatusOK && ac != nil {
-					fz = &aeroFlugzeug{Typ: aeroText(ac, "type"), Hersteller: aeroText(ac, "manufacturer"),
+					fz = &aeroFlugzeug{Typ: aeroText(ac, "type"), ICAO: aeroText(ac, "icao_type"), Hersteller: aeroText(ac, "manufacturer"),
 						Kennzeichen: aeroText(ac, "registration"), Halter: aeroText(ac, "registered_owner")}
 				}
 			}
@@ -146,7 +147,7 @@ func (s *Server) aeroNachschlagen() {
 				aeroAnbieterOK("hexdb")
 				verbindlich = true
 				if code == http.StatusOK && d != nil && aeroText(d, "Registration") != "" {
-					fz = &aeroFlugzeug{Typ: aeroText(d, "Type"), Hersteller: aeroText(d, "Manufacturer"),
+					fz = &aeroFlugzeug{Typ: aeroText(d, "Type"), ICAO: aeroText(d, "ICAOTypeCode"), Hersteller: aeroText(d, "Manufacturer"),
 						Kennzeichen: aeroText(d, "Registration"), Halter: aeroText(d, "RegisteredOwners")}
 				}
 			}
@@ -306,10 +307,13 @@ func (s *Server) aeroLokal() []byte {
 			}
 			aeroRouteVormerken(flug, pLat, pLon)
 		}
+		if t := aeroText(a, "t"); t != "" {
+			e["icao_typ"] = t // R877: Typcode direkt von readsb
+		}
 		if g, ok := aeroGeraete[hex]; ok && g.flugzeug != nil {
 			e["flugzeug"] = g.flugzeug
 		} else if reg := aeroText(a, "r"); reg != "" {
-			e["flugzeug"] = &aeroFlugzeug{Kennzeichen: reg, Typ: aeroText(a, "t")}
+			e["flugzeug"] = &aeroFlugzeug{Kennzeichen: reg, Typ: aeroText(a, "t"), ICAO: aeroText(a, "t")}
 		}
 		aeroVormerken("f", hex, aeroGeraete)
 		flieger = append(flieger, e)
@@ -458,6 +462,7 @@ func (s *Server) aeroEinrichtung(c *gin.Context) {
 }
 
 func (s *Server) registerAeronautik(r *gin.Engine) {
+	s.registerFlugdaten(r) // R877: Aufzeichnung, Wiedergabe, Flugquartett
 	r.GET("/api/v1/aeronautik/live", s.aeroLive)
 	r.GET("/api/v1/aeronautik/einrichtung", s.aeroEinrichtung)
 	if s.node != nil {

@@ -53,6 +53,16 @@ return function()
 .ae-reiter { display:flex; gap:6px; margin:0 0 10px; flex-wrap:wrap; }
 .ae-reiter button { padding:7px 14px; border-radius:18px; border:1px solid var(--border); background:rgba(26,29,39,.4); color:var(--muted); cursor:pointer; font-size:13.5px; }
 .ae-reiter button.aktiv { border-color:#5ec8ff; color:#5ec8ff; background:rgba(94,200,255,.1); }
+/* R877: Aufzeichnung, Wiedergabe, Quartett */
+.ae-werkzeuge { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin:0 0 10px; }
+.ae-werkzeuge button { padding:6px 12px; border-radius:16px; border:1px solid var(--border); background:rgba(26,29,39,.4); color:var(--text); cursor:pointer; font-size:13px; }
+.ae-werkzeuge button.aktiv { border-color:#5ec8ff; color:#5ec8ff; }
+.ae-werkzeuge .rec { color:#ff5a5a; }
+.ae-panel { margin:0 0 12px; }
+.ae-panel .zeile { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:6px 0; font-size:13.5px; }
+.ae-panel select, .ae-panel input[type=date], .ae-panel input[type=number] { padding:6px 8px; border-radius:8px; font-size:14px; }
+.ae-wg-regler { flex:1; min-width:180px; }
+.ae-wg-zeit { font-variant-numeric:tabular-nums; font-weight:600; min-width:70px; }
 .ae-modus { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 12px; margin:0 0 12px; border-radius:10px;
   border:1px solid var(--border); font-size:13px; color:var(--muted); background:rgba(26,29,39,.25); }
 .ae-modus b { color:var(--text); }
@@ -100,6 +110,52 @@ return function()
 <div id="ae-ort" class="ae-karte ae-hinweis" style="display:none;margin-bottom:14px"></div>
 <div id="ae-nachrichten" class="ae-karte" style="display:none"><div class="ae-hinweis">Warte auf Funknachrichten …</div></div>
 <div id="ae-wetter" style="display:none"><div class="ae-hinweis">Lade Wettersatelliten …</div></div>
+<div id="ae-werkzeuge-wrap">
+<div class="ae-werkzeuge">
+  <button type="button" id="ae-w-auf">⏺ Aufzeichnung</button>
+  <button type="button" id="ae-w-wieder">▶ Wiedergabe</button>
+  <button type="button" id="ae-w-quartett">🃏 Flugquartett</button>
+  <span class="ae-hinweis" id="ae-w-status"></span>
+</div>
+<div id="ae-p-auf" class="ae-karte ae-panel" style="display:none">
+  <h3>Flugdaten aufzeichnen</h3>
+  <div class="ae-hinweis" id="ae-auf-quelle" style="margin-bottom:6px"></div>
+  <div class="zeile"><label><input type="checkbox" id="ae-auf-an"> Quartett-Tabellen pflegen (Tag, Woche, Monat, Jahr)</label></div>
+  <div class="zeile"><label><input type="checkbox" id="ae-auf-spuren"> Spuren für die Wiedergabe aufzeichnen</label>
+    <select id="ae-auf-takt"><option value="0">jede Meldung</option><option value="1">jede Sekunde</option><option value="2">alle 2 s</option><option value="5">alle 5 s</option><option value="10">alle 10 s</option></select>
+    aufbewahren <input type="number" id="ae-auf-tage" min="1" max="3650" style="width:70px"> Tage</div>
+  <div class="zeile"><label><input type="checkbox" id="ae-auf-luft"> Tiefstwerte (niedrigste Höhe, langsamstes, nächstes) nur in der Luft</label></div>
+  <div class="zeile"><label><input type="checkbox" id="ae-f-an"> Plausibilitätsfilter</label></div>
+  <div class="zeile" id="ae-f-werte">
+    ab <input type="number" id="ae-f-min" min="1" max="100" style="width:56px"> Meldungen ·
+    Höhe ≤ <input type="number" id="ae-f-hoehe" style="width:76px"> m ·
+    Sprung ≤ <input type="number" id="ae-f-sprung" style="width:66px"> m/15 s ·
+    ≤ <input type="number" id="ae-f-geschw" style="width:66px"> km/h ·
+    |Steigen| ≤ <input type="number" id="ae-f-steig" style="width:56px"> m/s ·
+    ≤ <input type="number" id="ae-f-km" style="width:62px"> km</div>
+  <div class="ae-hinweis" id="ae-auf-info"></div>
+  <div class="zeile"><button type="button" class="btn btn-primary" id="ae-auf-speichern" style="width:auto">Speichern</button><span class="ae-hinweis" id="ae-auf-meldung"></span></div>
+</div>
+<div id="ae-p-wieder" class="ae-karte ae-panel" style="display:none">
+  <h3>Wiedergabe</h3>
+  <div class="zeile"><select id="ae-wg-tag"></select>
+    <button type="button" class="btn-sm" id="ae-wg-spiel">▶ Abspielen</button>
+    <select id="ae-wg-tempo"><option value="1">1×</option><option value="10" selected>10×</option><option value="60">60×</option><option value="300">300×</option></select>
+    <button type="button" class="btn-sm" id="ae-wg-live">Zurück zu Live</button></div>
+  <div class="zeile"><span class="ae-wg-zeit" id="ae-wg-zeit">--:--</span><input type="range" class="ae-wg-regler" id="ae-wg-regler" min="0" max="1439" step="1" value="0"></div>
+  <div class="ae-hinweis" id="ae-wg-hinweis"></div>
+</div>
+<div id="ae-p-quartett" class="ae-karte ae-panel" style="display:none">
+  <h3>Flugquartett</h3>
+  <div class="ae-hinweis" style="margin-bottom:6px">64 Karten aus den aufgezeichneten Rekorden: je acht Flugzeuge mit der größten und kleinsten Höhe, Geschwindigkeit, Steig- bzw. Sinkrate und Entfernung. Die Spielwerte sind die Höchstwerte jedes Flugzeugs, jeweils mit Zeitstempel.</div>
+  <div class="zeile"><select id="ae-q-zeitraum"><option value="tag">Tag</option><option value="woche">Woche</option><option value="monat">Monat</option><option value="jahr">Jahr</option></select>
+    <input type="date" id="ae-q-datum">
+    <select id="ae-q-format"><option value="karten">Spielkarten 63 × 88 mm</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option></select>
+    <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button></div>
+  <div class="zeile"><label><input type="checkbox" id="ae-q-fotos" checked> Fotos der Flugzeugtypen von Wikimedia Commons (nur frei lizenziert, Urheber steht auf der Karte; sonst Silhouette)</label></div>
+  <div class="ae-hinweis" id="ae-q-meldung"></div>
+</div>
+</div>
 <div class="ae-wrap" id="ae-wrap">
   <div id="ae-karte"></div>
   <div class="ae-seite">
@@ -324,6 +380,7 @@ return function()
     $('ae-nachrichten').style.display = !aus && ansicht === 'nachrichten' ? '' : 'none';
     $('ae-wetter').style.display = !aus && ansicht === 'wetter' ? '' : 'none';
     $('ae-wrap').style.display = !aus && (ansicht === 'flug' || ansicht === 'schiffe') ? '' : 'none';
+    $('ae-werkzeuge-wrap').style.display = !aus && ansicht === 'flug' ? '' : 'none';
     if (aus) {
       var k = KOMP_FUER[ansicht], i = KOMP_INFO[k];
       $('ae-aus').innerHTML = '<h3>' + i[0] + ' ist nicht zugeschaltet</h3><div class="ae-hinweis">' + i[1] +
@@ -526,7 +583,7 @@ return function()
   }
 
   function laden(){
-    if (ansicht !== 'flug') { setTimeout(laden, 1000); return; } // R859: andere Ansicht aktiv
+    if (ansicht !== 'flug' || wg) { setTimeout(laden, 1000); return; } // R859: andere Ansicht · R877: Wiedergabe läuft
     fetch('/api/v1/aeronautik/live', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
       if (ansicht !== 'flug') return; // inzwischen andere Ansicht
       if (d.quelle === 'keine') {
@@ -536,6 +593,192 @@ return function()
     }).catch(function(){ $('ae-stand').textContent = 'Verbindung unterbrochen …'; })
       .then(function(){ setTimeout(laden, 1000); });
   }
+  // ── R877: Aufzeichnung, Wiedergabe, Flugquartett ─────────────────────────
+  var wg = null;  // laufende Wiedergabe
+  function zwei(n){ return (n < 10 ? '0' : '') + n; }
+  function tagText(t){ return t.slice(6, 8) + '.' + t.slice(4, 6) + '.' + t.slice(0, 4); }
+  function tagStart(t){ return new Date(+t.slice(0, 4), +t.slice(4, 6) - 1, +t.slice(6, 8)).getTime() / 1000; }
+  function panel(name){
+    ['auf', 'wieder', 'quartett'].forEach(function(n){
+      var offen = n === name && $('ae-p-' + n).style.display === 'none';
+      $('ae-p-' + n).style.display = offen ? '' : 'none';
+      $('ae-w-' + n).classList.toggle('aktiv', offen);
+    });
+  }
+  var uebersicht = null;
+  var QUELLE = { sbs: 'Echtzeit: SBS-Datenstrom von readsb', json: 'Ersatz: Bild im Sekundentakt (SBS-Port 30003 antwortet nicht)', keine: 'kein Empfänger' };
+  function uebersichtLaden(){
+    return fetch('/api/v1/aeronautik/aufzeichnung', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+      uebersicht = d;
+      var e = d.einstellungen || {}, f = e.filter || {}, an = e.aktiv || e.spuren;
+      $('ae-w-auf').innerHTML = an ? '<span class="rec">●</span> Aufzeichnung läuft' : '⏺ Aufzeichnung';
+      if (!$('ae-p-auf').dataset.bearbeitet) {
+        $('ae-auf-an').checked = !!e.aktiv; $('ae-auf-spuren').checked = !!e.spuren;
+        $('ae-auf-takt').value = String(e.spur_takt); $('ae-auf-tage').value = e.tage_behalten;
+        $('ae-auf-luft').checked = !!e.tief_nur_luft; $('ae-f-an').checked = !!f.an;
+        $('ae-f-min').value = f.min_meldungen; $('ae-f-hoehe').value = f.max_hoehe; $('ae-f-sprung').value = f.max_sprung;
+        $('ae-f-geschw').value = f.max_geschw; $('ae-f-steig').value = f.max_steig; $('ae-f-km').value = f.max_km;
+        $('ae-f-werte').style.opacity = f.an ? '' : '.45';
+      }
+      $('ae-auf-quelle').innerHTML = an ? '<b>' + esc(QUELLE[d.quelle] || d.quelle) + '</b> · ' + zahl(d.meldungen_s, 1) + ' Meldungen/s · ' + d.flugzeuge + ' Flugzeuge'
+        : (d.stick ? 'Aufzeichnung aus.' : 'Aufzeichnen kann nur ein Pi mit eigenem Empfänger.');
+      var tab = d.tabellen || [];
+      $('ae-auf-info').textContent = 'Belegt: ' + zahl(d.belegt_mb, 1) + ' MB · ' + d.spuren.length + ' Tag(e) mit Spuren · Tabellen: ' +
+        ['tag', 'woche', 'monat', 'jahr'].map(function(k){ return tab.filter(function(t){ return t.indexOf(k + '-') === 0; }).length + ' ' + { tag: 'Tage', woche: 'Wochen', monat: 'Monate', jahr: 'Jahre' }[k]; }).join(', ') +
+        '. Tabellen bleiben dauerhaft, Spuren nur so lange wie eingestellt. „Jede Meldung“ braucht ein Vielfaches an Speicher.';
+      var sel = $('ae-wg-tag'), alt = sel.value;
+      sel.innerHTML = d.spuren.length ? d.spuren.slice().reverse().map(function(t){ return '<option value="' + t + '">' + tagText(t) + '</option>'; }).join('') : '<option value="">keine Aufzeichnung</option>';
+      if (alt && d.spuren.indexOf(alt) >= 0) sel.value = alt;
+      return d;
+    }).catch(function(){});
+  }
+  // Während man tippt, nicht vom regelmäßigen Auffrischen überschreiben lassen.
+  ['ae-auf-an','ae-auf-spuren','ae-auf-takt','ae-auf-tage','ae-auf-luft','ae-f-an','ae-f-min','ae-f-hoehe','ae-f-sprung','ae-f-geschw','ae-f-steig','ae-f-km'].forEach(function(id){
+    $(id).addEventListener('input', function(){ $('ae-p-auf').dataset.bearbeitet = '1'; if (id === 'ae-f-an') $('ae-f-werte').style.opacity = this.checked ? '' : '.45'; });
+  });
+  $('ae-w-auf').onclick = function(){ panel('auf'); };
+  $('ae-w-wieder').onclick = function(){ panel('wieder'); };
+  $('ae-w-quartett').onclick = function(){ panel('quartett'); };
+  $('ae-auf-speichern').onclick = function(){
+    var n = function(id){ return +$(id).value; };
+    var e = { aktiv: $('ae-auf-an').checked, spuren: $('ae-auf-spuren').checked, spur_takt: n('ae-auf-takt'), tage_behalten: n('ae-auf-tage') || 30,
+      tief_nur_luft: $('ae-auf-luft').checked,
+      filter: { an: $('ae-f-an').checked, min_meldungen: n('ae-f-min'), max_hoehe: n('ae-f-hoehe'), max_sprung: n('ae-f-sprung'),
+        max_geschw: n('ae-f-geschw'), max_steig: n('ae-f-steig'), max_km: n('ae-f-km') } };
+    fetch('/api/v1/admin/aeronautik/aufzeichnung', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(e) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ return [r, d]; }); }).then(function(x){
+        var r = x[0], d = x[1];
+        $('ae-auf-meldung').textContent = r.status === 401 || r.status === 403 ? 'Nur der Eigentümer dieses Nodes kann das ändern.' : d.error ? '✗ ' + d.error : '✓ Gespeichert – gilt sofort';
+        if (r.ok) delete $('ae-p-auf').dataset.bearbeitet;
+        uebersichtLaden();
+      }).catch(function(){ $('ae-auf-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+
+  // Wiedergabe: eine Stunde laden, die nächste rechtzeitig nachladen, zwischen
+  // den Punkten gleiten, über zeichnen() darstellen wie im Live-Betrieb.
+  function wgFenster(tag, abSek){
+    var start = Math.max(0, Math.min(1439, Math.floor(abSek / 60)));
+    var ende = Math.min(1439, start + 60);
+    return { tag: tag, von: zwei(Math.floor(start / 60)) + zwei(start % 60), bis: zwei(Math.floor(ende / 60)) + zwei(ende % 60), ende: ende };
+  }
+  function wgNachladen(abSek, neu){
+    if (!wg || wg.lade) return;
+    var f = wgFenster(wg.tag, abSek);
+    if (f.von === f.bis) return;
+    wg.lade = true;
+    fetch('/api/v1/aeronautik/aufzeichnung/spur?tag=' + f.tag + '&von=' + f.von + '&bis=' + f.bis, { credentials: 'same-origin' })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (!wg) return;
+        if (d.error) { $('ae-wg-hinweis').textContent = d.error; return; }
+        if (neu) wg.spuren = {};
+        (d.punkte || []).forEach(function(p){
+          var a = wg.spuren[p[1]] || (wg.spuren[p[1]] = []);
+          if (!a.length || p[0] > a[a.length - 1][0]) a.push(p);
+        });
+        Object.keys(d.angaben || {}).forEach(function(h){ wg.angaben[h] = d.angaben[h]; });
+        wg.standort = d.standort; wg.node = d.node;
+        wg.geladenBis = tagStart(wg.tag) + f.ende * 60;
+        $('ae-wg-hinweis').textContent = '';
+      }).catch(function(){ $('ae-wg-hinweis').textContent = 'Spur nicht ladbar.'; })
+      .then(function(){ if (wg) wg.lade = false; });
+  }
+  function wgBild(){
+    if (!wg) return;
+    var t = wg.zeit, flieger = [];
+    Object.keys(wg.spuren).forEach(function(hex){
+      var a = wg.spuren[hex], lo = 0, hi = a.length - 1, i = -1;
+      while (lo <= hi) { var m = (lo + hi) >> 1; if (a[m][0] <= t) { i = m; lo = m + 1; } else hi = m - 1; }
+      if (i < 0 || t - a[i][0] > 60) return;   // noch nicht da oder schon weg
+      var p = a[i], q = a[i + 1], k = 0;
+      if (q && q[0] - p[0] <= 60) k = (t - p[0]) / (q[0] - p[0]);
+      var w = function(j){ return q && k ? p[j] + (q[j] - p[j]) * k : p[j]; };
+      var spur = [];
+      for (var j = Math.max(0, i - 40); j <= i; j++) if (t - a[j][0] < 600) spur.push([a[j][2], a[j][3]]);
+      var ang = wg.angaben[hex] || {};
+      var f = { hex: hex, flug: p[9] || '', lat: w(2), lon: w(3), geschw_kmh: p[5], kurs: p[6], steig_mmin: p[7], km: p[8], spur: spur,
+        flugzeug: ang.typ || ang.kennzeichen ? { typ: ang.typ, icao: ang.icao, kennzeichen: ang.kennzeichen } : undefined };
+      if (p[4] < 0) f.am_boden = true; else f.hoehe_m = Math.round(w(4));
+      flieger.push(f);
+    });
+    flieger.sort(function(a, b){ return (a.km == null ? 1e9 : a.km) - (b.km == null ? 1e9 : b.km); });
+    zeichnen({ quelle: 'lokal', standort: wg.standort, node: wg.node, zeit: t, flugzeuge: flieger });
+    var d = new Date(t * 1000), uhr = zwei(d.getHours()) + ':' + zwei(d.getMinutes()) + ':' + zwei(d.getSeconds());
+    $('ae-wg-zeit').textContent = uhr;
+    $('ae-stand').textContent = 'Wiedergabe ' + tagText(wg.tag) + ' ' + uhr + (wg.laeuft ? ' · ' + wg.tempo + '×' : ' · angehalten') + ' · ' + flieger.length + ' Flugzeuge';
+    $('ae-wg-regler').value = Math.floor((t - tagStart(wg.tag)) / 60);
+  }
+  function wgStarten(tag, minute){
+    if (!tag) return;
+    wg = { tag: tag, zeit: tagStart(tag) + minute * 60, spuren: {}, angaben: {}, laeuft: false, tempo: +$('ae-wg-tempo').value, geladenBis: 0 };
+    wgNachladen(minute * 60 - 120, true);
+  }
+  $('ae-wg-tag').onchange = function(){ wgStarten(this.value, +$('ae-wg-regler').value); };
+  $('ae-wg-regler').oninput = function(){
+    var tag = $('ae-wg-tag').value;
+    if (!tag) return;
+    if (!wg || wg.tag !== tag) { wgStarten(tag, +this.value); return; }
+    wg.zeit = tagStart(tag) + this.value * 60;
+    var sek = wg.zeit - tagStart(tag);
+    if (wg.zeit > wg.geladenBis || !Object.keys(wg.spuren).length) wgNachladen(sek - 120, true);
+    wgBild();
+  };
+  $('ae-wg-tempo').onchange = function(){ if (wg) wg.tempo = +this.value; };
+  $('ae-wg-spiel').onclick = function(){
+    if (!wg) wgStarten($('ae-wg-tag').value, +$('ae-wg-regler').value);
+    if (!wg) return;
+    wg.laeuft = !wg.laeuft;
+    this.textContent = wg.laeuft ? '⏸ Anhalten' : '▶ Abspielen';
+  };
+  $('ae-wg-live').onclick = function(){
+    wg = null; $('ae-wg-spiel').textContent = '▶ Abspielen';
+    $('ae-stand').textContent = 'zurück zu Live …';
+  };
+  setInterval(function(){
+    if (!wg) return;
+    if (wg.laeuft) {
+      wg.zeit += 0.25 * wg.tempo;
+      var tagEnde = tagStart(wg.tag) + 86400;
+      if (wg.zeit >= tagEnde) { wg.zeit = tagEnde - 1; wg.laeuft = false; $('ae-wg-spiel').textContent = '▶ Abspielen'; }
+      if (wg.geladenBis && wg.zeit > wg.geladenBis - 300) wgNachladen(wg.geladenBis - tagStart(wg.tag), false);
+    }
+    wgBild();
+  }, 250);
+
+  // Flugquartett: Daten vom Node, PDF im Browser (jsPDF erst bei Bedarf laden).
+  (function(){ var d = new Date(); $('ae-q-datum').value = d.getFullYear() + '-' + zwei(d.getMonth() + 1) + '-' + zwei(d.getDate()); })();
+  function skript(src){
+    return new Promise(function(ok, fehler){
+      if (document.querySelector('script[data-src="' + src + '"]')) return ok();
+      var s = document.createElement('script'); s.src = src + '?v=]==] .. render.rev() .. [==['; s.dataset.src = src;
+      s.onload = ok; s.onerror = function(){ fehler(new Error('Skript nicht ladbar: ' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+  $('ae-q-los').onclick = function(){
+    var knopf = this, datum = $('ae-q-datum').value.replace(/-/g, ''), zeitraum = $('ae-q-zeitraum').value, format = $('ae-q-format').value;
+    if (!/^\d{8}$/.test(datum)) { $('ae-q-meldung').textContent = 'Bitte ein Datum wählen.'; return; }
+    knopf.disabled = true; $('ae-q-meldung').textContent = 'Werte Rekorde aus und schlage Flugzeugtypen nach …';
+    var fotos = $('ae-q-fotos').checked;
+    if (fotos) $('ae-q-meldung').textContent = 'Werte Rekorde aus, schlage Typen nach und suche Fotos – beim ersten Mal bis zu einer Minute …';
+    fetch('/api/v1/aeronautik/quartett?zeitraum=' + zeitraum + '&datum=' + datum + (fotos ? '&fotos=1' : ''), { credentials: 'same-origin' })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) throw new Error(d.error);
+        if (!d.karten || !d.karten.length) throw new Error(d.hinweis || 'Keine Daten für diesen Zeitraum.');
+        $('ae-q-meldung').textContent = 'Erzeuge PDF …';
+        return skript('/static/jspdf.umd.min.js').then(function(){ return skript('/static/quartett.js'); }).then(function(){
+          return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; });
+        }).then(function(doc){
+          doc.save('Flugquartett-' + d.code + (format === 'a4' ? '-A4' : '') + '.pdf');
+          $('ae-q-meldung').textContent = '✓ ' + d.karten.length + ' Karten aus ' + d.flugzeuge + ' Flugzeugen (' + d.titel + ')' +
+            (d.karten.length < 64 ? ' – für 64 Karten waren nicht genug Flugzeuge mit vollständigen Werten aufgezeichnet.' : '.') +
+            (d.fotos_fehlend ? ' ' + d.fotos_fehlend + ' Karte(n) noch ohne Foto – der Node sucht im Hintergrund weiter; später erneut erzeugen.' : '');
+        });
+      }).catch(function(e){ $('ae-q-meldung').textContent = '✗ ' + e.message; })
+      .then(function(){ knopf.disabled = false; });
+  };
+  uebersichtLaden();
+  setInterval(function(){ if (ansicht === 'flug') uebersichtLaden(); }, 60000);
+
   starten();
   funkStatusLaden();
   funkLaden();
