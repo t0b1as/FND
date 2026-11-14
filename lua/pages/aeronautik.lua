@@ -167,7 +167,7 @@ return function()
     <input type="date" id="ae-q-datum">
     <select id="ae-q-anzahl"><option value="64">FLIGHT QUAD 64 (64 Karten)</option><option value="32">FLIGHT QUAD 32 (32 Karten)</option></select>
     <select id="ae-q-groesse"><option value="63x88">63 × 88 mm</option><option value="59x91">59 × 91 mm</option></select>
-    <select id="ae-q-format"><option value="karten">Einzelkarten mit 3 mm Beschnitt (RGB)</option><option value="druckerei">Druckerei: wie Einzelkarten, PDF/X-1a (CMYK)</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option></select>
+    <select id="ae-q-format"><option value="karten">Einzelkarten mit 3 mm Beschnitt (RGB)</option><option value="druckerei">Druckerei: wie Einzelkarten, PDF/X-1a (CMYK)</option><option value="a4">DIN A4 zum Ausschneiden und Falten (RGB)</option><option value="a4_druck">DIN A4 zum Ausschneiden und Falten, PDF/X-1a (CMYK)</option></select>
     <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button>
     <button type="button" class="btn-sm" id="ae-q-abbrechen" style="display:none">Umwandlung abbrechen</button>
     <button type="button" class="btn-sm" id="ae-q-nachtrag" title="Rekorde für den gewählten Zeitraum aus den aufgezeichneten Spuren (und alten Tagesbilanzen) in die Tabellen eintragen">Aus Aufzeichnung nachtragen</button></div>
@@ -841,7 +841,7 @@ return function()
           return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; }, { groesse: groesse });
         }).then(function(doc){
           var name = 'FlightQuad' + (d.anzahl || anzahl) + '-' + d.code + '-' + groesse;
-          if (format === 'druckerei') return druckdatei(doc, d, name, groesse);
+          if (format === 'druckerei' || format === 'a4_druck') return druckdatei(doc, d, name + (format === 'a4_druck' ? '-A4' : ''), groesse, format);
           doc.save(name + (format === 'a4' ? '-A4' : '') + '.pdf');
           return '';
         }).then(function(zusatz){
@@ -860,7 +860,8 @@ return function()
   // ── R889: Druckdatei – die Seite liefert Einzelseiten mit Beschnitt, der Node
   // wandelt mit Ghostscript in PDF/X-1a (CMYK, Farbdeckung ≤ 200 %, Schriften
   // als Pfade). Asynchron: hochladen, Stand abfragen, fertige Datei holen.
-  function druckdatei(doc, d, name, groesse){
+  function druckdatei(doc, d, name, groesse, format){
+    var seiten = doc.getNumberOfPages();
     $('ae-q-meldung').textContent = 'Lade die Seiten zur Umwandlung hoch …';
     var basis = '/api/v1/admin/aeronautik/druckdatei';
     return fetch(basis + '?titel=' + encodeURIComponent('FLIGHT QUAD ' + (d.anzahl || 64) + ' ' + d.code), { method: 'POST', credentials: 'same-origin',
@@ -892,7 +893,8 @@ return function()
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
         var m = groesse.split('x').map(Number);
-        return 'Druckdatei: ' + ((d.karten.length + 1) * 2) + ' Seiten ' + (m[0] + 6) + ' × ' + (m[1] + 6) + ' mm (' + m[0] + ' × ' + m[1] + ' + 3 mm Beschnitt), PDF/X-1a, CMYK. ';
+        if (format === 'a4_druck') return 'Druckdatei: ' + seiten + ' Seiten DIN A4 (Karten ' + m[0] + ' × ' + m[1] + ' mm), PDF/X-1a, CMYK. ';
+        return 'Druckdatei: ' + seiten + ' Seiten ' + (m[0] + 6) + ' × ' + (m[1] + 6) + ' mm (' + m[0] + ' × ' + m[1] + ' + 3 mm Beschnitt), PDF/X-1a, CMYK. ';
       });
   }
 

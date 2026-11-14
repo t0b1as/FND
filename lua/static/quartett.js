@@ -321,6 +321,132 @@
     rechts(doc, kuerzen(doc, (auf.node ? auf.node + " · " : "") + ort, B - 26), x + B - 4, y + H - 3.4);
   }
 
+  // ── Rückseite als Vektorzeichnung (R892) ─────────────────────────────
+  // Bisher ein Rasterbild (12 px/mm) – neben der Vektor-Vorderseite sichtbar
+  // unscharf. Jetzt: Verlauf aus schmalen Farbbändern, Knotennetz und Logo als
+  // Pfade, Schrift als Text. Keine Transparenz (PDF/X-1a): die halbdurch-
+  // sichtigen Netzlinien werden vorab mit dem Grün an ihrer Stelle gemischt.
+  // SVG-Pfad (M, L, A, Z – absolut) → Befehle für jsPDF doc.path(), Kreisbögen als Bézier
+  function svgPfad(d, sk, dx, dy) {
+    var t = d.match(/[MLAZmlaz]|-?\d*\.?\d+(?:e-?\d+)?/g), i = 0, ops = [], cx = 0, cy = 0, sx = 0, sy = 0;
+    function n() { return parseFloat(t[i++]); }
+    function P(x, y) { return [dx + x * sk, dy + y * sk]; }
+    function bogen(x1, y1, rx, ry, phi, gross, sweep, x2, y2) {
+      // Endpunkt- → Mittelpunktdarstellung (SVG 1.1, Anhang F.6), phi = 0 im Logo
+      var c = Math.cos(phi), s = Math.sin(phi);
+      var xp = c * (x1 - x2) / 2 + s * (y1 - y2) / 2, yp = -s * (x1 - x2) / 2 + c * (y1 - y2) / 2;
+      var lam = (xp * xp) / (rx * rx) + (yp * yp) / (ry * ry);
+      if (lam > 1) { rx *= Math.sqrt(lam); ry *= Math.sqrt(lam); }
+      var f = Math.sqrt(Math.max(0, (rx * rx * ry * ry - rx * rx * yp * yp - ry * ry * xp * xp) / (rx * rx * yp * yp + ry * ry * xp * xp)));
+      if (gross === sweep) f = -f;
+      var cxp = f * rx * yp / ry, cyp = -f * ry * xp / rx;
+      var mx = c * cxp - s * cyp + (x1 + x2) / 2, my = s * cxp + c * cyp + (y1 + y2) / 2;
+      function wink(ux, uy, vx, vy) { var a = Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy); return a; }
+      var th1 = wink(1, 0, (xp - cxp) / rx, (yp - cyp) / ry);
+      var dth = wink((xp - cxp) / rx, (yp - cyp) / ry, (-xp - cxp) / rx, (-yp - cyp) / ry);
+      if (!sweep && dth > 0) dth -= 2 * Math.PI; else if (sweep && dth < 0) dth += 2 * Math.PI;
+      var teile = Math.ceil(Math.abs(dth) / (Math.PI / 2)), st = dth / teile;
+      for (var k = 0; k < teile; k++) {
+        var a1 = th1 + k * st, a2 = a1 + st, h = 4 / 3 * Math.tan(st / 4);
+        var p1 = [Math.cos(a1) - h * Math.sin(a1), Math.sin(a1) + h * Math.cos(a1)];
+        var p2 = [Math.cos(a2) + h * Math.sin(a2), Math.sin(a2) - h * Math.cos(a2)];
+        var p3 = [Math.cos(a2), Math.sin(a2)];
+        var abb = function (p) { var X = rx * p[0], Y = ry * p[1]; return P(mx + c * X - s * Y, my + s * X + c * Y); };
+        ops.push({ op: "c", c: abb(p1).concat(abb(p2), abb(p3)) });
+      }
+    }
+    while (i < t.length) {
+      var b = t[i++];
+      if (b === "M") { cx = n(); cy = n(); sx = cx; sy = cy; ops.push({ op: "m", c: P(cx, cy) }); }
+      else if (b === "L") { cx = n(); cy = n(); ops.push({ op: "l", c: P(cx, cy) }); }
+      else if (b === "A") { var rx = n(), ry = n(), ph = n() * Math.PI / 180, ga = n(), sw = n(), x = n(), y = n(); bogen(cx, cy, rx, ry, ph, ga, sw, x, y); cx = x; cy = y; }
+      else if (b === "Z" || b === "z") { ops.push({ op: "h", c: [] }); cx = sx; cy = sy; }
+    }
+    return ops;
+  }
+
+  var LOGO_D = null;
+  function logoPfadLaden() {
+    if (LOGO_D !== null) return Promise.resolve(LOGO_D);
+    return fetch("/static/logo.svg", { credentials: "same-origin" }).then(function (r) { return r.ok ? r.text() : ""; })
+      .then(function (svg) { var m = svg.match(/ d="([^"]+)"/); LOGO_D = m ? m[1] : ""; return LOGO_D; })
+      .catch(function () { LOGO_D = ""; return ""; });
+  }
+  var VERLAUF = [[0, [0, 200, 83]], [0.45, [23, 168, 98]], [1, [6, 53, 31]]];
+  function verlaufFarbe(t) {
+    t = Math.max(0, Math.min(1, t));
+    for (var i = 1; i < VERLAUF.length; i++) {
+      if (t <= VERLAUF[i][0]) {
+        var a = VERLAUF[i - 1], b = VERLAUF[i], f = (t - a[0]) / (b[0] - a[0]);
+        return [0, 1, 2].map(function (k) { return Math.round(a[1][k] + (b[1][k] - a[1][k]) * f); });
+      }
+    }
+    return VERLAUF[VERLAUF.length - 1][1];
+  }
+  function mischen(farbe, deckkraft) { return farbe.map(function (c) { return Math.round(255 * deckkraft + c * (1 - deckkraft)); }); }
+
+  // rand (mm): Beschnitt; rund: abgerundete Ecken (A4-Faltvorlage)
+  function rueckseiteVektor(doc, x, y, kontext, rand, rund) {
+    rand = rand || 0;
+    // Verlaufsrichtung wie bisher: von oben links nach (0,4 · Breite, Höhe)
+    var gx = 0.4 * B, gy = H, gl = gx * gx + gy * gy;
+    var tVon = function (px, py) { return ((px - x) * gx + (py - y) * gy) / gl; };
+    doc.saveGraphicsState();
+    if (rund) { doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, H - 1.2, 3, 3, null); }
+    else { doc.rect(x - rand, y - rand, B + 2 * rand, H + 2 * rand, null); }
+    doc.clip(); doc.discardPath();
+    // Bänder senkrecht zur Verlaufsrichtung; erstes und letztes reichen weit
+    // über die Karte hinaus (Beschnitt, Ecken).
+    var N = 260, len = Math.sqrt(gl), ex = gx / len, ey = gy / len, nx = -ey, ny = ex, weit = 2 * (B + H);
+    for (var i = 0; i < N; i++) {
+      var t0 = i === 0 ? -0.5 : i / N, t1 = i === N - 1 ? 1.5 : (i + 1) / N + 0.6 / N;
+      var a0x = x + t0 * gx, a0y = y + t0 * gy, a1x = x + t1 * gx, a1y = y + t1 * gy;
+      var c = verlaufFarbe((i + 0.5) / N);
+      doc.setFillColor(c[0], c[1], c[2]);
+      doc.path([{ op: "m", c: [a0x - nx * weit, a0y - ny * weit] }, { op: "l", c: [a0x + nx * weit, a0y + ny * weit] },
+        { op: "l", c: [a1x + nx * weit, a1y + ny * weit] }, { op: "l", c: [a1x - nx * weit, a1y - ny * weit] }, { op: "h", c: [] }]);
+      doc.fill();
+    }
+    // Knotennetz: fester Startwert – ALLE Karten haben exakt dieselbe Rückseite.
+    var zufall = (function (a) { return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; })(64);
+    var knoten = [];
+    for (var n = 0; n < 46; n++) knoten.push([x + 2 + zufall() * (B - 4), y + 2 + zufall() * (H - 4), (2 + zufall() * 4) / 10]);
+    doc.setLineWidth(0.2);
+    for (var a1 = 0; a1 < knoten.length; a1++) for (var b1 = a1 + 1; b1 < knoten.length; b1++) {
+      var dx = knoten[a1][0] - knoten[b1][0], dy = knoten[a1][1] - knoten[b1][1], d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 16.5) {
+        var lf = mischen(verlaufFarbe(tVon((knoten[a1][0] + knoten[b1][0]) / 2, (knoten[a1][1] + knoten[b1][1]) / 2)), 0.28 * (1 - d / 16.5));
+        doc.setDrawColor(lf[0], lf[1], lf[2]); doc.line(knoten[a1][0], knoten[a1][1], knoten[b1][0], knoten[b1][1]);
+      }
+    }
+    knoten.forEach(function (p) {
+      var kf = mischen(verlaufFarbe(tVon(p[0], p[1])), 0.55);
+      doc.setFillColor(kf[0], kf[1], kf[2]); doc.circle(p[0], p[1], p[2], "F");
+    });
+    doc.restoreGraphicsState();
+    // Rahmen
+    var rf = mischen(verlaufFarbe(0.5), 0.45);
+    doc.setDrawColor(rf[0], rf[1], rf[2]); doc.setLineWidth(0.4);
+    doc.roundedRect(x + 4, y + 4, B - 8, H - 8, 2, 2, "S");
+    // Schrift und Logo (Maße wie bisher: 1 mm = 10 Einheiten der Rasterfassung)
+    var dyMm = (H - 88) / 2;
+    function zeile(s, yy, mm, abstand, deckkraft, fett) {
+      var pt = mm / 0.3528, f = mischen(verlaufFarbe(tVon(x + B / 2, yy)), deckkraft);
+      doc.setFont("helvetica", fett ? "bold" : "normal"); doc.setFontSize(pt); doc.setTextColor(f[0], f[1], f[2]);
+      var breite = doc.getTextWidth(s) + abstand * (sicher(s).length - 1);
+      doc.text(s, x + (B - breite) / 2, yy, abstand ? { charSpace: abstand } : undefined);
+    }
+    zeile("FUNDUS", y + 13.2 + dyMm, 5.6, 1.4, 1, true);
+    if (LOGO_D) {
+      doc.setFillColor(255, 255, 255);
+      doc.path(svgPfad(LOGO_D, 33 / 200, x + (B - 33) / 2, y + 17.5 + dyMm));
+      doc.fillEvenOdd();
+    }
+    zeile(kontext.spiel || "FLIGHT QUAD 64", y + 59.3 + dyMm, 5.4, 0, 1, true);
+    zeile("Best of " + (kontext.code || ""), y + 65.3 + dyMm, 3.8, 0, 0.88, true);
+    zeile("TKM x HELIX", y + H - 9.8, 3.0, 0.6, 0.75, true);
+  }
+
   // ── Titelkarte (R890): Spielname, Zeitraum, die acht Quartette, Regeln ──
   var KATEGORIEN = [["hoehe_max", "Höchste Höhe"], ["hoehe_min", "Niedrigste Höhe"], ["geschw_max", "Schnellstes"],
     ["geschw_min", "Langsamstes"], ["steig_max", "Stärkstes Steigen"], ["sink_max", "Stärkstes Sinken"],
@@ -368,88 +494,6 @@
     doc.setFontSize(3.9); doc.setTextColor(120, 120, 120);
     doc.text(kuerzen(doc, (kontext.flugzeuge ? tausend(kontext.flugzeuge) + " Flugzeuge aufgezeichnet · " : "") + "ADS-B-Empfang " + (auf.node || kontext.node || ""), B - 8), x + 4, y + H - 5.4);
     doc.text(kuerzen(doc, auf.lat != null ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") + " · Typen adsbdb/hexdb · Routen adsb.lol" : "Typen adsbdb/hexdb · Routen adsb.lol", B - 8), x + 4, y + H - 3.4);
-  }
-
-  // ── Rückseite (als Bild, damit sie sich für das Falten drehen lässt) ─────
-  // Fundus-Logo zentriert, darunter FLIGHT QUAD 64 und der Zeitraum als Code
-  // (2026, 202603, 20261114, 2026W46). Das Logo kommt aus /static/logo.svg –
-  // gezeichnet in currentColor, hier weiß eingefärbt.
-  function logoBild() {
-    return fetch("/static/logo.svg", { credentials: "same-origin" }).then(function (r) {
-      if (!r.ok) throw new Error("Logo fehlt");
-      return r.text();
-    }).then(function (svg) {
-      svg = svg.replace(/currentColor/g, "#ffffff").replace("<svg ", '<svg width="800" height="800" ');
-      return new Promise(function (ok) {
-        var img = new Image();
-        img.onload = function () { ok(img); };
-        img.onerror = function () { ok(null); };
-        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-      });
-    }).catch(function () { return null; });
-  }
-
-  // drehung 90: um 90° im Uhrzeigersinn, liegend (Kopf rechts, zur Falzlinie).
-  // beschnitt (mm, R889): Fläche über die Schnittkante hinaus, ohne runde Ecken,
-  // mit 12 statt 10 px/mm (305 ppi) – Druckerei-Fassung.
-  function rueckseite(kontext, drehung, beschnitt) {
-    return logoBild().then(function (logo) {
-      var s = 10, cv = document.createElement("canvas"), w = B * s, h = H * s;
-      var rand = (beschnitt || 0) * s, aufl = beschnitt ? 1.2 : 1;
-      if (drehung === 90) { cv.width = h; cv.height = w; } else { cv.width = (w + 2 * rand) * aufl; cv.height = (h + 2 * rand) * aufl; }
-      var g = cv.getContext("2d");
-      if (drehung === 90) { g.translate(h, 0); g.rotate(Math.PI / 2); }
-      else { g.scale(aufl, aufl); g.translate(rand, rand); }
-      function form() {
-        g.beginPath();
-        if (rand) g.rect(-rand, -rand, w + 2 * rand, h + 2 * rand);
-        else if (g.roundRect) g.roundRect(6, 6, w - 12, h - 12, 30); else g.rect(6, 6, w - 12, h - 12);
-      }
-      // Verlauf in Fundus-Grün (#00e676 · #00c853 · #17a862) bis in ein tiefes Grün.
-      var gr = g.createLinearGradient(0, 0, w * 0.4, h);
-      gr.addColorStop(0, "#00c853"); gr.addColorStop(0.45, "#17a862"); gr.addColorStop(1, "#06351f");
-      g.fillStyle = gr; form(); g.fill();
-      g.save(); form(); g.clip();
-      // Knotennetz: fester Startwert – ALLE Karten haben exakt dieselbe Rückseite.
-      var zufall = (function (a) { return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; })(64);
-      var knoten = [];
-      for (var n = 0; n < 46; n++) knoten.push([20 + zufall() * (w - 40), 20 + zufall() * (h - 40), 2 + zufall() * 4]);
-      g.lineWidth = 2;
-      for (var a1 = 0; a1 < knoten.length; a1++) for (var b1 = a1 + 1; b1 < knoten.length; b1++) {
-        var dx = knoten[a1][0] - knoten[b1][0], dy = knoten[a1][1] - knoten[b1][1], d = Math.sqrt(dx * dx + dy * dy);
-        if (d < 165) { g.strokeStyle = "rgba(255,255,255," + (0.28 * (1 - d / 165)).toFixed(3) + ")"; g.beginPath(); g.moveTo(knoten[a1][0], knoten[a1][1]); g.lineTo(knoten[b1][0], knoten[b1][1]); g.stroke(); }
-      }
-      knoten.forEach(function (p) {
-        g.fillStyle = "rgba(255,255,255,.55)"; g.beginPath(); g.arc(p[0], p[1], p[2], 0, Math.PI * 2); g.fill();
-      });
-      // dunkler Hof hinter Logo und Schrift, damit beides klar lesbar bleibt
-      var hof = g.createRadialGradient(w / 2, h * 0.5, 40, w / 2, h * 0.5, w * 0.62);
-      hof.addColorStop(0, "rgba(4,40,22,.55)"); hof.addColorStop(1, "rgba(4,40,22,0)");
-      g.fillStyle = hof; g.fillRect(-rand, -rand, w + 2 * rand, h + 2 * rand);
-      g.restore();
-      g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 4; g.beginPath();
-      if (g.roundRect) g.roundRect(40, 40, w - 80, h - 80, 20); else g.rect(40, 40, w - 80, h - 80);
-      g.stroke();
-      // R888: oben FUNDUS · Logo · FLIGHT QUAD 64 · „Best of“ mit Zeitraum · TKM x HELIX
-      function zeile(text, y, pt, abstand, farbe) {
-        g.font = "bold " + pt + "px Helvetica, Arial, sans-serif"; g.fillStyle = farbe; g.textAlign = "center";
-        if ("letterSpacing" in g) g.letterSpacing = abstand + "px";
-        g.fillText(text, w / 2 + (("letterSpacing" in g) ? abstand / 2 : 0), y);
-        if ("letterSpacing" in g) g.letterSpacing = "0px";
-      }
-      var dy = (h - 880) / 2; // 91 mm hoch: alles mittig nach unten
-      zeile("FUNDUS", 132 + dy, 56, 14, "#ffffff");
-      var groesse = 330, ly = 175 + dy;
-      if (logo) g.drawImage(logo, (w - groesse) / 2, ly, groesse, groesse);
-      zeile(kontext.spiel || "FLIGHT QUAD 64", ly + groesse + 88, 54, 0, "#ffffff");
-      zeile("Best of " + (kontext.code || ""), ly + groesse + 148, 38, 0, "rgba(255,255,255,.88)");
-      zeile("TKM x HELIX", h - 98, 30, 6, "rgba(255,255,255,.75)");
-      // R891: JPEG statt PNG – PNG aus der Leinwand trägt einen Alphakanal, und
-      // der zwingt Ghostscript zum Auflösen von Transparenz.
-      var bg = document.createElement("canvas"); bg.width = cv.width; bg.height = cv.height;
-      var bgc = bg.getContext("2d"); bgc.fillStyle = "#ffffff"; bgc.fillRect(0, 0, bg.width, bg.height); bgc.drawImage(cv, 0, 0);
-      return bg.toDataURL("image/jpeg", 0.93);
-    });
   }
 
   function schnittmarken(doc, x, y, w, h) {
@@ -509,7 +553,8 @@
       anzahl: anzahl, spiel: "FLIGHT QUAD " + anzahl, flugzeuge: daten.flugzeuge };
     var klassen = {};
     karten.forEach(function (k) { klassen[k.klasse] = true; });
-    var bilder = {}, druck = format !== "a4";
+    var istA4 = format === "a4" || format === "a4_druck";
+    var bilder = {}, druck = format !== "a4"; // a4_druck: wie die Druckformate (R892)
     var vorbereiten = Object.keys(klassen).map(function (kl) {
       return silhouetteBild(kl, "#1f2a3a", false).then(function (b) {
         // Druckformate: Silhouette auf die Bildfeld-Farbe, ohne Alphakanal (R891)
@@ -531,15 +576,15 @@
       if (k._titel) titelkarte(d, x, y, kontext, rand);
       else vorderseite(d, x, y, k, kontext, bilder[k.klasse] || bilder.unbekannt, rand);
     }
+    vorbereiten.push(logoPfadLaden());
     return Promise.all(vorbereiten).then(function () {
-      return rueckseite(kontext, format === "a4" ? 90 : 0, format === "a4" ? 0 : RAND);
-    }).then(function (rueck) {
       var doc;
-      if (format === "a4") {
+      if (istA4) {
         // Streifen (2 × Kartenhöhe) × Kartenbreite: Rückseite links (liegend,
         // Kopf zur Falzlinie), Vorderseite rechts, um 90° gegen den Uhrzeiger-
         // sinn – ihre Oberkante liegt an der Falzlinie.
-        doc = sicherMachen(new jsPDF({ unit: "mm", format: "a4" }));
+        doc = sicherMachen(new jsPDF({ unit: "mm", format: "a4" }), { neutral: druck });
+        if (druck) doc._deckend = true; // PDF/X-1a: keine Transparenz (R892)
         // y0 = 22: unterster Streifen endet ≥ 5 mm vor dem Blattrand (R888).
         var proSeite = 4, abstand = 6, x0 = (210 - 2 * H) / 2, y0 = 22;
         var seiten = Math.ceil(alle.length / proSeite);
@@ -552,7 +597,19 @@
             doc.text("Karten in Originalgröße " + B + " × " + H + " mm. An den Ecken ausschneiden, an der gestrichelten Oberkante nach hinten falten, zusammenkleben.", 105, 17, { align: "center" });
           }
           var y = y0 + reihe * (B + abstand), falz = x0 + H;
-          doc.addImage(rueck, "JPEG", x0, y, H, B, "rueckseite", "FAST");
+          if (druck && reihe === 0) {
+            // PDF/X verlangt einen Endformatrahmen; bei A4 ist es das Blatt.
+            var f0 = doc.internal.scaleFactor, pc0 = doc.internal.getCurrentPageInfo().pageContext;
+            pc0.trimBox = { bottomLeftX: 0, bottomLeftY: 0, topRightX: 210 * f0, topRightY: 297 * f0 };
+          }
+          // Rückseite gedreht (90° im Uhrzeigersinn, Kopf zur Falzlinie):
+          // Kartenpunkt (u, v) → Seite (falz − v, y + u).
+          doc.advancedAPI(function (d) {
+            d.saveGraphicsState();
+            d.setCurrentTransformationMatrix(new d.Matrix(0, 1, -1, 0, falz, y));
+            rueckseiteVektor(d, 0, 0, kontext, 0, true);
+            d.restoreGraphicsState();
+          });
           // Vorderseite gedreht zeichnen: Kartenpunkt (x, y) → Seite (falz + y, unten − x).
           doc.advancedAPI(function (d) {
             d.saveGraphicsState();
@@ -588,7 +645,7 @@
           vorne(doc, RAND, RAND, k, RAND);
           doc.addPage([PB, PH]);
           rahmen();
-          doc.addImage(rueck, "JPEG", 0, 0, PB, PH, "rueckseite", "FAST");
+          rueckseiteVektor(doc, RAND, RAND, kontext, RAND, false);
           if (fortschritt) fortschritt(i + 1, alle.length);
         });
       }
