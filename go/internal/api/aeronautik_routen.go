@@ -337,6 +337,42 @@ func aeroHexdbFlughafen(icao string) *aeroFlughafen {
 	return f
 }
 
+// aeroFlughafenNachCode (R883): Klartext zu einem Flughafencode – IATA (FRA)
+// oder ICAO (EDDF) – für Einträge, die nur Codes kennen. hexdb, zwischen-
+// gespeichert; ohne Treffer bleibt der Code.
+func aeroFlughafenNachCode(code string) *aeroFlughafen {
+	code = strings.ToUpper(strings.TrimSpace(code))
+	switch len(code) {
+	case 4:
+		return aeroHexdbFlughafen(code)
+	case 3:
+	default:
+		return nil
+	}
+	aeroHafenMu.Lock()
+	if f, ok := aeroHafen["iata:"+code]; ok {
+		aeroHafenMu.Unlock()
+		return f
+	}
+	aeroHafenMu.Unlock()
+	if !aeroAnbieterFrei("hexdb") {
+		return nil
+	}
+	d, _, status, ok := aeroHolen(http.MethodGet, "https://hexdb.io/api/v1/airport/iata/"+code, nil)
+	f := &aeroFlughafen{Code: code}
+	if ok && status == http.StatusOK && d != nil {
+		f.Name, f.Stadt, f.Land = aeroText(d, "airport"), aeroText(d, "region_name"), aeroText(d, "country_code")
+		f.Lat, _ = aeroZahl(d, "latitude")
+		f.Lon, _ = aeroZahl(d, "longitude")
+	}
+	if ok {
+		aeroHafenMu.Lock()
+		aeroHafen["iata:"+code] = f
+		aeroHafenMu.Unlock()
+	}
+	return f
+}
+
 func (s *Server) aeroHexdb(cs string) {
 	d, _, code, ok := aeroHolen(http.MethodGet, "https://hexdb.io/api/v1/route/icao/"+cs, nil)
 	if !ok {

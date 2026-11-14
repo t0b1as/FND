@@ -547,7 +547,9 @@ func (s *Server) flugMetaNachtragen(jetzt time.Time) {
 					}
 				}
 			}
-			if x.route != "" && su.Route == "" {
+			// R883: auch Einträge, die schon eine Route als Codes haben, bekommen
+			// die Flughäfen im Klartext – vorher nur, wenn noch gar keine Route da war.
+			if x.von != nil && (su.Von == nil || su.Von.Name == "") {
 				su.Route, su.Von, su.Nach = x.route, x.von, x.nach
 			}
 			if x.airline != "" && su.Airline == "" {
@@ -779,7 +781,7 @@ func (s *Server) flugUebersicht(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"einstellungen": e, "spuren": spuren, "tabellen": tabellen,
 		"belegt_mb": math.Round(float64(belegt)/1e5) / 10, "stick": funkHatStick(),
 		"quelle": quelle, "meldungen_s": math.Round(rate*10) / 10, "flugzeuge": aktiv,
-		"nachtrag": flugNachtragZustand()})
+		"nachtrag": flugNachtragZustand(), "ki_bilder": kiTypZustandLesen()})
 }
 
 // POST /api/v1/admin/aeronautik/aufzeichnung – flugEinstellungen
@@ -883,4 +885,5 @@ func (s *Server) registerFlugdaten(r *gin.Engine) {
 	s.flugStarten()
 	s.flugFernStarten() // R879: Anfragen von Pis ohne Empfänger beantworten
 	go s.typBildHintergrund() // Fotos, die beim Quartett nicht rechtzeitig fertig wurden
+	go s.kiTypBildArbeiter()  // R883: KI-Bilder für Typen ohne freies Foto
 }

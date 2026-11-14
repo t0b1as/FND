@@ -38,10 +38,19 @@ type typBild struct {
 	Quelle    string `json:"quelle,omitempty"`
 	Artikel   string `json:"artikel,omitempty"`
 	Stand     int64  `json:"stand"`
+	KI        bool   `json:"ki,omitempty"` // R883: von der KI erzeugt, kein Foto
 }
 
 // Credit: Urheberangabe für die Karte.
 func (b *typBild) Credit() string {
+	if b.KI {
+		// Kennzeichnung vorn und kurz – auf der Karte darf „kein Foto“ nie wegfallen.
+		modell := strings.TrimSuffix(b.Lizenz, filepath.Ext(b.Lizenz))
+		if len(modell) > 18 {
+			modell = modell[:18]
+		}
+		return "KI-erzeugt, kein Foto · " + modell + " · ComfyUI"
+	}
 	a := b.Autor
 	if a == "" {
 		a = "unbekannt"
@@ -54,7 +63,7 @@ var (
 	typBildWarte    = make(chan string, 300)
 	typBildInArbeit = map[string]bool{}
 	reFreieLizenz   = regexp.MustCompile(`(?i)^(cc0( 1\.0)?|public domain|pd[- a-z0-9.]*|cc[ -]by(-sa)?([ -][0-9.]+)?( [a-z-]+)?)$`)
-	reTypBildDatei  = regexp.MustCompile(`^[0-9a-f]{16}\.(jpg|png)$`)
+	reTypBildDatei  = regexp.MustCompile(`^[0-9a-f]{16}(-ki)?\.(jpg|png)$`)
 	typBildClient   = &http.Client{Timeout: 20 * time.Second}
 )
 

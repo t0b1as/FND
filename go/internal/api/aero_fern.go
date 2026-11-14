@@ -35,6 +35,7 @@ type flugFernAnfrage struct {
 	Zeitraum string `json:"zeitraum,omitempty"`
 	Datum    string `json:"datum,omitempty"`
 	Fotos    bool   `json:"fotos,omitempty"`
+	KIBilder bool   `json:"kibilder,omitempty"`
 	Tag      string `json:"tag,omitempty"`
 	Von      string `json:"von,omitempty"`
 	Bis      string `json:"bis,omitempty"`
@@ -71,6 +72,9 @@ func (a flugFernAnfrage) pfad() (string, bool) {
 		q := url.Values{"zeitraum": {a.Zeitraum}, "datum": {a.Datum}}
 		if a.Fotos {
 			q.Set("fotos", "1")
+		}
+		if a.KIBilder {
+			q.Set("kibilder", "1")
 		}
 		return "/api/v1/aeronautik/quartett?" + q.Encode(), true
 	case "spur":

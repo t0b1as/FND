@@ -54,7 +54,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		return
 	}
 	zeitraum, datum := c.Query("zeitraum"), c.Query("datum")
-	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "quartett", Zeitraum: zeitraum, Datum: datum, Fotos: c.Query("fotos") == "1"}, 90*time.Second) {
+	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "quartett", Zeitraum: zeitraum, Datum: datum, Fotos: c.Query("fotos") == "1", KIBilder: c.Query("kibilder") == "1"}, 90*time.Second) {
 		return // R879: vom Pi mit Empfänger
 	}
 	tag, err := time.ParseInLocation("20060102", datum, time.Local)
@@ -126,8 +126,10 @@ func (s *Server) flugQuartett(c *gin.Context) {
 	// Fotos (Wikimedia Commons, frei lizenziert): zuerst aus dem Tabelleneintrag
 	// – einmal gefunden, liegt es dort (R881). Sonst suchen, höchstens 35 s;
 	// was dann fehlt, sucht der Node im Hintergrund weiter.
-	mitFotos := c.Query("fotos") == "1"
-	neueFotos := map[string]*flugFoto{}
+	mitFotos, mitKI := c.Query("fotos") == "1", c.Query("kibilder") == "1"
+	aenderungen := map[string][]func(*flugSumme){} // je Flugzeug: was in die Tabelle soll
+	merken := func(hex string, f func(*flugSumme)) { aenderungen[hex] = append(aenderungen[hex], f) }
+	kiAusstehend := 0
 	if mitFotos {
 		frist := time.Now().Add(35 * time.Second)
 		jeSuche := map[string]*typBild{}
@@ -147,15 +149,53 @@ func (s *Server) flugQuartett(c *gin.Context) {
 					b = s.typBildHolen(q, time.Now().Before(frist))
 					jeSuche[q] = b
 				}
+				// R883: kein freies Foto (nachweislich) → KI-Bild, falls gewünscht.
+				if b != nil && b.Datei == "" && mitKI {
+					if ki := s.kiTypBildCache(q); ki != nil {
+						b = ki
+					} else {
+						s.kiTypBildVormerken(kiTypAuftrag{Suche: q, Hersteller: su.Hersteller, Typ: su.Typ, ICAO: su.ICAO,
+							Klasse: aeroKlasse(su.ICAO, su.Typ)})
+						kiAusstehend++
+					}
+				}
 				if b != nil && b.Datei != "" {
-					su.Foto = &flugFoto{Datei: b.Datei, Credit: b.Credit()}
-					neueFotos[su.Hex] = su.Foto
+					foto := &flugFoto{Datei: b.Datei, Credit: b.Credit()}
+					su.Foto = foto
+					merken(su.Hex, func(z *flugSumme) {
+						if z.Foto == nil || z.Foto.Datei == "" {
+							z.Foto = foto
+						}
+					})
 				}
 			}
 		}
-		if len(neueFotos) > 0 {
-			s.flugFotosMerken(tabelle, neueFotos)
+	}
+	// R883: Flughäfen im Klartext, wo nur Codes bekannt sind (höchstens 15 s).
+	frist := time.Now().Add(15 * time.Second)
+	for _, kat := range gewaehlt {
+		for _, su := range kat {
+			if (su.Von != nil && su.Von.Name != "") || su.Route == "" || time.Now().After(frist) {
+				continue
+			}
+			codes := strings.Split(su.Route, "–")
+			if len(codes) != 2 {
+				continue
+			}
+			von, nach := aeroFlughafenNachCode(codes[0]), aeroFlughafenNachCode(codes[1])
+			if von != nil && nach != nil && (von.Name != "" || nach.Name != "") {
+				v, n := *von, *nach
+				su.Von, su.Nach = &v, &n
+				merken(su.Hex, func(z *flugSumme) {
+					if z.Von == nil || z.Von.Name == "" {
+						z.Von, z.Nach = &v, &n
+					}
+				})
+			}
 		}
+	}
+	if len(aenderungen) > 0 {
+		s.flugEintraegeAendern(tabelle, aenderungen)
 	}
 	karten := []gin.H{}
 	fehlend := 0
@@ -197,7 +237,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"titel": titel, "zeitraum": zeitraum, "code": code, "flugzeuge": len(alle),
-		"karten": karten, "node": aeroNodeName(), "fotos_fehlend": fehlend})
+		"karten": karten, "node": aeroNodeName(), "fotos_fehlend": fehlend, "ki_ausstehend": kiAusstehend})
 }
 
 // quartettNummer: Kategorie k (0–7), Rang r (0–7) → "1A" … "16D".
@@ -317,27 +357,29 @@ func aeroKlasse(icao, typ string) string {
 	return "unbekannt"
 }
 
-// flugFotosMerken: gefundene Fotos in die Tabelle des Zeitraums schreiben –
-// und in alle laufenden Tabellen, in denen das Flugzeug steht.
-func (s *Server) flugFotosMerken(schl string, fotos map[string]*flugFoto) {
+// flugEintraegeAendern: Ergänzungen (Fotos, Flughäfen) in die Tabelle des
+// Zeitraums schreiben – und in alle laufenden Tabellen, in denen das Flugzeug
+// steht. So muss beim nächsten Mal nichts neu gesucht werden.
+func (s *Server) flugEintraegeAendern(schl string, aenderungen map[string][]func(*flugSumme)) {
 	flugMu.Lock()
 	defer flugMu.Unlock()
-	for _, tab := range flugTabellen {
-		for hex, f := range fotos {
-			if su := tab[hex]; su != nil && su.Foto == nil {
-				su.Foto = f
+	anwenden := func(tab map[string]*flugSumme) {
+		for hex, fs := range aenderungen {
+			if su := tab[hex]; su != nil {
+				for _, f := range fs {
+					f(su)
+				}
 			}
 		}
+	}
+	for _, tab := range flugTabellen {
+		anwenden(tab)
 	}
 	if _, imSpeicher := flugTabellen[schl]; imSpeicher {
 		return // wird mit der nächsten Minute geschrieben
 	}
 	tab := s.flugTabelleLaden(schl)
-	for hex, f := range fotos {
-		if su := tab[hex]; su != nil {
-			su.Foto = f
-		}
-	}
+	anwenden(tab)
 	pfad := filepath.Join(s.flugOrdner("tabellen"), schl+".json")
 	if _, err := os.Stat(pfad); err == nil {
 		_ = jsonKompakt(pfad, tab)

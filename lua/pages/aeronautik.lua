@@ -154,6 +154,7 @@ return function()
     <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button>
     <button type="button" class="btn-sm" id="ae-q-nachtrag" title="Rekorde für den gewählten Zeitraum aus den aufgezeichneten Spuren (und alten Tagesbilanzen) in die Tabellen eintragen">Aus Aufzeichnung nachtragen</button></div>
   <div class="zeile"><label><input type="checkbox" id="ae-q-fotos" checked> Fotos der Flugzeugtypen von Wikimedia Commons (nur frei lizenziert, Urheber steht auf der Karte; sonst Silhouette)</label></div>
+  <div class="zeile"><label><input type="checkbox" id="ae-q-ki"> Wo es kein freies Foto gibt: Bild von der KI erzeugen lassen (Sprachmodell + ComfyUI, auf der Karte als „KI-erzeugt – kein Foto“ gekennzeichnet; je Typ einmal, im Hintergrund)</label></div>
   <div class="ae-hinweis" id="ae-q-meldung"></div>
 </div>
 </div>
@@ -627,6 +628,10 @@ return function()
         : (d.stick || d.fern ? 'Aufzeichnung aus.' : 'Aufzeichnen kann nur ein Pi mit eigenem Empfänger – im Netz ist gerade keiner erreichbar.'));
       [].forEach.call($('ae-p-auf').querySelectorAll('input,select,button'), function(el){ el.disabled = !!d.fern; });
       $('ae-q-nachtrag').disabled = !!d.fern || !!(d.nachtrag && d.nachtrag.laeuft);
+      var kb = d.ki_bilder || {};
+      $('ae-q-ki').parentNode.title = kb.offen ? kb.offen + ' KI-Bild(er) in Arbeit' : '';
+      if (kb.offen && !$('ae-q-los').disabled) $('ae-q-meldung').textContent = 'KI erzeugt Bilder im Hintergrund: noch ' + kb.offen + ' offen, ' + kb.fertig + ' fertig.' + (kb.fehler ? ' Letzter Fehler: ' + kb.fehler : '');
+      else if (kb.fehler && !kb.offen && $('ae-q-meldung').textContent.indexOf('KI erzeugt') === 0) $('ae-q-meldung').textContent = '✗ KI-Bilder: ' + kb.fehler;
       $('ae-q-nachtrag').title = d.fern ? 'Nachtragen nur auf dem Empfänger ' + (d.empfaenger_node || '') : $('ae-q-nachtrag').title;
       $('ae-auf-meldung').textContent = d.fern ? 'Einstellen nur auf dem Empfänger ' + (d.empfaenger_node || '') + ' – über dessen Adresse im Heimnetz.' : $('ae-auf-meldung').textContent;
       var tab = d.tabellen || [];
@@ -797,7 +802,8 @@ return function()
     knopf.disabled = true; $('ae-q-meldung').textContent = 'Werte Rekorde aus und schlage Flugzeugtypen nach …';
     var fotos = $('ae-q-fotos').checked;
     if (fotos) $('ae-q-meldung').textContent = 'Werte Rekorde aus, schlage Typen nach und suche Fotos – beim ersten Mal bis zu einer Minute …';
-    fetch('/api/v1/aeronautik/quartett?zeitraum=' + zeitraum + '&datum=' + datum + (fotos ? '&fotos=1' : ''), { credentials: 'same-origin' })
+    var ki = fotos && $('ae-q-ki').checked;
+    fetch('/api/v1/aeronautik/quartett?zeitraum=' + zeitraum + '&datum=' + datum + (fotos ? '&fotos=1' : '') + (ki ? '&kibilder=1' : ''), { credentials: 'same-origin' })
       .then(function(r){ return r.json(); }).then(function(d){
         if (d.error) throw new Error(d.error);
         if (!d.karten || !d.karten.length) throw new Error(d.hinweis || 'Keine Daten für diesen Zeitraum.');
@@ -809,7 +815,8 @@ return function()
           $('ae-q-meldung').textContent = '✓ ' + d.karten.length + ' Karten aus ' + d.flugzeuge + ' Flugzeugen (' + d.titel + ')' +
             (d.karten.length < 64 ? ' – für 64 Karten waren nicht genug Flugzeuge mit vollständigen Werten aufgezeichnet.' : '.') +
             (d.fern ? ' Daten vom Empfänger ' + (d.empfaenger_node || '') + '.' : '') +
-            (d.fotos_fehlend ? ' ' + d.fotos_fehlend + ' Karte(n) noch ohne Foto – der Node sucht im Hintergrund weiter; später erneut erzeugen.' : '');
+            (d.fotos_fehlend ? ' ' + d.fotos_fehlend + ' Karte(n) noch ohne Foto – der Node sucht im Hintergrund weiter; später erneut erzeugen.' : '') +
+            (d.ki_ausstehend ? ' ' + d.ki_ausstehend + ' KI-Bild(er) werden im Hintergrund erzeugt (je etwa 20 s) – danach erneut erzeugen.' : '');
         });
       }).catch(function(e){ $('ae-q-meldung').textContent = '✗ ' + e.message; })
       .then(function(){ knopf.disabled = false; });
