@@ -78,6 +78,20 @@ func flugVereinen(ziel, q *flugSumme) {
 	if ziel.Airline == "" {
 		ziel.Airline = q.Airline
 	}
+	if ziel.Land == "" {
+		ziel.Land = q.Land
+	}
+	if ziel.Betreiber == "" {
+		ziel.Betreiber = q.Betreiber
+	}
+	for k, v := range q.Quellen {
+		if ziel.Quellen == nil {
+			ziel.Quellen = map[string]string{}
+		}
+		if ziel.Quellen[k] == "" {
+			ziel.Quellen[k] = v
+		}
+	}
 	if ziel.Foto == nil {
 		ziel.Foto = q.Foto
 	}

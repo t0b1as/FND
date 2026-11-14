@@ -175,6 +175,16 @@ func (s *Server) flugQuartett(c *gin.Context) {
 				"klasse":    aeroKlasse(su.ICAO, su.Typ), "hersteller": su.Hersteller,
 				"kennzeichen": su.Kennzeichen, "halter": su.Halter, "airline": su.Airline,
 				"route": su.Route, "von": su.Von, "nach": su.Nach,
+				// R882: zu jedem Wert Minimum und Maximum mit Zeitstempel; bei
+				// Steigen/Sinken die betragsmäßig größten in beide Richtungen.
+				"werte": gin.H{
+					"hoehe":  gin.H{"min": su.HoeheMin, "max": su.HoeheMax},
+					"geschw": gin.H{"min": su.GeschwMin, "max": su.GeschwMax},
+					"steig":  gin.H{"min": su.SinkMax, "max": su.SteigMax},
+					"km":     gin.H{"min": su.KmMin, "max": su.KmMax},
+				},
+				"land": su.Land, "betreiber": su.Betreiber, "quellen": su.Quellen,
+				"erste": su.Erste, "letzte": su.Letzte, "meldungen": su.Sicht,
 			}
 			if mitFotos {
 				if su.Foto != nil && su.Foto.Datei != "" {

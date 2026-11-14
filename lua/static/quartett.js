@@ -112,23 +112,28 @@
   function mitte(doc, s, x, y) { doc.text(s, x - doc.getTextWidth(s) / 2, y); }
 
   // ── Vorderseite (Vektor) ─────────────────────────────────────────────────
-  // Spielwerte aus dem Augenblick des Rekords (R881). Ältere Tabellen ohne
-  // Momentaufnahme: nur der Rekordwert selbst, der Rest bleibt „–“.
-  function werteAus(k) {
-    var m = k.moment || {}, w = { hoehe: m.hoehe, geschw: m.geschw, steig: m.steig, km: m.km, boden: m.boden };
-    var feld = { hoehe_max: "hoehe", hoehe_min: "hoehe", geschw_max: "geschw", geschw_min: "geschw", steig_max: "steig", sink_max: "steig", km_max: "km", km_min: "km" }[k.kategorie];
-    if (feld && w[feld] == null && m.v != null) w[feld] = m.v;
-    return w;
-  }
   function koordinate(v, pos, neg) { return v == null ? "" : komma(Math.abs(v), 4) + "° " + (v >= 0 ? pos : neg); }
-  function ortText(f) {
+  // Flughafen kurz (Code) und lesbar (Name, Stadt, Land) – R882.
+  function flughafenLang(f) {
     if (!f) return "";
-    var stadt = f.stadt || f.name || "";
-    return (f.code || "") + (stadt ? " " + stadt : "");
+    var name = f.name || f.stadt || f.code || "";
+    var zusatz = [f.stadt && f.name && f.name.indexOf(f.stadt) < 0 ? f.stadt : "", f.land || ""].filter(Boolean).join(", ");
+    return name + (zusatz ? " (" + zusatz + ")" : "");
+  }
+  var QUELLE_NAME = { empfang: "Empfang", flugzeug: "Flugzeug", route: "Route" };
+
+  // Ein Feld der Wertetabelle: Wert rechtsbündig, Zeitstempel klein darunter.
+  function zelle(doc, art, w, rechtsX, zy, hervor, f) {
+    var text = w ? wertText(art, w) : "–";
+    doc.setFont("helvetica", "bold"); doc.setFontSize(6.6);
+    if (hervor) doc.setTextColor(f[0], f[1], f[2]); else doc.setTextColor(35, 38, 48);
+    rechts(doc, text, rechtsX, zy + 2.9);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(3.6); doc.setTextColor(130, 135, 148);
+    rechts(doc, w && w.t ? w.t : "", rechtsX, zy + 5.1);
   }
 
   function vorderseite(doc, x, y, k, kontext, bild) {
-    var f = KAT_FARBE[k.kategorie] || [80, 80, 80], m = k.moment || {}, w = werteAus(k);
+    var f = KAT_FARBE[k.kategorie] || [80, 80, 80], m = k.moment || {}, W = k.werte || {};
     doc.setDrawColor(200); doc.setLineWidth(0.2); doc.setFillColor(255, 255, 255);
     doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, H - 1.2, 3, 3, "FD");
     // Kopf: Nummer, Kategorie, Bauart
@@ -140,56 +145,71 @@
     doc.setFontSize(6.2); rechts(doc, k.kategorie_titel.toUpperCase(), x + B - 4, y + 5.2);
     doc.setFont("helvetica", "normal"); doc.setFontSize(5.4);
     rechts(doc, KLASSE_NAME[k.klasse] || "Flugzeug", x + B - 4, y + 9.2);
-    // Typ, Kennzeichen, Rufzeichen, Route
-    doc.setTextColor(25, 28, 36); doc.setFont("helvetica", "bold"); doc.setFontSize(8.6);
+    // Typ, Kennzeichen, Rufzeichen, Betreiber
+    doc.setTextColor(25, 28, 36); doc.setFont("helvetica", "bold"); doc.setFontSize(8.2);
     var typ = k.typ || (k.icao ? "Typ " + k.icao : "Unbekannter Typ");
     if (k.hersteller && typ.toUpperCase().indexOf(k.hersteller.toUpperCase().split(" ")[0]) < 0 && k.hersteller.length < 18) typ = k.hersteller.split(" ")[0] + " " + typ;
-    doc.text(kuerzen(doc, typ, B - 8), x + 4, y + 15.6);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(5.8); doc.setTextColor(95, 100, 112);
-    doc.text(kuerzen(doc, [k.kennzeichen, k.flug].filter(Boolean).join(" · ") || "ohne Kennzeichen", B - 8), x + 4, y + 18.8);
-    // „›“ statt Pfeil: „→“ fehlt in der PDF-Standardschrift.
-    var route = k.von && k.nach ? ortText(k.von) + "  ›  " + ortText(k.nach) : (k.route || "");
-    if (route) { doc.setFontSize(5.4); doc.setTextColor(60, 66, 80); doc.text(kuerzen(doc, route, B - 8), x + 4, y + 21.8); }
+    doc.text(kuerzen(doc, typ, B - 8), x + 4, y + 15.1);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(5.4); doc.setTextColor(95, 100, 112);
+    doc.text(kuerzen(doc, [k.kennzeichen, k.flug, k.betreiber || k.airline].filter(Boolean).join(" · ") || "ohne Kennzeichen", B - 8), x + 4, y + 18.0);
+    // Route: kurz und lesbar
+    if (k.von && k.nach) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(6); doc.setTextColor(40, 46, 60);
+      doc.text(k.von.code + "  ›  " + k.nach.code, x + 4, y + 21.0);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(3.9); doc.setTextColor(95, 100, 112);
+      doc.text(kuerzen(doc, flughafenLang(k.von) + "  ›  " + flughafenLang(k.nach), B - 8), x + 4, y + 23.2);
+    } else {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(4.6); doc.setTextColor(130, 135, 148);
+      doc.text(k.route || "Route unbekannt", x + 4, y + 21.4);
+    }
     // Bild: Foto (ganz, ohne Beschnitt) mit Urheberzeile – sonst Silhouette.
-    var by = y + 23.2, bh = 17.6;
+    var by = y + 24.4, bh = 14.6;
     doc.setFillColor(232, 241, 250); doc.rect(x + 3, by, B - 6, bh, "F");
     if (k._foto) {
-      var fb = B - 6, fh = bh - 2.4, s = Math.min(fb / k._foto.w, fh / k._foto.h), bw = k._foto.w * s, bhh = k._foto.h * s;
+      var fb = B - 6, fh = bh - 2.2, s = Math.min(fb / k._foto.w, fh / k._foto.h), bw = k._foto.w * s, bhh = k._foto.h * s;
       doc.addImage(k._foto.daten, k._foto.format, x + 3 + (fb - bw) / 2, by + (fh - bhh) / 2, bw, bhh, k._foto.alias, "FAST");
-      doc.setFont("helvetica", "normal"); doc.setFontSize(3.4); doc.setTextColor(95, 100, 112);
-      mitte(doc, urheberZeile(doc, k.foto.credit, B - 8), x + B / 2, by + bh - 0.6);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(3.3); doc.setTextColor(95, 100, 112);
+      mitte(doc, urheberZeile(doc, k.foto.credit, B - 8), x + B / 2, by + bh - 0.5);
     } else {
       // Alias: jede Silhouette nur EINMAL einbetten, sonst wird das PDF riesig.
-      doc.addImage(bild, "PNG", x + 8, by + 0.6, 47, 17.6 * 0.94, "silh-" + (k.klasse || "unbekannt"), "FAST");
+      doc.addImage(bild, "PNG", x + 12, by + 0.3, 39, 14.6, "silh-" + (k.klasse || "unbekannt"), "FAST");
     }
-    // Rekord mit dem EINEN Zeitpunkt aller Werte dieser Karte
-    doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 3, by + bh + 1.2, B - 6, 5.2, 1.4, 1.4, "F");
-    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5.8);
-    mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k) + " · " + (m.t || ""), B - 8), x + B / 2, by + bh + 4.7);
-    // Vier Spielwerte aus diesem Augenblick
-    var zeilen = [["hoehe", "Höhe"], ["geschw", "Geschwindigkeit"], ["steig", "Steigen/Sinken"], ["km", "Entfernung"]];
-    var zy0 = by + bh + 7.4;
+    // Rekord
+    var ry = by + bh + 0.9;
+    doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 3, ry, B - 6, 4.4, 1.2, 1.2, "F");
+    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5.4);
+    mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k), B - 8), x + B / 2, ry + 3.1);
+    // Wertetabelle: Minimum und Maximum mit Zeitstempel (Steigen/Sinken: beide Richtungen)
+    var ty = ry + 5.6, spMin = x + 40, spMax = x + B - 4.5;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(3.8); doc.setTextColor(130, 135, 148);
+    rechts(doc, "MINIMUM", spMin, ty + 1.6); rechts(doc, "MAXIMUM", spMax, ty + 1.6);
+    var zeilen = [["hoehe", "Höhe", "hoehe_min", "hoehe_max"], ["geschw", "Geschwindigkeit", "geschw_min", "geschw_max"],
+      ["steig", "Steigen/Sinken", "sink_max", "steig_max"], ["km", "Entfernung", "km_min", "km_max"]];
     zeilen.forEach(function (z, i) {
-      var zy = zy0 + i * 6.1;
-      if (i % 2 === 0) { doc.setFillColor(243, 245, 248); doc.rect(x + 3, zy, B - 6, 6.1, "F"); }
-      var aktiv = k.kategorie.indexOf(z[0]) === 0 || (z[0] === "steig" && k.kategorie === "sink_max");
-      doc.setTextColor(aktiv ? f[0] : 45, aktiv ? f[1] : 48, aktiv ? f[2] : 58);
-      doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.text(z[1], x + 5, zy + 4.1);
-      var text = z[0] === "hoehe" && w.boden && w.hoehe == null ? "am Boden" : wertText(z[0], w[z[0]] == null ? null : { v: w[z[0]] });
-      doc.setFontSize(8.6); rechts(doc, text, x + B - 5, zy + 4.3);
+      var zy = ty + 2.4 + i * 6.0, w = W[z[0]] || {};
+      if (i % 2 === 0) { doc.setFillColor(243, 245, 248); doc.rect(x + 3, zy, B - 6, 6.0, "F"); }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(5.8);
+      var aktiv = k.kategorie === z[2] || k.kategorie === z[3];
+      if (aktiv) doc.setTextColor(f[0], f[1], f[2]); else doc.setTextColor(45, 48, 58);
+      doc.text(z[0] === "steig" ? "Sinken/Steigen" : z[1], x + 4.5, zy + 3.8);
+      zelle(doc, z[0], w.min, spMin, zy, k.kategorie === z[2], f);
+      zelle(doc, z[0], w.max, spMax, zy, k.kategorie === z[3], f);
     });
-    // Weitere Daten aus demselben Augenblick
-    var iy = zy0 + 4 * 6.1 + 3.2;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(4.8); doc.setTextColor(70, 76, 90);
-    var z1 = [m.kurs != null ? "Kurs " + Math.round(m.kurs) + "°" : "", m.squawk ? "Squawk " + m.squawk : "",
-      m.lat != null ? koordinate(m.lat, "N", "S") + "  " + koordinate(m.lon, "O", "W") : ""].filter(Boolean).join(" · ");
-    doc.text(kuerzen(doc, z1 || "–", B - 8), x + 4, iy);
-    var z2 = [k.airline ? "Airline " + k.airline : "", k.halter && k.halter !== k.airline ? "Halter " + k.halter : ""].filter(Boolean).join(" · ");
-    if (z2) doc.text(kuerzen(doc, z2, B - 8), x + 4, iy + 2.6);
+    // Metadaten und Quellen
+    var my = ty + 2.4 + 4 * 6.0 + 2.2;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(3.9); doc.setTextColor(70, 76, 90);
+    var zeilenMeta = [
+      "Beim Rekord: " + ([m.kurs != null ? "Kurs " + Math.round(m.kurs) + "°" : "", m.squawk ? "Squawk " + m.squawk : "",
+        m.lat != null ? koordinate(m.lat, "N", "S") + " " + koordinate(m.lon, "O", "W") : ""].filter(Boolean).join(" · ") || "–"),
+      [k.halter ? "Halter " + k.halter + (k.land ? " (" + k.land + ")" : "") : "", k.airline && k.airline !== k.betreiber ? "Airline " + k.airline : ""].filter(Boolean).join(" · "),
+      k.erste ? "Erfasst " + k.erste + " – " + k.letzte + (k.meldungen ? " · " + tausend(k.meldungen) + " Meldungen" : "") : "",
+      "Quellen: " + (Object.keys(k.quellen || {}).sort().map(function (q) { return (QUELLE_NAME[q] || q) + " " + k.quellen[q]; }).join(" · ") || "–")
+    ].filter(Boolean);
+    zeilenMeta.forEach(function (zl, i) { doc.text(kuerzen(doc, zl, B - 8), x + 4, my + i * 1.95); });
     // Fuß
-    doc.setFontSize(4.4); doc.setTextColor(130, 135, 148);
-    doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 2.8);
-    rechts(doc, "FLIGHT QUAD 64 · " + (kontext.code || ""), x + B - 4, y + H - 2.8);
+    doc.setFontSize(3.9); doc.setTextColor(130, 135, 148);
+    doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 2.2);
+    rechts(doc, "FLIGHT QUAD 64 · " + (kontext.code || ""), x + B - 4, y + H - 2.2);
   }
 
   // ── Rückseite (als Bild, damit sie sich für das Falten drehen lässt) ─────

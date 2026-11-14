@@ -76,6 +76,11 @@ type flugSumme struct {
 	Von         *aeroFlughafen `json:"von,omitempty"`  // R881: Ursprung
 	Nach        *aeroFlughafen `json:"nach,omitempty"` // R881: Ziel
 	Airline     string    `json:"airline,omitempty"`
+	Land        string    `json:"land,omitempty"`      // R882: Land des Halters
+	Betreiber   string    `json:"betreiber,omitempty"` // R882: ICAO-Betreibercode
+	// Quellen je Angabe (R882): flugzeug (adsbdb/hexdb/readsb), route
+	// (adsb.lol/adsbdb/hexdb), empfang (SBS-Datenstrom/aircraft.json · Pi).
+	Quellen map[string]string `json:"quellen,omitempty"`
 	Foto        *flugFoto `json:"foto,omitempty"` // R881: einmal gefunden, hier abgelegt
 	Erste       string    `json:"erste"`
 	Letzte      string    `json:"letzte"`
@@ -482,10 +487,10 @@ func (s *Server) flugMetaNachtragen(jetzt time.Time) {
 		return
 	}
 	type meta struct {
-		fz        *aeroFlugzeug
-		route     string
-		von, nach *aeroFlughafen
-		airline   string
+		fz                     *aeroFlugzeug
+		route, routeQuelle     string
+		von, nach              *aeroFlughafen
+		airline                string
 	}
 	m := map[string]meta{}
 	aeroMu.Lock()
@@ -499,18 +504,40 @@ func (s *Server) flugMetaNachtragen(jetzt time.Time) {
 		if r, ok := aeroRouten[a.flug]; ok && r.route != nil && r.route.Von != nil && r.route.Nach != nil {
 			x.route = r.route.Von.Code + "–" + r.route.Nach.Code
 			v, n := *r.route.Von, *r.route.Nach
-			x.von, x.nach, x.airline = &v, &n, r.route.Airline
+			x.von, x.nach, x.airline, x.routeQuelle = &v, &n, r.route.Airline, r.route.Quelle
 		}
 		m[a.hex] = x
 	}
 	aeroMu.Unlock()
+	empfang := map[string]string{"sbs": "SBS-Datenstrom", "json": "readsb aircraft.json"}
 	flugMu.Lock()
+	quelle := empfang[flugQuelle]
 	for _, schl := range flugSchluessel(jetzt) {
 		tab := flugTabellen[schl]
 		for hex, x := range m {
 			su := tab[hex]
 			if su == nil {
 				continue
+			}
+			if su.Quellen == nil {
+				su.Quellen = map[string]string{}
+			}
+			if quelle != "" {
+				su.Quellen["empfang"] = quelle + " · " + aeroNodeName()
+			}
+			if x.fz != nil {
+				if x.fz.Land != "" {
+					su.Land = x.fz.Land
+				}
+				if x.fz.Betreiber != "" {
+					su.Betreiber = x.fz.Betreiber
+				}
+				if x.fz.Quelle != "" {
+					su.Quellen["flugzeug"] = x.fz.Quelle
+				}
+			}
+			if x.routeQuelle != "" && su.Quellen["route"] == "" {
+				su.Quellen["route"] = x.routeQuelle
 			}
 			if x.fz != nil {
 				for _, p := range [][2]*string{{&su.Typ, &x.fz.Typ}, {&su.ICAO, &x.fz.ICAO}, {&su.Hersteller, &x.fz.Hersteller},
@@ -610,6 +637,14 @@ func (s *Server) flugTabelle(schl string) map[string]*flugSumme {
 		for k, v := range tab {
 			x := *v
 			x.Flug = append([]string(nil), v.Flug...)
+			// Auch die Quellen kopieren: die Aufzeichnung schreibt weiter hinein,
+			// während das Quartett die Kopie liest – geteilt hieße das Absturz.
+			if v.Quellen != nil {
+				x.Quellen = make(map[string]string, len(v.Quellen))
+				for qk, qv := range v.Quellen {
+					x.Quellen[qk] = qv
+				}
+			}
 			kopie[k] = &x
 		}
 		flugMu.Unlock()

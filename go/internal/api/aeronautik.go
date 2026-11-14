@@ -72,6 +72,9 @@ type aeroFlugzeug struct {
 	Hersteller  string `json:"hersteller,omitempty"`
 	Kennzeichen string `json:"kennzeichen,omitempty"`
 	Halter      string `json:"halter,omitempty"`
+	Land        string `json:"land,omitempty"`      // R882: Land des Halters
+	Betreiber   string `json:"betreiber,omitempty"` // R882: ICAO-Betreibercode (DLH)
+	Quelle      string `json:"quelle,omitempty"`    // R882: adsbdb | hexdb | readsb
 }
 
 type aeroEintrag struct {
@@ -134,7 +137,8 @@ func (s *Server) aeroNachschlagen() {
 				verbindlich = true
 				if ac := mapAus(mapAus(d["response"])["aircraft"]); code == http.StatusOK && ac != nil {
 					fz = &aeroFlugzeug{Typ: aeroText(ac, "type"), ICAO: aeroText(ac, "icao_type"), Hersteller: aeroText(ac, "manufacturer"),
-						Kennzeichen: aeroText(ac, "registration"), Halter: aeroText(ac, "registered_owner")}
+						Kennzeichen: aeroText(ac, "registration"), Halter: aeroText(ac, "registered_owner"),
+						Land: aeroText(ac, "registered_owner_country_name"), Betreiber: aeroText(ac, "registered_owner_operator_flag_code"), Quelle: "adsbdb"}
 				}
 			}
 			time.Sleep(1500 * time.Millisecond)
@@ -148,7 +152,8 @@ func (s *Server) aeroNachschlagen() {
 				verbindlich = true
 				if code == http.StatusOK && d != nil && aeroText(d, "Registration") != "" {
 					fz = &aeroFlugzeug{Typ: aeroText(d, "Type"), ICAO: aeroText(d, "ICAOTypeCode"), Hersteller: aeroText(d, "Manufacturer"),
-						Kennzeichen: aeroText(d, "Registration"), Halter: aeroText(d, "RegisteredOwners")}
+						Kennzeichen: aeroText(d, "Registration"), Halter: aeroText(d, "RegisteredOwners"),
+						Betreiber: aeroText(d, "OperatorFlagCode"), Quelle: "hexdb"}
 				}
 			}
 			time.Sleep(1500 * time.Millisecond)
@@ -313,7 +318,7 @@ func (s *Server) aeroLokal() []byte {
 		if g, ok := aeroGeraete[hex]; ok && g.flugzeug != nil {
 			e["flugzeug"] = g.flugzeug
 		} else if reg := aeroText(a, "r"); reg != "" {
-			e["flugzeug"] = &aeroFlugzeug{Kennzeichen: reg, Typ: aeroText(a, "t"), ICAO: aeroText(a, "t")}
+			e["flugzeug"] = &aeroFlugzeug{Kennzeichen: reg, Typ: aeroText(a, "t"), ICAO: aeroText(a, "t"), Quelle: "readsb"}
 		}
 		aeroVormerken("f", hex, aeroGeraete)
 		flieger = append(flieger, e)
