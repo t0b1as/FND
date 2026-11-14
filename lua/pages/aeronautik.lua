@@ -153,8 +153,13 @@ return function()
     <select id="ae-q-format"><option value="karten">Spielkarten 63 × 88 mm</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option></select>
     <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button>
     <button type="button" class="btn-sm" id="ae-q-nachtrag" title="Rekorde für den gewählten Zeitraum aus den aufgezeichneten Spuren (und alten Tagesbilanzen) in die Tabellen eintragen">Aus Aufzeichnung nachtragen</button></div>
-  <div class="zeile"><label><input type="checkbox" id="ae-q-fotos" checked> Fotos der Flugzeugtypen von Wikimedia Commons (nur frei lizenziert, Urheber steht auf der Karte; sonst Silhouette)</label></div>
-  <div class="zeile"><label><input type="checkbox" id="ae-q-ki"> Wo es kein freies Foto gibt: Bild von der KI erzeugen lassen (Sprachmodell + ComfyUI, auf der Karte als „KI-erzeugt – kein Foto“ gekennzeichnet; je Typ einmal, im Hintergrund)</label></div>
+  <div class="zeile">Bilder: <select id="ae-q-bilder">
+      <option value="fotos_ki">Freie Fotos, sonst KI-Bild</option>
+      <option value="fotos">Nur freie Fotos (Wikimedia Commons)</option>
+      <option value="ki">Alle Bilder von der KI</option>
+      <option value="keine">Keine Bilder (Silhouetten)</option></select>
+    <label><input type="checkbox" id="ae-q-bekannt"> Unbekannte Flugzeugtypen ausblenden</label></div>
+  <div class="ae-hinweis" style="margin:-2px 0 4px">Freie Fotos: nur frei lizenziert, Urheber steht auf der Karte. KI-Bilder: vom Sprachmodell beschrieben und von ComfyUI gemalt, je Typ einmal im Hintergrund, auf der Karte als „KI-erzeugt, kein Foto“ gekennzeichnet. Fehlt ein Bild, bleibt die Silhouette.</div>
   <div class="ae-hinweis" id="ae-q-meldung"></div>
 </div>
 </div>
@@ -629,7 +634,7 @@ return function()
       [].forEach.call($('ae-p-auf').querySelectorAll('input,select,button'), function(el){ el.disabled = !!d.fern; });
       $('ae-q-nachtrag').disabled = !!d.fern || !!(d.nachtrag && d.nachtrag.laeuft);
       var kb = d.ki_bilder || {};
-      $('ae-q-ki').parentNode.title = kb.offen ? kb.offen + ' KI-Bild(er) in Arbeit' : '';
+      $('ae-q-bilder').title = kb.offen ? kb.offen + ' KI-Bild(er) in Arbeit' : '';
       if (kb.offen && !$('ae-q-los').disabled) $('ae-q-meldung').textContent = 'KI erzeugt Bilder im Hintergrund: noch ' + kb.offen + ' offen, ' + kb.fertig + ' fertig.' + (kb.fehler ? ' Letzter Fehler: ' + kb.fehler : '');
       else if (kb.fehler && !kb.offen && $('ae-q-meldung').textContent.indexOf('KI erzeugt') === 0) $('ae-q-meldung').textContent = '✗ KI-Bilder: ' + kb.fehler;
       $('ae-q-nachtrag').title = d.fern ? 'Nachtragen nur auf dem Empfänger ' + (d.empfaenger_node || '') : $('ae-q-nachtrag').title;
@@ -800,10 +805,9 @@ return function()
     var knopf = this, datum = $('ae-q-datum').value.replace(/-/g, ''), zeitraum = $('ae-q-zeitraum').value, format = $('ae-q-format').value;
     if (!/^\d{8}$/.test(datum)) { $('ae-q-meldung').textContent = 'Bitte ein Datum wählen.'; return; }
     knopf.disabled = true; $('ae-q-meldung').textContent = 'Werte Rekorde aus und schlage Flugzeugtypen nach …';
-    var fotos = $('ae-q-fotos').checked;
-    if (fotos) $('ae-q-meldung').textContent = 'Werte Rekorde aus, schlage Typen nach und suche Fotos – beim ersten Mal bis zu einer Minute …';
-    var ki = fotos && $('ae-q-ki').checked;
-    fetch('/api/v1/aeronautik/quartett?zeitraum=' + zeitraum + '&datum=' + datum + (fotos ? '&fotos=1' : '') + (ki ? '&kibilder=1' : ''), { credentials: 'same-origin' })
+    var bilder = $('ae-q-bilder').value, bekannt = $('ae-q-bekannt').checked;
+    if (bilder !== 'keine') $('ae-q-meldung').textContent = 'Werte Rekorde aus, schlage Typen nach und suche Bilder – beim ersten Mal bis zu einer Minute …';
+    fetch('/api/v1/aeronautik/quartett?zeitraum=' + zeitraum + '&datum=' + datum + '&bilder=' + bilder + (bekannt ? '&bekannt=1' : ''), { credentials: 'same-origin' })
       .then(function(r){ return r.json(); }).then(function(d){
         if (d.error) throw new Error(d.error);
         if (!d.karten || !d.karten.length) throw new Error(d.hinweis || 'Keine Daten für diesen Zeitraum.');
@@ -817,7 +821,8 @@ return function()
             (d.fern ? ' Daten vom Empfänger ' + (d.empfaenger_node || '') + '.' : '') +
             (d.fotos_fehlend ? ' ' + d.fotos_fehlend + ' Karte(n) noch ohne Foto – der Node sucht im Hintergrund weiter; später erneut erzeugen.' : '') +
             (d.ki_ausstehend ? ' ' + d.ki_ausstehend + ' KI-Bild(er) werden im Hintergrund erzeugt' + (d.ki_hier ? ' auf ' + d.ki_hier : '') + ' (je etwa 20 s) – danach erneut erzeugen.' : '') +
-            (d.ki_hinweis ? ' KI-Bilder nicht möglich: ' + d.ki_hinweis : '');
+            (d.ki_hinweis ? ' KI-Bilder nicht möglich: ' + d.ki_hinweis : '') +
+            (d.ausgeblendet ? ' ' + d.ausgeblendet + ' Flugzeug(e) unbekannten Typs ausgeblendet.' : '');
         });
       }).catch(function(e){ $('ae-q-meldung').textContent = '✗ ' + e.message; })
       .then(function(){ knopf.disabled = false; });

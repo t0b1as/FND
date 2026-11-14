@@ -106,6 +106,35 @@
     return name + "…" + rest;
   }
 
+  // Nur Zeichen, die die PDF-Standardschrift kennt (WinAnsi). Andere – „ă“ in
+  // Coandă, „İ“ in İstanbul, „ș“ – schalten jsPDF auf eine andere Kodierung um:
+  // Die Buchstaben stehen dann gesperrt, und die Breite stimmt nicht mehr
+  // (kein Kürzen, Text läuft über den Rand). Deshalb auf die Grundform zurück.
+  var WINANSI_EXTRA = "€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ";
+  function sicher(s) {
+    s = String(s == null ? "" : s);
+    var raus = "";
+    for (var i = 0; i < s.length; i++) {
+      var ch = s[i], c = ch.charCodeAt(0);
+      if ((c >= 32 && c <= 126) || (c >= 160 && c <= 255) || WINANSI_EXTRA.indexOf(ch) >= 0) { raus += ch; continue; }
+      var grund = ch.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      grund = { "ı": "i", "Ł": "L", "ł": "l", "Đ": "D", "đ": "d", "Ħ": "H", "ħ": "h", "ŀ": "l", "Ŀ": "L", "ĸ": "k", "ſ": "s" }[grund] || grund;
+      raus += /^[\x20-\x7e]+$/.test(grund) ? grund : (c === 10 ? "" : "?");
+    }
+    return raus;
+  }
+  // Ein Dokument so einrichten, dass JEDE Textausgabe und Breitenmessung durch
+  // sicher() läuft – an einer Stelle, damit kein Feld vergessen wird.
+  function sicherMachen(doc) {
+    var text = doc.text, breite = doc.getTextWidth;
+    doc.text = function (t, x, y, o, w) { return text.call(this, Array.isArray(t) ? t.map(sicher) : sicher(t), x, y, o, w); };
+    doc.getTextWidth = function (t) { return breite.call(this, sicher(t)); };
+    return doc;
+  }
+  // Grundlinie für Text, der in einem Feld (oben, Höhe) senkrecht mittig steht:
+  // halbe Feldhöhe plus halbe Großbuchstabenhöhe (≈ 0,7 der Schriftgröße).
+  function senkrechtMitte(oben, hoehe, pt) { return oben + hoehe / 2 + pt * 0.3528 * 0.7 / 2; }
+
   // Rechtsbündig/zentriert selbst rechnen: jsPDF rechnet die Ausrichtung in
   // einer gedrehten Zeichnung (A4-Faltvorlage) falsch herum.
   function rechts(doc, s, x, y) { doc.text(s, x - doc.getTextWidth(s), y); }
@@ -178,7 +207,7 @@
     var ry = by + bh + 0.9;
     doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 3, ry, B - 6, 4.4, 1.2, 1.2, "F");
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5.4);
-    mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k), B - 8), x + B / 2, ry + 3.1);
+    mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k), B - 8), x + B / 2, senkrechtMitte(ry, 4.4, 5.4));
     // Wertetabelle: Minimum und Maximum mit Zeitstempel (Steigen/Sinken: beide Richtungen)
     var ty = ry + 5.6, spMin = x + 40, spMax = x + B - 4.5;
     doc.setFont("helvetica", "bold"); doc.setFontSize(3.8); doc.setTextColor(130, 135, 148);
@@ -330,7 +359,7 @@
         // Streifen 176 × 63 mm: Rückseite links (liegend, Kopf zur Falzlinie),
         // Vorderseite rechts, um 90° gegen den Uhrzeigersinn – ihre Oberkante
         // liegt an der Falzlinie.
-        doc = new jsPDF({ unit: "mm", format: "a4" });
+        doc = sicherMachen(new jsPDF({ unit: "mm", format: "a4" }));
         var proSeite = 4, abstand = 6, x0 = (210 - 2 * H) / 2, y0 = 24;
         var seiten = Math.ceil(karten.length / proSeite);
         karten.forEach(function (k, i) {
@@ -357,7 +386,7 @@
           if (fortschritt) fortschritt(i + 1, karten.length);
         });
       } else {
-        doc = new jsPDF({ unit: "mm", format: [B, H] });
+        doc = sicherMachen(new jsPDF({ unit: "mm", format: [B, H] }));
         karten.forEach(function (k, i) {
           if (i > 0) doc.addPage([B, H]);
           vorderseite(doc, 0, 0, k, kontext, bilder[k.klasse] || bilder.unbekannt);

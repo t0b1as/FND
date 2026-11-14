@@ -95,6 +95,9 @@ func flugVereinen(ziel, q *flugSumme) {
 	if ziel.Foto == nil {
 		ziel.Foto = q.Foto
 	}
+	if ziel.KIFoto == nil {
+		ziel.KIFoto = q.KIFoto
+	}
 	if ziel.Erste == "" || (q.Erste != "" && q.Erste < ziel.Erste) {
 		ziel.Erste = q.Erste
 	}

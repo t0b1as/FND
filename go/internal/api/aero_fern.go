@@ -36,6 +36,8 @@ type flugFernAnfrage struct {
 	Datum    string `json:"datum,omitempty"`
 	Fotos    bool   `json:"fotos,omitempty"`
 	KIBilder bool   `json:"kibilder,omitempty"`
+	Bilder   string `json:"bilder,omitempty"`  // R885: fotos_ki | fotos | ki | keine
+	Bekannt  bool   `json:"bekannt,omitempty"` // R885: unbekannte Typen ausblenden
 	Tag      string `json:"tag,omitempty"`
 	Von      string `json:"von,omitempty"`
 	Bis      string `json:"bis,omitempty"`
@@ -75,6 +77,12 @@ func (a flugFernAnfrage) pfad() (string, bool) {
 		}
 		if a.KIBilder {
 			q.Set("kibilder", "1")
+		}
+		if a.Bilder == "fotos_ki" || a.Bilder == "fotos" || a.Bilder == "ki" || a.Bilder == "keine" {
+			q.Set("bilder", a.Bilder)
+		}
+		if a.Bekannt {
+			q.Set("bekannt", "1")
 		}
 		return "/api/v1/aeronautik/quartett?" + q.Encode(), true
 	case "spur":
@@ -189,7 +197,7 @@ func (s *Server) flugWeiterleiten(c *gin.Context, a flugFernAnfrage, frist time.
 			if json.Unmarshal(daten, &m) == nil {
 				m["empfaenger_node"] = ant.Node
 				m["fern"] = true
-				if a.Art == "quartett" && a.KIBilder {
+				if a.Art == "quartett" && (a.KIBilder || a.Bilder == "fotos_ki" || a.Bilder == "ki") {
 					s.quartettKIHier(m) // R884
 				}
 				if a.Art == "uebersicht" {

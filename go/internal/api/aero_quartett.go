@@ -54,7 +54,8 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		return
 	}
 	zeitraum, datum := c.Query("zeitraum"), c.Query("datum")
-	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "quartett", Zeitraum: zeitraum, Datum: datum, Fotos: c.Query("fotos") == "1", KIBilder: c.Query("kibilder") == "1"}, 90*time.Second) {
+	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "quartett", Zeitraum: zeitraum, Datum: datum, Fotos: c.Query("fotos") == "1", KIBilder: c.Query("kibilder") == "1",
+		Bilder: c.Query("bilder"), Bekannt: c.Query("bekannt") == "1"}, 90*time.Second) {
 		return // R879: vom Pi mit Empfänger
 	}
 	tag, err := time.ParseInLocation("20060102", datum, time.Local)
@@ -84,6 +85,33 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"titel": titel, "code": code, "karten": []gin.H{}, "flugzeuge": 0,
 			"hinweis": "Für diesen Zeitraum gibt es keine Quartettwerte – ist „Quartett-Tabellen pflegen“ eingeschaltet?"})
 		return
+	}
+	// R885: Typen erst aus dem Zwischenspeicher ergänzen – ein Typ, den der Node
+	// längst kennt, soll nicht als „unbekannt“ herausfallen. Dann ggf. ausblenden.
+	nurBekannte := c.Query("bekannt") == "1"
+	aeroMu.Lock()
+	for hex, su := range alle {
+		if su.Typ == "" && su.ICAO == "" {
+			if g, ok := aeroGeraete[hex]; ok && g.flugzeug != nil {
+				su.Typ, su.ICAO = g.flugzeug.Typ, g.flugzeug.ICAO
+				if su.Hersteller == "" {
+					su.Hersteller = g.flugzeug.Hersteller
+				}
+				if su.Kennzeichen == "" {
+					su.Kennzeichen = g.flugzeug.Kennzeichen
+				}
+			}
+		}
+	}
+	aeroMu.Unlock()
+	ausgeblendet := 0
+	if nurBekannte {
+		for hex, su := range alle {
+			if su.Typ == "" && su.ICAO == "" {
+				delete(alle, hex)
+				ausgeblendet++
+			}
+		}
 	}
 	// Kandidaten je Kategorie, beste zuerst.
 	listen := make([][]*flugSumme, len(quartettKategorien))
@@ -126,37 +154,70 @@ func (s *Server) flugQuartett(c *gin.Context) {
 	// Fotos (Wikimedia Commons, frei lizenziert): zuerst aus dem Tabelleneintrag
 	// – einmal gefunden, liegt es dort (R881). Sonst suchen, höchstens 35 s;
 	// was dann fehlt, sucht der Node im Hintergrund weiter.
-	mitFotos, mitKI := c.Query("fotos") == "1", c.Query("kibilder") == "1"
+	// Bilder (R885): fotos_ki = freie Fotos, sonst KI · fotos = nur freie Fotos ·
+	// ki = alle von der KI · keine = Silhouetten. Foto und KI-Bild liegen
+	// getrennt in der Tabelle; „alle von der KI“ überschreibt also kein Foto.
+	modus := quartettBildModus(c)
 	aenderungen := map[string][]func(*flugSumme){} // je Flugzeug: was in die Tabelle soll
 	merken := func(hex string, f func(*flugSumme)) { aenderungen[hex] = append(aenderungen[hex], f) }
 	kiAusstehend, kiOhneComfy := 0, false
-	if mitFotos {
+	istKI := func(f *flugFoto) bool { return f != nil && strings.HasPrefix(f.Credit, "KI-erzeugt") }
+	vorhanden := func(f *flugFoto) bool {
+		if f == nil || f.Datei == "" {
+			return false
+		}
+		_, err := os.Stat(filepath.Join(s.typBildOrdner(), f.Datei))
+		return err == nil
+	}
+	bildFuer := map[string]*flugFoto{} // hex → Bild auf der Karte
+	if modus != "keine" {
 		frist := time.Now().Add(35 * time.Second)
 		jeSuche := map[string]*typBild{}
 		for _, kat := range gewaehlt {
 			for _, su := range kat {
-				// Ein echtes Foto in der Tabelle bleibt. Ein KI-Bild nur so lange,
-				// bis sich doch ein freies Foto findet (R884).
-				istKI := su.Foto != nil && strings.HasPrefix(su.Foto.Credit, "KI-erzeugt")
-				if su.Foto != nil && su.Foto.Datei != "" && !istKI {
-					if _, err := os.Stat(filepath.Join(s.typBildOrdner(), su.Foto.Datei)); err == nil {
-						continue // liegt schon in der Tabelle
+				// Altbestand (R883/R884): KI-Bild im Foto-Feld → ins KI-Feld.
+				if istKI(su.Foto) {
+					if su.KIFoto == nil {
+						su.KIFoto = su.Foto
 					}
+					su.Foto = nil
+					kf := su.KIFoto
+					merken(su.Hex, func(z *flugSumme) {
+						if istKI(z.Foto) {
+							z.Foto = nil
+						}
+						if z.KIFoto == nil {
+							z.KIFoto = kf
+						}
+					})
 				}
 				q := typBildSuche(su.Hersteller, su.Typ, su.ICAO)
-				if q == "" {
+				// Foto (außer bei „alle von der KI“)
+				if modus != "ki" && !vorhanden(su.Foto) && q != "" {
+					b, ok := jeSuche[q]
+					if !ok {
+						b = s.typBildHolen(q, time.Now().Before(frist))
+						jeSuche[q] = b
+					}
+					if b != nil && b.Datei != "" && !b.KI {
+						f := &flugFoto{Datei: b.Datei, Credit: b.Credit()}
+						su.Foto = f
+						merken(su.Hex, func(z *flugSumme) { z.Foto = f })
+					}
+				}
+				if modus != "ki" && vorhanden(su.Foto) {
+					bildFuer[su.Hex] = su.Foto
 					continue
 				}
-				b, ok := jeSuche[q]
-				if !ok {
-					b = s.typBildHolen(q, time.Now().Before(frist))
-					jeSuche[q] = b
+				// KI-Bild (bei „Fotos, sonst KI“ und „alle von der KI“)
+				if modus == "fotos" || q == "" {
+					continue
 				}
-				// R884: Gerade kein Foto da – ob die Suche noch läuft oder nichts
-				// Freies fand – und KI gewünscht: gleich malen lassen, mit dem Typnamen.
-				if (b == nil || b.Datei == "") && mitKI {
+				if !vorhanden(su.KIFoto) {
 					if ki := s.kiTypBildCache(q); ki != nil {
-						b = ki
+						f := &flugFoto{Datei: ki.Datei, Credit: ki.Credit()}
+						su.KIFoto = f
+						merken(su.Hex, func(z *flugSumme) { z.KIFoto = f })
 					} else if s.kiBildLesen().aktiv() {
 						s.kiTypBildVormerken(kiTypAuftrag{Suche: q, Hersteller: su.Hersteller, Typ: su.Typ, ICAO: su.ICAO,
 							Klasse: aeroKlasse(su.ICAO, su.Typ)})
@@ -165,14 +226,8 @@ func (s *Server) flugQuartett(c *gin.Context) {
 						kiOhneComfy = true
 					}
 				}
-				if b != nil && b.Datei != "" {
-					foto := &flugFoto{Datei: b.Datei, Credit: b.Credit()}
-					su.Foto = foto
-					merken(su.Hex, func(z *flugSumme) {
-						if z.Foto == nil || z.Foto.Datei == "" || (strings.HasPrefix(z.Foto.Credit, "KI-erzeugt") && !strings.HasPrefix(foto.Credit, "KI-erzeugt")) {
-							z.Foto = foto
-						}
-					})
+				if vorhanden(su.KIFoto) {
+					bildFuer[su.Hex] = su.KIFoto
 				}
 			}
 		}
@@ -232,9 +287,9 @@ func (s *Server) flugQuartett(c *gin.Context) {
 				"land": su.Land, "betreiber": su.Betreiber, "quellen": su.Quellen,
 				"erste": su.Erste, "letzte": su.Letzte, "meldungen": su.Sicht,
 			}
-			if mitFotos {
-				if su.Foto != nil && su.Foto.Datei != "" {
-					karte["foto"] = gin.H{"url": "/api/v1/aeronautik/typbild/" + su.Foto.Datei, "credit": su.Foto.Credit}
+			if modus != "keine" {
+				if b := bildFuer[su.Hex]; b != nil {
+					karte["foto"] = gin.H{"url": "/api/v1/aeronautik/typbild/" + b.Datei, "credit": b.Credit, "ki": istKI(b)}
 				} else {
 					fehlend++
 				}
@@ -243,7 +298,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"titel": titel, "zeitraum": zeitraum, "code": code, "flugzeuge": len(alle),
-		"karten": karten, "node": aeroNodeName(), "fotos_fehlend": fehlend, "ki_ausstehend": kiAusstehend,
+		"karten": karten, "node": aeroNodeName(), "fotos_fehlend": fehlend, "ki_ausstehend": kiAusstehend, "ausgeblendet": ausgeblendet, "bilder": modus,
 		"ki_hinweis": map[bool]string{true: "ComfyUI ist auf " + aeroNodeName() + " nicht eingerichtet (Einstellungen → KI → Bilderzeugung)."}[kiOhneComfy]})
 }
 
@@ -401,4 +456,19 @@ func (s *Server) flugEintraegeAendern(schl string, aenderungen map[string][]func
 			_ = os.Rename(pfad+".gz.neu", pfad+".gz")
 		}
 	}
+}
+
+// quartettBildModus: gewählte Bildquelle; ältere Aufrufe mit fotos=1/kibilder=1 gelten weiter.
+func quartettBildModus(c *gin.Context) string {
+	switch m := c.Query("bilder"); m {
+	case "fotos_ki", "fotos", "ki", "keine":
+		return m
+	}
+	if c.Query("fotos") == "1" {
+		if c.Query("kibilder") == "1" {
+			return "fotos_ki"
+		}
+		return "fotos"
+	}
+	return "keine"
 }

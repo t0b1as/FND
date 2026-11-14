@@ -82,6 +82,7 @@ type flugSumme struct {
 	// (adsb.lol/adsbdb/hexdb), empfang (SBS-Datenstrom/aircraft.json · Pi).
 	Quellen map[string]string `json:"quellen,omitempty"`
 	Foto        *flugFoto `json:"foto,omitempty"` // R881: einmal gefunden, hier abgelegt
+	KIFoto      *flugFoto `json:"ki_foto,omitempty"` // R885: KI-Bild getrennt vom Foto
 	Erste       string    `json:"erste"`
 	Letzte      string    `json:"letzte"`
 	Sicht       int       `json:"sicht"` // Zahl der Meldungen
