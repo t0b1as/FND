@@ -1,8 +1,8 @@
 {
-  "version": "R880",
-  "description": "FUNDUS R880 - Flight Quad 64",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R880/FND-R880-update.zip",
-  "node_argon2": "9d345cce8f22fef19666c8fdae1e2bdc18e42beacdffdd5a12f6b494914d9f2b",
-  "published_at": "2026-11-14T08:43:57.7658296Z",
-  "signature": "0x61141d48baf45627bd822fc4b84355d5afe1b4ee0944f4f25472964170a6d4ed63f7a220f8df9fd784d038371eb7fcd20920707fa3821a6ba697647dd821e0bd1b"
+  "version": "R881",
+  "description": "FUNDUS R881 - Flight Quad 64",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R881/FND-R881-update.zip",
+  "node_argon2": "c973d7c4ffae78d60b441cb7e1e2c4a2fbca09f1f7d1efddb26931e66b26efb2",
+  "published_at": "2026-11-14T09:22:31.1872043Z",
+  "signature": "0x33dbaa3861cf111a2f8866864531a991ee4723d54ec7166fb185809c386183c17723712f325fc7b3178ca046916e2c03979a94485246315b6c3a197cd042e6c31c"
 }
