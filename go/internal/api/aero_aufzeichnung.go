@@ -59,6 +59,13 @@ type flugWert struct {
 	Flug   string   `json:"flug,omitempty"`
 }
 
+// flugOrt: der Knoten, der einen Datensatz aufgenommen hat, mit seinen Fundus-Koordinaten.
+type flugOrt struct {
+	Node string  `json:"node"`
+	Lat  float64 `json:"lat"`
+	Lon  float64 `json:"lon"`
+}
+
 type flugFoto struct {
 	Datei  string `json:"datei"`
 	Credit string `json:"credit"`
@@ -83,6 +90,7 @@ type flugSumme struct {
 	Quellen map[string]string `json:"quellen,omitempty"`
 	Foto        *flugFoto `json:"foto,omitempty"` // R881: einmal gefunden, hier abgelegt
 	KIFoto      *flugFoto `json:"ki_foto,omitempty"` // R885: KI-Bild getrennt vom Foto
+	Aufnahme    *flugOrt  `json:"aufnahme,omitempty"` // R889: aufnehmender Knoten und seine Koordinaten
 	Erste       string    `json:"erste"`
 	Letzte      string    `json:"letzte"`
 	Sicht       int       `json:"sicht"` // Zahl der Meldungen
@@ -147,6 +155,7 @@ var (
 	flugRate      float64
 	flugOrtLat    float64
 	flugOrtLon    float64
+	flugNode      = aeroNodeName()
 	reFlugTag     = regexp.MustCompile(`^[0-9]{8}$`)
 	reFlugTabelle = regexp.MustCompile(`^(tag-[0-9]{8}|woche-[0-9]{4}-W[0-9]{2}|monat-[0-9]{6}|jahr-[0-9]{4})$`)
 )
@@ -296,6 +305,9 @@ func (s *Server) flugEingang(jetzt time.Time, hex, flug, squawk string, hoeheM *
 			if su == nil {
 				su = &flugSumme{Hex: hex, Erste: ts}
 				tab[hex] = su
+			}
+			if su.Aufnahme == nil && (flugOrtLat != 0 || flugOrtLon != 0) {
+				su.Aufnahme = &flugOrt{Node: flugNode, Lat: flugOrtLat, Lon: flugOrtLon}
 			}
 			su.Letzte, su.Sicht = ts, su.Sicht+1
 			if z.flug != "" && len(su.Flug) < 3 && !enthaelt(su.Flug, z.flug) {
@@ -691,7 +703,7 @@ func (s *Server) flugStarten() {
 				e := s.flugEinstellungenLesen()
 				lat, lon := s.marktPosition()
 				flugMu.Lock()
-				flugEinst, flugEinstZeit, flugOrtLat, flugOrtLon = e, jetzt, lat, lon
+				flugEinst, flugEinstZeit, flugOrtLat, flugOrtLon, flugNode = e, jetzt, lat, lon, aeroNodeName()
 				flugMu.Unlock()
 			}
 			flugMu.Lock()

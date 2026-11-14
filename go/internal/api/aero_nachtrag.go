@@ -98,6 +98,9 @@ func flugVereinen(ziel, q *flugSumme) {
 	if ziel.KIFoto == nil {
 		ziel.KIFoto = q.KIFoto
 	}
+	if ziel.Aufnahme == nil {
+		ziel.Aufnahme = q.Aufnahme
+	}
 	if ziel.Erste == "" || (q.Erste != "" && q.Erste < ziel.Erste) {
 		ziel.Erste = q.Erste
 	}
@@ -131,6 +134,10 @@ func (s *Server) flugAusSpuren(tag string, e flugEinstellungen) (map[string]*flu
 	ergebnis := map[string]*flugSumme{}
 	fi := e.Filter
 	punkte := 0
+	var aufnahme *flugOrt // Spuren stammen von diesem Knoten
+	if lat, lon := s.marktPosition(); lat != 0 || lon != 0 {
+		aufnahme = &flugOrt{Node: aeroNodeName(), Lat: lat, Lon: lon}
+	}
 	sc := bufio.NewScanner(gz)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
 	for sc.Scan() {
@@ -161,7 +168,7 @@ func (s *Server) flugAusSpuren(tag string, e flugEinstellungen) (map[string]*flu
 		ts := time.Unix(int64(t), 0).Format(flugZeitFormat)
 		su := ergebnis[hex]
 		if su == nil {
-			su = &flugSumme{Hex: hex, Erste: ts}
+			su = &flugSumme{Hex: hex, Erste: ts, Aufnahme: aufnahme}
 			ergebnis[hex] = su
 		}
 		su.Letzte, su.Sicht = ts, su.Sicht+1

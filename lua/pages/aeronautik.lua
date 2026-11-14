@@ -159,7 +159,7 @@ return function()
   <div class="ae-hinweis" style="margin-bottom:6px">64 Karten aus den aufgezeichneten Rekorden: je acht Flugzeuge mit der größten und kleinsten Höhe, Geschwindigkeit, Steig- bzw. Sinkrate und Entfernung. Jede Karte zeigt zu allen vier Werten Minimum und Maximum, jeweils mit Zeitstempel.</div>
   <div class="zeile"><select id="ae-q-zeitraum"><option value="tag">Tag</option><option value="woche">Woche</option><option value="monat">Monat</option><option value="jahr">Jahr</option></select>
     <input type="date" id="ae-q-datum">
-    <select id="ae-q-format"><option value="karten">Spielkarten 63 × 88 mm</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option></select>
+    <select id="ae-q-format"><option value="karten">Spielkarten 63 × 88 mm</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option><option value="druckerei">Druckerei: Einzelseiten mit 3 mm Beschnitt, PDF/X-1a (CMYK)</option></select>
     <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button>
     <button type="button" class="btn-sm" id="ae-q-nachtrag" title="Rekorde für den gewählten Zeitraum aus den aufgezeichneten Spuren (und alten Tagesbilanzen) in die Tabellen eintragen">Aus Aufzeichnung nachtragen</button></div>
   <div class="zeile">Bilder: <select id="ae-q-bilder">
@@ -830,8 +830,11 @@ return function()
         return skript('/static/jspdf.umd.min.js').then(function(){ return skript('/static/quartett.js'); }).then(function(){
           return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; });
         }).then(function(doc){
+          if (format === 'druckerei') return druckdatei(doc, d);
           doc.save('FlightQuad64-' + d.code + (format === 'a4' ? '-A4' : '') + '.pdf');
-          $('ae-q-meldung').textContent = '✓ ' + d.karten.length + ' Karten aus ' + d.flugzeuge + ' Flugzeugen (' + d.titel + ')' +
+          return '';
+        }).then(function(zusatz){
+          $('ae-q-meldung').textContent = (zusatz || '') + '✓ ' + d.karten.length + ' Karten aus ' + d.flugzeuge + ' Flugzeugen (' + d.titel + ')' +
             (d.karten.length < 64 ? ' – für 64 Karten waren nicht genug Flugzeuge mit vollständigen Werten aufgezeichnet.' : '.') +
             (d.fern ? ' Daten vom Empfänger ' + (d.empfaenger_node || '') + '.' : '') +
             (d.fotos_fehlend ? ' ' + d.fotos_fehlend + ' Karte(n) noch ohne Foto – der Node sucht im Hintergrund weiter; später erneut erzeugen.' : '') +
@@ -842,6 +845,42 @@ return function()
       }).catch(function(e){ $('ae-q-meldung').textContent = '✗ ' + e.message; })
       .then(function(){ knopf.disabled = false; });
   };
+  // ── R889: Druckdatei – die Seite liefert Einzelseiten mit Beschnitt, der Node
+  // wandelt mit Ghostscript in PDF/X-1a (CMYK, Farbdeckung ≤ 200 %, Schriften
+  // als Pfade). Asynchron: hochladen, Stand abfragen, fertige Datei holen.
+  function druckdatei(doc, d){
+    $('ae-q-meldung').textContent = 'Lade die Seiten zur Umwandlung hoch …';
+    var basis = '/api/v1/admin/aeronautik/druckdatei';
+    return fetch(basis + '?titel=' + encodeURIComponent('FLIGHT QUAD 64 ' + d.code), { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/pdf' }, body: doc.output('blob') })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(x){ return [r, x]; }); })
+      .then(function(x){
+        var r = x[0], a = x[1];
+        if (r.status === 401 || r.status === 403) throw new Error('Die Druckdatei kann nur der Eigentümer dieses Nodes erzeugen.');
+        if (!a.id) throw new Error(a.error || 'Umwandlung nicht gestartet (' + r.status + ').');
+        var start = Date.now();
+        return new Promise(function(fertig, fehler){
+          (function fragen(){
+            fetch(basis + '/' + a.id, { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(st){
+              if (st.status === 'fertig') return fertig(a.id);
+              if (st.status === 'fehler' || st.error) return fehler(new Error(st.fehler || st.error));
+              $('ae-q-meldung').textContent = 'Wandle für die Druckerei um (CMYK, PDF/X-1a) … ' + Math.round((Date.now() - start) / 1000) + ' s';
+              setTimeout(fragen, 2000);
+            }).catch(function(){ setTimeout(fragen, 4000); });
+          })();
+        });
+      })
+      .then(function(id){ return fetch(basis + '/' + id + '?datei=1', { credentials: 'same-origin' }); })
+      .then(function(r){ if (!r.ok) throw new Error('Druckdatei konnte nicht geladen werden (' + r.status + ').'); return r.blob(); })
+      .then(function(blob){
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob); a.download = 'FlightQuad64-' + d.code + '-Druckerei-PDFX1a.pdf';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
+        return 'Druckdatei: ' + (d.karten.length * 2) + ' Seiten 69 × 94 mm (63 × 88 + 3 mm Beschnitt), PDF/X-1a, CMYK. ';
+      });
+  }
+
   // ── R887: Typen des Zeitraums mit Foto und KI-Bild; misslungene KI-Bilder löschen ──
   var typen = [];
   function typenLaden(){

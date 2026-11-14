@@ -56,6 +56,18 @@ fehler()  {
 
 [ "$(id -u)" -eq 0 ] || fehler "Bitte mit sudo ausführen."
 
+# R889: Ghostscript für die Druckdatei des Flugquartetts (PDF/X-1a, CMYK) –
+# auf JEDEM Pi, auch ohne Stick: umgewandelt wird auf dem Pi, der die Seite
+# bedient. Steht deshalb vor der Stick-Prüfung. Ein Fehler bricht nichts ab.
+if ! command -v gs >/dev/null 2>&1; then
+  echo "   Ghostscript für die Druckdatei einrichten …"
+  for i in 1 2 3 4 5 6; do
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ghostscript >/dev/null 2>&1; then break; fi
+    sleep 20   # apt evtl. gerade belegt (automatische Updates)
+  done
+  command -v gs >/dev/null 2>&1 && echo "   Ghostscript: $(gs --version)" || echo "   Ghostscript konnte nicht eingerichtet werden – von Hand: sudo apt install ghostscript"
+fi
+
 # R865: WLAN-Hotspot einrichten (Dienste; Pakete erst beim Einschalten). Steht
 # hier vorn, weil der Rest ohne RTL-SDR-Stick früh endet.
 if [ "$HINTERGRUND" -eq 0 ] && [ -f "$(dirname "$(readlink -f "$0")")/setup-hotspot.sh" ]; then

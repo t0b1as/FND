@@ -125,8 +125,21 @@
   }
   // Ein Dokument so einrichten, dass JEDE Textausgabe und Breitenmessung durch
   // sicher() läuft – an einer Stelle, damit kein Feld vergessen wird.
-  function sicherMachen(doc) {
+  var RAND = 3; // mm Beschnitt für die Druckerei (R889)
+  function sicherMachen(doc, opt) {
     var text = doc.text, breite = doc.getTextWidth;
+    if (opt && opt.neutral) {
+      // Graue Schrift auf reines Grau ziehen: nach der Umwandlung mit vollem
+      // Unterfarbenersatz wird sie reines Schwarz (K) – ohne Spuren von C, M, Y.
+      var farbe = doc.setTextColor;
+      doc.setTextColor = function (r, g, b) {
+        if (arguments.length >= 3 && typeof r === "number" && Math.max(r, g, b) - Math.min(r, g, b) <= 24 && Math.min(r, g, b) < 250) {
+          var grau = Math.round((r + g + b) / 3);
+          return farbe.call(this, grau, grau, grau);
+        }
+        return farbe.apply(this, arguments);
+      };
+    }
     doc.text = function (t, x, y, o, w) { return text.call(this, Array.isArray(t) ? t.map(sicher) : sicher(t), x, y, o, w); };
     doc.getTextWidth = function (t) { return breite.call(this, sicher(t)); };
     return doc;
@@ -189,14 +202,22 @@
     rechts(doc, w && w.t ? w.t : "", rechtsX, zy + 4.8);
   }
 
-  function vorderseite(doc, x, y, k, kontext, bild) {
+  // rand (mm, R889): Beschnitt – Flächen über die Schnittkante, keine runden
+  // Ecken und kein gezeichneter Kartenrand (die Druckerei schneidet).
+  function vorderseite(doc, x, y, k, kontext, bild, rand) {
+    rand = rand || 0;
     var f = KAT_FARBE[k.kategorie] || [80, 80, 80], m = k.moment || {}, W = k.werte || {};
-    doc.setDrawColor(200); doc.setLineWidth(0.2); doc.setFillColor(255, 255, 255);
-    doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, H - 1.2, 3, 3, "FD");
-    // Kopf: Nummer, Kategorie, Bauart
-    doc.setFillColor(f[0], f[1], f[2]);
-    doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, 11, 3, 3, "F");
-    doc.rect(x + 0.6, y + 6, B - 1.2, 5.6, "F");
+    if (rand) {
+      doc.setFillColor(255, 255, 255); doc.rect(x - rand, y - rand, B + 2 * rand, H + 2 * rand, "F");
+      doc.setFillColor(f[0], f[1], f[2]); doc.rect(x - rand, y - rand, B + 2 * rand, 11.6 + rand, "F");
+    } else {
+      doc.setDrawColor(200); doc.setLineWidth(0.2); doc.setFillColor(255, 255, 255);
+      doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, H - 1.2, 3, 3, "FD");
+      // Kopf: Nummer, Kategorie, Bauart
+      doc.setFillColor(f[0], f[1], f[2]);
+      doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, 11, 3, 3, "F");
+      doc.rect(x + 0.6, y + 6, B - 1.2, 5.6, "F");
+    }
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(15);
     doc.text(k.nr, x + 4, y + 9);
     doc.setFontSize(6.2); rechts(doc, k.kategorie_titel.toUpperCase(), x + B - 4, y + 5.2);
@@ -207,7 +228,7 @@
     // CC0- und KI-Bilder füllen das Feld; CC BY ebenfalls, mit „zugeschnitten“
     // in der Urheberzeile; CC BY-SA bleibt ungeschnitten (eine Bearbeitung
     // müsste sonst selbst unter CC BY-SA stehen – die ganze Karte).
-    var fx = x + 0.6, fy = y + 11.6, fw = B - 1.2, fh = 33;
+    var fx = rand ? x - rand : x + 0.6, fy = y + 11.6, fw = rand ? B + 2 * rand : B - 1.2, fh = 33;
     doc.setFillColor(232, 241, 250); doc.rect(fx, fy, fw, fh, "F");
     var credit = k.foto ? k.foto.credit : "";
     if (k._foto) {
@@ -276,10 +297,13 @@
       "Quellen: " + (Object.keys(k.quellen || {}).sort().map(function (q) { return (QUELLE_NAME[q] || q) + " " + k.quellen[q]; }).join(" · ") || "–")
     ].filter(Boolean);
     zeilenMeta.forEach(function (zl, i) { doc.text(kuerzen(doc, zl, B - 8), x + 4, my + i * 1.85); });
-    // Fuß
-    doc.setFontSize(3.9); doc.setTextColor(130, 135, 148);
-    doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 2.2);
-    rechts(doc, "FLIGHT QUAD 64 · " + (kontext.code || ""), x + B - 4, y + H - 2.2);
+    // Fuß (R889): aufnehmender Knoten mit seinen Fundus-Koordinaten; 3,4 mm vom
+    // Rand – innerhalb des Sicherheitsabstands der Druckerei.
+    doc.setFont("helvetica", "normal"); doc.setFontSize(3.9); doc.setTextColor(130, 135, 148);
+    doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 3.4);
+    var auf = k.aufnahme || kontext.aufnahme || {};
+    var ort = auf.lat != null && (auf.lat !== 0 || auf.lon !== 0) ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") : "Standort unbekannt";
+    rechts(doc, kuerzen(doc, (auf.node ? auf.node + " · " : "") + ort, B - 26), x + B - 4, y + H - 3.4);
   }
 
   // ── Rückseite (als Bild, damit sie sich für das Falten drehen lässt) ─────
@@ -302,21 +326,26 @@
   }
 
   // drehung 90: um 90° im Uhrzeigersinn, liegend (Kopf rechts, zur Falzlinie).
-  function rueckseite(kontext, drehung) {
+  // beschnitt (mm, R889): Fläche über die Schnittkante hinaus, ohne runde Ecken,
+  // mit 12 statt 10 px/mm (305 ppi) – Druckerei-Fassung.
+  function rueckseite(kontext, drehung, beschnitt) {
     return logoBild().then(function (logo) {
       var s = 10, cv = document.createElement("canvas"), w = B * s, h = H * s;
-      if (drehung === 90) { cv.width = h; cv.height = w; } else { cv.width = w; cv.height = h; }
+      var rand = (beschnitt || 0) * s, aufl = beschnitt ? 1.2 : 1;
+      if (drehung === 90) { cv.width = h; cv.height = w; } else { cv.width = (w + 2 * rand) * aufl; cv.height = (h + 2 * rand) * aufl; }
       var g = cv.getContext("2d");
       if (drehung === 90) { g.translate(h, 0); g.rotate(Math.PI / 2); }
+      else { g.scale(aufl, aufl); g.translate(rand, rand); }
+      function form() {
+        g.beginPath();
+        if (rand) g.rect(-rand, -rand, w + 2 * rand, h + 2 * rand);
+        else if (g.roundRect) g.roundRect(6, 6, w - 12, h - 12, 30); else g.rect(6, 6, w - 12, h - 12);
+      }
       // Verlauf in Fundus-Grün (#00e676 · #00c853 · #17a862) bis in ein tiefes Grün.
       var gr = g.createLinearGradient(0, 0, w * 0.4, h);
       gr.addColorStop(0, "#00c853"); gr.addColorStop(0.45, "#17a862"); gr.addColorStop(1, "#06351f");
-      g.fillStyle = gr; g.beginPath();
-      if (g.roundRect) g.roundRect(6, 6, w - 12, h - 12, 30); else g.rect(6, 6, w - 12, h - 12);
-      g.fill();
-      g.save(); g.beginPath();
-      if (g.roundRect) g.roundRect(6, 6, w - 12, h - 12, 30); else g.rect(6, 6, w - 12, h - 12);
-      g.clip();
+      g.fillStyle = gr; form(); g.fill();
+      g.save(); form(); g.clip();
       // Knotennetz: fester Startwert – ALLE Karten haben exakt dieselbe Rückseite.
       var zufall = (function (a) { return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; })(64);
       var knoten = [];
@@ -332,7 +361,7 @@
       // dunkler Hof hinter Logo und Schrift, damit beides klar lesbar bleibt
       var hof = g.createRadialGradient(w / 2, h * 0.5, 40, w / 2, h * 0.5, w * 0.62);
       hof.addColorStop(0, "rgba(4,40,22,.55)"); hof.addColorStop(1, "rgba(4,40,22,0)");
-      g.fillStyle = hof; g.fillRect(0, 0, w, h);
+      g.fillStyle = hof; g.fillRect(-rand, -rand, w + 2 * rand, h + 2 * rand);
       g.restore();
       g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 4; g.beginPath();
       if (g.roundRect) g.roundRect(40, 40, w - 80, h - 80, 20); else g.rect(40, 40, w - 80, h - 80);
@@ -388,7 +417,7 @@
   function erzeugen(daten, format, fortschritt) {
     var jsPDF = window.jspdf.jsPDF;
     var karten = daten.karten || [];
-    var kontext = { titel: daten.titel, node: daten.node, code: daten.code };
+    var kontext = { titel: daten.titel, node: daten.node, code: daten.code, aufnahme: daten.aufnahme };
     var klassen = {};
     karten.forEach(function (k) { klassen[k.klasse] = true; });
     var bilder = {};
@@ -399,7 +428,7 @@
       if (k.foto && k.foto.url) vorbereiten.push(fotoLaden(k.foto.url).then(function (f) { k._foto = f; }));
     });
     return Promise.all(vorbereiten).then(function () {
-      return rueckseite(kontext, format === "a4" ? 90 : 0);
+      return rueckseite(kontext, format === "a4" ? 90 : 0, format === "druckerei" ? RAND : 0);
     }).then(function (rueck) {
       var doc;
       if (format === "a4") {
@@ -431,6 +460,31 @@
           doc.setDrawColor(150); doc.setLineWidth(0.15); doc.setLineDashPattern([1.2, 1.2], 0);
           doc.line(falz, y + 1, falz, y + B - 1);
           doc.setLineDashPattern([], 0);
+          if (fortschritt) fortschritt(i + 1, karten.length);
+        });
+      } else if (format === "druckerei") {
+        // R889 – Vorgaben der Druckerei: Einzelseiten im Endformat plus 3 mm
+        // Beschnitt (69 × 94 mm), Reihenfolge Vorderseite 1, Rückseite 1,
+        // Vorderseite 2 …; Texte mindestens 3 mm innerhalb der Schnittkante.
+        // CMYK, Farbdeckung, Schriften als Pfade und PDF/X-1a macht danach
+        // der Node mit Ghostscript.
+        var PB = B + 2 * RAND, PH = H + 2 * RAND;
+        doc = sicherMachen(new jsPDF({ unit: "mm", format: [PB, PH] }), { neutral: true });
+        // Endformat- und Beschnittrahmen je Seite: die Druckerei schneidet an der
+        // TrimBox (3 mm innen); Ghostscript übernimmt die Rahmen unverändert.
+        var rahmen = function () {
+          var f = doc.internal.scaleFactor, r = RAND * f, w = PB * f, h = PH * f;
+          var pc = doc.internal.getCurrentPageInfo().pageContext;
+          pc.trimBox = { bottomLeftX: r, bottomLeftY: r, topRightX: w - r, topRightY: h - r };
+          pc.bleedBox = { bottomLeftX: 0, bottomLeftY: 0, topRightX: w, topRightY: h };
+        };
+        karten.forEach(function (k, i) {
+          if (i > 0) doc.addPage([PB, PH]);
+          rahmen();
+          vorderseite(doc, RAND, RAND, k, kontext, bilder[k.klasse] || bilder.unbekannt, RAND);
+          doc.addPage([PB, PH]);
+          rahmen();
+          doc.addImage(rueck, "PNG", 0, 0, PB, PH, "rueckseite", "FAST");
           if (fortschritt) fortschritt(i + 1, karten.length);
         });
       } else {

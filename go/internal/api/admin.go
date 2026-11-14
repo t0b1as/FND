@@ -56,6 +56,8 @@ func (s *Server) registerAdminRoutes() {
 		g.POST("/aeronautik/aufzeichnung", s.flugEinstellen) // R877: Flugdaten aufzeichnen
 		g.POST("/aeronautik/nachtragen", s.flugNachtragenStarten) // R880: Quartettwerte aus Aufgezeichnetem
 		g.POST("/aeronautik/kibild", s.quartettKIBildAendern) // R887: misslungene KI-Bilder löschen/neu
+		g.POST("/aeronautik/druckdatei", s.quartettDruckdatei)    // R889: PDF/X-1a für die Druckerei
+		g.GET("/aeronautik/druckdatei/:id", s.quartettDruckStand)
 		g.POST("/update/check",    s.updateCheck)
 		g.POST("/update/apply",    s.updateApply)
 		g.POST("/update/auto",     s.updateAutoSet)   // Automatik umschalten (R664)

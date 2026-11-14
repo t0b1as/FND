@@ -54,7 +54,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 step "Systempakete"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq unzip curl logrotate ca-certificates gnupg openssl exfatprogs ntfs-3g ffmpeg iw >/dev/null
+apt-get install -y -qq unzip curl logrotate ca-certificates gnupg openssl exfatprogs ntfs-3g ffmpeg iw ghostscript >/dev/null
 ok "Basis-Pakete"
 
 # ── 2. Webserver mit Lua (OpenResty bevorzugt, sonst nginx + Lua-Modul) ──────

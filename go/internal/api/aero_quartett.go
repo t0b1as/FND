@@ -253,7 +253,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 					"steig":  gin.H{"min": su.SinkMax, "max": su.SteigMax},
 					"km":     gin.H{"min": su.KmMin, "max": su.KmMax},
 				},
-				"land": su.Land, "betreiber": su.Betreiber, "quellen": su.Quellen,
+				"land": su.Land, "betreiber": su.Betreiber, "quellen": su.Quellen, "aufnahme": su.Aufnahme,
 				"erste": su.Erste, "letzte": su.Letzte, "meldungen": su.Sicht,
 			}
 			if modus != "keine" {
@@ -268,6 +268,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"titel": titel, "zeitraum": zeitraum, "code": code, "flugzeuge": len(alle),
 		"karten": karten, "node": aeroNodeName(), "fotos_fehlend": fehlend, "ki_ausstehend": kiAusstehend, "ausgeblendet": ausgeblendet, "bilder": modus,
+		"aufnahme": s.flugAufnahmeOrt(),
 		"ki_hinweis": map[bool]string{true: "ComfyUI ist auf " + aeroNodeName() + " nicht eingerichtet (Einstellungen → KI → Bilderzeugung)."}[kiOhneComfy]})
 }
 
@@ -606,4 +607,15 @@ func (s *Server) quartettKIBildAendern(c *gin.Context) {
 			Klasse: aeroKlasse(req.ICAO, req.Typ)})
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "geloescht": geloescht})
+}
+
+// flugAufnahmeOrt: dieser Knoten mit seinen Koordinaten – für Einträge, die
+// ihren Aufnahme-Knoten noch nicht kennen (vor R889). Der Empfänger, der das
+// Quartett liefert, ist derselbe, der aufgezeichnet hat.
+func (s *Server) flugAufnahmeOrt() *flugOrt {
+	lat, lon := s.marktPosition()
+	if lat == 0 && lon == 0 {
+		return nil
+	}
+	return &flugOrt{Node: aeroNodeName(), Lat: lat, Lon: lon}
 }
