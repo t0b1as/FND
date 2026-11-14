@@ -129,13 +129,16 @@ func (s *Server) flugQuartett(c *gin.Context) {
 	mitFotos, mitKI := c.Query("fotos") == "1", c.Query("kibilder") == "1"
 	aenderungen := map[string][]func(*flugSumme){} // je Flugzeug: was in die Tabelle soll
 	merken := func(hex string, f func(*flugSumme)) { aenderungen[hex] = append(aenderungen[hex], f) }
-	kiAusstehend := 0
+	kiAusstehend, kiOhneComfy := 0, false
 	if mitFotos {
 		frist := time.Now().Add(35 * time.Second)
 		jeSuche := map[string]*typBild{}
 		for _, kat := range gewaehlt {
 			for _, su := range kat {
-				if su.Foto != nil && su.Foto.Datei != "" {
+				// Ein echtes Foto in der Tabelle bleibt. Ein KI-Bild nur so lange,
+				// bis sich doch ein freies Foto findet (R884).
+				istKI := su.Foto != nil && strings.HasPrefix(su.Foto.Credit, "KI-erzeugt")
+				if su.Foto != nil && su.Foto.Datei != "" && !istKI {
 					if _, err := os.Stat(filepath.Join(s.typBildOrdner(), su.Foto.Datei)); err == nil {
 						continue // liegt schon in der Tabelle
 					}
@@ -149,21 +152,24 @@ func (s *Server) flugQuartett(c *gin.Context) {
 					b = s.typBildHolen(q, time.Now().Before(frist))
 					jeSuche[q] = b
 				}
-				// R883: kein freies Foto (nachweislich) → KI-Bild, falls gewünscht.
-				if b != nil && b.Datei == "" && mitKI {
+				// R884: Gerade kein Foto da – ob die Suche noch läuft oder nichts
+				// Freies fand – und KI gewünscht: gleich malen lassen, mit dem Typnamen.
+				if (b == nil || b.Datei == "") && mitKI {
 					if ki := s.kiTypBildCache(q); ki != nil {
 						b = ki
-					} else {
+					} else if s.kiBildLesen().aktiv() {
 						s.kiTypBildVormerken(kiTypAuftrag{Suche: q, Hersteller: su.Hersteller, Typ: su.Typ, ICAO: su.ICAO,
 							Klasse: aeroKlasse(su.ICAO, su.Typ)})
 						kiAusstehend++
+					} else {
+						kiOhneComfy = true
 					}
 				}
 				if b != nil && b.Datei != "" {
 					foto := &flugFoto{Datei: b.Datei, Credit: b.Credit()}
 					su.Foto = foto
 					merken(su.Hex, func(z *flugSumme) {
-						if z.Foto == nil || z.Foto.Datei == "" {
+						if z.Foto == nil || z.Foto.Datei == "" || (strings.HasPrefix(z.Foto.Credit, "KI-erzeugt") && !strings.HasPrefix(foto.Credit, "KI-erzeugt")) {
 							z.Foto = foto
 						}
 					})
@@ -237,7 +243,8 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"titel": titel, "zeitraum": zeitraum, "code": code, "flugzeuge": len(alle),
-		"karten": karten, "node": aeroNodeName(), "fotos_fehlend": fehlend, "ki_ausstehend": kiAusstehend})
+		"karten": karten, "node": aeroNodeName(), "fotos_fehlend": fehlend, "ki_ausstehend": kiAusstehend,
+		"ki_hinweis": map[bool]string{true: "ComfyUI ist auf " + aeroNodeName() + " nicht eingerichtet (Einstellungen → KI → Bilderzeugung)."}[kiOhneComfy]})
 }
 
 // quartettNummer: Kategorie k (0–7), Rang r (0–7) → "1A" … "16D".

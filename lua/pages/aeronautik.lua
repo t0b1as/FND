@@ -816,7 +816,8 @@ return function()
             (d.karten.length < 64 ? ' – für 64 Karten waren nicht genug Flugzeuge mit vollständigen Werten aufgezeichnet.' : '.') +
             (d.fern ? ' Daten vom Empfänger ' + (d.empfaenger_node || '') + '.' : '') +
             (d.fotos_fehlend ? ' ' + d.fotos_fehlend + ' Karte(n) noch ohne Foto – der Node sucht im Hintergrund weiter; später erneut erzeugen.' : '') +
-            (d.ki_ausstehend ? ' ' + d.ki_ausstehend + ' KI-Bild(er) werden im Hintergrund erzeugt (je etwa 20 s) – danach erneut erzeugen.' : '');
+            (d.ki_ausstehend ? ' ' + d.ki_ausstehend + ' KI-Bild(er) werden im Hintergrund erzeugt' + (d.ki_hier ? ' auf ' + d.ki_hier : '') + ' (je etwa 20 s) – danach erneut erzeugen.' : '') +
+            (d.ki_hinweis ? ' KI-Bilder nicht möglich: ' + d.ki_hinweis : '');
         });
       }).catch(function(e){ $('ae-q-meldung').textContent = '✗ ' + e.message; })
       .then(function(){ knopf.disabled = false; });

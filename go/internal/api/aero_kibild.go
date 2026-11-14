@@ -128,7 +128,8 @@ func (s *Server) kiTypBeschreibung(ctx context.Context, a kiTypAuftrag) string {
 	if len(text) > 600 {
 		text = text[:600]
 	}
-	return text + ", plain white livery, no logos, no text"
+	// R884: Der Typname steht immer vorn – das Sprachmodell ergänzt nur Merkmale.
+	return "realistic photograph of a " + name + " aircraft, " + text + ", plain white livery, no logos, no text"
 }
 
 // kiTypBildArbeiter: Aufträge nacheinander abarbeiten (die Grafikkarte kann

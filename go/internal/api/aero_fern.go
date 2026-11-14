@@ -189,6 +189,14 @@ func (s *Server) flugWeiterleiten(c *gin.Context, a flugFernAnfrage, frist time.
 			if json.Unmarshal(daten, &m) == nil {
 				m["empfaenger_node"] = ant.Node
 				m["fern"] = true
+				if a.Art == "quartett" && a.KIBilder {
+					s.quartettKIHier(m) // R884
+				}
+				if a.Art == "uebersicht" {
+					if z := kiTypZustandLesen(); z.Offen > 0 || z.Fertig > 0 || z.Fehler != "" {
+						m["ki_bilder"] = z // malt dieser Pi selbst, zählt seine Warteschlange
+					}
+				}
 				daten, _ = json.Marshal(m)
 			}
 		}
@@ -201,5 +209,41 @@ func (s *Server) flugWeiterleiten(c *gin.Context, a flugFernAnfrage, frist time.
 func (s *Server) flugFernStarten() {
 	if s.node != nil {
 		s.node.RegisterProtocol(flugProtocol, s.flugFernBearbeiten)
+	}
+}
+
+// quartettKIHier (R884): Karten vom Empfänger ohne Bild – hat DIESER Pi
+// ComfyUI, malt er selbst. Die KI-Einstellungen gelten je Pi; ohne diesen
+// Weg scheiterte es still, wenn ComfyUI nur auf dem Pi eingerichtet ist, der
+// die Seite bedient. Die Bilder bleiben hier abgelegt.
+func (s *Server) quartettKIHier(m map[string]any) {
+	if !s.kiBildLesen().aktiv() {
+		return
+	}
+	karten, _ := m["karten"].([]any)
+	ausstehend := 0
+	for _, x := range karten {
+		k, _ := x.(map[string]any)
+		if k == nil || k["foto"] != nil {
+			continue
+		}
+		hersteller, _ := k["hersteller"].(string)
+		typ, _ := k["typ"].(string)
+		icao, _ := k["icao"].(string)
+		q := typBildSuche(hersteller, typ, icao)
+		if q == "" {
+			continue
+		}
+		if ki := s.kiTypBildCache(q); ki != nil {
+			k["foto"] = map[string]any{"url": "/api/v1/aeronautik/typbild/" + ki.Datei, "credit": ki.Credit()}
+			continue
+		}
+		s.kiTypBildVormerken(kiTypAuftrag{Suche: q, Hersteller: hersteller, Typ: typ, ICAO: icao, Klasse: aeroKlasse(icao, typ)})
+		ausstehend++
+	}
+	if hinweis, _ := m["ki_hinweis"].(string); ausstehend > 0 || hinweis != "" {
+		m["ki_ausstehend"] = ausstehend
+		m["ki_hinweis"] = ""
+		m["ki_hier"] = aeroNodeName()
 	}
 }
