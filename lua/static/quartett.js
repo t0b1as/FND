@@ -131,6 +131,30 @@
     doc.getTextWidth = function (t) { return breite.call(this, sicher(t)); };
     return doc;
   }
+  // Heller Schein hinter Text auf einem Bild (R886): weiße Konturen in
+  // abnehmender Stärke und Deckkraft, darüber die gefüllte Schrift – Vektor,
+  // bleibt im Druck scharf.
+  function schein(doc, s, x, y, pt, farbe) {
+    var mm = pt * 0.3528;
+    doc.setDrawColor(255, 255, 255); doc.setLineJoin("round");
+    [[0.42, 0.22], [0.27, 0.42], [0.15, 0.9]].forEach(function (st) {
+      doc.setGState(new doc.GState({ opacity: st[1], "stroke-opacity": st[1] }));
+      doc.setLineWidth(mm * st[0]);
+      doc.text(s, x, y, { renderingMode: "stroke" });
+    });
+    doc.setGState(new doc.GState({ opacity: 1, "stroke-opacity": 1 }));
+    doc.setTextColor(farbe[0], farbe[1], farbe[2]);
+    doc.text(s, x, y);
+  }
+  // Wie das Bild ins Feld darf: „füllen“ (frei zuschneidbar), „zugeschnitten“
+  // (CC BY: Bearbeitung mit Hinweis) oder „ganz“ (CC BY-SA: ungeschnitten).
+  function bildArt(k) {
+    var c = (k.foto && k.foto.credit) || "";
+    if ((k.foto && k.foto.ki) || /^KI-erzeugt/.test(c)) return "fuellen";
+    if (/·\s*(CC0[^·]*|Public domain|PD[^·]*)\s*·/i.test(c)) return "fuellen";
+    if (/·\s*CC BY(?!-SA)[^·]*·/i.test(c)) return "zugeschnitten";
+    return "ganz";
+  }
   // Grundlinie für Text, der in einem Feld (oben, Höhe) senkrecht mittig steht:
   // halbe Feldhöhe plus halbe Großbuchstabenhöhe (≈ 0,7 der Schriftgröße).
   function senkrechtMitte(oben, hoehe, pt) { return oben + hoehe / 2 + pt * 0.3528 * 0.7 / 2; }
@@ -154,11 +178,11 @@
   // Ein Feld der Wertetabelle: Wert rechtsbündig, Zeitstempel klein darunter.
   function zelle(doc, art, w, rechtsX, zy, hervor, f) {
     var text = w ? wertText(art, w) : "–";
-    doc.setFont("helvetica", "bold"); doc.setFontSize(6.6);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(6.3);
     if (hervor) doc.setTextColor(f[0], f[1], f[2]); else doc.setTextColor(35, 38, 48);
-    rechts(doc, text, rechtsX, zy + 2.9);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(3.6); doc.setTextColor(130, 135, 148);
-    rechts(doc, w && w.t ? w.t : "", rechtsX, zy + 5.1);
+    rechts(doc, text, rechtsX, zy + 2.7);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(3.5); doc.setTextColor(130, 135, 148);
+    rechts(doc, w && w.t ? w.t : "", rechtsX, zy + 4.8);
   }
 
   function vorderseite(doc, x, y, k, kontext, bild) {
@@ -174,58 +198,70 @@
     doc.setFontSize(6.2); rechts(doc, k.kategorie_titel.toUpperCase(), x + B - 4, y + 5.2);
     doc.setFont("helvetica", "normal"); doc.setFontSize(5.4);
     rechts(doc, KLASSE_NAME[k.klasse] || "Flugzeug", x + B - 4, y + 9.2);
-    // Typ, Kennzeichen, Rufzeichen, Betreiber
-    doc.setTextColor(25, 28, 36); doc.setFont("helvetica", "bold"); doc.setFontSize(8.2);
+    // ── Bildfeld (R886): das Bild als Hintergrund der oberen Hälfte, der Text
+    // darauf mit hellem Schein. Zuschneiden ist eine Bearbeitung: Gemeinfreie,
+    // CC0- und KI-Bilder füllen das Feld; CC BY ebenfalls, mit „zugeschnitten“
+    // in der Urheberzeile; CC BY-SA bleibt ungeschnitten (eine Bearbeitung
+    // müsste sonst selbst unter CC BY-SA stehen – die ganze Karte).
+    var fx = x + 0.6, fy = y + 11.6, fw = B - 1.2, fh = 33;
+    doc.setFillColor(232, 241, 250); doc.rect(fx, fy, fw, fh, "F");
+    var credit = k.foto ? k.foto.credit : "";
+    if (k._foto) {
+      var art = bildArt(k);
+      var sc = art === "ganz" ? Math.min(fw / k._foto.w, fh / k._foto.h) : Math.max(fw / k._foto.w, fh / k._foto.h);
+      var bw = k._foto.w * sc, bhh = k._foto.h * sc;
+      doc.saveGraphicsState(); doc.rect(fx, fy, fw, fh, null); doc.clip(); doc.discardPath();
+      doc.addImage(k._foto.daten, k._foto.format, fx + (fw - bw) / 2, fy + (fh - bhh) / 2, bw, bhh, k._foto.alias, "FAST");
+      doc.restoreGraphicsState();
+      if (art === "zugeschnitten") credit += " · zugeschnitten";
+    } else {
+      // Silhouette groß, im unteren Teil – oben steht der Text.
+      doc.addImage(bild, "PNG", fx + 4, fy + 11, 54, 20.25, "silh-" + (k.klasse || "unbekannt"), "FAST");
+    }
+    // Typ, Kennzeichen, Rufzeichen, Betreiber – mit Schein auf dem Bild
     var typ = k.typ || (k.icao ? "Typ " + k.icao : "Unbekannter Typ");
     if (k.hersteller && typ.toUpperCase().indexOf(k.hersteller.toUpperCase().split(" ")[0]) < 0 && k.hersteller.length < 18) typ = k.hersteller.split(" ")[0] + " " + typ;
-    doc.text(kuerzen(doc, typ, B - 8), x + 4, y + 15.1);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(5.4); doc.setTextColor(95, 100, 112);
-    doc.text(kuerzen(doc, [k.kennzeichen, k.flug, k.betreiber || k.airline].filter(Boolean).join(" · ") || "ohne Kennzeichen", B - 8), x + 4, y + 18.0);
-    // Route: kurz und lesbar
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8.6);
+    schein(doc, kuerzen(doc, typ, B - 8), x + 4, fy + 4.8, 8.6, [20, 23, 30]);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(5.6);
+    schein(doc, kuerzen(doc, [k.kennzeichen, k.flug, k.betreiber || k.airline].filter(Boolean).join(" · ") || "ohne Kennzeichen", B - 8), x + 4, fy + 8.0, 5.6, [45, 50, 62]);
     if (k.von && k.nach) {
-      doc.setFont("helvetica", "bold"); doc.setFontSize(6); doc.setTextColor(40, 46, 60);
-      doc.text(k.von.code + "  ›  " + k.nach.code, x + 4, y + 21.0);
-      doc.setFont("helvetica", "normal"); doc.setFontSize(3.9); doc.setTextColor(95, 100, 112);
-      doc.text(kuerzen(doc, flughafenLang(k.von) + "  ›  " + flughafenLang(k.nach), B - 8), x + 4, y + 23.2);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(6.4);
+      schein(doc, k.von.code + "  ›  " + k.nach.code, x + 4, fy + 11.4, 6.4, [30, 36, 48]);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(4.1);
+      schein(doc, kuerzen(doc, flughafenLang(k.von) + "  ›  " + flughafenLang(k.nach), B - 8), x + 4, fy + 13.9, 4.1, [55, 60, 72]);
     } else {
-      doc.setFont("helvetica", "normal"); doc.setFontSize(4.6); doc.setTextColor(130, 135, 148);
-      doc.text(k.route || "Route unbekannt", x + 4, y + 21.4);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(4.8);
+      schein(doc, k.route || "Route unbekannt", x + 4, fy + 11.4, 4.8, [90, 95, 108]);
     }
-    // Bild: Foto (ganz, ohne Beschnitt) mit Urheberzeile – sonst Silhouette.
-    var by = y + 24.4, bh = 14.6;
-    doc.setFillColor(232, 241, 250); doc.rect(x + 3, by, B - 6, bh, "F");
-    if (k._foto) {
-      var fb = B - 6, fh = bh - 2.2, s = Math.min(fb / k._foto.w, fh / k._foto.h), bw = k._foto.w * s, bhh = k._foto.h * s;
-      doc.addImage(k._foto.daten, k._foto.format, x + 3 + (fb - bw) / 2, by + (fh - bhh) / 2, bw, bhh, k._foto.alias, "FAST");
-      doc.setFont("helvetica", "normal"); doc.setFontSize(3.3); doc.setTextColor(95, 100, 112);
-      mitte(doc, urheberZeile(doc, k.foto.credit, B - 8), x + B / 2, by + bh - 0.5);
-    } else {
-      // Alias: jede Silhouette nur EINMAL einbetten, sonst wird das PDF riesig.
-      doc.addImage(bild, "PNG", x + 12, by + 0.3, 39, 14.6, "silh-" + (k.klasse || "unbekannt"), "FAST");
+    if (credit) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(3.3);
+      var cz = urheberZeile(doc, credit, B - 8);
+      schein(doc, cz, x + B - 4 - doc.getTextWidth(cz), fy + fh - 1.1, 3.3, [60, 65, 78]);
     }
     // Rekord
-    var ry = by + bh + 0.9;
+    var ry = fy + fh + 0.9;
     doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 3, ry, B - 6, 4.4, 1.2, 1.2, "F");
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5.4);
     mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k), B - 8), x + B / 2, senkrechtMitte(ry, 4.4, 5.4));
     // Wertetabelle: Minimum und Maximum mit Zeitstempel (Steigen/Sinken: beide Richtungen)
-    var ty = ry + 5.6, spMin = x + 40, spMax = x + B - 4.5;
+    var ty = ry + 5.0, spMin = x + 40, spMax = x + B - 4.5, zh = 5.6;
     doc.setFont("helvetica", "bold"); doc.setFontSize(3.8); doc.setTextColor(130, 135, 148);
     rechts(doc, "MINIMUM", spMin, ty + 1.6); rechts(doc, "MAXIMUM", spMax, ty + 1.6);
     var zeilen = [["hoehe", "Höhe", "hoehe_min", "hoehe_max"], ["geschw", "Geschwindigkeit", "geschw_min", "geschw_max"],
       ["steig", "Steigen/Sinken", "sink_max", "steig_max"], ["km", "Entfernung", "km_min", "km_max"]];
     zeilen.forEach(function (z, i) {
-      var zy = ty + 2.4 + i * 6.0, w = W[z[0]] || {};
-      if (i % 2 === 0) { doc.setFillColor(243, 245, 248); doc.rect(x + 3, zy, B - 6, 6.0, "F"); }
+      var zy = ty + 2.2 + i * zh, w = W[z[0]] || {};
+      if (i % 2 === 0) { doc.setFillColor(243, 245, 248); doc.rect(x + 3, zy, B - 6, zh, "F"); }
       doc.setFont("helvetica", "bold"); doc.setFontSize(5.8);
       var aktiv = k.kategorie === z[2] || k.kategorie === z[3];
       if (aktiv) doc.setTextColor(f[0], f[1], f[2]); else doc.setTextColor(45, 48, 58);
-      doc.text(z[0] === "steig" ? "Sinken/Steigen" : z[1], x + 4.5, zy + 3.8);
+      doc.text(z[0] === "steig" ? "Sinken/Steigen" : z[1], x + 4.5, zy + 3.6);
       zelle(doc, z[0], w.min, spMin, zy, k.kategorie === z[2], f);
       zelle(doc, z[0], w.max, spMax, zy, k.kategorie === z[3], f);
     });
     // Metadaten und Quellen
-    var my = ty + 2.4 + 4 * 6.0 + 2.2;
+    var my = ty + 2.2 + 4 * zh + 2.0;
     doc.setFont("helvetica", "normal"); doc.setFontSize(3.9); doc.setTextColor(70, 76, 90);
     var zeilenMeta = [
       "Beim Rekord: " + ([m.kurs != null ? "Kurs " + Math.round(m.kurs) + "°" : "", m.squawk ? "Squawk " + m.squawk : "",
@@ -234,7 +270,7 @@
       k.erste ? "Erfasst " + k.erste + " – " + k.letzte + (k.meldungen ? " · " + tausend(k.meldungen) + " Meldungen" : "") : "",
       "Quellen: " + (Object.keys(k.quellen || {}).sort().map(function (q) { return (QUELLE_NAME[q] || q) + " " + k.quellen[q]; }).join(" · ") || "–")
     ].filter(Boolean);
-    zeilenMeta.forEach(function (zl, i) { doc.text(kuerzen(doc, zl, B - 8), x + 4, my + i * 1.95); });
+    zeilenMeta.forEach(function (zl, i) { doc.text(kuerzen(doc, zl, B - 8), x + 4, my + i * 1.85); });
     // Fuß
     doc.setFontSize(3.9); doc.setTextColor(130, 135, 148);
     doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 2.2);
