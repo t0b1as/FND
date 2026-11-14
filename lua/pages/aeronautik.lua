@@ -71,6 +71,12 @@ return function()
 .ae-typ .bild img { width:100%; height:100%; object-fit:cover; cursor:zoom-in; }
 .ae-typ .tasten { display:flex; flex-direction:column; gap:4px; }
 .ae-typ .klein { font-size:11.5px; color:var(--muted); }
+.ae-kand { grid-column:1 / -1; border-top:1px dashed var(--border); padding-top:8px; }
+.ae-kand .raster { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:8px; margin-top:8px; }
+.ae-kand figure { margin:0; cursor:pointer; border:2px solid transparent; border-radius:8px; overflow:hidden; background:rgba(127,127,127,.1); }
+.ae-kand figure:hover { border-color:var(--green); }
+.ae-kand img { width:100%; height:80px; object-fit:cover; display:block; }
+.ae-kand figcaption { font-size:10.5px; padding:3px 5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @media (max-width:640px) { .ae-typ { grid-template-columns:72px 72px 1fr; } .ae-typ .bild { width:72px; height:42px; } .ae-typ .tasten { grid-column:1 / -1; flex-direction:row; } }
 .ae-modus { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 12px; margin:0 0 12px; border-radius:10px;
   border:1px solid var(--border); font-size:13px; color:var(--muted); background:rgba(26,29,39,.25); }
@@ -156,11 +162,14 @@ return function()
 </div>
 <div id="ae-p-quartett" class="ae-karte ae-panel" style="display:none">
   <h3>Flugquartett</h3>
-  <div class="ae-hinweis" style="margin-bottom:6px">64 Karten aus den aufgezeichneten Rekorden: je acht Flugzeuge mit der größten und kleinsten Höhe, Geschwindigkeit, Steig- bzw. Sinkrate und Entfernung. Jede Karte zeigt zu allen vier Werten Minimum und Maximum, jeweils mit Zeitstempel.</div>
+  <div class="ae-hinweis" style="margin-bottom:6px">32 oder 64 Karten aus den aufgezeichneten Rekorden, dazu eine Titelkarte mit den Regeln: je vier oder acht Flugzeuge mit der größten und kleinsten Höhe, Geschwindigkeit, Steig- bzw. Sinkrate und Entfernung. Jede Karte zeigt zu allen vier Werten Minimum und Maximum, jeweils mit Zeitstempel. Nach jeder Vorderseite folgt ihre Rückseite.</div>
   <div class="zeile"><select id="ae-q-zeitraum"><option value="tag">Tag</option><option value="woche">Woche</option><option value="monat">Monat</option><option value="jahr">Jahr</option></select>
     <input type="date" id="ae-q-datum">
-    <select id="ae-q-format"><option value="karten">Spielkarten 63 × 88 mm</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option><option value="druckerei">Druckerei: Einzelseiten mit 3 mm Beschnitt, PDF/X-1a (CMYK)</option></select>
+    <select id="ae-q-anzahl"><option value="64">FLIGHT QUAD 64 (64 Karten)</option><option value="32">FLIGHT QUAD 32 (32 Karten)</option></select>
+    <select id="ae-q-groesse"><option value="63x88">63 × 88 mm</option><option value="59x91">59 × 91 mm</option></select>
+    <select id="ae-q-format"><option value="karten">Einzelkarten mit 3 mm Beschnitt (RGB)</option><option value="druckerei">Druckerei: wie Einzelkarten, PDF/X-1a (CMYK)</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option></select>
     <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button>
+    <button type="button" class="btn-sm" id="ae-q-abbrechen" style="display:none">Umwandlung abbrechen</button>
     <button type="button" class="btn-sm" id="ae-q-nachtrag" title="Rekorde für den gewählten Zeitraum aus den aufgezeichneten Spuren (und alten Tagesbilanzen) in die Tabellen eintragen">Aus Aufzeichnung nachtragen</button></div>
   <div class="zeile">Bilder: <select id="ae-q-bilder">
       <option value="fotos_ki">Freie Fotos, sonst KI-Bild</option>
@@ -818,24 +827,27 @@ return function()
 
   $('ae-q-los').onclick = function(){
     var knopf = this, datum = $('ae-q-datum').value.replace(/-/g, ''), zeitraum = $('ae-q-zeitraum').value, format = $('ae-q-format').value;
+    var anzahl = $('ae-q-anzahl').value, groesse = $('ae-q-groesse').value;
     if (!/^\d{8}$/.test(datum)) { $('ae-q-meldung').textContent = 'Bitte ein Datum wählen.'; return; }
     knopf.disabled = true; $('ae-q-meldung').textContent = 'Werte Rekorde aus und schlage Flugzeugtypen nach …';
     var bilder = $('ae-q-bilder').value, bekannt = $('ae-q-bekannt').checked;
     if (bilder !== 'keine') $('ae-q-meldung').textContent = 'Werte Rekorde aus, schlage Typen nach und suche Bilder – beim ersten Mal bis zu einer Minute …';
-    fetch('/api/v1/aeronautik/quartett?zeitraum=' + zeitraum + '&datum=' + datum + '&bilder=' + bilder + (bekannt ? '&bekannt=1' : ''), { credentials: 'same-origin' })
+    fetch('/api/v1/aeronautik/quartett?zeitraum=' + zeitraum + '&datum=' + datum + '&bilder=' + bilder + (bekannt ? '&bekannt=1' : '') + '&anzahl=' + anzahl, { credentials: 'same-origin' })
       .then(function(r){ return r.json(); }).then(function(d){
         if (d.error) throw new Error(d.error);
         if (!d.karten || !d.karten.length) throw new Error(d.hinweis || 'Keine Daten für diesen Zeitraum.');
         $('ae-q-meldung').textContent = 'Erzeuge PDF …';
         return skript('/static/jspdf.umd.min.js').then(function(){ return skript('/static/quartett.js'); }).then(function(){
-          return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; });
+          return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; }, { groesse: groesse });
         }).then(function(doc){
-          if (format === 'druckerei') return druckdatei(doc, d);
-          doc.save('FlightQuad64-' + d.code + (format === 'a4' ? '-A4' : '') + '.pdf');
+          var name = 'FlightQuad' + (d.anzahl || anzahl) + '-' + d.code + '-' + groesse;
+          if (format === 'druckerei') return druckdatei(doc, d, name, groesse);
+          doc.save(name + (format === 'a4' ? '-A4' : '') + '.pdf');
           return '';
         }).then(function(zusatz){
-          $('ae-q-meldung').textContent = (zusatz || '') + '✓ ' + d.karten.length + ' Karten aus ' + d.flugzeuge + ' Flugzeugen (' + d.titel + ')' +
-            (d.karten.length < 64 ? ' – für 64 Karten waren nicht genug Flugzeuge mit vollständigen Werten aufgezeichnet.' : '.') +
+          var soll = +(d.anzahl || anzahl);
+          $('ae-q-meldung').textContent = (zusatz || '') + '✓ Titelkarte und ' + d.karten.length + ' Spielkarten aus ' + d.flugzeuge + ' Flugzeugen (' + d.titel + ')' +
+            (d.karten.length < soll ? ' – für ' + soll + ' Karten waren nicht genug Flugzeuge mit vollständigen Werten aufgezeichnet.' : '.') +
             (d.fern ? ' Daten vom Empfänger ' + (d.empfaenger_node || '') + '.' : '') +
             (d.fotos_fehlend ? ' ' + d.fotos_fehlend + ' Karte(n) noch ohne Foto – der Node sucht im Hintergrund weiter; später erneut erzeugen.' : '') +
             (d.ki_ausstehend ? ' ' + d.ki_ausstehend + ' KI-Bild(er) werden im Hintergrund erzeugt' + (d.ki_hier ? ' auf ' + d.ki_hier : '') + ' (je etwa 20 s) – danach erneut erzeugen.' : '') +
@@ -848,10 +860,10 @@ return function()
   // ── R889: Druckdatei – die Seite liefert Einzelseiten mit Beschnitt, der Node
   // wandelt mit Ghostscript in PDF/X-1a (CMYK, Farbdeckung ≤ 200 %, Schriften
   // als Pfade). Asynchron: hochladen, Stand abfragen, fertige Datei holen.
-  function druckdatei(doc, d){
+  function druckdatei(doc, d, name, groesse){
     $('ae-q-meldung').textContent = 'Lade die Seiten zur Umwandlung hoch …';
     var basis = '/api/v1/admin/aeronautik/druckdatei';
-    return fetch(basis + '?titel=' + encodeURIComponent('FLIGHT QUAD 64 ' + d.code), { method: 'POST', credentials: 'same-origin',
+    return fetch(basis + '?titel=' + encodeURIComponent('FLIGHT QUAD ' + (d.anzahl || 64) + ' ' + d.code), { method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/pdf' }, body: doc.output('blob') })
       .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(x){ return [r, x]; }); })
       .then(function(x){
@@ -862,9 +874,11 @@ return function()
         return new Promise(function(fertig, fehler){
           (function fragen(){
             fetch(basis + '/' + a.id, { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(st){
-              if (st.status === 'fertig') return fertig(a.id);
-              if (st.status === 'fehler' || st.error) return fehler(new Error(st.fehler || st.error));
-              $('ae-q-meldung').textContent = 'Wandle für die Druckerei um (CMYK, PDF/X-1a) … ' + Math.round((Date.now() - start) / 1000) + ' s';
+              if (st.status === 'fertig') { $('ae-q-abbrechen').style.display = 'none'; return fertig(a.id); }
+              if (st.status === 'fehler' || st.status === 'abgebrochen' || st.error) { $('ae-q-abbrechen').style.display = 'none'; return fehler(new Error(st.fehler || st.error)); }
+              $('ae-q-meldung').textContent = 'Wandle für die Druckerei um (CMYK, PDF/X-1a): ' +
+                (st.seiten ? 'Seite ' + st.seite + ' von ' + st.seiten : 'beginne') + ' · ' + (st.sekunden || 0) + ' s';
+              $('ae-q-abbrechen').style.display = ''; $('ae-q-abbrechen').dataset.id = a.id;
               setTimeout(fragen, 2000);
             }).catch(function(){ setTimeout(fragen, 4000); });
           })();
@@ -874,10 +888,11 @@ return function()
       .then(function(r){ if (!r.ok) throw new Error('Druckdatei konnte nicht geladen werden (' + r.status + ').'); return r.blob(); })
       .then(function(blob){
         var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob); a.download = 'FlightQuad64-' + d.code + '-Druckerei-PDFX1a.pdf';
+        a.href = URL.createObjectURL(blob); a.download = name + '-Druckerei-PDFX1a.pdf';
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
-        return 'Druckdatei: ' + (d.karten.length * 2) + ' Seiten 69 × 94 mm (63 × 88 + 3 mm Beschnitt), PDF/X-1a, CMYK. ';
+        var m = groesse.split('x').map(Number);
+        return 'Druckdatei: ' + ((d.karten.length + 1) * 2) + ' Seiten ' + (m[0] + 6) + ' × ' + (m[1] + 6) + ' mm (' + m[0] + ' × ' + m[1] + ' + 3 mm Beschnitt), PDF/X-1a, CMYK. ';
       });
   }
 
@@ -911,7 +926,7 @@ return function()
       return '<div class="ae-typ" data-i="' + typen.indexOf(t) + '">' + bildZelle(t.foto, 'foto') + bildZelle(t.ki, 'ki') +
         '<div><b>' + esc(t.name) + '</b> <span class="klein">' + esc(t.icao || '') + '</span><div class="klein">' + t.anzahl + ' Flugzeug(e)' +
         (t.ki_offen ? ' · KI malt gerade …' : '') + '</div></div>' +
-        '<div class="tasten">' + (t.ki ? '<button type="button" class="btn-sm" data-aktion="loeschen">KI-Bild löschen</button>' : '') +
+        '<div class="tasten"><button type="button" class="btn-sm" data-aktion="foto">Anderes Foto</button>' + (t.ki ? '<button type="button" class="btn-sm" data-aktion="loeschen">KI-Bild löschen</button>' : '') +
         '<button type="button" class="btn-sm" data-aktion="neu"' + (t.ki_offen ? ' disabled' : '') + '>' + (t.ki ? 'Neu malen' : 'KI-Bild malen') + '</button></div></div>';
     }).join('') : '<div class="ae-hinweis" style="padding:12px">Keine passenden Typen.</div>';
   }
@@ -922,14 +937,56 @@ return function()
     this.textContent = auf ? 'Typenliste schließen' : 'Typen & Bilder durchsehen';
     if (auf) typenLaden();
   };
+  $('ae-q-abbrechen').onclick = function(){
+    var id = this.dataset.id; if (!id) return;
+    fetch('/api/v1/admin/aeronautik/druckdatei/' + id + '/abbrechen', { method: 'POST', credentials: 'same-origin' });
+  };
+  // R891: anderes Foto aus Wikipedia/Wikimedia Commons wählen – nur frei lizenziert.
+  function kandidatenOeffnen(zeile, t, text){
+    var alt = zeile.querySelector('.ae-kand'); if (alt) alt.remove();
+    var feld = document.createElement('div'); feld.className = 'ae-kand';
+    feld.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input type="search" value="' + esc(text) + '" style="padding:6px 8px;border-radius:8px;font-size:14px;flex:1;min-width:160px">' +
+      '<button type="button" class="btn-sm" data-aktion="kfsuchen">Suchen</button><button type="button" class="btn-sm" data-aktion="keins">Kein Foto</button></div>' +
+      '<div class="ae-hinweis" style="margin-top:6px">Suche bei Wikipedia und Wikimedia Commons …</div><div class="raster"></div>';
+    zeile.appendChild(feld);
+    fetch('/api/v1/aeronautik/typbild/kandidaten?suche=' + encodeURIComponent(t.suche) + '&text=' + encodeURIComponent(text), { credentials: 'same-origin' })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) throw new Error(d.error);
+        var l = d.kandidaten || [];
+        feld.querySelector('.ae-hinweis').textContent = l.length ? l.length + ' frei lizenzierte Bilder – zum Übernehmen anklicken. Urheber und Lizenz kommen auf die Karte.' : 'Nichts Freies gefunden – anderen Suchbegriff probieren, etwa mit Baureihe oder Airline.';
+        feld.querySelector('.raster').innerHTML = l.map(function(k){
+          return '<figure data-datei="' + esc(k.datei) + '" title="' + esc(k.datei + ' · ' + (k.autor || '') + ' · ' + k.lizenz) + '"><img loading="lazy" src="' + esc(k.thumb) + '" alt=""><figcaption>' + esc(k.lizenz + (k.autor ? ' · ' + k.autor : '')) + '</figcaption></figure>';
+        }).join('');
+      }).catch(function(e){ feld.querySelector('.ae-hinweis').textContent = '✗ ' + e.message; });
+  }
+  function fotoWaehlen(zeile, wahl){
+    var t = typen[+zeile.dataset.i];
+    var hinweis = zeile.querySelector('.ae-kand .ae-hinweis');
+    if (hinweis) hinweis.textContent = wahl.keins ? 'Sperre …' : 'Übernehme das Bild …';
+    fetch('/api/v1/admin/aeronautik/typbild/waehlen', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suche: t.suche, datei: wahl.datei || '', keins: !!wahl.keins }) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ return [r, d]; }); }).then(function(x){
+        var r = x[0], d = x[1];
+        if (r.status === 401 || r.status === 403) throw new Error('Nur der Eigentümer dieses Nodes kann das.');
+        if (d.error) throw new Error(d.error);
+        t.foto = d.foto && d.foto.datei ? { url: '/api/v1/aeronautik/typbild/' + d.foto.datei + '?v=' + Date.now(), credit: d.foto.credit } : null;
+        typenZeichnen();
+        $('ae-q-typen-info').textContent = wahl.keins ? '✓ „' + t.name + '“: kein Foto mehr.' : '✓ Neues Foto für „' + t.name + '“ übernommen – gilt ab dem nächsten Quartett.';
+      }).catch(function(e){ if (hinweis) hinweis.textContent = '✗ ' + e.message; else $('ae-q-typen-info').textContent = '✗ ' + e.message; });
+  }
   $('ae-q-typen-suche').oninput = typenZeichnen;
   $('ae-q-typen-filter').onchange = typenZeichnen;
   $('ae-q-typen').onclick = function(e){
     var img = e.target.closest('img[data-gross]');
     if (img) { window.open(img.dataset.gross, '_blank', 'noopener'); return; }
+    var bild = e.target.closest('figure[data-datei]');
+    if (bild) { fotoWaehlen(bild.closest('.ae-typ'), { datei: bild.dataset.datei }); return; }
     var knopf = e.target.closest('button[data-aktion]');
     if (!knopf) return;
     var t = typen[+knopf.closest('.ae-typ').dataset.i];
+    if (knopf.dataset.aktion === 'foto') { kandidatenOeffnen(knopf.closest('.ae-typ'), t, t.suche); return; }
+    if (knopf.dataset.aktion === 'kfsuchen') { kandidatenOeffnen(knopf.closest('.ae-typ'), t, knopf.closest('.ae-kand').querySelector('input').value); return; }
+    if (knopf.dataset.aktion === 'keins') { if (confirm('Für „' + t.name + '“ kein Foto verwenden? Dann gilt KI-Bild oder Silhouette.')) fotoWaehlen(knopf.closest('.ae-typ'), { keins: true }); return; }
     if (knopf.dataset.aktion === 'loeschen' && !confirm('KI-Bild für „' + t.name + '“ löschen?')) return;
     knopf.disabled = true;
     fetch('/api/v1/admin/aeronautik/kibild', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },

@@ -12,6 +12,7 @@ package api
 // Eine Umwandlung zur Zeit, niedrige Priorität, Zeitlimit.
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -23,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -73,13 +75,20 @@ const druckPDFX = `%%!
 `
 
 type druckAuftrag struct {
-	Status string `json:"status"` // laeuft | fertig | fehler
+	Status string `json:"status"` // laeuft | fertig | fehler | abgebrochen
 	Fehler string `json:"fehler,omitempty"`
-	Seiten int    `json:"seiten,omitempty"`
+	Seite  int    `json:"seite"`  // R891: zuletzt verarbeitete Seite
+	Seiten int    `json:"seiten"` // R891: Seiten insgesamt
 	Bytes  int64  `json:"bytes,omitempty"`
+	Sek    int    `json:"sekunden"`
 	ordner string
+	start  time.Time
 	ende   time.Time
+	abbr   context.CancelFunc
 }
+
+var reGsSeiten = regexp.MustCompile(`^Processing pages \d+ through (\d+)`)
+var reGsSeite = regexp.MustCompile(`^Page (\d+)`)
 
 var (
 	druckAuftraege = map[string]*druckAuftrag{}
@@ -151,16 +160,19 @@ func (s *Server) quartettDruckdatei(c *gin.Context) {
 	zufall := make([]byte, 8)
 	_, _ = rand.Read(zufall)
 	id := hex.EncodeToString(zufall) // zufällig: nicht zu erraten, nie doppelt
-	auftrag := &druckAuftrag{Status: "laeuft", ordner: ordner}
+	ctx, abbr := context.WithTimeout(context.Background(), 30*time.Minute)
+	auftrag := &druckAuftrag{Status: "laeuft", ordner: ordner, start: time.Now(), abbr: abbr}
 	druckAuftragMu.Lock()
 	druckAuftraege[id] = auftrag
 	druckAuftragMu.Unlock()
 	freigeben = false // die Umwandlung gibt die Sperre am Ende frei
 	go func() {
 		defer druckMu.Unlock()
-		ctx, abbr := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer abbr()
-		args := []string{"-n", "19", gs, "-q", "-dBATCH", "-dNOPAUSE", "-dSAFER", "--permit-file-read=" + profil,
+		// Ohne -q: Ghostscript meldet „Page N“ – daraus der Fortschritt (R891).
+		// Priorität 10 statt 19: mit 19 verhungerte die Umwandlung hinter
+		// Empfang und Dekodern.
+		args := []string{"-n", "10", gs, "-dBATCH", "-dNOPAUSE", "-dSAFER", "--permit-file-read=" + profil,
 			"-dPDFX", "-dCompatibilityLevel=1.3", "-dUseFastColor=true",
 			"-sDEVICE=pdfwrite", "-sColorConversionStrategy=CMYK", "-sProcessColorModel=DeviceCMYK",
 			"-dNoOutputFonts", "-dPDFXSetBleedBoxToMediaBox=true", "-dAutoRotatePages=/None",
@@ -174,12 +186,32 @@ func (s *Server) quartettDruckdatei(c *gin.Context) {
 			"-f", ein}
 		cmd := exec.CommandContext(ctx, "nice", args...)
 		var fehler bytes.Buffer
-		cmd.Stderr, cmd.Stdout = &fehler, &fehler
-		err := cmd.Run()
+		cmd.Stderr = &fehler
+		aus2, _ := cmd.StdoutPipe()
+		err := cmd.Start()
+		if err == nil {
+			zeilen := bufio.NewScanner(aus2)
+			for zeilen.Scan() {
+				z := strings.TrimSpace(zeilen.Text())
+				druckAuftragMu.Lock()
+				if m := reGsSeiten.FindStringSubmatch(z); m != nil {
+					auftrag.Seiten, _ = strconv.Atoi(m[1])
+				} else if m := reGsSeite.FindStringSubmatch(z); m != nil {
+					auftrag.Seite, _ = strconv.Atoi(m[1])
+				} else if len(fehler.String()) < 4000 && z != "" && !strings.HasPrefix(z, "GPL Ghostscript") && !strings.HasPrefix(z, "Copyright") && !strings.HasPrefix(z, "This software") {
+					fehler.WriteString(z + "\n")
+				}
+				druckAuftragMu.Unlock()
+			}
+			err = cmd.Wait()
+		}
 		_ = os.Remove(ein)
 		druckAuftragMu.Lock()
 		defer druckAuftragMu.Unlock()
 		auftrag.ende = time.Now()
+		if auftrag.Status == "abgebrochen" {
+			return
+		}
 		if i, e := os.Stat(aus); err == nil && e == nil && i.Size() > 0 {
 			auftrag.Status, auftrag.Bytes = "fertig", i.Size()
 			return
@@ -225,6 +257,11 @@ func (s *Server) quartettDruckStand(c *gin.Context) {
 		return
 	}
 	if c.Query("datei") != "1" {
+		if kopie.Status == "laeuft" {
+			kopie.Sek = int(time.Since(kopie.start).Seconds())
+		} else {
+			kopie.Sek = int(kopie.ende.Sub(kopie.start).Seconds())
+		}
 		c.JSON(http.StatusOK, kopie)
 		return
 	}
@@ -234,4 +271,35 @@ func (s *Server) quartettDruckStand(c *gin.Context) {
 	}
 	c.Header("Content-Disposition", `attachment; filename="druckdatei.pdf"`)
 	c.File(filepath.Join(kopie.ordner, "aus.pdf"))
+}
+
+// POST /api/v1/admin/aeronautik/druckdatei/:id/abbrechen – hängende oder
+// ungewollte Umwandlung beenden (R891); sonst blockiert sie 30 Minuten lang.
+func (s *Server) quartettDruckAbbrechen(c *gin.Context) {
+	druckAuftragMu.Lock()
+	a := druckAuftraege[c.Param("id")]
+	if a != nil && a.Status == "laeuft" {
+		a.Status, a.Fehler = "abgebrochen", "Abgebrochen."
+		a.abbr()
+	}
+	druckAuftragMu.Unlock()
+	if a == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Auftrag unbekannt."})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// GET /api/v1/admin/aeronautik/druckdatei – laufender Auftrag, falls einer
+// läuft (etwa nach einem Neuladen der Seite).
+func (s *Server) quartettDruckLaufend(c *gin.Context) {
+	druckAuftragMu.Lock()
+	defer druckAuftragMu.Unlock()
+	for id, a := range druckAuftraege {
+		if a.Status == "laeuft" {
+			c.JSON(http.StatusOK, gin.H{"id": id, "seite": a.Seite, "seiten": a.Seiten, "sekunden": int(time.Since(a.start).Seconds())})
+			return
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{})
 }

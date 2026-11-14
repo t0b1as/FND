@@ -55,13 +55,17 @@ func (s *Server) flugQuartett(c *gin.Context) {
 	}
 	zeitraum, datum := c.Query("zeitraum"), c.Query("datum")
 	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "quartett", Zeitraum: zeitraum, Datum: datum, Fotos: c.Query("fotos") == "1", KIBilder: c.Query("kibilder") == "1",
-		Bilder: c.Query("bilder"), Bekannt: c.Query("bekannt") == "1"}, 90*time.Second) {
+		Bilder: c.Query("bilder"), Bekannt: c.Query("bekannt") == "1", Anzahl: c.Query("anzahl")}, 90*time.Second) {
 		return // R879: vom Pi mit Empfänger
 	}
 	tabelle, titel, code, ok := quartettZeitraum(zeitraum, datum)
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "zeitraum=tag, woche, monat oder jahr; datum=JJJJMMTT"})
 		return
+	}
+	anzahl := 64 // R890: FLIGHT QUAD 32 oder 64
+	if c.Query("anzahl") == "32" {
+		anzahl = 32
 	}
 	alle := s.flugTabelle(tabelle)
 	if len(alle) == 0 {
@@ -106,7 +110,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 	vergeben := map[string]bool{}
 	gewaehlt := make([][]*flugSumme, len(quartettKategorien))
 	pos := make([]int, len(quartettKategorien))
-	for runde := 0; runde < 8; runde++ {
+	for runde := 0; runde < anzahl/8; runde++ { // 4 oder 8 Karten je Kategorie
 		for k := range quartettKategorien {
 			for pos[k] < len(listen[k]) && vergeben[listen[k][pos[k]].Hex] {
 				pos[k]++
@@ -161,8 +165,21 @@ func (s *Server) flugQuartett(c *gin.Context) {
 					})
 				}
 				q := typBildSuche(su.Hersteller, su.Typ, su.ICAO)
+				// R891: Der Zwischenspeicher ist maßgeblich – ein von Hand gewähltes
+				// Foto oder eine Sperre gilt auch für ältere Tabellen.
+				if b := s.typBildCache(q); q != "" && b != nil && !b.KI && (b.Manuell || b.Datei != "") {
+					if b.Datei == "" {
+						su.Foto = nil
+					} else if su.Foto == nil || su.Foto.Datei != b.Datei || su.Foto.Credit != b.Credit() {
+						f := &flugFoto{Datei: b.Datei, Credit: b.Credit()}
+						su.Foto = f
+						merken(su.Hex, func(z *flugSumme) { z.Foto = f })
+					}
+				}
 				// Foto (außer bei „alle von der KI“)
-				if modus != "ki" && !vorhanden(su.Foto) && q != "" {
+				if gesperrt := s.typBildCache(q); gesperrt != nil && gesperrt.Manuell && gesperrt.Datei == "" {
+					// von Hand gesperrt: kein Foto, nicht erneut suchen
+				} else if modus != "ki" && !vorhanden(su.Foto) && q != "" {
 					b, ok := jeSuche[q]
 					if !ok {
 						b = s.typBildHolen(q, time.Now().Before(frist))
@@ -238,7 +255,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 				flug = su.Flug[0]
 			}
 			karte := gin.H{
-				"nr":        quartettNummer(k, r),
+				"nr":        quartettNummer(k, r, anzahl),
 				"kategorie": kat.Schl, "kategorie_titel": kat.Titel, "einheit": kat.Einheit,
 				"moment":    moment,
 				"hex":       strings.ToUpper(su.Hex), "flug": flug, "typ": su.Typ, "icao": su.ICAO,
@@ -266,14 +283,19 @@ func (s *Server) flugQuartett(c *gin.Context) {
 			karten = append(karten, karte)
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"titel": titel, "zeitraum": zeitraum, "code": code, "flugzeuge": len(alle),
+	c.JSON(http.StatusOK, gin.H{"titel": titel, "zeitraum": zeitraum, "code": code, "flugzeuge": len(alle), "anzahl": anzahl,
 		"karten": karten, "node": aeroNodeName(), "fotos_fehlend": fehlend, "ki_ausstehend": kiAusstehend, "ausgeblendet": ausgeblendet, "bilder": modus,
 		"aufnahme": s.flugAufnahmeOrt(),
 		"ki_hinweis": map[bool]string{true: "ComfyUI ist auf " + aeroNodeName() + " nicht eingerichtet (Einstellungen → KI → Bilderzeugung)."}[kiOhneComfy]})
 }
 
 // quartettNummer: Kategorie k (0–7), Rang r (0–7) → "1A" … "16D".
-func quartettNummer(k, r int) string {
+// quartettNummer: 64 Karten = zwei Quartette je Kategorie (1A–16D),
+// 32 Karten = eines je Kategorie (1A–8D) – R890.
+func quartettNummer(k, r, anzahl int) string {
+	if anzahl == 32 {
+		return itoa(k+1) + string(rune('A'+r%4))
+	}
 	return itoa(k*2+r/4+1) + string(rune('A'+r%4))
 }
 

@@ -1,7 +1,9 @@
 // Flugquartett als PDF (R877) – im Browser mit jsPDF (static/jspdf.umd.min.js).
 // Daten: /api/v1/aeronautik/quartett. Formate:
-//   "karten": eine Karte je Seite in Spielkartengröße 63 × 88 mm, am Ende eine
-//             Rückseite (so verlangen es die meisten Kartendruckereien)
+//   "karten": Einzelseiten im Endformat plus 3 mm Beschnitt, nach jeder
+//             Vorderseite ihre Rückseite (R890); "druckerei": dasselbe, danach
+//             vom Node in PDF/X-1a (CMYK) umgewandelt. Kartengröße 63 × 88 oder
+//             59 × 91 mm; zuerst eine Titelkarte; FLIGHT QUAD 32 oder 64.
 //   "a4":     Karten in Originalgröße auf A4 (R880): je 4 liegende Streifen
 //             176 × 63 mm untereinander – links die Rückseite, rechts die
 //             Vorderseite, deren Oberkante an der Falzlinie liegt. Ausschneiden,
@@ -149,6 +151,17 @@
   // bleibt im Druck scharf.
   function schein(doc, s, x, y, pt, farbe) {
     var mm = pt * 0.3528;
+    if (doc._deckend) {
+      // R891 – Druckformate: KEINE Transparenz (PDF/X-1a verbietet sie;
+      // Ghostscript müsste jede Stelle hochaufgelöst rastern – auf dem Pi
+      // dauert das endlos). Zwei deckende Umrisse statt des weichen Scheins.
+      doc.setLineJoin("round");
+      doc.setDrawColor(228, 228, 228); doc.setLineWidth(mm * 0.6); doc.text(s, x, y, { renderingMode: "stroke" });
+      doc.setDrawColor(255, 255, 255); doc.setLineWidth(mm * 0.34); doc.text(s, x, y, { renderingMode: "stroke" });
+      doc.setTextColor(farbe[0], farbe[1], farbe[2]);
+      doc.text(s, x, y);
+      return;
+    }
     doc.setDrawColor(255, 255, 255); doc.setLineJoin("round");
     [[0.62, 0.28], [0.42, 0.5], [0.24, 1]].forEach(function (st) {   // R887: kräftiger
       doc.setGState(new doc.GState({ opacity: st[1], "stroke-opacity": st[1] }));
@@ -228,7 +241,8 @@
     // CC0- und KI-Bilder füllen das Feld; CC BY ebenfalls, mit „zugeschnitten“
     // in der Urheberzeile; CC BY-SA bleibt ungeschnitten (eine Bearbeitung
     // müsste sonst selbst unter CC BY-SA stehen – die ganze Karte).
-    var fx = rand ? x - rand : x + 0.6, fy = y + 11.6, fw = rand ? B + 2 * rand : B - 1.2, fh = 33;
+    // Bildfeld 33 mm bei 88 mm Kartenhöhe; jede zusätzliche Höhe geht ins Bild (R890).
+    var fx = rand ? x - rand : x + 0.6, fy = y + 11.6, fw = rand ? B + 2 * rand : B - 1.2, fh = 33 + (H - 88);
     doc.setFillColor(232, 241, 250); doc.rect(fx, fy, fw, fh, "F");
     var credit = k.foto ? k.foto.credit : "";
     if (k._foto) {
@@ -241,7 +255,8 @@
       if (hinweis) credit += " · " + hinweis;
     } else {
       // Silhouette groß, mittig zwischen Typ oben und Route unten.
-      doc.addImage(bild, "PNG", fx + 4, fy + 9.5, 54, 17.5, "silh-" + (k.klasse || "unbekannt"), "FAST");
+      var sw = Math.min(54, B - 9), sh = sw * 17.5 / 54;
+      doc.addImage(bild, /^data:image\/jpeg/.test(bild) ? "JPEG" : "PNG", x + (B - sw) / 2, fy + 9.5 + (fh - 33) / 2, sw, sh, "silh-" + (k.klasse || "unbekannt"), "FAST");
     }
     // Typ, Kennzeichen, Rufzeichen, Betreiber – oben, mit Schein
     var typ = k.typ || (k.icao ? "Typ " + k.icao : "Unbekannter Typ");
@@ -271,7 +286,7 @@
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5.4);
     mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k), B - 8), x + B / 2, senkrechtMitte(ry, 4.4, 5.4));
     // Wertetabelle: Minimum und Maximum mit Zeitstempel (Steigen/Sinken: beide Richtungen)
-    var ty = ry + 5.0, spMin = x + 40, spMax = x + B - 4.5, zh = 5.6;
+    var ty = ry + 5.0, spMin = x + B - 23, spMax = x + B - 4.5, zh = 5.6;
     doc.setFont("helvetica", "bold"); doc.setFontSize(3.8); doc.setTextColor(130, 135, 148);
     rechts(doc, "MINIMUM", spMin, ty + 1.6); rechts(doc, "MAXIMUM", spMax, ty + 1.6);
     var zeilen = [["hoehe", "Höhe", "hoehe_min", "hoehe_max"], ["geschw", "Geschwindigkeit", "geschw_min", "geschw_max"],
@@ -304,6 +319,55 @@
     var auf = k.aufnahme || kontext.aufnahme || {};
     var ort = auf.lat != null && (auf.lat !== 0 || auf.lon !== 0) ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") : "Standort unbekannt";
     rechts(doc, kuerzen(doc, (auf.node ? auf.node + " · " : "") + ort, B - 26), x + B - 4, y + H - 3.4);
+  }
+
+  // ── Titelkarte (R890): Spielname, Zeitraum, die acht Quartette, Regeln ──
+  var KATEGORIEN = [["hoehe_max", "Höchste Höhe"], ["hoehe_min", "Niedrigste Höhe"], ["geschw_max", "Schnellstes"],
+    ["geschw_min", "Langsamstes"], ["steig_max", "Stärkstes Steigen"], ["sink_max", "Stärkstes Sinken"],
+    ["km_max", "Weiteste Entfernung"], ["km_min", "Nächste Entfernung"]];
+  function titelkarte(doc, x, y, kontext, rand) {
+    rand = rand || 0;
+    var gruen = [0, 150, 72];
+    if (rand) {
+      doc.setFillColor(255, 255, 255); doc.rect(x - rand, y - rand, B + 2 * rand, H + 2 * rand, "F");
+      doc.setFillColor(gruen[0], gruen[1], gruen[2]); doc.rect(x - rand, y - rand, B + 2 * rand, 22 + rand, "F");
+    } else {
+      doc.setDrawColor(200); doc.setLineWidth(0.2); doc.setFillColor(255, 255, 255);
+      doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, H - 1.2, 3, 3, "FD");
+      doc.setFillColor(gruen[0], gruen[1], gruen[2]);
+      doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, 21.4, 3, 3, "F"); doc.rect(x + 0.6, y + 12, B - 1.2, 10, "F");
+    }
+    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(13);
+    mitte(doc, kontext.spiel, x + B / 2, y + 9.6);
+    doc.setFontSize(6.4); mitte(doc, "Best of " + (kontext.code || "") + " · " + (kontext.titel || ""), x + B / 2, y + 14.6);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(4.6); mitte(doc, "FUNDUS · TKM x HELIX", x + B / 2, y + 19.0);
+    // Die acht Quartette
+    var qy = y + 27;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(6.2); doc.setTextColor(30, 30, 30);
+    doc.text("Die Quartette", x + 4, qy);
+    KATEGORIEN.forEach(function (kat, i) {
+      var zy = qy + 2.2 + i * 4.0, f = KAT_FARBE[kat[0]] || [80, 80, 80];
+      doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 4, zy + 0.4, 9, 3.0, 0.8, 0.8, "F");
+      doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5);
+      mitte(doc, kontext.anzahl === 32 ? String(i + 1) : (2 * i + 1) + "·" + (2 * i + 2), x + 8.5, zy + 2.6);
+      doc.setTextColor(40, 40, 40); doc.setFontSize(5.6); doc.setFont("helvetica", "normal");
+      doc.text(kat[1], x + 15, zy + 2.7);
+    });
+    // Spielregeln
+    var ry = qy + 2.2 + 8 * 4.0 + 3.4;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(6.2); doc.setTextColor(30, 30, 30);
+    doc.text("Spielregeln", x + 4, ry);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(4.5); doc.setTextColor(50, 50, 50);
+    var regeln = "Karten mischen und gleichmäßig verteilen; jeder hält seinen Stapel verdeckt. Wer am Zug ist, nennt einen Wert " +
+      "seiner obersten Karte und die Spalte, etwa „Höhe, Maximum“. Bei Maximum gewinnt der größte Wert, bei Minimum der kleinste, " +
+      "bei Sinken/Steigen jeweils der stärkere. Der Gewinner bekommt alle aufgedeckten Karten und ist wieder am Zug. " +
+      "Wer alle Karten hat, gewinnt. Quartett-Variante: vier Karten einer Nummer (A–D) sammeln.";
+    doc.splitTextToSize(sicher(regeln), B - 8).forEach(function (zl, i) { doc.text(zl, x + 4, ry + 2.6 + i * 1.95); });
+    // Herkunft der Daten
+    var auf = kontext.aufnahme || {};
+    doc.setFontSize(3.9); doc.setTextColor(120, 120, 120);
+    doc.text(kuerzen(doc, (kontext.flugzeuge ? tausend(kontext.flugzeuge) + " Flugzeuge aufgezeichnet · " : "") + "ADS-B-Empfang " + (auf.node || kontext.node || ""), B - 8), x + 4, y + H - 5.4);
+    doc.text(kuerzen(doc, auf.lat != null ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") + " · Typen adsbdb/hexdb · Routen adsb.lol" : "Typen adsbdb/hexdb · Routen adsb.lol", B - 8), x + 4, y + H - 3.4);
   }
 
   // ── Rückseite (als Bild, damit sie sich für das Falten drehen lässt) ─────
@@ -373,13 +437,18 @@
         g.fillText(text, w / 2 + (("letterSpacing" in g) ? abstand / 2 : 0), y);
         if ("letterSpacing" in g) g.letterSpacing = "0px";
       }
-      zeile("FUNDUS", 132, 56, 14, "#ffffff");
-      var groesse = 330, ly = 175;
+      var dy = (h - 880) / 2; // 91 mm hoch: alles mittig nach unten
+      zeile("FUNDUS", 132 + dy, 56, 14, "#ffffff");
+      var groesse = 330, ly = 175 + dy;
       if (logo) g.drawImage(logo, (w - groesse) / 2, ly, groesse, groesse);
-      zeile("FLIGHT QUAD 64", ly + groesse + 88, 54, 0, "#ffffff");
+      zeile(kontext.spiel || "FLIGHT QUAD 64", ly + groesse + 88, 54, 0, "#ffffff");
       zeile("Best of " + (kontext.code || ""), ly + groesse + 148, 38, 0, "rgba(255,255,255,.88)");
-      zeile("TKM x HELIX", 782, 30, 6, "rgba(255,255,255,.75)");
-      return cv.toDataURL("image/png");
+      zeile("TKM x HELIX", h - 98, 30, 6, "rgba(255,255,255,.75)");
+      // R891: JPEG statt PNG – PNG aus der Leinwand trägt einen Alphakanal, und
+      // der zwingt Ghostscript zum Auflösen von Transparenz.
+      var bg = document.createElement("canvas"); bg.width = cv.width; bg.height = cv.height;
+      var bgc = bg.getContext("2d"); bgc.fillStyle = "#ffffff"; bgc.fillRect(0, 0, bg.width, bg.height); bgc.drawImage(cv, 0, 0);
+      return bg.toDataURL("image/jpeg", 0.93);
     });
   }
 
@@ -388,6 +457,21 @@
     [[x, y, -1, -1], [x + w, y, 1, -1], [x, y + h, -1, 1], [x + w, y + h, 1, 1]].forEach(function (p) {
       doc.line(p[0] + p[2] * 1, p[1], p[0] + p[2] * 5, p[1]);
       doc.line(p[0], p[1] + p[3] * 1, p[0], p[1] + p[3] * 5);
+    });
+  }
+
+  // deckend (R891): Bild auf eine Grundfarbe legen und als JPEG ausgeben –
+  // ohne Alphakanal, also ohne Transparenz im PDF.
+  function deckend(daten, grund) {
+    return new Promise(function (ok) {
+      var img = new Image();
+      img.onload = function () {
+        var cv = document.createElement("canvas"); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+        var g = cv.getContext("2d"); g.fillStyle = grund || "#ffffff"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0);
+        ok({ daten: cv.toDataURL("image/jpeg", 0.92), w: cv.width, h: cv.height });
+      };
+      img.onerror = function () { ok(null); };
+      img.src = daten;
     });
   }
 
@@ -414,63 +498,83 @@
     return fotoCache[url];
   }
 
-  function erzeugen(daten, format, fortschritt) {
+  // opt.groesse: "63x88" (Standard) oder "59x91" (R890).
+  function erzeugen(daten, format, fortschritt, opt) {
     var jsPDF = window.jspdf.jsPDF;
+    var masse = { "63x88": [63, 88], "59x91": [59, 91] }[(opt && opt.groesse) || "63x88"] || [63, 88];
+    B = masse[0]; H = masse[1];
     var karten = daten.karten || [];
-    var kontext = { titel: daten.titel, node: daten.node, code: daten.code, aufnahme: daten.aufnahme };
+    var anzahl = daten.anzahl === 32 || (!daten.anzahl && karten.length <= 32) ? 32 : 64;
+    var kontext = { titel: daten.titel, node: daten.node, code: daten.code, aufnahme: daten.aufnahme,
+      anzahl: anzahl, spiel: "FLIGHT QUAD " + anzahl, flugzeuge: daten.flugzeuge };
     var klassen = {};
     karten.forEach(function (k) { klassen[k.klasse] = true; });
-    var bilder = {};
+    var bilder = {}, druck = format !== "a4";
     var vorbereiten = Object.keys(klassen).map(function (kl) {
-      return silhouetteBild(kl, "#1f2a3a", false).then(function (b) { bilder[kl] = b; });
+      return silhouetteBild(kl, "#1f2a3a", false).then(function (b) {
+        // Druckformate: Silhouette auf die Bildfeld-Farbe, ohne Alphakanal (R891)
+        if (!druck) { bilder[kl] = b; return; }
+        return deckend(b, "#e8f1fa").then(function (d) { bilder[kl] = d ? d.daten : b; });
+      });
     });
     karten.forEach(function (k) {
-      if (k.foto && k.foto.url) vorbereiten.push(fotoLaden(k.foto.url).then(function (f) { k._foto = f; }));
+      if (k.foto && k.foto.url) vorbereiten.push(fotoLaden(k.foto.url).then(function (f) {
+        if (!f || !druck || f.format === "JPEG") { k._foto = f; return; }
+        return deckend(f.daten).then(function (d) {
+          k._foto = d ? { daten: d.daten, format: "JPEG", w: d.w, h: d.h, alias: f.alias + "-j" } : f;
+        });
+      }));
     });
+    // Zuerst die Titelkarte, dann die Spielkarten.
+    var alle = [{ _titel: true }].concat(karten);
+    function vorne(d, x, y, k, rand) {
+      if (k._titel) titelkarte(d, x, y, kontext, rand);
+      else vorderseite(d, x, y, k, kontext, bilder[k.klasse] || bilder.unbekannt, rand);
+    }
     return Promise.all(vorbereiten).then(function () {
-      return rueckseite(kontext, format === "a4" ? 90 : 0, format === "druckerei" ? RAND : 0);
+      return rueckseite(kontext, format === "a4" ? 90 : 0, format === "a4" ? 0 : RAND);
     }).then(function (rueck) {
       var doc;
       if (format === "a4") {
-        // Streifen 176 × 63 mm: Rückseite links (liegend, Kopf zur Falzlinie),
-        // Vorderseite rechts, um 90° gegen den Uhrzeigersinn – ihre Oberkante
-        // liegt an der Falzlinie.
+        // Streifen (2 × Kartenhöhe) × Kartenbreite: Rückseite links (liegend,
+        // Kopf zur Falzlinie), Vorderseite rechts, um 90° gegen den Uhrzeiger-
+        // sinn – ihre Oberkante liegt an der Falzlinie.
         doc = sicherMachen(new jsPDF({ unit: "mm", format: "a4" }));
-        // y0 = 22: unterster Streifen endet 5 mm vor dem Blattrand (R888, vorher 3 mm).
+        // y0 = 22: unterster Streifen endet ≥ 5 mm vor dem Blattrand (R888).
         var proSeite = 4, abstand = 6, x0 = (210 - 2 * H) / 2, y0 = 22;
-        var seiten = Math.ceil(karten.length / proSeite);
-        karten.forEach(function (k, i) {
+        var seiten = Math.ceil(alle.length / proSeite);
+        alle.forEach(function (k, i) {
           var reihe = i % proSeite;
           if (i > 0 && reihe === 0) doc.addPage("a4");
           if (reihe === 0) {
             doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(110);
-            doc.text("FLIGHT QUAD 64 · " + daten.code + " · " + daten.titel + " · Seite " + (Math.floor(i / proSeite) + 1) + " von " + seiten, 105, 12, { align: "center" });
-            doc.text("Karten in Originalgröße 63 × 88 mm. An den Ecken ausschneiden, an der gestrichelten Oberkante nach hinten falten, zusammenkleben.", 105, 17, { align: "center" });
+            doc.text(kontext.spiel + " · " + daten.code + " · " + daten.titel + " · Seite " + (Math.floor(i / proSeite) + 1) + " von " + seiten, 105, 12, { align: "center" });
+            doc.text("Karten in Originalgröße " + B + " × " + H + " mm. An den Ecken ausschneiden, an der gestrichelten Oberkante nach hinten falten, zusammenkleben.", 105, 17, { align: "center" });
           }
           var y = y0 + reihe * (B + abstand), falz = x0 + H;
-          doc.addImage(rueck, "PNG", x0, y, H, B, "rueckseite", "FAST");
+          doc.addImage(rueck, "JPEG", x0, y, H, B, "rueckseite", "FAST");
           // Vorderseite gedreht zeichnen: Kartenpunkt (x, y) → Seite (falz + y, unten − x).
           doc.advancedAPI(function (d) {
             d.saveGraphicsState();
             d.setCurrentTransformationMatrix(new d.Matrix(0, -1, 1, 0, falz, y + B));
-            vorderseite(d, 0, 0, k, kontext, bilder[k.klasse] || bilder.unbekannt);
+            vorne(d, 0, 0, k, 0);
             d.restoreGraphicsState();
           });
           schnittmarken(doc, x0, y, 2 * H, B);
           doc.setDrawColor(150); doc.setLineWidth(0.15); doc.setLineDashPattern([1.2, 1.2], 0);
           doc.line(falz, y + 1, falz, y + B - 1);
           doc.setLineDashPattern([], 0);
-          if (fortschritt) fortschritt(i + 1, karten.length);
+          if (fortschritt) fortschritt(i + 1, alle.length);
         });
-      } else if (format === "druckerei") {
-        // R889 – Vorgaben der Druckerei: Einzelseiten im Endformat plus 3 mm
-        // Beschnitt (69 × 94 mm), Reihenfolge Vorderseite 1, Rückseite 1,
-        // Vorderseite 2 …; Texte mindestens 3 mm innerhalb der Schnittkante.
-        // CMYK, Farbdeckung, Schriften als Pfade und PDF/X-1a macht danach
-        // der Node mit Ghostscript.
+      } else {
+        // "karten" und "druckerei" (R889/R890): Einzelseiten im Endformat plus
+        // 3 mm Beschnitt, nach jeder Vorderseite ihre Rückseite; Texte
+        // mindestens 3 mm innerhalb der Schnittkante. Bei "druckerei" macht der
+        // Node danach CMYK, Farbdeckung, Schriften als Pfade und PDF/X-1a.
         var PB = B + 2 * RAND, PH = H + 2 * RAND;
         doc = sicherMachen(new jsPDF({ unit: "mm", format: [PB, PH] }), { neutral: true });
-        // Endformat- und Beschnittrahmen je Seite: die Druckerei schneidet an der
+        doc._deckend = true; // keine Transparenz (R891)
+        // Endformat- und Beschnittrahmen je Seite: geschnitten wird an der
         // TrimBox (3 mm innen); Ghostscript übernimmt die Rahmen unverändert.
         var rahmen = function () {
           var f = doc.internal.scaleFactor, r = RAND * f, w = PB * f, h = PH * f;
@@ -478,26 +582,17 @@
           pc.trimBox = { bottomLeftX: r, bottomLeftY: r, topRightX: w - r, topRightY: h - r };
           pc.bleedBox = { bottomLeftX: 0, bottomLeftY: 0, topRightX: w, topRightY: h };
         };
-        karten.forEach(function (k, i) {
+        alle.forEach(function (k, i) {
           if (i > 0) doc.addPage([PB, PH]);
           rahmen();
-          vorderseite(doc, RAND, RAND, k, kontext, bilder[k.klasse] || bilder.unbekannt, RAND);
+          vorne(doc, RAND, RAND, k, RAND);
           doc.addPage([PB, PH]);
           rahmen();
-          doc.addImage(rueck, "PNG", 0, 0, PB, PH, "rueckseite", "FAST");
-          if (fortschritt) fortschritt(i + 1, karten.length);
+          doc.addImage(rueck, "JPEG", 0, 0, PB, PH, "rueckseite", "FAST");
+          if (fortschritt) fortschritt(i + 1, alle.length);
         });
-      } else {
-        doc = sicherMachen(new jsPDF({ unit: "mm", format: [B, H] }));
-        karten.forEach(function (k, i) {
-          if (i > 0) doc.addPage([B, H]);
-          vorderseite(doc, 0, 0, k, kontext, bilder[k.klasse] || bilder.unbekannt);
-          if (fortschritt) fortschritt(i + 1, karten.length);
-        });
-        doc.addPage([B, H]);
-        doc.addImage(rueck, "PNG", 0, 0, B, H, "rueckseite", "FAST");
       }
-      doc.setProperties({ title: "FLIGHT QUAD 64 – " + daten.code, creator: "Fundus Aeronautik" });
+      doc.setProperties({ title: kontext.spiel + " – " + daten.code, creator: "Fundus Aeronautik" });
       return doc;
     });
   }

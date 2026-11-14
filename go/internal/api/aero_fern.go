@@ -38,6 +38,7 @@ type flugFernAnfrage struct {
 	KIBilder bool   `json:"kibilder,omitempty"`
 	Bilder   string `json:"bilder,omitempty"`  // R885: fotos_ki | fotos | ki | keine
 	Bekannt  bool   `json:"bekannt,omitempty"` // R885: unbekannte Typen ausblenden
+	Anzahl   string `json:"anzahl,omitempty"`  // R890: 32 oder 64 Karten
 	Tag      string `json:"tag,omitempty"`
 	Von      string `json:"von,omitempty"`
 	Bis      string `json:"bis,omitempty"`
@@ -83,6 +84,9 @@ func (a flugFernAnfrage) pfad() (string, bool) {
 		}
 		if a.Bekannt {
 			q.Set("bekannt", "1")
+		}
+		if a.Anzahl == "32" {
+			q.Set("anzahl", "32")
 		}
 		return "/api/v1/aeronautik/quartett?" + q.Encode(), true
 	case "typen":

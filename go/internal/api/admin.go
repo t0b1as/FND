@@ -58,6 +58,9 @@ func (s *Server) registerAdminRoutes() {
 		g.POST("/aeronautik/kibild", s.quartettKIBildAendern) // R887: misslungene KI-Bilder löschen/neu
 		g.POST("/aeronautik/druckdatei", s.quartettDruckdatei)    // R889: PDF/X-1a für die Druckerei
 		g.GET("/aeronautik/druckdatei/:id", s.quartettDruckStand)
+		g.POST("/aeronautik/druckdatei/:id/abbrechen", s.quartettDruckAbbrechen) // R891
+		g.GET("/aeronautik/druckdatei", s.quartettDruckLaufend)
+		g.POST("/aeronautik/typbild/waehlen", s.typBildWaehlen) // R891: anderes Foto / kein Foto
 		g.POST("/update/check",    s.updateCheck)
 		g.POST("/update/apply",    s.updateApply)
 		g.POST("/update/auto",     s.updateAutoSet)   // Automatik umschalten (R664)
