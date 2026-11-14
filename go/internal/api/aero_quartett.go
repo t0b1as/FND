@@ -51,6 +51,9 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		return
 	}
 	zeitraum, datum := c.Query("zeitraum"), c.Query("datum")
+	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "quartett", Zeitraum: zeitraum, Datum: datum, Fotos: c.Query("fotos") == "1"}, 90*time.Second) {
+		return // R879: vom Pi mit Empfänger
+	}
 	tag, err := time.ParseInLocation("20060102", datum, time.Local)
 	if !reFlugTag.MatchString(datum) || err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "datum=JJJJMMTT"})
@@ -64,7 +67,7 @@ func (s *Server) flugQuartett(c *gin.Context) {
 		tabelle, titel, code = schl[0], "Tag "+tag.Format("02.01.2006"), datum
 	case "woche":
 		j, w := tag.ISOWeek()
-		tabelle, titel, code = schl[1], fmt.Sprintf("KW %d/%d", w, j), fmt.Sprintf("%04d-KW%02d", j, w)
+		tabelle, titel, code = schl[1], fmt.Sprintf("KW %d/%d", w, j), fmt.Sprintf("%04dW%02d", j, w)
 	case "monat":
 		tabelle, titel, code = schl[2], monate[tag.Month()-1]+" "+tag.Format("2006"), datum[:6]
 	case "jahr":

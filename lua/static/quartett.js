@@ -2,9 +2,11 @@
 // Daten: /api/v1/aeronautik/quartett. Formate:
 //   "karten": eine Karte je Seite in Spielkartengröße 63 × 88 mm, am Ende eine
 //             Rückseite (so verlangen es die meisten Kartendruckereien)
-//   "a4":     je 3 Streifen 63 × 176 mm pro A4-Seite – oben Vorderseite, unten
-//             Rückseite auf dem Kopf; ausschneiden, in der Mitte nach hinten
-//             falten, kleben. Wie eine Buchseite umgedreht steht sie richtig.
+//   "a4":     Karten in Originalgröße auf A4 (R880): je 4 liegende Streifen
+//             176 × 63 mm untereinander – links die Rückseite, rechts die
+//             Vorderseite, deren Oberkante an der Falzlinie liegt. Ausschneiden,
+//             an der Oberkante nach hinten falten, kleben. Seitlich umgedreht
+//             steht die Rückseite aufrecht.
 (function () {
   "use strict";
   var B = 63, H = 88;
@@ -103,6 +105,11 @@
     return name + "…" + rest;
   }
 
+  // Rechtsbündig/zentriert selbst rechnen: jsPDF rechnet die Ausrichtung in
+  // einer gedrehten Zeichnung (A4-Faltvorlage) falsch herum.
+  function rechts(doc, s, x, y) { doc.text(s, x - doc.getTextWidth(s), y); }
+  function mitte(doc, s, x, y) { doc.text(s, x - doc.getTextWidth(s) / 2, y); }
+
   // ── Vorderseite (Vektor) ─────────────────────────────────────────────────
   function vorderseite(doc, x, y, k, kontext, bild) {
     var f = KAT_FARBE[k.kategorie] || [80, 80, 80];
@@ -114,9 +121,9 @@
     doc.rect(x + 0.6, y + 6, B - 1.2, 5.6, "F");
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(15);
     doc.text(k.nr, x + 4, y + 9);
-    doc.setFontSize(6.2); doc.text(k.kategorie_titel.toUpperCase(), x + B - 4, y + 5.2, { align: "right" });
+    doc.setFontSize(6.2); rechts(doc, k.kategorie_titel.toUpperCase(), x + B - 4, y + 5.2);
     doc.setFont("helvetica", "normal"); doc.setFontSize(5.4);
-    doc.text(KLASSE_NAME[k.klasse] || "Flugzeug", x + B - 4, y + 9.2, { align: "right" });
+    rechts(doc, KLASSE_NAME[k.klasse] || "Flugzeug", x + B - 4, y + 9.2);
     // Typ und Kennungen
     doc.setTextColor(25, 28, 36); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
     var typ = k.typ || (k.icao ? "Typ " + k.icao : "Unbekannter Typ");
@@ -131,7 +138,7 @@
       var fb = B - 6, fh = 20.4 - 2.6, s = Math.min(fb / k._foto.w, fh / k._foto.h), w = k._foto.w * s, h = k._foto.h * s;
       doc.addImage(k._foto.daten, k._foto.format, x + 3 + (fb - w) / 2, y + 21.6 + (fh - h) / 2, w, h, k._foto.alias, "FAST");
       doc.setFont("helvetica", "normal"); doc.setFontSize(3.6); doc.setTextColor(95, 100, 112);
-      doc.text(urheberZeile(doc, k.foto.credit, B - 8), x + B / 2, y + 41.2, { align: "center" });
+      mitte(doc, urheberZeile(doc, k.foto.credit, B - 8), x + B / 2, y + 41.2);
     } else {
       // Alias: jede Silhouette nur EINMAL einbetten, sonst wird das PDF riesig.
       doc.addImage(bild, "PNG", x + 6.5, y + 22.6, 50, 18.75, "silh-" + (k.klasse || "unbekannt"), "FAST");
@@ -139,7 +146,7 @@
     // Rekord
     doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 3, y + 43.6, B - 6, 5.4, 1.4, 1.4, "F");
     doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(6.2);
-    doc.text(kuerzen(doc, "Rekord · " + rekordText(k), B - 10), x + B / 2, y + 47.2, { align: "center" });
+    mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k), B - 10), x + B / 2, y + 47.2);
     // Vier Spielwerte mit Zeitstempel
     var zeilen = [["hoehe", "Höhe"], ["geschw", "Geschwindigkeit"], ["steig", "Steigen/Sinken"], ["km", "Entfernung"]];
     zeilen.forEach(function (z, i) {
@@ -148,44 +155,57 @@
       var aktiv = k.kategorie.indexOf(z[0]) === 0 || (z[0] === "steig" && k.kategorie === "sink_max");
       doc.setTextColor(aktiv ? f[0] : 45, aktiv ? f[1] : 48, aktiv ? f[2] : 58);
       doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.text(z[1], x + 5, y + 50.6 + i * 7.1 + 3.2);
-      doc.setFontSize(9); doc.text(wertText(z[0], w), x + B - 5, y + 50.6 + i * 7.1 + 4.6, { align: "right" });
+      doc.setFontSize(9); rechts(doc, wertText(z[0], w), x + B - 5, y + 50.6 + i * 7.1 + 4.6);
       doc.setFont("helvetica", "normal"); doc.setFontSize(4.8); doc.setTextColor(130, 135, 148);
       doc.text(w ? w.t : "–", x + 5, y + 50.6 + i * 7.1 + 5.9);
     });
     // Fuß
     doc.setFontSize(4.6); doc.setTextColor(130, 135, 148);
     doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 3.4);
-    doc.text(kuerzen(doc, "Flugquartett · " + kontext.titel, 30), x + B - 4, y + H - 3.4, { align: "right" });
+    rechts(doc, "FLIGHT QUAD 64 · " + (kontext.code || ""), x + B - 4, y + H - 3.4);
   }
 
   // ── Rückseite (als Bild, damit sie sich für das Falten drehen lässt) ─────
-  function rueckseite(kontext, gedreht) {
-    return silhouetteBild("grossraum", "#ffffff", false).then(function (silh) {
+  // Fundus-Logo zentriert, darunter FLIGHT QUAD 64 und der Zeitraum als Code
+  // (2026, 202603, 20261114, 2026W46). Das Logo kommt aus /static/logo.svg –
+  // gezeichnet in currentColor, hier weiß eingefärbt.
+  function logoBild() {
+    return fetch("/static/logo.svg", { credentials: "same-origin" }).then(function (r) {
+      if (!r.ok) throw new Error("Logo fehlt");
+      return r.text();
+    }).then(function (svg) {
+      svg = svg.replace(/currentColor/g, "#ffffff").replace("<svg ", '<svg width="800" height="800" ');
       return new Promise(function (ok) {
-        var s = 10, cv = document.createElement("canvas"); cv.width = B * s; cv.height = H * s;
-        var g = cv.getContext("2d");
-        if (gedreht) { g.translate(B * s, H * s); g.rotate(Math.PI); }
-        var gr = g.createLinearGradient(0, 0, 0, H * s); gr.addColorStop(0, "#123a6b"); gr.addColorStop(1, "#0a1c36");
-        g.fillStyle = gr; g.beginPath();
-        if (g.roundRect) g.roundRect(6, 6, B * s - 12, H * s - 12, 30); else g.rect(6, 6, B * s - 12, H * s - 12);
-        g.fill();
-        g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 4; g.beginPath();
-        if (g.roundRect) g.roundRect(40, 40, B * s - 80, H * s - 80, 20); else g.rect(40, 40, B * s - 80, H * s - 80);
-        g.stroke();
         var img = new Image();
-        img.onload = function () {
-          g.globalAlpha = 0.95; g.drawImage(img, 75, 300, 480, 180); g.globalAlpha = 1;
-          g.fillStyle = "#ffffff"; g.textAlign = "center";
-          g.font = "bold 64px Helvetica, Arial, sans-serif"; g.fillText("FLUG-", B * s / 2, 190);
-          g.fillText("QUARTETT", B * s / 2, 258);
-          g.font = "34px Helvetica, Arial, sans-serif"; g.fillText(kontext.titel, B * s / 2, 590);
-          g.font = "26px Helvetica, Arial, sans-serif"; g.fillStyle = "rgba(255,255,255,.75)";
-          g.fillText("aufgezeichnet von " + (kontext.node || "Fundus"), B * s / 2, 640);
-          g.fillText("Fundus · Aeronautik", B * s / 2, 800);
-          ok(cv.toDataURL("image/png"));
-        };
-        img.src = silh;
+        img.onload = function () { ok(img); };
+        img.onerror = function () { ok(null); };
+        img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
       });
+    }).catch(function () { return null; });
+  }
+
+  // drehung 90: um 90° im Uhrzeigersinn, liegend (Kopf rechts, zur Falzlinie).
+  function rueckseite(kontext, drehung) {
+    return logoBild().then(function (logo) {
+      var s = 10, cv = document.createElement("canvas"), w = B * s, h = H * s;
+      if (drehung === 90) { cv.width = h; cv.height = w; } else { cv.width = w; cv.height = h; }
+      var g = cv.getContext("2d");
+      if (drehung === 90) { g.translate(h, 0); g.rotate(Math.PI / 2); }
+      var gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, "#123a6b"); gr.addColorStop(1, "#0a1c36");
+      g.fillStyle = gr; g.beginPath();
+      if (g.roundRect) g.roundRect(6, 6, w - 12, h - 12, 30); else g.rect(6, 6, w - 12, h - 12);
+      g.fill();
+      g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 4; g.beginPath();
+      if (g.roundRect) g.roundRect(40, 40, w - 80, h - 80, 20); else g.rect(40, 40, w - 80, h - 80);
+      g.stroke();
+      var groesse = 380, ly = 170;
+      if (logo) g.drawImage(logo, (w - groesse) / 2, ly, groesse, groesse);
+      g.fillStyle = "#ffffff"; g.textAlign = "center";
+      g.font = "bold 58px Helvetica, Arial, sans-serif";
+      g.fillText("FLIGHT QUAD 64", w / 2, ly + groesse + 95);
+      g.font = "bold 40px Helvetica, Arial, sans-serif"; g.fillStyle = "rgba(255,255,255,.85)";
+      g.fillText(kontext.code || "", w / 2, ly + groesse + 155);
+      return cv.toDataURL("image/png");
     });
   }
 
@@ -223,7 +243,7 @@
   function erzeugen(daten, format, fortschritt) {
     var jsPDF = window.jspdf.jsPDF;
     var karten = daten.karten || [];
-    var kontext = { titel: daten.titel, node: daten.node };
+    var kontext = { titel: daten.titel, node: daten.node, code: daten.code };
     var klassen = {};
     karten.forEach(function (k) { klassen[k.klasse] = true; });
     var bilder = {};
@@ -234,26 +254,36 @@
       if (k.foto && k.foto.url) vorbereiten.push(fotoLaden(k.foto.url).then(function (f) { k._foto = f; }));
     });
     return Promise.all(vorbereiten).then(function () {
-      return rueckseite(kontext, format === "a4");
+      return rueckseite(kontext, format === "a4" ? 90 : 0);
     }).then(function (rueck) {
       var doc;
       if (format === "a4") {
+        // Streifen 176 × 63 mm: Rückseite links (liegend, Kopf zur Falzlinie),
+        // Vorderseite rechts, um 90° gegen den Uhrzeigersinn – ihre Oberkante
+        // liegt an der Falzlinie.
         doc = new jsPDF({ unit: "mm", format: "a4" });
-        var seiten = Math.ceil(karten.length / 3);
+        var proSeite = 4, abstand = 6, x0 = (210 - 2 * H) / 2, y0 = 24;
+        var seiten = Math.ceil(karten.length / proSeite);
         karten.forEach(function (k, i) {
-          var spalte = i % 3;
-          if (i > 0 && spalte === 0) doc.addPage("a4");
-          if (spalte === 0) {
+          var reihe = i % proSeite;
+          if (i > 0 && reihe === 0) doc.addPage("a4");
+          if (reihe === 0) {
             doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(110);
-            doc.text("Flugquartett · " + daten.titel + " · Seite " + (Math.floor(i / 3) + 1) + " von " + seiten, 105, 14, { align: "center" });
-            doc.text("An den Ecken ausschneiden, an der gestrichelten Linie nach hinten falten und zusammenkleben.", 105, 19, { align: "center" });
+            doc.text("FLIGHT QUAD 64 · " + daten.code + " · " + daten.titel + " · Seite " + (Math.floor(i / proSeite) + 1) + " von " + seiten, 105, 12, { align: "center" });
+            doc.text("Karten in Originalgröße 63 × 88 mm. An den Ecken ausschneiden, an der gestrichelten Oberkante nach hinten falten, zusammenkleben.", 105, 17, { align: "center" });
           }
-          var x = 10.5 + spalte * B, y = 60.5;
-          vorderseite(doc, x, y, k, kontext, bilder[k.klasse] || bilder.unbekannt);
-          doc.addImage(rueck, "PNG", x, y + H, B, H, "rueckseite", "FAST");
-          schnittmarken(doc, x, y, B, 2 * H);
+          var y = y0 + reihe * (B + abstand), falz = x0 + H;
+          doc.addImage(rueck, "PNG", x0, y, H, B, "rueckseite", "FAST");
+          // Vorderseite gedreht zeichnen: Kartenpunkt (x, y) → Seite (falz + y, unten − x).
+          doc.advancedAPI(function (d) {
+            d.saveGraphicsState();
+            d.setCurrentTransformationMatrix(new d.Matrix(0, -1, 1, 0, falz, y + B));
+            vorderseite(d, 0, 0, k, kontext, bilder[k.klasse] || bilder.unbekannt);
+            d.restoreGraphicsState();
+          });
+          schnittmarken(doc, x0, y, 2 * H, B);
           doc.setDrawColor(150); doc.setLineWidth(0.15); doc.setLineDashPattern([1.2, 1.2], 0);
-          doc.line(x + 1, y + H, x + B - 1, y + H);
+          doc.line(falz, y + 1, falz, y + B - 1);
           doc.setLineDashPattern([], 0);
           if (fortschritt) fortschritt(i + 1, karten.length);
         });
@@ -267,7 +297,7 @@
         doc.addPage([B, H]);
         doc.addImage(rueck, "PNG", 0, 0, B, H, "rueckseite", "FAST");
       }
-      doc.setProperties({ title: "Flugquartett – " + daten.titel, creator: "Fundus Aeronautik" });
+      doc.setProperties({ title: "FLIGHT QUAD 64 – " + daten.code, creator: "Fundus Aeronautik" });
       return doc;
     });
   }

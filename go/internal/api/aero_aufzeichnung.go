@@ -87,7 +87,8 @@ type flugEinstellungen struct {
 }
 
 func flugStandard() flugEinstellungen {
-	return flugEinstellungen{Spuren: true, SpurTakt: 5, TageBehalten: 30, TiefNurLuft: true,
+	// R879: Tabellen standardmäßig AN – sie sind klein, und ohne sie gibt es kein Quartett.
+	return flugEinstellungen{Aktiv: true, Spuren: true, SpurTakt: 5, TageBehalten: 30, TiefNurLuft: true,
 		Filter: flugFilter{An: true, MinMeldungen: 3, MaxHoehe: 15500, MaxSprung: 1500, MaxGeschw: 1400, MaxSteig: 50, MaxKm: 500}}
 }
 
@@ -638,6 +639,9 @@ func (s *Server) flugStarten() {
 
 // GET /api/v1/aeronautik/aufzeichnung – Einstellungen, Zustand, vorhandene Daten
 func (s *Server) flugUebersicht(c *gin.Context) {
+	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "uebersicht"}, 8*time.Second) {
+		return // R879: vom Pi mit Empfänger
+	}
 	e := s.flugEinstellungenLesen()
 	spuren, tabellen, belegt := []string{}, []string{}, int64(0)
 	if l, _ := filepath.Glob(filepath.Join(s.flugOrdner("spuren"), "*.jsonl.gz")); l != nil {
@@ -666,11 +670,16 @@ func (s *Server) flugUebersicht(c *gin.Context) {
 	flugMu.Unlock()
 	c.JSON(http.StatusOK, gin.H{"einstellungen": e, "spuren": spuren, "tabellen": tabellen,
 		"belegt_mb": math.Round(float64(belegt)/1e5) / 10, "stick": funkHatStick(),
-		"quelle": quelle, "meldungen_s": math.Round(rate*10) / 10, "flugzeuge": aktiv})
+		"quelle": quelle, "meldungen_s": math.Round(rate*10) / 10, "flugzeuge": aktiv,
+		"nachtrag": flugNachtragZustand()})
 }
 
 // POST /api/v1/admin/aeronautik/aufzeichnung – flugEinstellungen
 func (s *Server) flugEinstellen(c *gin.Context) {
+	if !s.flugLokal() {
+		c.JSON(http.StatusConflict, gin.H{"error": "Dieser Pi hat keinen Empfänger – die Aufzeichnung läuft auf dem Pi mit Stick. Dort einstellen (über dessen Adresse im Heimnetz)."})
+		return
+	}
 	e := flugStandard()
 	if c.ShouldBindJSON(&e) != nil || e.TageBehalten < 1 || e.TageBehalten > 3650 || e.SpurTakt < 0 || e.SpurTakt > 60 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Werte (Aufbewahrung 1–3650 Tage, Takt 0–60 s)."})
@@ -699,6 +708,9 @@ func (s *Server) flugSpur(c *gin.Context) {
 		return
 	}
 	tag := c.Query("tag")
+	if !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "spur", Tag: tag, Von: c.Query("von"), Bis: c.Query("bis")}, 40*time.Second) {
+		return // R879: vom Pi mit Empfänger
+	}
 	von, err1 := time.ParseInLocation("200601021504", tag+c.Query("von"), time.Local)
 	bis, err2 := time.ParseInLocation("200601021504", tag+c.Query("bis"), time.Local)
 	if !reFlugTag.MatchString(tag) || err1 != nil || err2 != nil || !bis.After(von) || bis.Sub(von) > 2*time.Hour {
@@ -761,5 +773,6 @@ func (s *Server) registerFlugdaten(r *gin.Engine) {
 	r.GET("/api/v1/aeronautik/quartett", s.flugQuartett)
 	r.GET("/api/v1/aeronautik/typbild/:datei", s.typBildAusliefern)
 	s.flugStarten()
+	s.flugFernStarten() // R879: Anfragen von Pis ohne Empfänger beantworten
 	go s.typBildHintergrund() // Fotos, die beim Quartett nicht rechtzeitig fertig wurden
 }

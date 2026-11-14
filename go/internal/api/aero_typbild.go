@@ -287,6 +287,12 @@ func (s *Server) typBildAusliefern(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
+	pfad := filepath.Join(s.typBildOrdner(), d)
+	// Nur ein Pi OHNE eigene Aufzeichnung fragt weiter – sonst könnten sich zwei
+	// Empfänger, denen dasselbe Foto fehlt, gegenseitig im Kreis fragen.
+	if _, err := os.Stat(pfad); err != nil && !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "typbild", Datei: d}, 20*time.Second) {
+		return // R879: Foto liegt beim Pi mit Empfänger – geholt und hier abgelegt
+	}
 	c.Header("Cache-Control", "public, max-age=604800")
-	c.File(filepath.Join(s.typBildOrdner(), d))
+	c.File(pfad)
 }

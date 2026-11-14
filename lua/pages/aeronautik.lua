@@ -151,7 +151,8 @@ return function()
   <div class="zeile"><select id="ae-q-zeitraum"><option value="tag">Tag</option><option value="woche">Woche</option><option value="monat">Monat</option><option value="jahr">Jahr</option></select>
     <input type="date" id="ae-q-datum">
     <select id="ae-q-format"><option value="karten">Spielkarten 63 × 88 mm</option><option value="a4">DIN A4 zum Ausschneiden und Falten</option></select>
-    <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button></div>
+    <button type="button" class="btn btn-primary" id="ae-q-los" style="width:auto">PDF erzeugen</button>
+    <button type="button" class="btn-sm" id="ae-q-nachtrag" title="Rekorde für den gewählten Zeitraum aus den aufgezeichneten Spuren (und alten Tagesbilanzen) in die Tabellen eintragen">Aus Aufzeichnung nachtragen</button></div>
   <div class="zeile"><label><input type="checkbox" id="ae-q-fotos" checked> Fotos der Flugzeugtypen von Wikimedia Commons (nur frei lizenziert, Urheber steht auf der Karte; sonst Silhouette)</label></div>
   <div class="ae-hinweis" id="ae-q-meldung"></div>
 </div>
@@ -620,8 +621,14 @@ return function()
         $('ae-f-geschw').value = f.max_geschw; $('ae-f-steig').value = f.max_steig; $('ae-f-km').value = f.max_km;
         $('ae-f-werte').style.opacity = f.an ? '' : '.45';
       }
-      $('ae-auf-quelle').innerHTML = an ? '<b>' + esc(QUELLE[d.quelle] || d.quelle) + '</b> · ' + zahl(d.meldungen_s, 1) + ' Meldungen/s · ' + d.flugzeuge + ' Flugzeuge'
-        : (d.stick ? 'Aufzeichnung aus.' : 'Aufzeichnen kann nur ein Pi mit eigenem Empfänger.');
+      // R879: Pi ohne Empfänger – Daten kommen vom Pi mit Stick; einstellen nur dort.
+      var fern = d.fern ? 'Daten vom Empfänger <b>' + esc(d.empfaenger_node || '?') + '</b> · ' : '';
+      $('ae-auf-quelle').innerHTML = fern + (an ? '<b>' + esc(QUELLE[d.quelle] || d.quelle) + '</b> · ' + zahl(d.meldungen_s, 1) + ' Meldungen/s · ' + d.flugzeuge + ' Flugzeuge'
+        : (d.stick || d.fern ? 'Aufzeichnung aus.' : 'Aufzeichnen kann nur ein Pi mit eigenem Empfänger – im Netz ist gerade keiner erreichbar.'));
+      [].forEach.call($('ae-p-auf').querySelectorAll('input,select,button'), function(el){ el.disabled = !!d.fern; });
+      $('ae-q-nachtrag').disabled = !!d.fern || !!(d.nachtrag && d.nachtrag.laeuft);
+      $('ae-q-nachtrag').title = d.fern ? 'Nachtragen nur auf dem Empfänger ' + (d.empfaenger_node || '') : $('ae-q-nachtrag').title;
+      $('ae-auf-meldung').textContent = d.fern ? 'Einstellen nur auf dem Empfänger ' + (d.empfaenger_node || '') + ' – über dessen Adresse im Heimnetz.' : $('ae-auf-meldung').textContent;
       var tab = d.tabellen || [];
       $('ae-auf-info').textContent = 'Belegt: ' + zahl(d.belegt_mb, 1) + ' MB · ' + d.spuren.length + ' Tag(e) mit Spuren · Tabellen: ' +
         ['tag', 'woche', 'monat', 'jahr'].map(function(k){ return tab.filter(function(t){ return t.indexOf(k + '-') === 0; }).length + ' ' + { tag: 'Tage', woche: 'Wochen', monat: 'Monate', jahr: 'Jahre' }[k]; }).join(', ') +
@@ -754,6 +761,36 @@ return function()
       document.head.appendChild(s);
     });
   }
+  // R880: Quartettwerte für den gewählten Zeitraum aus Aufgezeichnetem nachtragen.
+  function nachtragZeigen(n){
+    if (!n) return;
+    if (n.laeuft) $('ae-q-meldung').textContent = 'Trage nach (' + n.titel + '): ' + n.fertig + ' von ' + n.tage + ' Tagen · ' + zahl(n.punkte) + ' Spurpunkte …';
+    else if (n.ende && $('ae-q-meldung').dataset.nachtrag) {
+      delete $('ae-q-meldung').dataset.nachtrag;
+      $('ae-q-meldung').textContent = '✓ Nachgetragen (' + n.titel + '): ' + (n.tage - n.ohne) + ' von ' + n.tage + ' Tagen mit Daten, ' + zahl(n.punkte) + ' Spurpunkte' +
+        (n.bilanzen ? ', ' + n.bilanzen + ' Tag(e) aus älteren Tagesbilanzen' : '') +
+        (n.ohne ? '. ' + n.ohne + ' Tag(e) ohne Aufzeichnung – Spuren werden nur so lange aufbewahrt wie eingestellt.' : '.');
+      $('ae-q-nachtrag').disabled = false;
+    }
+  }
+  $('ae-q-nachtrag').onclick = function(){
+    var datum = $('ae-q-datum').value.replace(/-/g, '');
+    if (!/^\d{8}$/.test(datum)) { $('ae-q-meldung').textContent = 'Bitte ein Datum wählen.'; return; }
+    var knopf = this; knopf.disabled = true;
+    fetch('/api/v1/admin/aeronautik/nachtragen', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ zeitraum: $('ae-q-zeitraum').value, datum: datum }) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){ return [r, d]; }); }).then(function(x){
+        var r = x[0], d = x[1];
+        if (r.status === 401 || r.status === 403) throw new Error('Nur der Eigentümer dieses Nodes kann nachtragen.');
+        if (d.error) throw new Error(d.error);
+        $('ae-q-meldung').dataset.nachtrag = '1';
+        $('ae-q-meldung').textContent = 'Nachtrag gestartet: ' + d.tage + ' Tag(e) (' + d.titel + ') …';
+        var warten = setInterval(function(){
+          uebersichtLaden().then(function(u){ if (u) nachtragZeigen(u.nachtrag); if (!u || !u.nachtrag || !u.nachtrag.laeuft) clearInterval(warten); });
+        }, 2000);
+      }).catch(function(e){ $('ae-q-meldung').textContent = '✗ ' + e.message; knopf.disabled = false; });
+  };
+
   $('ae-q-los').onclick = function(){
     var knopf = this, datum = $('ae-q-datum').value.replace(/-/g, ''), zeitraum = $('ae-q-zeitraum').value, format = $('ae-q-format').value;
     if (!/^\d{8}$/.test(datum)) { $('ae-q-meldung').textContent = 'Bitte ein Datum wählen.'; return; }
@@ -768,9 +805,10 @@ return function()
         return skript('/static/jspdf.umd.min.js').then(function(){ return skript('/static/quartett.js'); }).then(function(){
           return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; });
         }).then(function(doc){
-          doc.save('Flugquartett-' + d.code + (format === 'a4' ? '-A4' : '') + '.pdf');
+          doc.save('FlightQuad64-' + d.code + (format === 'a4' ? '-A4' : '') + '.pdf');
           $('ae-q-meldung').textContent = '✓ ' + d.karten.length + ' Karten aus ' + d.flugzeuge + ' Flugzeugen (' + d.titel + ')' +
             (d.karten.length < 64 ? ' – für 64 Karten waren nicht genug Flugzeuge mit vollständigen Werten aufgezeichnet.' : '.') +
+            (d.fern ? ' Daten vom Empfänger ' + (d.empfaenger_node || '') + '.' : '') +
             (d.fotos_fehlend ? ' ' + d.fotos_fehlend + ' Karte(n) noch ohne Foto – der Node sucht im Hintergrund weiter; später erneut erzeugen.' : '');
         });
       }).catch(function(e){ $('ae-q-meldung').textContent = '✗ ' + e.message; })
