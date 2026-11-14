@@ -40,9 +40,28 @@ import (
 
 const flugZeitFormat = "20060102150405"
 
+// flugWert: ein Rekord MIT Momentaufnahme (R881) – alle Werte vom selben
+// Zeitpunkt: dem Stand des Flugzeugs im Augenblick des Rekords (je Feld der
+// zuletzt empfangene Wert, im SBS-Strom meist < 1 s alt). Alte Tabellen ohne
+// Momentaufnahme bleiben lesbar: dann sind nur V und T gesetzt.
 type flugWert struct {
-	V float64 `json:"v"`
-	T string  `json:"t"` // JJJJMMTThhmmss, Ortszeit des Pi, Zeitpunkt des Eintreffens
+	V      float64  `json:"v"`
+	T      string   `json:"t"` // JJJJMMTThhmmss, Ortszeit des Pi, Zeitpunkt des Eintreffens
+	Hoehe  *float64 `json:"hoehe,omitempty"`  // m
+	Boden  bool     `json:"boden,omitempty"`
+	Geschw *float64 `json:"geschw,omitempty"` // km/h
+	Steig  *float64 `json:"steig,omitempty"`  // m/s
+	Km     *float64 `json:"km,omitempty"`
+	Kurs   *float64 `json:"kurs,omitempty"` // Grad
+	Lat    *float64 `json:"lat,omitempty"`
+	Lon    *float64 `json:"lon,omitempty"`
+	Squawk string   `json:"squawk,omitempty"`
+	Flug   string   `json:"flug,omitempty"`
+}
+
+type flugFoto struct {
+	Datei  string `json:"datei"`
+	Credit string `json:"credit"`
 }
 
 type flugSumme struct {
@@ -54,6 +73,10 @@ type flugSumme struct {
 	Kennzeichen string    `json:"kennzeichen,omitempty"`
 	Halter      string    `json:"halter,omitempty"`
 	Route       string    `json:"route,omitempty"`
+	Von         *aeroFlughafen `json:"von,omitempty"`  // R881: Ursprung
+	Nach        *aeroFlughafen `json:"nach,omitempty"` // R881: Ziel
+	Airline     string    `json:"airline,omitempty"`
+	Foto        *flugFoto `json:"foto,omitempty"` // R881: einmal gefunden, hier abgelegt
 	Erste       string    `json:"erste"`
 	Letzte      string    `json:"letzte"`
 	Sicht       int       `json:"sicht"` // Zahl der Meldungen
@@ -93,7 +116,8 @@ func flugStandard() flugEinstellungen {
 }
 
 type flugZustand struct {
-	flug                       string
+	flug, squawk               string
+	hatGeschw, hatSteig, hatKurs bool
 	hoehe, geschw, kurs, steig float64
 	lat, lon, km               float64
 	hatHoehe, hatPos, boden    bool
@@ -150,6 +174,43 @@ func neuerWert(alt *flugWert, v float64, t string, groesser bool) *flugWert {
 	return alt
 }
 
+// neuerMoment: wie neuerWert, aber mit Momentaufnahme – nur gebaut, wenn der
+// Rekord tatsächlich besser ist.
+func neuerMoment(alt *flugWert, v float64, groesser bool, moment func(v float64) *flugWert) *flugWert {
+	if alt == nil || (groesser && v > alt.V) || (!groesser && v < alt.V) {
+		return moment(v)
+	}
+	return alt
+}
+
+func zahlZeiger(v float64) *float64 { return &v }
+
+// momentAus: Stand des Flugzeugs jetzt – alle Werte vom selben Augenblick.
+func momentAus(z *flugZustand, ts string, ortBekannt bool) func(v float64) *flugWert {
+	return func(v float64) *flugWert {
+		m := &flugWert{V: v, T: ts, Boden: z.boden, Squawk: z.squawk, Flug: z.flug}
+		if z.hatHoehe && !z.boden {
+			m.Hoehe = zahlZeiger(z.hoehe)
+		}
+		if z.hatGeschw {
+			m.Geschw = zahlZeiger(z.geschw)
+		}
+		if z.hatSteig {
+			m.Steig = zahlZeiger(math.Round(z.steig*10) / 10)
+		}
+		if z.hatKurs {
+			m.Kurs = zahlZeiger(math.Round(z.kurs))
+		}
+		if z.hatPos {
+			m.Lat, m.Lon = zahlZeiger(math.Round(z.lat*1e5)/1e5), zahlZeiger(math.Round(z.lon*1e5)/1e5)
+			if ortBekannt {
+				m.Km = zahlZeiger(z.km)
+			}
+		}
+		return m
+	}
+}
+
 func enthaelt(l []string, v string) bool {
 	for _, x := range l {
 		if x == v {
@@ -161,7 +222,7 @@ func enthaelt(l []string, v string) bool {
 
 // flugEingang: EINE Meldung auswerten – aus dem SBS-Strom oder dem Ersatz.
 // Felder, die die Meldung nicht enthält, sind nil. Aufruf unter flugMu.
-func (s *Server) flugEingang(jetzt time.Time, hex, flug string, hoeheM *float64, boden *bool, geschwKmh, kurs, steigMs, lat, lon *float64) {
+func (s *Server) flugEingang(jetzt time.Time, hex, flug, squawk string, hoeheM *float64, boden *bool, geschwKmh, kurs, steigMs, lat, lon *float64) {
 	e := flugEinst
 	z := flugStand[hex]
 	if z == nil {
@@ -173,6 +234,9 @@ func (s *Server) flugEingang(jetzt time.Time, hex, flug string, hoeheM *float64,
 	flugZaehler++
 	if flug != "" {
 		z.flug = flug
+	}
+	if squawk != "" {
+		z.squawk = squawk
 	}
 	if boden != nil {
 		z.boden = *boden
@@ -195,15 +259,15 @@ func (s *Server) flugEingang(jetzt time.Time, hex, flug string, hoeheM *float64,
 		}
 	}
 	geschwOK := geschwKmh != nil && (!f.An || (*geschwKmh >= 1 && *geschwKmh <= f.MaxGeschw))
-	if geschwKmh != nil {
-		z.geschw = *geschwKmh
+	if geschwKmh != nil && (!f.An || geschwOK) {
+		z.geschw, z.hatGeschw = *geschwKmh, true
 	}
 	if kurs != nil {
-		z.kurs = *kurs
+		z.kurs, z.hatKurs = *kurs, true
 	}
 	steigOK := steigMs != nil && !z.boden && (!f.An || math.Abs(*steigMs) <= f.MaxSteig)
-	if steigMs != nil {
-		z.steig = *steigMs
+	if steigMs != nil && (!f.An || steigOK || z.boden) {
+		z.steig, z.hatSteig = *steigMs, true
 	}
 	posNeu, kmOK := false, false
 	if lat != nil && lon != nil {
@@ -215,6 +279,7 @@ func (s *Server) flugEingang(jetzt time.Time, hex, flug string, hoeheM *float64,
 	}
 
 	if e.Aktiv && zaehlt {
+		moment := momentAus(z, ts, flugOrtLat != 0 || flugOrtLon != 0)
 		for _, schl := range flugSchluessel(jetzt) {
 			tab := flugTabellen[schl]
 			if tab == nil {
@@ -231,26 +296,26 @@ func (s *Server) flugEingang(jetzt time.Time, hex, flug string, hoeheM *float64,
 				su.Flug = append(su.Flug, z.flug)
 			}
 			if hoeheOK {
-				su.HoeheMax = neuerWert(su.HoeheMax, *hoeheM, ts, true)
-				su.HoeheMin = neuerWert(su.HoeheMin, *hoeheM, ts, false)
+				su.HoeheMax = neuerMoment(su.HoeheMax, *hoeheM, true, moment)
+				su.HoeheMin = neuerMoment(su.HoeheMin, *hoeheM, false, moment)
 			}
 			if geschwOK {
-				su.GeschwMax = neuerWert(su.GeschwMax, *geschwKmh, ts, true)
+				su.GeschwMax = neuerMoment(su.GeschwMax, *geschwKmh, true, moment)
 				if !e.TiefNurLuft || (inLuft && z.hatHoehe && z.hoehe > 0) {
-					su.GeschwMin = neuerWert(su.GeschwMin, *geschwKmh, ts, false)
+					su.GeschwMin = neuerMoment(su.GeschwMin, *geschwKmh, false, moment)
 				}
 			}
 			if steigOK {
 				if v := math.Round(*steigMs*10) / 10; v > 0 {
-					su.SteigMax = neuerWert(su.SteigMax, v, ts, true)
+					su.SteigMax = neuerMoment(su.SteigMax, v, true, moment)
 				} else if v < 0 {
-					su.SinkMax = neuerWert(su.SinkMax, v, ts, false)
+					su.SinkMax = neuerMoment(su.SinkMax, v, false, moment)
 				}
 			}
 			if kmOK {
-				su.KmMax = neuerWert(su.KmMax, z.km, ts, true)
+				su.KmMax = neuerMoment(su.KmMax, z.km, true, moment)
 				if !e.TiefNurLuft || inLuft {
-					su.KmMin = neuerWert(su.KmMin, z.km, ts, false)
+					su.KmMin = neuerMoment(su.KmMin, z.km, false, moment)
 				}
 			}
 		}
@@ -329,7 +394,7 @@ func (s *Server) flugSBS(jetzt time.Time, zeile string) {
 		lat, lon = nil, nil
 	}
 	flugMu.Lock()
-	s.flugEingang(jetzt, hex, strings.TrimSpace(f[10]), hoehe, boden, geschw, sbsZahl(f[13]), steig, lat, lon)
+	s.flugEingang(jetzt, hex, strings.TrimSpace(f[10]), strings.TrimSpace(f[17]), hoehe, boden, geschw, sbsZahl(f[13]), steig, lat, lon)
 	flugMu.Unlock()
 }
 
@@ -395,7 +460,8 @@ func (s *Server) flugErsatzTakt(jetzt time.Time) {
 			ms := *v / 60
 			steig = &ms
 		}
-		s.flugEingang(jetzt, hex, fl, zahl(f, "hoehe_m"), &b, zahl(f, "geschw_kmh"), zahl(f, "kurs"), steig, zahl(f, "lat"), zahl(f, "lon"))
+		sq, _ := f["squawk"].(string)
+		s.flugEingang(jetzt, hex, fl, sq, zahl(f, "hoehe_m"), &b, zahl(f, "geschw_kmh"), zahl(f, "kurs"), steig, zahl(f, "lat"), zahl(f, "lon"))
 	}
 }
 
@@ -416,8 +482,10 @@ func (s *Server) flugMetaNachtragen(jetzt time.Time) {
 		return
 	}
 	type meta struct {
-		fz    *aeroFlugzeug
-		route string
+		fz        *aeroFlugzeug
+		route     string
+		von, nach *aeroFlughafen
+		airline   string
 	}
 	m := map[string]meta{}
 	aeroMu.Lock()
@@ -430,6 +498,8 @@ func (s *Server) flugMetaNachtragen(jetzt time.Time) {
 		}
 		if r, ok := aeroRouten[a.flug]; ok && r.route != nil && r.route.Von != nil && r.route.Nach != nil {
 			x.route = r.route.Von.Code + "–" + r.route.Nach.Code
+			v, n := *r.route.Von, *r.route.Nach
+			x.von, x.nach, x.airline = &v, &n, r.route.Airline
 		}
 		m[a.hex] = x
 	}
@@ -451,7 +521,10 @@ func (s *Server) flugMetaNachtragen(jetzt time.Time) {
 				}
 			}
 			if x.route != "" && su.Route == "" {
-				su.Route = x.route
+				su.Route, su.Von, su.Nach = x.route, x.von, x.nach
+			}
+			if x.airline != "" && su.Airline == "" {
+				su.Airline = x.airline
 			}
 		}
 	}

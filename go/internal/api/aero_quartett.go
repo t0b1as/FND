@@ -13,9 +13,12 @@ package api
 // Das PDF entsteht im Browser (static/quartett.js, jsPDF).
 
 import (
+	"compress/gzip"
+	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -120,43 +123,62 @@ func (s *Server) flugQuartett(c *gin.Context) {
 	}
 	// Typ und Kennzeichen nachschlagen, wo sie fehlen (höchstens 20 s warten).
 	s.quartettNachschlagen(gewaehlt)
-	// Fotos der Flugzeugtypen (Wikimedia Commons, frei lizenziert) – höchstens
-	// 35 s; was dann fehlt, sucht der Node im Hintergrund weiter.
-	fotos := map[string]*typBild{}
-	if c.Query("fotos") == "1" {
+	// Fotos (Wikimedia Commons, frei lizenziert): zuerst aus dem Tabelleneintrag
+	// – einmal gefunden, liegt es dort (R881). Sonst suchen, höchstens 35 s;
+	// was dann fehlt, sucht der Node im Hintergrund weiter.
+	mitFotos := c.Query("fotos") == "1"
+	neueFotos := map[string]*flugFoto{}
+	if mitFotos {
 		frist := time.Now().Add(35 * time.Second)
+		jeSuche := map[string]*typBild{}
 		for _, kat := range gewaehlt {
 			for _, su := range kat {
+				if su.Foto != nil && su.Foto.Datei != "" {
+					if _, err := os.Stat(filepath.Join(s.typBildOrdner(), su.Foto.Datei)); err == nil {
+						continue // liegt schon in der Tabelle
+					}
+				}
 				q := typBildSuche(su.Hersteller, su.Typ, su.ICAO)
-				if _, ok := fotos[q]; ok || q == "" {
+				if q == "" {
 					continue
 				}
-				fotos[q] = s.typBildHolen(q, time.Now().Before(frist))
+				b, ok := jeSuche[q]
+				if !ok {
+					b = s.typBildHolen(q, time.Now().Before(frist))
+					jeSuche[q] = b
+				}
+				if b != nil && b.Datei != "" {
+					su.Foto = &flugFoto{Datei: b.Datei, Credit: b.Credit()}
+					neueFotos[su.Hex] = su.Foto
+				}
 			}
+		}
+		if len(neueFotos) > 0 {
+			s.flugFotosMerken(tabelle, neueFotos)
 		}
 	}
 	karten := []gin.H{}
 	fehlend := 0
 	for k, kat := range quartettKategorien {
 		for r, su := range gewaehlt[k] {
-			rek := kat.Wert(su)
-			steig := su.SteigMax
-			if su.SinkMax != nil && (steig == nil || math.Abs(su.SinkMax.V) > steig.V) {
-				steig = su.SinkMax
+			// Alle Werte der Karte stammen vom Augenblick des Rekords (R881).
+			moment := kat.Wert(su)
+			flug := moment.Flug
+			if flug == "" && len(su.Flug) > 0 {
+				flug = su.Flug[0]
 			}
 			karte := gin.H{
 				"nr":        quartettNummer(k, r),
-				"kategorie": kat.Schl, "kategorie_titel": kat.Titel,
-				"rekord":    gin.H{"v": rek.V, "t": rek.T, "einheit": kat.Einheit},
-				"werte":     gin.H{"hoehe": su.HoeheMax, "geschw": su.GeschwMax, "steig": steig, "km": su.KmMax},
-				"hex":       strings.ToUpper(su.Hex), "flug": su.Flug, "typ": su.Typ, "icao": su.ICAO,
+				"kategorie": kat.Schl, "kategorie_titel": kat.Titel, "einheit": kat.Einheit,
+				"moment":    moment,
+				"hex":       strings.ToUpper(su.Hex), "flug": flug, "typ": su.Typ, "icao": su.ICAO,
 				"klasse":    aeroKlasse(su.ICAO, su.Typ), "hersteller": su.Hersteller,
-				"kennzeichen": su.Kennzeichen, "halter": su.Halter, "route": su.Route,
-				"erste": su.Erste, "letzte": su.Letzte,
+				"kennzeichen": su.Kennzeichen, "halter": su.Halter, "airline": su.Airline,
+				"route": su.Route, "von": su.Von, "nach": su.Nach,
 			}
-			if c.Query("fotos") == "1" {
-				if b := fotos[typBildSuche(su.Hersteller, su.Typ, su.ICAO)]; b != nil && b.Datei != "" {
-					karte["foto"] = gin.H{"url": "/api/v1/aeronautik/typbild/" + b.Datei, "credit": b.Credit()}
+			if mitFotos {
+				if su.Foto != nil && su.Foto.Datei != "" {
+					karte["foto"] = gin.H{"url": "/api/v1/aeronautik/typbild/" + su.Foto.Datei, "credit": su.Foto.Credit}
 				} else {
 					fehlend++
 				}
@@ -283,4 +305,41 @@ func aeroKlasse(icao, typ string) string {
 		return "kleinflugzeug"
 	}
 	return "unbekannt"
+}
+
+// flugFotosMerken: gefundene Fotos in die Tabelle des Zeitraums schreiben –
+// und in alle laufenden Tabellen, in denen das Flugzeug steht.
+func (s *Server) flugFotosMerken(schl string, fotos map[string]*flugFoto) {
+	flugMu.Lock()
+	defer flugMu.Unlock()
+	for _, tab := range flugTabellen {
+		for hex, f := range fotos {
+			if su := tab[hex]; su != nil && su.Foto == nil {
+				su.Foto = f
+			}
+		}
+	}
+	if _, imSpeicher := flugTabellen[schl]; imSpeicher {
+		return // wird mit der nächsten Minute geschrieben
+	}
+	tab := s.flugTabelleLaden(schl)
+	for hex, f := range fotos {
+		if su := tab[hex]; su != nil {
+			su.Foto = f
+		}
+	}
+	pfad := filepath.Join(s.flugOrdner("tabellen"), schl+".json")
+	if _, err := os.Stat(pfad); err == nil {
+		_ = jsonKompakt(pfad, tab)
+		return
+	}
+	if b, err := json.Marshal(tab); err == nil {
+		if f, err := os.Create(pfad + ".gz.neu"); err == nil {
+			gz := gzip.NewWriter(f)
+			_, _ = gz.Write(b)
+			_ = gz.Close()
+			_ = f.Close()
+			_ = os.Rename(pfad+".gz.neu", pfad+".gz")
+		}
+	}
 }

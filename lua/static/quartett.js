@@ -83,9 +83,10 @@
     return String(w.v);
   }
   function rekordText(k) {
-    var r = k.rekord, e = r.einheit;
-    var v = e === "m" ? tausend(r.v) : e === "km/h" ? tausend(r.v) : e === "m/s" ? (r.v > 0 ? "+" : "–") + komma(Math.abs(r.v), 1) : komma(r.v, 1);
-    return k.kategorie_titel + ": " + v + " " + e;
+    var v = (k.moment || {}).v, e = k.einheit || "";
+    if (v == null) return k.kategorie_titel;
+    var s = e === "m" || e === "km/h" ? tausend(v) : e === "m/s" ? (v > 0 ? "+" : "–") + komma(Math.abs(v), 1) : komma(v, 1);
+    return k.kategorie_titel + " " + s + " " + e;
   }
   function kuerzen(doc, t, breite) {
     t = String(t || "");
@@ -111,11 +112,26 @@
   function mitte(doc, s, x, y) { doc.text(s, x - doc.getTextWidth(s) / 2, y); }
 
   // ── Vorderseite (Vektor) ─────────────────────────────────────────────────
+  // Spielwerte aus dem Augenblick des Rekords (R881). Ältere Tabellen ohne
+  // Momentaufnahme: nur der Rekordwert selbst, der Rest bleibt „–“.
+  function werteAus(k) {
+    var m = k.moment || {}, w = { hoehe: m.hoehe, geschw: m.geschw, steig: m.steig, km: m.km, boden: m.boden };
+    var feld = { hoehe_max: "hoehe", hoehe_min: "hoehe", geschw_max: "geschw", geschw_min: "geschw", steig_max: "steig", sink_max: "steig", km_max: "km", km_min: "km" }[k.kategorie];
+    if (feld && w[feld] == null && m.v != null) w[feld] = m.v;
+    return w;
+  }
+  function koordinate(v, pos, neg) { return v == null ? "" : komma(Math.abs(v), 4) + "° " + (v >= 0 ? pos : neg); }
+  function ortText(f) {
+    if (!f) return "";
+    var stadt = f.stadt || f.name || "";
+    return (f.code || "") + (stadt ? " " + stadt : "");
+  }
+
   function vorderseite(doc, x, y, k, kontext, bild) {
-    var f = KAT_FARBE[k.kategorie] || [80, 80, 80];
+    var f = KAT_FARBE[k.kategorie] || [80, 80, 80], m = k.moment || {}, w = werteAus(k);
     doc.setDrawColor(200); doc.setLineWidth(0.2); doc.setFillColor(255, 255, 255);
     doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, H - 1.2, 3, 3, "FD");
-    // Kopf: Nummer und Kategorie
+    // Kopf: Nummer, Kategorie, Bauart
     doc.setFillColor(f[0], f[1], f[2]);
     doc.roundedRect(x + 0.6, y + 0.6, B - 1.2, 11, 3, 3, "F");
     doc.rect(x + 0.6, y + 6, B - 1.2, 5.6, "F");
@@ -124,45 +140,56 @@
     doc.setFontSize(6.2); rechts(doc, k.kategorie_titel.toUpperCase(), x + B - 4, y + 5.2);
     doc.setFont("helvetica", "normal"); doc.setFontSize(5.4);
     rechts(doc, KLASSE_NAME[k.klasse] || "Flugzeug", x + B - 4, y + 9.2);
-    // Typ und Kennungen
-    doc.setTextColor(25, 28, 36); doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+    // Typ, Kennzeichen, Rufzeichen, Route
+    doc.setTextColor(25, 28, 36); doc.setFont("helvetica", "bold"); doc.setFontSize(8.6);
     var typ = k.typ || (k.icao ? "Typ " + k.icao : "Unbekannter Typ");
     if (k.hersteller && typ.toUpperCase().indexOf(k.hersteller.toUpperCase().split(" ")[0]) < 0 && k.hersteller.length < 18) typ = k.hersteller.split(" ")[0] + " " + typ;
-    doc.text(kuerzen(doc, typ, B - 8), x + 4, y + 16.2);
-    doc.setFont("helvetica", "normal"); doc.setFontSize(6); doc.setTextColor(95, 100, 112);
-    var unter = [k.kennzeichen, (k.flug || []).join(", "), k.route].filter(Boolean).join(" · ") || "ohne Kennzeichen";
-    doc.text(kuerzen(doc, unter, B - 8), x + 4, y + 19.6);
+    doc.text(kuerzen(doc, typ, B - 8), x + 4, y + 15.6);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(5.8); doc.setTextColor(95, 100, 112);
+    doc.text(kuerzen(doc, [k.kennzeichen, k.flug].filter(Boolean).join(" · ") || "ohne Kennzeichen", B - 8), x + 4, y + 18.8);
+    // „›“ statt Pfeil: „→“ fehlt in der PDF-Standardschrift.
+    var route = k.von && k.nach ? ortText(k.von) + "  ›  " + ortText(k.nach) : (k.route || "");
+    if (route) { doc.setFontSize(5.4); doc.setTextColor(60, 66, 80); doc.text(kuerzen(doc, route, B - 8), x + 4, y + 21.8); }
     // Bild: Foto (ganz, ohne Beschnitt) mit Urheberzeile – sonst Silhouette.
-    doc.setFillColor(232, 241, 250); doc.rect(x + 3, y + 21.6, B - 6, 20.4, "F");
+    var by = y + 23.2, bh = 17.6;
+    doc.setFillColor(232, 241, 250); doc.rect(x + 3, by, B - 6, bh, "F");
     if (k._foto) {
-      var fb = B - 6, fh = 20.4 - 2.6, s = Math.min(fb / k._foto.w, fh / k._foto.h), w = k._foto.w * s, h = k._foto.h * s;
-      doc.addImage(k._foto.daten, k._foto.format, x + 3 + (fb - w) / 2, y + 21.6 + (fh - h) / 2, w, h, k._foto.alias, "FAST");
-      doc.setFont("helvetica", "normal"); doc.setFontSize(3.6); doc.setTextColor(95, 100, 112);
-      mitte(doc, urheberZeile(doc, k.foto.credit, B - 8), x + B / 2, y + 41.2);
+      var fb = B - 6, fh = bh - 2.4, s = Math.min(fb / k._foto.w, fh / k._foto.h), bw = k._foto.w * s, bhh = k._foto.h * s;
+      doc.addImage(k._foto.daten, k._foto.format, x + 3 + (fb - bw) / 2, by + (fh - bhh) / 2, bw, bhh, k._foto.alias, "FAST");
+      doc.setFont("helvetica", "normal"); doc.setFontSize(3.4); doc.setTextColor(95, 100, 112);
+      mitte(doc, urheberZeile(doc, k.foto.credit, B - 8), x + B / 2, by + bh - 0.6);
     } else {
       // Alias: jede Silhouette nur EINMAL einbetten, sonst wird das PDF riesig.
-      doc.addImage(bild, "PNG", x + 6.5, y + 22.6, 50, 18.75, "silh-" + (k.klasse || "unbekannt"), "FAST");
+      doc.addImage(bild, "PNG", x + 8, by + 0.6, 47, 17.6 * 0.94, "silh-" + (k.klasse || "unbekannt"), "FAST");
     }
-    // Rekord
-    doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 3, y + 43.6, B - 6, 5.4, 1.4, 1.4, "F");
-    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(6.2);
-    mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k), B - 10), x + B / 2, y + 47.2);
-    // Vier Spielwerte mit Zeitstempel
+    // Rekord mit dem EINEN Zeitpunkt aller Werte dieser Karte
+    doc.setFillColor(f[0], f[1], f[2]); doc.roundedRect(x + 3, by + bh + 1.2, B - 6, 5.2, 1.4, 1.4, "F");
+    doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(5.8);
+    mitte(doc, kuerzen(doc, "Rekord · " + rekordText(k) + " · " + (m.t || ""), B - 8), x + B / 2, by + bh + 4.7);
+    // Vier Spielwerte aus diesem Augenblick
     var zeilen = [["hoehe", "Höhe"], ["geschw", "Geschwindigkeit"], ["steig", "Steigen/Sinken"], ["km", "Entfernung"]];
+    var zy0 = by + bh + 7.4;
     zeilen.forEach(function (z, i) {
-      var zy = y + 50.6 + i * 7.1, w = k.werte[z[0]];
-      if (i % 2 === 0) { doc.setFillColor(243, 245, 248); doc.rect(x + 3, zy, B - 6, 7.1, "F"); }
+      var zy = zy0 + i * 6.1;
+      if (i % 2 === 0) { doc.setFillColor(243, 245, 248); doc.rect(x + 3, zy, B - 6, 6.1, "F"); }
       var aktiv = k.kategorie.indexOf(z[0]) === 0 || (z[0] === "steig" && k.kategorie === "sink_max");
       doc.setTextColor(aktiv ? f[0] : 45, aktiv ? f[1] : 48, aktiv ? f[2] : 58);
-      doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.text(z[1], x + 5, y + 50.6 + i * 7.1 + 3.2);
-      doc.setFontSize(9); rechts(doc, wertText(z[0], w), x + B - 5, y + 50.6 + i * 7.1 + 4.6);
-      doc.setFont("helvetica", "normal"); doc.setFontSize(4.8); doc.setTextColor(130, 135, 148);
-      doc.text(w ? w.t : "–", x + 5, y + 50.6 + i * 7.1 + 5.9);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.text(z[1], x + 5, zy + 4.1);
+      var text = z[0] === "hoehe" && w.boden && w.hoehe == null ? "am Boden" : wertText(z[0], w[z[0]] == null ? null : { v: w[z[0]] });
+      doc.setFontSize(8.6); rechts(doc, text, x + B - 5, zy + 4.3);
     });
+    // Weitere Daten aus demselben Augenblick
+    var iy = zy0 + 4 * 6.1 + 3.2;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(4.8); doc.setTextColor(70, 76, 90);
+    var z1 = [m.kurs != null ? "Kurs " + Math.round(m.kurs) + "°" : "", m.squawk ? "Squawk " + m.squawk : "",
+      m.lat != null ? koordinate(m.lat, "N", "S") + "  " + koordinate(m.lon, "O", "W") : ""].filter(Boolean).join(" · ");
+    doc.text(kuerzen(doc, z1 || "–", B - 8), x + 4, iy);
+    var z2 = [k.airline ? "Airline " + k.airline : "", k.halter && k.halter !== k.airline ? "Halter " + k.halter : ""].filter(Boolean).join(" · ");
+    if (z2) doc.text(kuerzen(doc, z2, B - 8), x + 4, iy + 2.6);
     // Fuß
-    doc.setFontSize(4.6); doc.setTextColor(130, 135, 148);
-    doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 3.4);
-    rechts(doc, "FLIGHT QUAD 64 · " + (kontext.code || ""), x + B - 4, y + H - 3.4);
+    doc.setFontSize(4.4); doc.setTextColor(130, 135, 148);
+    doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 2.8);
+    rechts(doc, "FLIGHT QUAD 64 · " + (kontext.code || ""), x + B - 4, y + H - 2.8);
   }
 
   // ── Rückseite (als Bild, damit sie sich für das Falten drehen lässt) ─────
@@ -191,11 +218,33 @@
       if (drehung === 90) { cv.width = h; cv.height = w; } else { cv.width = w; cv.height = h; }
       var g = cv.getContext("2d");
       if (drehung === 90) { g.translate(h, 0); g.rotate(Math.PI / 2); }
-      var gr = g.createLinearGradient(0, 0, 0, h); gr.addColorStop(0, "#123a6b"); gr.addColorStop(1, "#0a1c36");
+      // Verlauf in Fundus-Grün (#00e676 · #00c853 · #17a862) bis in ein tiefes Grün.
+      var gr = g.createLinearGradient(0, 0, w * 0.4, h);
+      gr.addColorStop(0, "#00c853"); gr.addColorStop(0.45, "#17a862"); gr.addColorStop(1, "#06351f");
       g.fillStyle = gr; g.beginPath();
       if (g.roundRect) g.roundRect(6, 6, w - 12, h - 12, 30); else g.rect(6, 6, w - 12, h - 12);
       g.fill();
-      g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 4; g.beginPath();
+      g.save(); g.beginPath();
+      if (g.roundRect) g.roundRect(6, 6, w - 12, h - 12, 30); else g.rect(6, 6, w - 12, h - 12);
+      g.clip();
+      // Knotennetz: fester Startwert – ALLE Karten haben exakt dieselbe Rückseite.
+      var zufall = (function (a) { return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; })(64);
+      var knoten = [];
+      for (var n = 0; n < 46; n++) knoten.push([20 + zufall() * (w - 40), 20 + zufall() * (h - 40), 2 + zufall() * 4]);
+      g.lineWidth = 2;
+      for (var a1 = 0; a1 < knoten.length; a1++) for (var b1 = a1 + 1; b1 < knoten.length; b1++) {
+        var dx = knoten[a1][0] - knoten[b1][0], dy = knoten[a1][1] - knoten[b1][1], d = Math.sqrt(dx * dx + dy * dy);
+        if (d < 165) { g.strokeStyle = "rgba(255,255,255," + (0.28 * (1 - d / 165)).toFixed(3) + ")"; g.beginPath(); g.moveTo(knoten[a1][0], knoten[a1][1]); g.lineTo(knoten[b1][0], knoten[b1][1]); g.stroke(); }
+      }
+      knoten.forEach(function (p) {
+        g.fillStyle = "rgba(255,255,255,.55)"; g.beginPath(); g.arc(p[0], p[1], p[2], 0, Math.PI * 2); g.fill();
+      });
+      // dunkler Hof hinter Logo und Schrift, damit beides klar lesbar bleibt
+      var hof = g.createRadialGradient(w / 2, h * 0.5, 40, w / 2, h * 0.5, w * 0.62);
+      hof.addColorStop(0, "rgba(4,40,22,.55)"); hof.addColorStop(1, "rgba(4,40,22,0)");
+      g.fillStyle = hof; g.fillRect(0, 0, w, h);
+      g.restore();
+      g.strokeStyle = "rgba(255,255,255,.45)"; g.lineWidth = 4; g.beginPath();
       if (g.roundRect) g.roundRect(40, 40, w - 80, h - 80, 20); else g.rect(40, 40, w - 80, h - 80);
       g.stroke();
       var groesse = 380, ly = 170;

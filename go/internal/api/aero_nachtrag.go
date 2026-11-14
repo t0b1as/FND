@@ -72,6 +72,15 @@ func flugVereinen(ziel, q *flugSumme) {
 			*p[0] = *p[1]
 		}
 	}
+	if ziel.Von == nil && q.Von != nil {
+		ziel.Von, ziel.Nach = q.Von, q.Nach
+	}
+	if ziel.Airline == "" {
+		ziel.Airline = q.Airline
+	}
+	if ziel.Foto == nil {
+		ziel.Foto = q.Foto
+	}
 	if ziel.Erste == "" || (q.Erste != "" && q.Erste < ziel.Erste) {
 		ziel.Erste = q.Erste
 	}
@@ -143,32 +152,50 @@ func (s *Server) flugAusSpuren(tag string, e flugEinstellungen) (map[string]*flu
 			su.Flug = append(su.Flug, flug)
 		}
 		boden := hoehe < 0
+		lat, _ := p[2].(float64)
+		lon, _ := p[3].(float64)
+		kurs, _ := p[6].(float64)
+		// Momentaufnahme: alle Werte dieses Spurpunkts stammen vom selben Augenblick.
+		moment := func(v float64) *flugWert {
+			m := &flugWert{V: v, T: ts, Boden: boden, Flug: flug, Kurs: zahlZeiger(kurs), Lat: zahlZeiger(lat), Lon: zahlZeiger(lon)}
+			if !boden && hoehe > 0 {
+				m.Hoehe = zahlZeiger(hoehe)
+			}
+			if geschw > 0 {
+				m.Geschw = zahlZeiger(geschw)
+			}
+			m.Steig = zahlZeiger(math.Round(steigMin/60*10) / 10)
+			if hatKm {
+				m.Km = zahlZeiger(km)
+			}
+			return m
+		}
 		hoeheOK := !boden && (!fi.An || (hoehe > 0 && hoehe <= fi.MaxHoehe))
 		if hoeheOK && fi.An && z.sprungZeit != 0 && t-z.sprungZeit < 15 && math.Abs(hoehe-z.sprungHoehe) > fi.MaxSprung {
 			hoeheOK = false
 		}
 		if hoeheOK {
 			z.sprungHoehe, z.sprungZeit = hoehe, t
-			su.HoeheMax = neuerWert(su.HoeheMax, hoehe, ts, true)
-			su.HoeheMin = neuerWert(su.HoeheMin, hoehe, ts, false)
+			su.HoeheMax = neuerMoment(su.HoeheMax, hoehe, true, moment)
+			su.HoeheMin = neuerMoment(su.HoeheMin, hoehe, false, moment)
 		}
 		if geschw > 0 && (!fi.An || (geschw >= 1 && geschw <= fi.MaxGeschw)) {
-			su.GeschwMax = neuerWert(su.GeschwMax, geschw, ts, true)
+			su.GeschwMax = neuerMoment(su.GeschwMax, geschw, true, moment)
 			if !e.TiefNurLuft || (!boden && hoehe > 0) {
-				su.GeschwMin = neuerWert(su.GeschwMin, geschw, ts, false)
+				su.GeschwMin = neuerMoment(su.GeschwMin, geschw, false, moment)
 			}
 		}
 		if ms := math.Round(steigMin/60*10) / 10; !boden && ms != 0 && (!fi.An || math.Abs(ms) <= fi.MaxSteig) {
 			if ms > 0 {
-				su.SteigMax = neuerWert(su.SteigMax, ms, ts, true)
+				su.SteigMax = neuerMoment(su.SteigMax, ms, true, moment)
 			} else {
-				su.SinkMax = neuerWert(su.SinkMax, ms, ts, false)
+				su.SinkMax = neuerMoment(su.SinkMax, ms, false, moment)
 			}
 		}
 		if hatKm && km > 0 && (!fi.An || km <= fi.MaxKm) {
-			su.KmMax = neuerWert(su.KmMax, km, ts, true)
+			su.KmMax = neuerMoment(su.KmMax, km, true, moment)
 			if !e.TiefNurLuft || !boden {
-				su.KmMin = neuerWert(su.KmMin, km, ts, false)
+				su.KmMin = neuerMoment(su.KmMin, km, false, moment)
 			}
 		}
 	}
