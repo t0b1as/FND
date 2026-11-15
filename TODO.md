@@ -8,6 +8,35 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
 
 ## ROT — braucht Pi / Browser / Netz (Live-Test)
 
+### Websuche und eigener Suchindex (R895 ff.)
+- [x] **R895 — Metasuche im Node** (`internal/websuche`, GRÜN getestet): DuckDuckGo,
+      Mojeek, Wikipedia, SearXNG (falls vorhanden, doppelt gewichtet), Zusammenführen
+      per Reciprocal Rank Fusion, 10-min-Zwischenspeicher. Seite `/suche`, KI-Chat
+      Suchdienst „Fundus“. Ablageort des Index: lokal, Laufwerk unter /mnt|/media
+      (nie Ausweichen auf die SD-Karte), oder anderer Pi über `/fundus/suchindex/1.0.0`.
+- [ ] **ROT:** Parser gegen die echten Seiten von DuckDuckGo und Mojeek prüfen
+      (nur gegen nachgebaute HTML getestet); Index-Abfrage zwischen zwei Pis.
+- [x] **R896 — Crawler + Index** (GRÜN getestet, 17 Tests): eigener BM25-Index
+      (Abschnitte, gestaffeltes Zusammenlegen, absturzfest), robots.txt + TDMRep,
+      1 Anfrage/s je Host, nur öffentliche Adressen, MB/h-Grenze, „nur nachts“,
+      Warteschlange übersteht Neustarts, angeklickte Treffer werden vorgemerkt,
+      Umzug des Index beim Wechsel des Ablageorts (Kopie, dann Wechsel).
+- [ ] **ROT:** Crawler auf der Pi 3 laufen lassen (RAM, Geschwindigkeit der
+      USB-Platte), Umzug SD → USB-Platte mit echtem Index.
+- [x] **R897 — Suchverbund** (GRÜN, Simulation mit 3 Pis/3 Websites): Rendezvous-
+      Hashing je Host (1/n Wechsel bei neuem Pi), Zweitzuständiger hält Kopie,
+      Links und Klicks gehen an den Zuständigen, Suche an alle Mitglieder,
+      Mitglieder fallen erst nach 15 min Funkstille heraus.
+- [ ] **ROT:** Verbund mit echten Pis (fundus, fnd, fundus71/72/73) prüfen.
+- [x] **R898 — Speicher und tote Seiten** (GRÜN, 27 Tests): Höchstgröße und
+      Mindestrest (automatisch: SD höchstens 2 GB, 5 GB frei; Laufwerk bis 1 GB),
+      Crawler pausiert, voller Pi nimmt im Verbund nichts Neues an; Zusammenlegen
+      nur mit Platz; Verdichten ab 1/3 Gelöschtem (absturzfest); Neulesen
+      veralteter Seiten; 404/410/401/403 sofort raus, Netzfehler/5xx nach 3
+      Versuchen über mind. 5 Tage; Weiterleitung ersetzt die alte Adresse.
+- [ ] Später: Aufräumen von Seiten, für die ein Pi nach Mitgliederwechsel nicht
+      mehr zuständig ist (heute bleiben sie liegen; die Suche entfernt Doppel).
+
 ### Verdienst-System (Storage/Transfer → FND, kombiniertes Modell)
 Modell (festgelegt): **Storage-Nachweis (Quittungen) + Block-Produzent verteilt**.
 Rate: **1 FND pro TB und Monat** (Speicher) bzw. pro TB (Transfer). Verdienst wird

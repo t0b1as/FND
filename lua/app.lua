@@ -71,6 +71,9 @@ local routes = {
       handler = require "pages.aeronautik" },
     { method = "GET",  pattern = "^/ki$",
       handler = require "pages.ki" },
+    -- Websuche (R895): eigene Metasuche des Nodes
+    { method = "GET",  pattern = "^/suche$",
+      handler = require "pages.suche" },
 
     -- Zertifikate
     { method = "GET",  pattern = "^/certificates$",

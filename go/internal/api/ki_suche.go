@@ -32,7 +32,7 @@ import (
 )
 
 type kiSucheConfig struct {
-	Anbieter  string `json:"anbieter"` // "" (aus) | "ollama" | "searxng"
+	Anbieter  string `json:"anbieter"` // "" (aus) | "ollama" | "searxng" | "fundus" (R895: eigene Metasuche)
 	OllamaKey string `json:"ollama_key"`
 	SearXNG   string `json:"searxng"`
 }
@@ -54,7 +54,7 @@ func (s *Server) kiSucheLesen() kiSucheConfig {
 }
 
 func (k kiSucheConfig) aktiv() bool {
-	return (k.Anbieter == "ollama" && k.OllamaKey != "") || (k.Anbieter == "searxng" && k.SearXNG != "")
+	return (k.Anbieter == "ollama" && k.OllamaKey != "") || (k.Anbieter == "searxng" && k.SearXNG != "") || k.Anbieter == "fundus"
 }
 
 // GET /api/v1/admin/ki/suche
@@ -66,7 +66,7 @@ func (s *Server) kiSucheGet(c *gin.Context) {
 // POST /api/v1/admin/ki/suche {anbieter, searxng, ollama_key?}
 func (s *Server) kiSucheSet(c *gin.Context) {
 	var req kiSucheConfig
-	if c.ShouldBindJSON(&req) != nil || (req.Anbieter != "" && req.Anbieter != "ollama" && req.Anbieter != "searxng") {
+	if c.ShouldBindJSON(&req) != nil || (req.Anbieter != "" && req.Anbieter != "ollama" && req.Anbieter != "searxng" && req.Anbieter != "fundus") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
 		return
 	}
@@ -163,6 +163,22 @@ func (s *Server) kiSuchen(ctx context.Context, k kiSucheConfig, anfrage string) 
 				break
 			}
 			treffer = append(treffer, kiTreffer{Titel: r.Title, URL: r.URL, Text: kiKuerzen(r.Content, 600)})
+		}
+	case "fundus":
+		// R895: eigene Metasuche des Nodes (DuckDuckGo, Mojeek, Wikipedia,
+		// SearXNG falls vorhanden, eigener Index).
+		e, err := s.websucheSuchen(ctx, anfrage, "")
+		if err != nil {
+			return nil, err
+		}
+		if len(e.Treffer) == 0 {
+			return nil, fmt.Errorf("keine Treffer (%s)", websucheDiensteText(e.Dienste))
+		}
+		for i, t := range e.Treffer {
+			if i >= 5 {
+				break
+			}
+			treffer = append(treffer, kiTreffer{Titel: t.Titel, URL: t.URL, Text: kiKuerzen(t.Text, 600)})
 		}
 	default:
 		return nil, fmt.Errorf("Websuche aus")

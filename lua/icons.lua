@@ -29,6 +29,7 @@ local P = {
   settings     = '<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2 1.2M17.8 15.3l2 1.2M4.2 16.5l2-1.2M17.8 8.7l2-1.2"/><circle cx="12" cy="12" r="7"/>',
   -- Feed (R812): drei Wellen – Beiträge, die sich im Netz ausbreiten.
   feed         = '<path d="M3 7q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M3 12q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M3 17q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/>',
+  suche        = '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/>',
   star         = '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
 }
 

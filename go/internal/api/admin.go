@@ -50,6 +50,11 @@ func (s *Server) registerAdminRoutes() {
 		g.POST("/neustart",        s.adminNeustart) // R868: Node neu starten (für Einstellungen, die erst danach wirken)
 		g.GET("/ki/suche",         s.kiSucheGet) // R871: Websuche für den KI-Chat
 		g.POST("/ki/suche",        s.kiSucheSet)
+		g.GET("/websuche",         s.websucheEinstellungen) // R895: Metasuche, Ablageort des Suchindex
+		g.POST("/websuche",        s.websucheSpeichern)
+		g.GET("/websuche/knoten",  s.websucheKnoten)
+		g.GET("/websuche/crawler", s.websucheCrawlerGet) // R896: Crawler
+		g.POST("/websuche/crawler", s.websucheCrawlerSetzen)
 		g.GET("/ki/bild",          s.kiBildGet) // R873: Bilderzeugung (ComfyUI)
 		g.POST("/ki/bild",         s.kiBildSet)
 		g.POST("/ki/bild/test",    s.kiBildTest)

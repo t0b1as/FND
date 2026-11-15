@@ -1079,7 +1079,7 @@ document.addEventListener('DOMContentLoaded', updLoad);
     <div class="hs-abschnitt" style="margin-top:20px">Websuche im KI-Chat</div>
     <p class="set-hint" style="margin:0 0 8px">Jedes Modell kennt die Welt nur bis zu seinem Trainingsende. Mit Websuche sucht es selbst im Internet, wenn eine Frage aktuelles Wissen braucht, und zeigt die Quellen an. Braucht ein Modell, das Werkzeuge bedienen kann – qwen3.5:9b kann das.</p>
     <div class="hs-grid">
-      <label for="ks-anbieter">Suchdienst</label><select id="ks-anbieter"><option value="">Aus</option><option value="ollama">Ollama-Websuche (kostenloses Ollama-Konto)</option><option value="searxng">SearXNG (selbst betrieben, privat)</option></select>
+      <label for="ks-anbieter">Suchdienst</label><select id="ks-anbieter"><option value="">Aus</option><option value="ollama">Ollama-Websuche (kostenloses Ollama-Konto)</option><option value="searxng">SearXNG (selbst betrieben, privat)</option><option value="fundus">Fundus (eigene Metasuche, ohne Konto)</option></select>
       <label for="ks-key" class="ks-ollama">API-Schlüssel</label><input id="ks-key" class="ks-ollama" type="password" autocomplete="new-password">
       <label for="ks-searx" class="ks-searx">SearXNG-Adresse</label><input id="ks-searx" class="ks-searx" placeholder="http://192.168.1.20:8080">
     </div>
@@ -1273,6 +1273,235 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       }, 2000);
     }).catch(function(){ $('ki-neustart').disabled = false; $('ki-meldung').textContent = '✗ Neustart fehlgeschlagen.'; });
   };
+})();
+</script>
+
+<!-- ── Websuche & Suchindex (R895) – eigener Reiter ─────────────────────── -->
+<div class="set-card" id="websuche-card">
+  <div class="set-head"><h3>Websuche &amp; Suchindex</h3></div>
+  <div class="set-body">
+    <p class="set-hint" style="margin:0 0 10px">Fundus sucht selbst: DuckDuckGo, Mojeek und Wikipedia werden gleichzeitig gefragt und die Treffer zusammengeführt – ohne Zusatzdienst, mit wenigen MB Speicher, auch auf einer Pi 3. Ein SearXNG im Netz wird mitgenutzt und zählt doppelt. Suchen unter <a href="/suche">Websuche</a>; im KI-Chat als Suchdienst „Fundus“.</p>
+    <div class="hs-abschnitt">Suchdienste</div>
+    <div id="ws-dienste-wahl" style="display:flex;flex-wrap:wrap;gap:14px;margin:4px 0 10px"></div>
+    <div class="hs-grid">
+      <label for="ws-searx">SearXNG-Adresse</label><input id="ws-searx" placeholder="leer = die aus dem KI-Chat">
+      <label for="ws-sprache">Sprache</label><select id="ws-sprache"><option value="de">Deutsch</option><option value="en">Englisch</option></select>
+    </div>
+
+    <div class="hs-abschnitt" style="margin-top:18px">Ablageort des eigenen Suchindex</div>
+    <p class="set-hint" style="margin:0 0 8px">Der eigene Index (Crawler ab R896) wird groß. Auf der SD-Karte ist dafür wenig Platz, und sie verträgt die vielen Schreibzugriffe schlecht – besser eine USB-Platte oder ein anderer Pi.</p>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <label style="display:flex;gap:8px;align-items:center"><input type="radio" name="ws-ort" value="lokal"> Auf diesem Pi (Datenordner)</label>
+      <label style="display:flex;gap:8px;align-items:center"><input type="radio" name="ws-ort" value="laufwerk"> Auf einem Laufwerk an diesem Pi</label>
+      <div class="ws-nur-laufwerk hs-grid" style="margin-left:26px">
+        <label for="ws-laufwerk">Laufwerk</label><select id="ws-laufwerk"></select>
+        <label for="ws-pfad">Pfad</label><input id="ws-pfad" placeholder="/mnt/usb1">
+      </div>
+      <label style="display:flex;gap:8px;align-items:center"><input type="radio" name="ws-ort" value="knoten"> Auf einem anderen Pi im Netz</label>
+      <div class="ws-nur-knoten hs-grid" style="margin-left:26px">
+        <label for="ws-knoten">Pi</label><select id="ws-knoten"><option value="">Suche Pis mit Index …</option></select>
+      </div>
+    </div>
+    <div class="hs-grid ws-nur-eigen" style="margin-top:10px">
+      <label for="ws-grenze">Höchstgröße (GB)</label><input id="ws-grenze" type="number" min="0" step="0.5" placeholder="automatisch">
+      <label for="ws-rest">Mindestens frei lassen (GB)</label><input id="ws-rest" type="number" min="0" step="0.5" placeholder="automatisch">
+    </div>
+    <p class="set-hint ws-nur-eigen" style="margin:4px 0 0">Automatisch: auf der SD-Karte höchstens 2 GB und 5 GB bleiben für den Node frei; auf einem eigenen Laufwerk bis auf 1 GB. Ist eine Grenze erreicht, hält der Crawler an – suchen geht weiter.</p>
+    <label class="ws-nur-eigen" style="display:flex;gap:8px;align-items:center;margin-top:10px"><input type="checkbox" id="ws-freigeben"> Index anderen Pis anbieten (sie suchen darin, schreiben aber nichts)</label>
+    <label class="ws-nur-eigen" style="display:flex;gap:8px;align-items:center;margin-top:6px"><input type="checkbox" id="ws-verbund"> Am Suchverbund teilnehmen</label>
+    <p class="set-hint ws-nur-eigen" style="margin:2px 0 0 26px">Websites werden auf alle teilnehmenden Pis verteilt: Jede Website liest nur ein Pi, eine Kopie liegt auf einem zweiten. Jede Suche fragt alle Pis im Verbund. Fällt ein Pi aus, bleiben seine Seiten über die Kopie auffindbar.</p>
+    <div id="ws-verbund-liste" class="set-hint" style="margin:6px 0 0 26px"></div>
+    <label id="ws-umzug-wahl" style="display:none;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="ws-umziehen" checked> Vorhandenen Index mitnehmen (wird kopiert, danach am alten Ort gelöscht)</label>
+    <div id="ws-ort-stand" class="set-hint" style="margin-top:8px"></div>
+    <div id="ws-umzug" class="set-hint" style="margin-top:6px"></div>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary" id="ws-speichern" style="width:auto">Websuche speichern</button>
+      <span id="ws-meldung" class="set-hint"></span>
+    </div>
+
+    <div class="hs-abschnitt" style="margin-top:22px">Crawler</div>
+    <p class="set-hint" style="margin:0 0 8px">Liest Seiten in den eigenen Index – höflich: hält sich an robots.txt, nimmt nichts auf, wofür ein Vorbehalt gegen Text- und Data-Mining erklärt ist (§ 44b UrhG, TDMRep), fragt jeden Server höchstens einmal je Sekunde und nur öffentliche Adressen. Startpunkte sind die Seiten unten und Treffer, die jemand in der Websuche anklickt.</p>
+    <div id="ws-cr-hinweis" class="set-hint" style="display:none;margin:0 0 8px"></div>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="ws-cr-aktiv"> Crawler einschalten</label>
+    <div class="hs-grid" style="margin-top:8px">
+      <label for="ws-cr-start">Startseiten</label><textarea id="ws-cr-start" rows="4" placeholder="eine Adresse je Zeile, z. B.&#10;https://de.wikipedia.org/wiki/Raspberry_Pi&#10;https://www.heise.de/"></textarea>
+      <label for="ws-cr-mb">MB je Stunde</label><input id="ws-cr-mb" type="number" min="10" max="5000" step="10">
+      <label for="ws-cr-seiten">Seiten je Website</label><input id="ws-cr-seiten" type="number" min="10" max="100000" step="10">
+      <label for="ws-cr-tiefe">Linktiefe</label><input id="ws-cr-tiefe" type="number" min="1" max="10">
+      <label for="ws-cr-tage">Neu lesen nach</label><input id="ws-cr-tage" type="number" min="1" max="365" title="Tagen">
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input type="checkbox" id="ws-cr-nachts"> Nur nachts (1–6 Uhr)</label>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:4px"><input type="checkbox" id="ws-cr-fremd"> Links auf andere Websites folgen</label>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary" id="ws-cr-speichern" style="width:auto">Crawler speichern</button>
+      <span id="ws-cr-meldung" class="set-hint"></span>
+    </div>
+    <div id="ws-cr-stand" class="set-hint" style="margin-top:10px"></div>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(t){ return String(t == null ? '' : t).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  var NAMEN = { duckduckgo:'DuckDuckGo', mojeek:'Mojeek', wikipedia:'Wikipedia', searxng:'SearXNG', index:'Eigener Index' };
+  var stand = null, knotenGeladen = false;
+  function gb(x){ return (x || 0).toFixed(1).replace('.', ',') + ' GB'; }
+  function ort(){ var r = document.querySelector('input[name="ws-ort"]:checked'); return r ? r.value : 'lokal'; }
+  function zeigen(){
+    var o = ort();
+    [].forEach.call(document.querySelectorAll('#websuche-card .ws-nur-laufwerk'), function(e){ e.style.display = o === 'laufwerk' ? '' : 'none'; });
+    [].forEach.call(document.querySelectorAll('#websuche-card .ws-nur-knoten'), function(e){ e.style.display = o === 'knoten' ? '' : 'none'; });
+    [].forEach.call(document.querySelectorAll('#websuche-card .ws-nur-eigen'), function(e){ e.style.display = o === 'knoten' ? 'none' : 'flex'; });
+    if (o === 'knoten' && !knotenGeladen) knotenLaden();
+  }
+  function knotenLaden(){
+    knotenGeladen = true;
+    fetch('/api/v1/admin/websuche/knoten', { credentials:'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+      var l = d.knoten || [], gew = stand && stand.index && stand.index.knoten || '';
+      var opt = l.map(function(k){ return '<option value="' + esc(k.peer) + '">' + esc(k.node || k.peer.slice(-8)) + ' · ' + gb(k.info && k.info.frei_gb) + ' frei</option>'; });
+      if (gew && !l.some(function(k){ return k.peer === gew; })) opt.unshift('<option value="' + esc(gew) + '">' + esc(gew.slice(-8)) + ' (gerade nicht erreichbar)</option>');
+      $('ws-knoten').innerHTML = opt.length ? opt.join('') : '<option value="">Kein Pi bietet einen Index an</option>';
+      if (gew) $('ws-knoten').value = gew;
+    }).catch(function(){ $('ws-knoten').innerHTML = '<option value="">Abfrage fehlgeschlagen</option>'; });
+  }
+  [].forEach.call(document.querySelectorAll('input[name="ws-ort"]'), function(r){ r.onchange = zeigen; });
+  $('ws-laufwerk').onchange = function(){ if (this.value) $('ws-pfad').value = this.value; };
+  function laden(){
+    fetch('/api/v1/admin/websuche', { credentials:'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+      stand = d;
+      var aus = d.aus || [];
+      $('ws-dienste-wahl').innerHTML = (d.dienste || []).map(function(k){
+        return '<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-dienst="' + k + '"' + (aus.indexOf(k) < 0 ? ' checked' : '') + '> ' + esc(NAMEN[k] || k) + '</label>';
+      }).join('');
+      $('ws-searx').value = d.searxng || '';
+      $('ws-searx').placeholder = d.searxng_ki ? 'leer = ' + d.searxng_ki + ' (aus dem KI-Chat)' : 'http://192.168.1.20:8080 (optional)';
+      $('ws-sprache').value = d.sprache || 'de';
+      var o = (d.index && d.index.modus) || 'lokal';
+      var r = document.querySelector('input[name="ws-ort"][value="' + o + '"]'); if (r) r.checked = true;
+      $('ws-pfad').value = (d.index && d.index.pfad) || '';
+      var lw = d.laufwerke || [];
+      $('ws-laufwerk').innerHTML = '<option value="">' + (lw.length ? 'Laufwerk wählen …' : 'Kein Laufwerk unter /mnt oder /media') + '</option>' +
+        lw.map(function(l){ return '<option value="' + esc(l.pfad) + '">' + esc(l.pfad) + ' · ' + gb(l.frei_gb) + ' frei von ' + gb(l.gesamt_gb) + '</option>'; }).join('');
+      if (d.index && d.index.pfad) $('ws-laufwerk').value = d.index.pfad;
+      $('ws-freigeben').checked = !!d.freigeben;
+      var pr = d.platz_regel || {};
+      $('ws-grenze').value = pr.grenze_gb ? pr.grenze_gb : '';
+      $('ws-rest').value = pr.rest_gb ? pr.rest_gb : '';
+      $('ws-verbund').checked = !!d.verbund;
+      var vm = d.verbund_mitglieder || [];
+      $('ws-verbund-liste').innerHTML = d.verbund ? (vm.length > 1
+        ? vm.length + ' Pis im Verbund:<br>' + vm.map(function(m){ return (m.selbst ? '● ' : '○ ') + esc(m.node || m.peer.slice(-8)) + ' – ' + zahl(m.dokumente) + ' Seiten, ' + gb(m.frei_gb) + ' frei' + (m.voll ? ' · voll, bekommt nichts Neues' : ''); }).join('<br>')
+        : 'Noch allein im Verbund – auf den anderen Pis ebenfalls einschalten.') : '';
+      var t = [];
+      if (d.platz && d.platz.ordner) t.push('Ordner ' + esc(d.platz.ordner) + (d.platz.schreibbar ? ' · ' + gb(d.platz.frei_gb) + ' frei' : ''));
+      if (d.index_node) t.push('Index auf ' + esc(d.index_node));
+      if (d.index_info) t.push((d.index_info.dokumente || 0) + ' Seiten im Index' + (d.index_info.hinweis ? ' – ' + esc(d.index_info.hinweis) : ''));
+      var ps = d.platz_stand;
+      if (ps && ps.grenze_gb) t.push('Index ' + gb(ps.groesse_gb) + ' von höchstens ' + gb(ps.grenze_gb) + (ps.auto ? ' (automatisch)' : '') + ' · ' + gb(ps.rest_gb) + ' bleiben frei' + (ps.tot_anteil > 0.05 ? ' · ' + Math.round(ps.tot_anteil * 100) + ' % Gelöschtes, wird ab einem Drittel verdichtet' : ''));
+      if (ps && ps.voll) t.push('⚠ ' + esc(ps.grund) + ' – der Crawler pausiert');
+      if (d.platz && d.platz.warnung) t.push('⚠ ' + esc(d.platz.warnung));
+      if (d.index_fehler) t.push('✗ ' + esc(d.index_fehler));
+      $('ws-ort-stand').innerHTML = t.join('<br>');
+      umzugZeigen(d.umzug);
+      knotenGeladen = false;
+      zeigen();
+      umzugWahl();
+    }).catch(function(){ $('ws-ort-stand').textContent = 'Einstellungen nicht ladbar.'; zeigen(); });
+  }
+  function ortGeaendert(){
+    if (!stand || !stand.index) return false;
+    var o = ort(), a = stand.index;
+    if (o !== a.modus) return true;
+    return o === 'laufwerk' && $('ws-pfad').value.trim().replace(/\/+$/, '') !== (a.pfad || '').replace(/\/+$/, '');
+  }
+  function umzugWahl(){
+    var zeigen = ortGeaendert() && ort() !== 'knoten' && stand && stand.index && stand.index.modus !== 'knoten' && stand.index_info && stand.index_info.dokumente > 0;
+    $('ws-umzug-wahl').style.display = zeigen ? 'flex' : 'none';
+  }
+  [].forEach.call(document.querySelectorAll('input[name="ws-ort"]'), function(r){ r.addEventListener('change', umzugWahl); });
+  $('ws-pfad').addEventListener('input', umzugWahl);
+  $('ws-laufwerk').addEventListener('change', umzugWahl);
+  var umzugTimer = null;
+  function umzugZeigen(u){
+    if (!u || (!u.laeuft && !u.fehler && !u.fertig)) { $('ws-umzug').textContent = ''; return; }
+    if (u.laeuft) {
+      $('ws-umzug').textContent = 'Umzug läuft: ' + Math.round(u.prozent || 0) + ' % – ' + u.von + ' → ' + u.nach;
+      if (!umzugTimer) umzugTimer = setTimeout(function(){ umzugTimer = null; laden(); }, 2000);
+    } else if (u.fehler) {
+      $('ws-umzug').textContent = '✗ Umzug fehlgeschlagen: ' + u.fehler + ' – der Index bleibt am alten Ort.';
+    } else {
+      $('ws-umzug').textContent = '✓ Umzug abgeschlossen.';
+    }
+  }
+  $('ws-speichern').onclick = function(){
+    var aus = [].filter.call(document.querySelectorAll('#ws-dienste-wahl [data-dienst]'), function(c){ return !c.checked; }).map(function(c){ return c.getAttribute('data-dienst'); });
+    var o = ort();
+    if (ortGeaendert() && $('ws-umzug-wahl').style.display === 'none' && stand && stand.index_info && stand.index_info.dokumente > 0 &&
+        !confirm('Der bisherige Index bleibt am alten Ort liegen; am neuen Ort beginnt ein leerer. Fortfahren?')) return;
+    var body = { aus: aus, searxng: $('ws-searx').value.trim(), sprache: $('ws-sprache').value, freigeben: $('ws-freigeben').checked, verbund: $('ws-verbund').checked,
+      platz_regel: { grenze_gb: +$('ws-grenze').value || 0, rest_gb: +$('ws-rest').value || 0 },
+      umziehen: $('ws-umzug-wahl').style.display !== 'none' && $('ws-umziehen').checked,
+      index: { modus: o, pfad: o === 'laufwerk' ? $('ws-pfad').value.trim() : '', knoten: o === 'knoten' ? $('ws-knoten').value : '' } };
+    $('ws-meldung').textContent = 'Speichere und suche zur Probe …';
+    fetch('/api/v1/admin/websuche', { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) { $('ws-meldung').textContent = '✗ ' + d.error; return; }
+        if (d.umzug) { $('ws-meldung').textContent = '✓ Umzug gestartet – die neuen Einstellungen gelten, sobald er fertig ist.'; laden(); return; }
+        if (d.pruefung) { $('ws-meldung').textContent = d.pruefung; laden(); return; }
+        var dn = d.dienste || {};
+        $('ws-meldung').textContent = '✓ Gespeichert · Probesuche: ' + d.treffer + ' Treffer (' + Object.keys(dn).sort().map(function(k){ return (NAMEN[k] || k) + ' ' + (dn[k].indexOf('ok') === 0 ? '✓' : '✗ ' + dn[k]); }).join(', ') + ')';
+        laden();
+      }).catch(function(){ $('ws-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+  laden();
+
+  // ── Crawler (R896) ──
+  var crTimer = null;
+  function zahl(x){ return (x || 0).toLocaleString('de-DE'); }
+  function crLaden(){
+    fetch('/api/v1/admin/websuche/crawler', { credentials:'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+      var e = d.einstellungen || {};
+      if (!crLaden.geladen) {
+        crLaden.geladen = true;
+        $('ws-cr-aktiv').checked = !!d.aktiv;
+        $('ws-cr-start').value = (e.startseiten || []).join('\n');
+        $('ws-cr-mb').value = e.mb_pro_stunde; $('ws-cr-seiten').value = e.seiten_je_host;
+        $('ws-cr-tiefe').value = e.tiefe; $('ws-cr-tage').value = e.neu_nach_tagen;
+        $('ws-cr-nachts').checked = !!e.nur_nachts; $('ws-cr-fremd').checked = !!e.fremde_hosts;
+      }
+      $('ws-cr-hinweis').style.display = d.hinweis ? '' : 'none';
+      $('ws-cr-hinweis').textContent = d.hinweis || '';
+      var st = d.stand;
+      if (!st) { $('ws-cr-stand').textContent = d.aktiv ? 'Crawler startet …' : 'Crawler aus.'; }
+      else {
+        var z = [(st.laeuft ? '● läuft' : '○ angehalten') + (st.pause ? ' – ' + st.pause : ''),
+          zahl(st.aufgenommen) + ' aufgenommen · ' + zahl(st.gelesen) + ' gelesen · ' + zahl(st.uebersprungen) + ' übersprungen · ' + zahl(st.fehler) + ' Fehler',
+          zahl(st.entfernt || 0) + ' nicht mehr erreichbare entfernt · ' + zahl(st.unerreichbar || 0) + ' gerade unerreichbar (3 Versuche über mindestens 5 Tage, dann raus)',
+          zahl(st.warteschlange) + ' in der Warteschlange · ' + zahl(st.hosts) + ' Websites · ' + (st.mb_stunde || 0).toFixed(1).replace('.', ',') + ' MB in der letzten Stunde'];
+        if (st.letzter_fehler) z.push('Letzter Fehler: ' + st.letzter_fehler);
+        var h = z.map(esc).join('<br>');
+        if (st.letzte && st.letzte.length) h += '<div style="margin-top:6px">Zuletzt aufgenommen:</div>' + st.letzte.map(function(u){ return '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(u) + '</div>'; }).join('');
+        $('ws-cr-stand').innerHTML = h;
+      }
+      clearTimeout(crTimer);
+      if (st && st.laeuft && document.getElementById('websuche-card').offsetParent !== null) crTimer = setTimeout(crLaden, 5000);
+      else if (st && st.laeuft) crTimer = setTimeout(crLaden, 15000);
+    }).catch(function(){ $('ws-cr-stand').textContent = 'Stand nicht ladbar.'; });
+  }
+  $('ws-cr-speichern').onclick = function(){
+    var body = { aktiv: $('ws-cr-aktiv').checked,
+      startseiten: $('ws-cr-start').value.split(/\n+/).map(function(x){ return x.trim(); }).filter(Boolean),
+      mb_pro_stunde: +$('ws-cr-mb').value || 0, seiten_je_host: +$('ws-cr-seiten').value || 0,
+      tiefe: +$('ws-cr-tiefe').value || 0, neu_nach_tagen: +$('ws-cr-tage').value || 0,
+      nur_nachts: $('ws-cr-nachts').checked, fremde_hosts: $('ws-cr-fremd').checked };
+    $('ws-cr-meldung').textContent = 'Speichere …';
+    fetch('/api/v1/admin/websuche/crawler', { method:'POST', credentials:'same-origin', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        $('ws-cr-meldung').textContent = d.error ? '✗ ' + d.error : '✓ ' + (d.meldung || 'Gespeichert.');
+        crLaden.geladen = false; crLaden();
+      }).catch(function(){ $('ws-cr-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+  crLaden();
 })();
 </script>
 
@@ -1486,6 +1715,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     ['standort', 'Standort',    /^\s*standort/i],
     ['hotspot',  'Hotspot',     /^\s*wlan-hotspot/i],
     ['ki',       'KI',          /^\s*ki\b/i],
+    ['suche',    'Websuche',    /^\s*websuche/i],
     ['security', 'Sicherheit',  /sicherung|backup|admin|passwort|password/i],
     ['network',  'Netzwerk',    /solana|rpc|nat|port|wlan|wi-?fi|netz|network/i],
     ['storage',  'Speicher',    /speicher|storage|datei|file/i],
