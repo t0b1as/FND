@@ -26,7 +26,7 @@ button.gratis { width:100%; padding:12px; border:0; border-radius:10px; backgrou
 .fehler { color:#e5484d; font-size:14px; margin-top:8px; }
 footer { margin-top:24px; font-size:12.5px; color:var(--leise); }
 /* R904: Verkauf */
-.shop { margin:22px 0 12px; padding:16px; border-radius:14px; background:var(--karte); border:2px solid var(--akzent); }
+.shop { margin:14px 0 12px; padding:16px; border-radius:14px; background:var(--karte); border:2px solid var(--akzent); }
 .shop h2 { font-size:19px; margin:0; }
 .shop .menge { display:flex; align-items:center; gap:10px; margin:0 0 12px; font-size:15px; }
 .shop select { font-size:16px; padding:6px 10px; border-radius:8px; border:1px solid var(--rand); background:var(--bg); color:var(--text); }
@@ -43,10 +43,11 @@ a.mehr { display:inline-block; margin:0 0 12px; color:var(--akzent); font-weight
 a.zurueck { display:inline-block; margin:0 0 12px; color:var(--leise); text-decoration:none; font-size:14px; }
 </style></head><body><main>
 <h1 id="kopf">WLAN</h1>
-<div class="leise" id="einleitung">Wähle eine Geschwindigkeit. Alle Preise in Euro inklusive Umsatzsteuer.</div>
 <div id="status" class="status" style="display:none"></div>
-<div id="stufen"><div class="leise" style="margin-top:16px">Lade Angebot …</div></div>
 <div id="shop"></div>
+<h2 id="wlan-kopf" style="font-size:19px;margin:22px 0 2px">WLAN-Zugang</h2>
+<div class="leise" id="einleitung">Wähle eine Geschwindigkeit. Alle Preise in Euro inklusive Umsatzsteuer.</div>
+<div id="stufen"><div class="leise" style="margin-top:16px">Lade Angebot …</div></div>
 <footer>Betrieben mit Fundus. Die Zahlung läuft über PayPal; dieser Hotspot sieht keine Zahlungsdaten.</footer>
 </main>
 <script>
@@ -78,7 +79,9 @@ a.zurueck { display:inline-block; margin:0 0 12px; color:var(--leise); text-deco
       var pp = d.paypal || {};
       if (produktAnsicht) { // R909: eigene Produktseite
         $('kopf').textContent = d.shop ? d.shop.titel : 'Produkt';
-        $('einleitung').innerHTML = '<a class="zurueck" href="/">‹ Zurück zum WLAN</a>';
+        $('wlan-kopf').style.display = 'none';
+        $('status').insertAdjacentHTML('afterend', '<a class="zurueck" href="/">‹ Zurück zum WLAN</a>');
+        $('einleitung').style.display = 'none';
         $('stufen').innerHTML = d.shop ? '' : '<div class="status">Derzeit nicht im Angebot.</div>';
         shopZeigen(d.shop, true);
         if (d.shop && d.shop.art === 'paypal' && pp.bereit && pp.client_id) paypalLaden(pp.client_id, [], d.shop);

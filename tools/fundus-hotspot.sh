@@ -22,6 +22,7 @@ RUN=/run/fundus-hotspot
 NETZ=10.42.0
 GW=$NETZ.1
 PORTAL=3088
+PORTAL_TLS=3443   # R910: https vor der Freischaltung (eigenes Zertifikat → „Im WLAN anmelden“)
 TABELLE=fundus_hotspot
 IFB=ifb-fhs
 SYSNET="${FUNDUS_SYSNET:-/sys/class/net}"   # vorgebbar für Tests
@@ -167,6 +168,7 @@ table inet $TABELLE {
   set offen { type ipv4_addr; flags timeout; timeout 1h; }
   chain vor { type nat hook prerouting priority dstnat; policy accept;
     iifname "$AP" ip saddr != @frei tcp dport 80 dnat ip to $GW:$PORTAL
+    iifname "$AP" ip saddr != @frei ip daddr != @offen tcp dport 443 dnat ip to $GW:$PORTAL_TLS
   }
   chain nach { type nat hook postrouting priority srcnat; policy accept;
     oifname "$UP" ip saddr $NETZ.0/24 masquerade
@@ -174,10 +176,11 @@ table inet $TABELLE {
   chain rein { type filter hook input priority filter; policy accept;
     iifname "$AP" ct state established,related accept
     iifname "$AP" udp dport { 53, 67 } accept
-    iifname "$AP" tcp dport { 53, $PORTAL } accept
+    iifname "$AP" tcp dport { 53, $PORTAL, $PORTAL_TLS } accept
     # R907: ablehnen statt verwerfen – sonst wartet das Telefon Sekunden auf
     # eine Antwort (z. B. privates DNS über Port 853), bevor es weitermacht.
     iifname "$AP" meta l4proto tcp reject with tcp reset
+    iifname "$AP" meta l4proto udp reject with icmpx type port-unreachable
     iifname "$AP" reject with icmpx type admin-prohibited
   }
   chain weiter { type filter hook forward priority filter; policy accept;
@@ -186,6 +189,10 @@ table inet $TABELLE {
     iifname "$AP" ip saddr @frei oifname "$UP" accept
     iifname "$AP" ip daddr @offen tcp dport 443 oifname "$UP" accept
     iifname "$AP" meta l4proto tcp reject with tcp reset
+    # R910: UDP (QUIC von Chrome) als „Port geschlossen“ – dann nimmt der
+    # Browser sofort TCP. „Verboten“ (admin-prohibited) las Chrome als
+    # fehlendes Netz: ERR_INTERNET_DISCONNECTED.
+    iifname "$AP" meta l4proto udp reject with icmpx type port-unreachable
     iifname "$AP" reject with icmpx type admin-prohibited
     oifname "$AP" drop
   }

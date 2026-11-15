@@ -33,6 +33,14 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R910:** https vor der Freischaltung: Port 443 (außer PayPal) geht an
+      den Pi (3443, eigenes Zertifikat) → Chrome/Firefox erkennen das
+      Anmeldenetz und bieten „Im WLAN anmelden“ statt eines Netzfehlers;
+      UDP (QUIC) als „Port geschlossen“ abgelehnt statt „verboten“
+      (ERR_INTERNET_DISCONNECTED). Anmeldeseite immer unter 10.42.0.1:3088
+      (Links über umgeleitete Namen machte Chrome zu https). Produkt oben,
+      WLAN-Stufen darunter.
+- [ ] Mit Android-Chrome prüfen: Suche aus der Adressleiste → Hinweis „Im WLAN anmelden“?
 - [x] **R909:** ERR_INTERNET_DISCONNECTED: R908 beantwortete jeden Namen mit
       10.42.0.1 – Android stufte das WLAN als „ohne Internet“ ein. Jetzt echte
       Antworten, aber jede DNS-Anfrage nicht freigeschalteter Geräte geht an den

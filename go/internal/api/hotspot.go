@@ -328,6 +328,14 @@ func (s *Server) hotspotPortalStarten() {
 		c.Next()
 	})
 	seite := func(c *gin.Context) {
+		// R910: immer unter der festen Adresse zeigen. Kam die Seite über eine
+		// umgeleitete Adresse (http://irgendwas.de/), führten Links dort hin –
+		// und Chrome macht aus solchen Aufrufen gern https (geht vor der
+		// Freischaltung nicht). IP-Adressen lässt Chrome bei http.
+		if c.Request.Host != hotspotGW+hotspotPortal {
+			c.Redirect(http.StatusFound, "http://"+hotspotGW+hotspotPortal+c.Request.URL.Path)
+			return
+		}
 		// R907: Angebot gleich in die Seite – keine zweite Anfrage, bevor
 		// etwas zu sehen ist (das Anmeldefenster der Telefone ist langsam).
 		seite := hotspotSeite
@@ -623,6 +631,7 @@ func (s *Server) registerHotspot(r *gin.Engine) {
 		}
 	}
 	go s.hotspotPortalStarten()
+	go s.hotspotTLSStarten() // R910
 	go s.hotspotAufraeumen()
 	go func() {
 		for {
