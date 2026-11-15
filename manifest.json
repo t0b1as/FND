@@ -1,8 +1,8 @@
 {
-  "version": "R907",
-  "description": "FUNDUS R907 - Captive Portal",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R907/FND-R907-update.zip",
-  "node_argon2": "c227946c7dd88be03e949471f7134f1a4c7e836987f7b5d0525dc55810959c23",
-  "published_at": "2026-11-15T10:37:27.9360045Z",
-  "signature": "0x7033e32f386f9e8fbe4ad4dd285e14d42dce45e2211f19227e75e8e8da3a44893c5d3faadb607fa85cc6e324fa4a28391589c97753a8b7c7922d42079b008cdb1b"
+  "version": "R908",
+  "description": "FUNDUS R908 - Captive Portal",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R908/FND-R908-update.zip",
+  "node_argon2": "c9a44175e0c3c63084ad966b201c95919a870ea96bdbcd4a3b9e44c1fe67e1e9",
+  "published_at": "2026-11-15T10:57:56.4512758Z",
+  "signature": "0xee34a5f9627f40a8272d4e96235d59c9fcbc03beb09c97f3b9dcc0b1c5f574bb4714fe94bbe7fa80b1c155c2258f8d27fbbe152d3ba95461e36f660547d025ef1b"
 }
