@@ -336,6 +336,9 @@ func (s *Server) Handler() http.Handler {
 
 // Shutdown stoppt den Server gracefully.
 func (s *Server) Shutdown(ctx context.Context) error {
+	// R900: Crawler anhalten und Suchindex sichern, bevor der Prozess endet –
+	// sonst gingen die noch nicht geschriebenen Seiten verloren.
+	websucheAblageSchliessen()
 	return s.srv.Shutdown(ctx)
 }
 
@@ -523,7 +526,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R898"
+const NodeRevision = "R900"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

@@ -28,6 +28,14 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       Links und Klicks gehen an den Zuständigen, Suche an alle Mitglieder,
       Mitglieder fallen erst nach 15 min Funkstille heraus.
 - [ ] **ROT:** Verbund mit echten Pis (fundus, fnd, fundus71/72/73) prüfen.
+- [x] **R899:** Mojeek nur auf Wunsch (weist automatisierte Abfragen ab); sperrende
+      Dienste 30 min Pause; Crawler: Absturzschutz je Seite, Platzprüfung außerhalb
+      der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
+      neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
+- [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R900:** Index/Warteschlange alle 2 min sichern, beim Beenden des Nodes
+      sauber schließen; Bandbreitenkonto übersteht Neustarts; Go-Speichergrenze
+      85 % von MemoryHigh/Max (gegen Ausbremsen durch systemd); Anzeige „im Index“.
 - [x] **R898 — Speicher und tote Seiten** (GRÜN, 27 Tests): Höchstgröße und
       Mindestrest (automatisch: SD höchstens 2 GB, 5 GB frei; Laufwerk bis 1 GB),
       Crawler pausiert, voller Pi nimmt im Verbund nichts Neues an; Zusammenlegen

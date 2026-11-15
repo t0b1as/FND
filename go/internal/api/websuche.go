@@ -28,12 +28,14 @@ import (
 
 	"github.com/fundus/node/internal/websuche"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 const suchindexProtocol = "/fundus/suchindex/1.0.0"
 
 type websucheConfig struct {
 	Aus       []string                      `json:"aus,omitempty"`     // abgeschaltete Dienste
+	Ein       []string                      `json:"ein,omitempty"`     // R899: Dienste, die nur auf Wunsch laufen (Mojeek)
 	SearXNG   string                        `json:"searxng,omitempty"` // leer = die aus dem KI-Chat, falls gesetzt
 	Sprache   string                        `json:"sprache,omitempty"`
 	Index     websuche.Ort                  `json:"index"`
@@ -46,7 +48,19 @@ type websucheConfig struct {
 
 var websucheDienste = []string{"duckduckgo", "mojeek", "wikipedia", "searxng", "index"}
 
+// websucheNurAufWunsch (R899): Mojeek weist automatisierte Abfragen ab –
+// deshalb nur, wenn der Admin es ausdrücklich einschaltet.
+var websucheNurAufWunsch = map[string]bool{"mojeek": true}
+
 func (k websucheConfig) an(dienst string) bool {
+	if websucheNurAufWunsch[dienst] {
+		for _, e := range k.Ein {
+			if e == dienst {
+				return true
+			}
+		}
+		return false
+	}
 	for _, a := range k.Aus {
 		if a == dienst {
 			return false
@@ -341,7 +355,7 @@ func (s *Server) suchindexFern(ctx context.Context, knoten, anfrage, sprache str
 func (s *Server) websucheEinstellungen(c *gin.Context) {
 	k := s.websucheLesen()
 	h := gin.H{
-		"aus": k.Aus, "searxng": k.SearXNG, "searxng_ki": s.kiSucheLesen().SearXNG, "sprache": k.Sprache,
+		"aus": k.Aus, "ein": k.Ein, "nur_auf_wunsch": websucheNurAufWunsch, "searxng": k.SearXNG, "searxng_ki": s.kiSucheLesen().SearXNG, "sprache": k.Sprache,
 		"index": k.Index, "freigeben": k.Freigeben, "dienste": websucheDienste,
 		"laufwerke":          websuche.Laufwerke(),
 		"umzug":              wsUmzugStand(),
@@ -395,6 +409,13 @@ func (s *Server) websucheSpeichern(c *gin.Context) {
 		}
 	}
 	req.Aus = aus
+	var ein []string
+	for _, e := range req.Ein {
+		if websucheNurAufWunsch[e] {
+			ein = append(ein, e)
+		}
+	}
+	req.Ein = ein
 	if req.Index.Modus == "" {
 		req.Index.Modus = websuche.OrtLokal
 	}
@@ -508,6 +529,10 @@ func (s *Server) websucheKnoten(c *gin.Context) {
 func (s *Server) registerWebsuche() {
 	s.router.GET("/api/v1/websuche", s.websucheGet)
 	s.router.POST("/api/v1/websuche/vormerken", s.websucheVormerken) // R896: angeklickter Treffer
+	// R900: Go-Laufzeit räumt rechtzeitig auf, bevor systemd (MemoryHigh) bremst.
+	if g := websuche.SpeicherGrenzeSetzen(); g > 0 {
+		s.log.Info("Speichergrenze der Go-Laufzeit an systemd angepasst", zap.Int64("bytes", g))
+	}
 	if s.node != nil {
 		s.node.RegisterProtocol(suchindexProtocol, s.suchindexBearbeiten)
 	}

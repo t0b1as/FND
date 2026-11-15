@@ -54,6 +54,45 @@ type Ergebnis struct {
 	Cache   bool              `json:"cache,omitempty"`
 }
 
+// Sperre: ein Dienst weist Anfragen ab (HTTP 403/429, Bestätigungsseite).
+// Er wird dann 30 Minuten lang nicht gefragt (R899) – wer weiterfragt,
+// verlängert die Sperre nur und belästigt den Dienst.
+type Sperre struct{ Text string }
+
+func (s Sperre) Error() string { return s.Text }
+
+// Pausendauer: so lange bleibt ein sperrender Dienst außen vor.
+var Pausendauer = 30 * time.Minute
+
+var (
+	pausenMu sync.Mutex
+	pausen   = map[string]struct {
+		bis   time.Time
+		grund string
+	}{}
+)
+
+// pausiert: "" = Dienst fragen, sonst der Hinweis für die Anzeige.
+func pausiert(name string) string {
+	pausenMu.Lock()
+	defer pausenMu.Unlock()
+	p, ok := pausen[name]
+	if !ok || time.Now().After(p.bis) {
+		delete(pausen, name)
+		return ""
+	}
+	return "pausiert bis " + p.bis.Format("15:04") + " – " + p.grund
+}
+
+func pausieren(name, grund string) {
+	pausenMu.Lock()
+	pausen[name] = struct {
+		bis   time.Time
+		grund string
+	}{time.Now().Add(Pausendauer), grund}
+	pausenMu.Unlock()
+}
+
 // ErrLeer: nichts zu suchen.
 var ErrLeer = errors.New("leere Anfrage")
 
@@ -92,7 +131,12 @@ func Metasuche(ctx context.Context, anfrage, sprache string, quellen []Quelle, f
 	}
 	kanal := make(chan antwort, len(quellen))
 	var wg sync.WaitGroup
+	gepaust := map[string]string{}
 	for _, q := range quellen {
+		if p := pausiert(q.Name()); p != "" {
+			gepaust[q.Name()] = p
+			continue
+		}
 		wg.Add(1)
 		go func(q Quelle) {
 			defer wg.Done()
@@ -110,8 +154,17 @@ func Metasuche(ctx context.Context, anfrage, sprache string, quellen []Quelle, f
 	e := &Ergebnis{Anfrage: anfrage, Dienste: map[string]string{}}
 	nachURL := map[string]*Treffer{}
 	var reihe []*Treffer
+	for n, p := range gepaust {
+		e.Dienste[n] = p
+	}
 	for a := range kanal {
 		if a.err != nil {
+			var sp Sperre
+			if errors.As(a.err, &sp) {
+				pausieren(a.name, sp.Text)
+				e.Dienste[a.name] = pausiert(a.name)
+				continue
+			}
 			e.Dienste[a.name] = a.err.Error()
 			continue
 		}

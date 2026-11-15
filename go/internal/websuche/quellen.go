@@ -81,6 +81,9 @@ func (DuckDuckGo) Suchen(ctx context.Context, anfrage, sprache string) ([]Treffe
 	if err != nil {
 		return nil, err
 	}
+	if code == http.StatusForbidden || code == http.StatusTooManyRequests || code == 202 {
+		return nil, Sperre{"begrenzt Anfragen (HTTP " + itoa(code) + ")"}
+	}
 	if code != http.StatusOK {
 		return nil, fmt.Errorf("antwortet mit %d", code)
 	}
@@ -116,7 +119,7 @@ func DDGLesen(s string) ([]Treffer, error) {
 		out = append(out, Treffer{Titel: titel, URL: adr, Text: kuerzen(text, 400)})
 	}
 	if len(out) == 0 && (strings.Contains(s, "anomaly-modal") || strings.Contains(s, "challenge-form")) {
-		return nil, errors.New("verlangt eine Bestätigung (zu viele Anfragen)")
+		return nil, Sperre{"verlangt eine Bestätigung (zu viele Anfragen)"}
 	}
 	return out, nil
 }
@@ -161,7 +164,8 @@ func (Mojeek) Suchen(ctx context.Context, anfrage, sprache string) ([]Treffer, e
 		return nil, err
 	}
 	if code == http.StatusForbidden || code == http.StatusTooManyRequests {
-		return nil, errors.New("begrenzt gerade Anfragen von dieser Adresse")
+		// Mojeek lässt automatisierte Abfragen nicht zu (R899) – nicht drängeln.
+		return nil, Sperre{"lässt automatisierte Abfragen nicht zu (HTTP " + itoa(code) + ")"}
 	}
 	if code != http.StatusOK {
 		return nil, fmt.Errorf("antwortet mit %d", code)

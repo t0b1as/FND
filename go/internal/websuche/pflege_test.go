@@ -199,10 +199,41 @@ func TestPlatzPause(t *testing.T) {
 	c := NeuerCrawler(ix, d, CrawlerEinstellungen{})
 	c.Platz = func() string { return "Speichergrenze erreicht" }
 	c.Vormerken("https://a.de/")
+	c.platzPruefen()
 	c.mu.Lock()
 	g := c.pauseGrundGesperrt()
 	c.mu.Unlock()
 	if g != "Speichergrenze erreicht" {
 		t.Fatal(g)
+	}
+}
+
+func TestCgroupGrenze(t *testing.T) {
+	d := t.TempDir()
+	os.WriteFile(filepath.Join(d, "memory.high"), []byte("402653184\n"), 0o644)
+	os.WriteFile(filepath.Join(d, "memory.max"), []byte("max\n"), 0o644)
+	if g := grenzeAus(d); g != 402653184 {
+		t.Fatal(g)
+	}
+	os.WriteFile(filepath.Join(d, "memory.max"), []byte("300000000\n"), 0o644)
+	if g := grenzeAus(d); g != 300000000 {
+		t.Fatal(g)
+	}
+	if g := grenzeAus(t.TempDir()); g != 0 {
+		t.Fatal(g)
+	}
+}
+
+func TestBandbreiteNeustart(t *testing.T) {
+	d := t.TempDir()
+	ix, _ := IndexOeffnen(d)
+	defer ix.Schliessen()
+	c := NeuerCrawler(ix, d, CrawlerEinstellungen{})
+	c.zaehleBytes(5_000_000)
+	c.bandbreiteSichern()
+	c2 := NeuerCrawler(ix, d, CrawlerEinstellungen{})
+	c2.bandbreiteLaden()
+	if mb := c2.Stand().MBStunde; mb < 4.9 {
+		t.Fatalf("Stundenkonto verloren: %f", mb)
 	}
 }

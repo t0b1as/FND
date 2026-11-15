@@ -61,6 +61,7 @@ func (e CrawlerEinstellungen) Vorgaben() CrawlerEinstellungen {
 
 const (
 	maxSeitenBytes   = 2 << 20
+	maxParseBytes    = 768 << 10
 	maxWarteschlange = 100000
 	hostAbstand      = time.Second
 	robotsGueltig    = 24 * time.Hour
@@ -107,6 +108,7 @@ type CrawlerStand struct {
 	LetzterFehler string   `json:"letzter_fehler,omitempty"`
 	Hosts         int      `json:"hosts"`
 	Entfernt      int      `json:"entfernt"`     // R898: nicht mehr erreichbar
+	ImIndex       int      `json:"im_index"`     // R900: Seiten im Index insgesamt (bleibt über Neustarts)
 	Unerreichbar  int      `json:"unerreichbar"` // R898: gerade mit Fehlversuchen
 }
 
@@ -152,6 +154,7 @@ type Crawler struct {
 		n int
 	}
 	stand  CrawlerStand
+	weck   chan struct{} // R899: neue Arbeit weckt einen ruhenden Arbeiter
 	client *http.Client
 	stopp  context.CancelFunc
 	fertig sync.WaitGroup
@@ -159,7 +162,7 @@ type Crawler struct {
 
 // NeuerCrawler: noch nicht gestartet.
 func NeuerCrawler(ix *Index, ordner string, e CrawlerEinstellungen) *Crawler {
-	c := &Crawler{ix: ix, ordner: ordner, e: e.Vorgaben(), geplant: map[uint64]bool{}, hosts: map[string]*hostZustand{}, Jetzt: time.Now, fehl: map[string]fehlschlag{}}
+	c := &Crawler{ix: ix, ordner: ordner, e: e.Vorgaben(), geplant: map[uint64]bool{}, hosts: map[string]*hostZustand{}, Jetzt: time.Now, fehl: map[string]fehlschlag{}, weck: make(chan struct{}, 1)}
 	c.client = &http.Client{
 		Timeout: 20 * time.Second,
 		Transport: &http.Transport{
@@ -235,6 +238,10 @@ func (c *Crawler) vormerkenGesperrt(a auftrag) bool {
 		return false
 	}
 	c.geplant[h] = true
+	select {
+	case c.weck <- struct{}{}:
+	default:
+	}
 	if a.start {
 		c.schlange = append([]auftrag{a}, c.schlange...) // vorgemerkte zuerst
 	} else {
@@ -271,6 +278,50 @@ func (c *Crawler) Vormerken(roh string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.vormerkenGesperrt(auftrag{url: l, start: true})
+}
+
+// Bandbreite (R900): das Stundenkonto übersteht Neustarts – sonst begänne
+// nach jedem Neustart eine frische Stunde und die Grenze liefe ins Leere.
+func (c *Crawler) bandbreiteDatei() string { return filepath.Join(c.ordner, "bandbreite.json") }
+
+type bandEintrag struct {
+	T int64 `json:"t"`
+	N int   `json:"n"`
+}
+
+func (c *Crawler) bandbreiteSichern() {
+	c.mu.Lock()
+	c.bytesStundeGesperrt() // Altes verwerfen
+	l := make([]bandEintrag, 0, len(c.bytes))
+	for _, b := range c.bytes {
+		l = append(l, bandEintrag{b.t.Unix(), b.n})
+	}
+	c.mu.Unlock()
+	b, _ := json.Marshal(l)
+	tmp := c.bandbreiteDatei() + ".tmp"
+	if os.WriteFile(tmp, b, 0o640) == nil {
+		_ = os.Rename(tmp, c.bandbreiteDatei())
+	}
+}
+
+func (c *Crawler) bandbreiteLaden() {
+	b, err := os.ReadFile(c.bandbreiteDatei())
+	if err != nil {
+		return
+	}
+	var l []bandEintrag
+	if json.Unmarshal(b, &l) != nil {
+		return
+	}
+	c.mu.Lock()
+	for _, e := range l {
+		c.bytes = append(c.bytes, struct {
+			t time.Time
+			n int
+		}{time.Unix(e.T, 0), e.N})
+	}
+	c.bytesStundeGesperrt()
+	c.mu.Unlock()
 }
 
 func (c *Crawler) fehlDatei() string { return filepath.Join(c.ordner, "fehlversuche.json") }
@@ -403,31 +454,39 @@ func (c *Crawler) Starten() {
 	c.mu.Unlock()
 	c.schlangeLaden()
 	c.fehlLaden()
+	c.bandbreiteLaden()
 	for _, s := range c.e.Startseiten {
 		c.Vormerken(s)
 	}
 	c.mu.Lock()
 	c.startGelesen = c.Jetzt()
 	c.mu.Unlock()
-	for i := 0; i < gleichzeitig; i++ {
+	for i := 0; i < arbeiterZahl(); i++ {
 		c.fertig.Add(1)
 		go c.arbeiter(ctx)
 	}
 	c.fertig.Add(1)
 	go func() { // Warteschlange regelmäßig sichern
 		defer c.fertig.Done()
-		t := time.NewTicker(5 * time.Minute)
+		// R900: alle 2 Minuten sichern – nach einem Absturz gehen höchstens
+		// die Seiten der letzten 2 Minuten verloren (sie werden neu gelesen).
+		t := time.NewTicker(2 * time.Minute)
 		defer t.Stop()
+		runde := 0
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
+				runde++
 				_ = c.schlangeSichern()
 				c.fehlSichern()
+				c.bandbreiteSichern()
 				_ = c.ix.Schreiben()
-				_ = c.ix.Pflegen() // R898: verschobenes Zusammenlegen, Verdichten
-				c.neuEinplanen()
+				if runde%3 == 0 {
+					_ = c.ix.Pflegen() // R898: verschobenes Zusammenlegen, Verdichten
+					c.neuEinplanen()
+				}
 			}
 		}
 	}()
@@ -446,6 +505,7 @@ func (c *Crawler) Anhalten() {
 	c.fertig.Wait()
 	_ = c.schlangeSichern()
 	c.fehlSichern()
+	c.bandbreiteSichern()
 	_ = c.ix.Schreiben()
 	c.mu.Lock()
 	c.stand.Laeuft = false
@@ -455,9 +515,11 @@ func (c *Crawler) Anhalten() {
 
 // Stand: Zustand für die Anzeige.
 func (c *Crawler) Stand() CrawlerStand {
+	imIndex, _ := c.ix.Stand() // vor der Sperre des Crawlers (Sperrreihenfolge)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	s := c.stand
+	s.ImIndex = imIndex
 	s.Warteschlange = len(c.schlange)
 	s.Hosts = len(c.hosts)
 	s.Unerreichbar = len(c.fehl)
@@ -521,14 +583,8 @@ func (c *Crawler) pauseGrundGesperrt() string {
 	if c.bytesStundeGesperrt() >= c.e.MBProStunde*1_000_000 {
 		return "Bandbreitengrenze erreicht"
 	}
-	if c.Platz != nil {
-		if c.Jetzt().Sub(c.platzGeprueft) > 30*time.Second {
-			c.platzGeprueft = c.Jetzt()
-			c.platzGrund = c.Platz()
-		}
-		if c.platzGrund != "" {
-			return c.platzGrund
-		}
+	if c.platzGrund != "" { // R899: geprüft in platzPruefen, außerhalb der Sperre
+		return c.platzGrund
 	}
 	if len(c.schlange) == 0 {
 		return "nichts zu tun – Startseiten eintragen oder Treffer anklicken"
@@ -577,9 +633,60 @@ func (c *Crawler) naechsterGesperrt() (auftrag, *hostZustand, bool) {
 	return auftrag{}, nil, false
 }
 
+// arbeiterZahl (R899): auf kleinen Pis (unter 1,5 GB RAM) nur ein Arbeiter.
+func arbeiterZahl() int {
+	if b, err := os.ReadFile("/proc/meminfo"); err == nil {
+		var kb int64
+		for _, z := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(z, "MemTotal:") {
+				fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(z, "MemTotal:")), "%d", &kb)
+			}
+		}
+		if kb > 0 && kb < 1_500_000 {
+			return 1
+		}
+	}
+	return gleichzeitig
+}
+
+// platzPruefen (R899): außerhalb der Sperre des Crawlers – die Prüfung
+// liest Dateigrößen und wartet dabei womöglich auf den Index; die Anzeige
+// des Standes soll davon nicht hängen.
+func (c *Crawler) platzPruefen() {
+	if c.Platz == nil {
+		return
+	}
+	c.mu.Lock()
+	faellig := c.Jetzt().Sub(c.platzGeprueft) > 30*time.Second
+	if faellig {
+		c.platzGeprueft = c.Jetzt()
+	}
+	c.mu.Unlock()
+	if !faellig {
+		return
+	}
+	g := c.Platz()
+	c.mu.Lock()
+	c.platzGrund = g
+	c.mu.Unlock()
+}
+
+// sicherLesen (R899): ein Fehler beim Lesen einer Seite darf den Node nicht
+// mitreißen – er wird gemeldet, der Crawler macht weiter.
+func (c *Crawler) sicherLesen(ctx context.Context, a auftrag, h *hostZustand) (verz time.Duration) {
+	defer func() {
+		if r := recover(); r != nil {
+			c.fehler(fmt.Sprintf("interner Fehler bei %s: %v", kuerzen(a.url, 100), r))
+			verz = hostAbstand
+		}
+	}()
+	return c.lesen(ctx, a, h)
+}
+
 func (c *Crawler) arbeiter(ctx context.Context) {
 	defer c.fertig.Done()
 	for ctx.Err() == nil {
+		c.platzPruefen()
 		c.mu.Lock()
 		grund := c.pauseGrundGesperrt()
 		c.stand.Pause = grund
@@ -598,11 +705,12 @@ func (c *Crawler) arbeiter(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
+			case <-c.weck:
 			case <-time.After(warte):
 			}
 			continue
 		}
-		verz := c.lesen(ctx, a, h)
+		verz := c.sicherLesen(ctx, a, h)
 		c.mu.Lock()
 		h.beschaef = false
 		if verz < hostAbstand {
@@ -763,6 +871,9 @@ func (c *Crawler) lesen(ctx context.Context, a auftrag, h *hostZustand) time.Dur
 		return ueberspringen()
 	}
 	xr := strings.ToLower(strings.Join(resp.Header.Values("X-Robots-Tag"), ","))
+	if len(b) > maxParseBytes { // R899: Speicher schonen – der Text steht fast immer vorn
+		b = b[:maxParseBytes]
+	}
 	s := SeiteLesen(string(b), endURL)
 	noindex := s.NoIndex || strings.Contains(xr, "noindex") || strings.Contains(xr, "none") || s.TDMVorbehalt
 	nofollow := s.NoFollow || strings.Contains(xr, "nofollow") || strings.Contains(xr, "none")

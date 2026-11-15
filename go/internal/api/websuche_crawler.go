@@ -19,6 +19,7 @@ import (
 
 	"github.com/fundus/node/internal/websuche"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 var (
@@ -75,6 +76,7 @@ func (s *Server) websucheCrawlerStarten() {
 		wsCrawler.Entfernt = verbundEntfernt
 	}
 	wsCrawler.Starten()
+	s.log.Info("Crawler gestartet", zap.String("ablage", ab.Ordner), zap.Bool("verbund", k.Verbund))
 }
 
 func wsCrawlerAnhalten() {

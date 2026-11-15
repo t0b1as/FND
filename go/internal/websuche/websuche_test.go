@@ -218,3 +218,25 @@ func TestLaufwerke(t *testing.T) {
 		t.Fatalf("%+v", l)
 	}
 }
+
+type sperrend struct{ n *int }
+
+func (s sperrend) Name() string { return "sperrt" }
+func (s sperrend) Suchen(ctx context.Context, q, sp string) ([]Treffer, error) {
+	*s.n++
+	return nil, Sperre{"lässt automatisierte Abfragen nicht zu (HTTP 403)"}
+}
+
+func TestSperrePausiert(t *testing.T) {
+	CacheLeeren()
+	n := 0
+	q := []Quelle{sperrend{&n}, fest{n: "ok", t: []Treffer{{URL: "https://a.de"}}}}
+	e, _ := Metasuche(context.Background(), "eins", "de", q, time.Second)
+	e2, _ := Metasuche(context.Background(), "zwei", "de", q, time.Second)
+	if n != 1 || !strings.HasPrefix(e.Dienste["sperrt"], "pausiert bis") || !strings.HasPrefix(e2.Dienste["sperrt"], "pausiert bis") {
+		t.Fatalf("%d %v %v", n, e.Dienste, e2.Dienste)
+	}
+	pausenMu.Lock()
+	delete(pausen, "sperrt")
+	pausenMu.Unlock()
+}

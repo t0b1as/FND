@@ -1370,8 +1370,10 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     fetch('/api/v1/admin/websuche', { credentials:'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
       stand = d;
       var aus = d.aus || [];
+      var ein = d.ein || [], wunsch = d.nur_auf_wunsch || {};
       $('ws-dienste-wahl').innerHTML = (d.dienste || []).map(function(k){
-        return '<label style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-dienst="' + k + '"' + (aus.indexOf(k) < 0 ? ' checked' : '') + '> ' + esc(NAMEN[k] || k) + '</label>';
+        var an = wunsch[k] ? ein.indexOf(k) >= 0 : aus.indexOf(k) < 0;
+        return '<label style="display:flex;gap:6px;align-items:center"' + (wunsch[k] ? ' title="Weist automatisierte Abfragen meist ab – nur auf Wunsch"' : '') + '><input type="checkbox" data-dienst="' + k + '"' + (wunsch[k] ? ' data-wunsch="1"' : '') + (an ? ' checked' : '') + '> ' + esc(NAMEN[k] || k) + (wunsch[k] ? ' <span class="set-hint">(nur auf Wunsch)</span>' : '') + '</label>';
       }).join('');
       $('ws-searx').value = d.searxng || '';
       $('ws-searx').placeholder = d.searxng_ki ? 'leer = ' + d.searxng_ki + ' (aus dem KI-Chat)' : 'http://192.168.1.20:8080 (optional)';
@@ -1434,11 +1436,12 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     }
   }
   $('ws-speichern').onclick = function(){
-    var aus = [].filter.call(document.querySelectorAll('#ws-dienste-wahl [data-dienst]'), function(c){ return !c.checked; }).map(function(c){ return c.getAttribute('data-dienst'); });
+    var aus = [].filter.call(document.querySelectorAll('#ws-dienste-wahl [data-dienst]'), function(c){ return !c.checked && !c.hasAttribute('data-wunsch'); }).map(function(c){ return c.getAttribute('data-dienst'); });
+    var ein = [].filter.call(document.querySelectorAll('#ws-dienste-wahl [data-wunsch]'), function(c){ return c.checked; }).map(function(c){ return c.getAttribute('data-dienst'); });
     var o = ort();
     if (ortGeaendert() && $('ws-umzug-wahl').style.display === 'none' && stand && stand.index_info && stand.index_info.dokumente > 0 &&
         !confirm('Der bisherige Index bleibt am alten Ort liegen; am neuen Ort beginnt ein leerer. Fortfahren?')) return;
-    var body = { aus: aus, searxng: $('ws-searx').value.trim(), sprache: $('ws-sprache').value, freigeben: $('ws-freigeben').checked, verbund: $('ws-verbund').checked,
+    var body = { aus: aus, searxng: $('ws-searx').value.trim(), sprache: $('ws-sprache').value, freigeben: $('ws-freigeben').checked, verbund: $('ws-verbund').checked, ein: ein,
       platz_regel: { grenze_gb: +$('ws-grenze').value || 0, rest_gb: +$('ws-rest').value || 0 },
       umziehen: $('ws-umzug-wahl').style.display !== 'none' && $('ws-umziehen').checked,
       index: { modus: o, pfad: o === 'laufwerk' ? $('ws-pfad').value.trim() : '', knoten: o === 'knoten' ? $('ws-knoten').value : '' } };
@@ -1459,7 +1462,10 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
   var crTimer = null;
   function zahl(x){ return (x || 0).toLocaleString('de-DE'); }
   function crLaden(){
-    fetch('/api/v1/admin/websuche/crawler', { credentials:'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
+    fetch('/api/v1/admin/websuche/crawler', { credentials:'same-origin' }).then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status + (r.status >= 502 ? ' – Node antwortet nicht, startet er gerade neu?' : ''));
+      return r.json();
+    }).then(function(d){
       var e = d.einstellungen || {};
       if (!crLaden.geladen) {
         crLaden.geladen = true;
@@ -1475,9 +1481,10 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       if (!st) { $('ws-cr-stand').textContent = d.aktiv ? 'Crawler startet …' : 'Crawler aus.'; }
       else {
         var z = [(st.laeuft ? '● läuft' : '○ angehalten') + (st.pause ? ' – ' + st.pause : ''),
-          zahl(st.aufgenommen) + ' aufgenommen · ' + zahl(st.gelesen) + ' gelesen · ' + zahl(st.uebersprungen) + ' übersprungen · ' + zahl(st.fehler) + ' Fehler',
+          zahl(st.im_index || 0) + ' Seiten im Index (bleiben über Neustarts erhalten)',
+          'Seit dem Start des Crawlers: ' + zahl(st.aufgenommen) + ' aufgenommen · ' + zahl(st.gelesen) + ' gelesen · ' + zahl(st.uebersprungen) + ' übersprungen · ' + zahl(st.fehler) + ' Fehler',
           zahl(st.entfernt || 0) + ' nicht mehr erreichbare entfernt · ' + zahl(st.unerreichbar || 0) + ' gerade unerreichbar (3 Versuche über mindestens 5 Tage, dann raus)',
-          zahl(st.warteschlange) + ' in der Warteschlange · ' + zahl(st.hosts) + ' Websites · ' + (st.mb_stunde || 0).toFixed(1).replace('.', ',') + ' MB in der letzten Stunde'];
+          zahl(st.warteschlange) + ' in der Warteschlange · ' + zahl(st.hosts) + ' Websites · ' + (st.mb_stunde || 0).toFixed(1).replace('.', ',') + ' MB in der letzten Stunde (zählt über Neustarts weiter)'];
         if (st.letzter_fehler) z.push('Letzter Fehler: ' + st.letzter_fehler);
         var h = z.map(esc).join('<br>');
         if (st.letzte && st.letzte.length) h += '<div style="margin-top:6px">Zuletzt aufgenommen:</div>' + st.letzte.map(function(u){ return '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(u) + '</div>'; }).join('');
@@ -1486,7 +1493,10 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       clearTimeout(crTimer);
       if (st && st.laeuft && document.getElementById('websuche-card').offsetParent !== null) crTimer = setTimeout(crLaden, 5000);
       else if (st && st.laeuft) crTimer = setTimeout(crLaden, 15000);
-    }).catch(function(){ $('ws-cr-stand').textContent = 'Stand nicht ladbar.'; });
+    }).catch(function(e){
+      $('ws-cr-stand').textContent = 'Stand gerade nicht ladbar (' + (e && e.message || 'keine Verbindung') + ') – neuer Versuch in 10 s.';
+      clearTimeout(crTimer); crTimer = setTimeout(crLaden, 10000); // R899: nicht aufgeben
+    });
   }
   $('ws-cr-speichern').onclick = function(){
     var body = { aktiv: $('ws-cr-aktiv').checked,

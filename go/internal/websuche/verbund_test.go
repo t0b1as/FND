@@ -208,6 +208,9 @@ func TestVerbundSimuliert(t *testing.T) {
 				}
 			}
 			if n != 2 {
+				for id, p := range pis {
+					t.Logf("%s: %+v", id, p.c.Stand())
+				}
 				t.Fatalf("%s%s liegt auf %d Pis", s.URL, pfad, n)
 			}
 		}
