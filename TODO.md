@@ -33,6 +33,8 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R906:** Node-Übersicht zeigt je Node die Adresse im Heimnetz und den
+      freien Platz des Datenträgers (% und GB, unter 10 % rot).
 - [x] **R905:** Index auf anderem Pi: Status klappte, jede Suche wurde
       abgewiesen, wenn der Index-Pi nur im Verbund war (nicht „anbieten“).
       Jetzt dürfen eigene Pis desselben Kontos immer suchen; Speichern prüft

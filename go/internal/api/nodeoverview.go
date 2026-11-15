@@ -11,9 +11,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"net"
 	"net/http"
 	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -39,6 +42,50 @@ type nodeInfo struct {
 	ChainError     string                 `json:"chain_error,omitempty"`
 	ForkNote       string                 `json:"fork_note,omitempty"`
 	ClockNote      string                 `json:"clock_note,omitempty"`
+	IP             string                 `json:"ip,omitempty"`   // R906: Adresse im Heimnetz
+	Disk           *nodeDisk              `json:"disk,omitempty"` // R906: Datenträger des Datenordners
+}
+
+type nodeDisk struct {
+	FreiGB      float64 `json:"frei_gb"`
+	GesamtGB    float64 `json:"gesamt_gb"`
+	FreiProzent float64 `json:"frei_prozent"`
+}
+
+// lokaleIP (R906): die Adresse, über die der Pi ins Netz geht (Route zum
+// Standard-Gateway; es wird nichts gesendet). Ersatzweise die erste private
+// IPv4 einer Schnittstelle – ohne Hotspot (10.42.0.1) und Docker.
+func lokaleIP() string {
+	if c, err := net.Dial("udp4", "192.0.2.1:9"); err == nil {
+		a, _ := c.LocalAddr().(*net.UDPAddr)
+		c.Close()
+		if a != nil && !a.IP.IsLoopback() && a.IP.String() != hotspotGW {
+			return a.IP.String()
+		}
+	}
+	ifs, _ := net.Interfaces()
+	for _, i := range ifs {
+		if i.Flags&net.FlagUp == 0 || i.Flags&net.FlagLoopback != 0 || len(i.Name) >= 6 && i.Name[:6] == "docker" {
+			continue
+		}
+		adrs, _ := i.Addrs()
+		for _, a := range adrs {
+			if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && n.IP.IsPrivate() && n.IP.String() != hotspotGW {
+				return n.IP.String()
+			}
+		}
+	}
+	return ""
+}
+
+func datentraeger(pfad string) *nodeDisk {
+	var st syscall.Statfs_t
+	if pfad == "" || syscall.Statfs(pfad, &st) != nil || st.Blocks == 0 {
+		return nil
+	}
+	gb := func(b uint64) float64 { return math.Round(float64(b)*float64(st.Bsize)/1e9*10) / 10 }
+	return &nodeDisk{FreiGB: gb(st.Bavail), GesamtGB: gb(st.Blocks),
+		FreiProzent: math.Round(float64(st.Bavail)/float64(st.Blocks)*1000) / 10}
 }
 
 func (s *Server) buildNodeInfo() nodeInfo {
@@ -52,6 +99,10 @@ func (s *Server) buildNodeInfo() nodeInfo {
 	}
 	if h, err := os.Hostname(); err == nil {
 		ni.Name = h
+	}
+	ni.IP = lokaleIP()
+	if s.cfg != nil {
+		ni.Disk = datentraeger(s.cfg.DataDir)
 	}
 	if s.node != nil {
 		ni.PeerID = s.node.ID().String()

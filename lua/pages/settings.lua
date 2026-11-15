@@ -239,27 +239,29 @@ ngx.print([[
       var maxH = Math.max.apply(null, ok.map(function(n){ return n.height||0; }).concat([0]));
       var issues = 0;
       var rows = nodes.map(function(n){
-        if (n.error) return '<tr class="gone"><td>' + esc(String(n.peer_id).slice(-8)) + '</td><td colspan="7">' + esc(n.error) + '</td></tr>';
+        if (n.error) return '<tr class="gone"><td>' + esc(String(n.peer_id).slice(-8)) + '</td><td colspan="8">' + esc(n.error) + '</td></tr>';
         var revBad = n.revision !== major, hWarn = (maxH - (n.height||0)) > 3, skewBad = Math.abs(n.skew_sec||0) > 2;
         var notes = [];
         if (n.chain_error) notes.push('<span style="color:#f66">Chain: ' + esc(n.chain_error) + '</span>');
         if (n.filestore_error) notes.push('<span style="color:#f66">' + esc(n.filestore_error) + '</span>');
         if (n.clock_note) notes.push('<span style="color:#f66">' + esc(n.clock_note) + '</span>');
         if (n.fork_note) notes.push('<span style="color:#7ee2a8">' + esc(n.fork_note) + '</span>');
-        if (revBad || hWarn || skewBad || n.chain_error || n.filestore_error || n.clock_note) issues++;
+        var diskBad = n.disk && n.disk.frei_prozent < 10;
+        if (revBad || hWarn || skewBad || diskBad || n.chain_error || n.filestore_error || n.clock_note) issues++;
         var st = n.storage || {};
         return '<tr>' +
-          '<td><b>' + esc(n.name || '?') + '</b>' + (n.self ? ' <span class="meta">(dieser)</span>' : '') + '<div class="meta" style="font-size:11px">…' + esc(String(n.peer_id).slice(-8)) + '</div></td>' +
+          '<td><b>' + esc(n.name || '?') + '</b>' + (n.self ? ' <span class="meta">(dieser)</span>' : '') + '<div class="meta" style="font-size:11px">' + (n.ip ? esc(n.ip) + ' · ' : '') + '…' + esc(String(n.peer_id).slice(-8)) + '</div></td>' +
           '<td class="' + (revBad ? 'bad' : '') + '">' + esc(n.revision) + '</td>' +
           '<td class="' + (hWarn ? 'warn' : '') + '">' + esc(n.height) + '<div class="meta" style="font-size:11px">' + esc(String(n.head_hash||'').slice(0,8)) + '</div></td>' +
           '<td>' + (n.producer ? '✓' : '–') + '</td>' +
           '<td class="' + (skewBad ? 'bad' : '') + '">' + (n.self ? '±0 s' : ((n.skew_sec > 0 ? '+' : '') + n.skew_sec + ' s')) + '</td>' +
           '<td>' + (n.storage ? gb(st.used_gb) + ' / ' + gb(st.offer_gb) + ' GB' : '<span class="meta">aus</span>') + '</td>' +
+          (n.disk ? '<td class="' + (n.disk.frei_prozent < 10 ? 'bad' : '') + '">' + n.disk.frei_prozent.toLocaleString('de-DE', {maximumFractionDigits:1}) + ' %<div class="meta" style="font-size:11px">' + gb(n.disk.frei_gb) + ' von ' + gb(n.disk.gesamt_gb) + ' GB</div></td>' : '<td><span class="meta">–</span></td>') +
           '<td>' + dur(n.uptime_sec) + '</td>' +
           '<td class="note">' + (notes.join('<br>') || '<span class="meta">–</span>') + '</td></tr>';
       }).join('');
       document.getElementById('no-table').innerHTML =
-        '<tr><th>Node</th><th>Revision</th><th>Höhe</th><th>Blöcke</th><th>Uhr</th><th>Speicher</th><th>Läuft seit</th><th>Hinweise</th></tr>' + rows;
+        '<tr><th>Node</th><th>Revision</th><th>Höhe</th><th>Blöcke</th><th>Uhr</th><th>Speicher</th><th>Frei</th><th>Läuft seit</th><th>Hinweise</th></tr>' + rows;
       var gone = nodes.length - ok.length;
       sum.textContent = (issues ? '⚠ ' : '✓ ') + ok.length + ' Node(s) antworten' + (issues ? ', ' + issues + ' mit Auffälligkeiten' : ', alles in Ordnung') + (gone ? ' · ' + gone + ' ohne Antwort' : '');
       sum.style.color = issues ? '#7ee2a8' : 'var(--green,#00e676)';
