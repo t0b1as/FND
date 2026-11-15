@@ -33,6 +33,15 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R902:** 59 × 91: Tiefschwarz – dunkle Flächen (K ≥ 90 %) mit mindestens
+      40 % Cyan, reines Schwarz als C40 K100; Schrift und Linien bleiben reines K.
+      FLIGHT QUAD 64 bei 59 × 91 wieder wählbar. Fotos mit Beschnitt nur bis zum
+      Sicherheitsabstand (3 mm innerhalb der Schnittkante), Feldgrund läuft weiter.
+- [x] **R901:** Quartett 59 × 91 mm genau nach Vorlage WIRmachenDRUCK
+      („32 Karten + 1 Deckblatt“): nur FLIGHT QUAD 32 (66 Seiten à 65 × 97 mm),
+      QR-Feld unten rechts und Druckerei-Vermerk am rechten Rand der Titelkarte
+      frei, unterste Zeilen mit 3 mm Abstand auch an den 5-mm-Ecken, Dateiname
+      „Spieletitel_Komponente_Sprache.pdf“.
 - [x] **R900:** Index/Warteschlange alle 2 min sichern, beim Beenden des Nodes
       sauber schließen; Bandbreitenkonto übersteht Neustarts; Go-Speichergrenze
       85 % von MemoryHigh/Max (gegen Ausbremsen durch systemd); Anzeige „im Index“.

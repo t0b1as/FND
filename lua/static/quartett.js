@@ -191,6 +191,9 @@
   // Ein Dokument so einrichten, dass JEDE Textausgabe und Breitenmessung durch
   // sicher() läuft – an einer Stelle, damit kein Feld vergessen wird.
   var RAND = 3; // mm Beschnitt für die Druckerei (R889)
+  // R901: 59 × 91 wird mit 5 mm Eckenradius gestanzt – die unterste Zeile
+  // rückt etwas nach innen, damit sie auch an der Rundung 3 mm Abstand hält.
+  function eckAbstand() { return B === 59 && H === 91 ? 4.6 : 4; }
   // ── Druckfarben (R893) ───────────────────────────────────────────────
   // Tabellen aus quartett-farben.js (vom Ghostscript-CMYK-Profil berechnet).
   var DF = null;
@@ -224,6 +227,15 @@
     var c = nachschlagen(DF.cmyk, 4, r, g, b, [0, 0, 0, 0]);
     return c.map(function (v) { return Math.round(v / 255 * 1000) / 1000; });
   }
+  // R901: Tiefschwarz nach Vorgabe von WIRmachenDRUCK (59 × 91): dunkle
+  // Flächen bekommen mindestens 40 % Cyan unter das Schwarz, reines Schwarz
+  // wird C40 M0 Y0 K100. Nur Flächen – Schrift und Linien bleiben reines K,
+  // sonst blitzt bei Passerversatz Cyan an den Kanten.
+  function tiefschwarz(c) {
+    if (!(B === 59 && H === 91) || c[3] < 0.9) return c;
+    if (!c[0] && !c[1] && !c[2]) return [0.4, 0, 0, 1];
+    return [Math.max(c[0], 0.4), c[1], c[2], c[3]];
+  }
   // Bild für den Druck: jeden Bildpunkt durch die Fototabelle (R893).
   function bildDruckfarben(g, w, h) {
     if (!druckTabellen()) return;
@@ -245,6 +257,7 @@
           if (arguments.length === 1 && typeof r === "number") { g = r; b = r; }
           else if (arguments.length < 3 || typeof r !== "number") return orig.apply(this, arguments);
           var c = druckCMYK(r, g, b);
+          if (name === "setFillColor") c = tiefschwarz(c);
           return orig.call(this, c[0], c[1], c[2], c[3]);
         };
       });
@@ -368,9 +381,13 @@
     var credit = k.foto ? nodeText(k.foto.credit) : "";
     if (k._foto) {
       // Immer auf volle Kartenbreite (R887); Überstand oben/unten mittig abgeschnitten.
-      var sc = Math.max(fw / k._foto.w, fh / k._foto.h), bw = k._foto.w * sc, bhh = k._foto.h * sc;
-      doc.saveGraphicsState(); doc.rect(fx, fy, fw, fh, null); doc.clip(); doc.discardPath();
-      doc.addImage(k._foto.daten, k._foto.format, fx + (fw - bw) / 2, fy + (fh - bhh) / 2, bw, bhh, k._foto.alias, "FAST");
+      // R901: Mit Beschnitt bleibt das Foto innerhalb des Sicherheitsabstands
+      // (3 mm innerhalb der Schnittkante) – das Flugzeug wird nie angeschnitten;
+      // nur der helle Feldgrund läuft in den Beschnitt.
+      var px = rand ? x + 3 : fx, pw = rand ? B - 6 : fw;
+      var sc = Math.max(pw / k._foto.w, fh / k._foto.h), bw = k._foto.w * sc, bhh = k._foto.h * sc;
+      doc.saveGraphicsState(); doc.rect(px, fy, pw, fh, null); doc.clip(); doc.discardPath();
+      doc.addImage(k._foto.daten, k._foto.format, px + (pw - bw) / 2, fy + (fh - bhh) / 2, bw, bhh, k._foto.alias, "FAST");
       doc.restoreGraphicsState();
       var hinweis = bearbeitung(k);
       if (hinweis) credit += " · " + hinweis;
@@ -436,10 +453,10 @@
     // Fuß (R889): aufnehmender Knoten mit seinen Fundus-Koordinaten; 3,4 mm vom
     // Rand – innerhalb des Sicherheitsabstands der Druckerei.
     doc.setFont("helvetica", "normal"); doc.setFontSize(3.9); doc.setTextColor(130, 135, 148);
-    doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + 4, y + H - 3.4);
+    doc.text("Hex " + k.hex + (k.icao ? " · " + k.icao : ""), x + eckAbstand(), y + H - 3.4);
     var auf = k.aufnahme || kontext.aufnahme || {};
     var ort = auf.lat != null && (auf.lat !== 0 || auf.lon !== 0) ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") : T("Standort unbekannt");
-    rechts(doc, kuerzen(doc, (auf.node ? auf.node + " · " : "") + ort, B - 26), x + B - 4, y + H - 3.4);
+    rechts(doc, kuerzen(doc, (auf.node ? auf.node + " · " : "") + ort, B - 26), x + B - eckAbstand(), y + H - 3.4);
   }
 
   // ── Rückseite als Vektorzeichnung (R892) ─────────────────────────────
@@ -606,12 +623,15 @@
     doc.text(T("Spielregeln"), x + 4, ry);
     doc.setFont("helvetica", "normal"); doc.setFontSize(4.5); doc.setTextColor(50, 50, 50);
     var regeln = T("regeln");
-    doc.splitTextToSize(sicher(regeln), B - 8).forEach(function (zl, i) { doc.text(zl, x + 4, ry + 2.6 + i * 1.95); });
+    // 59 × 91 (WIRmachenDRUCK, R901): rechts unten setzt die Druckerei einen
+    // QR-Code, am rechten Rand ihren Vermerk – dort bleibt die Titelkarte frei.
+    var frei = B === 59 && H === 91, textBreite = frei ? B - 11 : B - 8, fussBreite = frei ? 47 - 4 - 1.5 : B - 8;
+    doc.splitTextToSize(sicher(regeln), textBreite).forEach(function (zl, i) { doc.text(zl, x + 4, ry + 2.6 + i * 1.95); });
     // Herkunft der Daten
     var auf = kontext.aufnahme || {};
     doc.setFontSize(3.9); doc.setTextColor(120, 120, 120);
-    doc.text(kuerzen(doc, (kontext.flugzeuge ? tausend(kontext.flugzeuge) + T(" Flugzeuge aufgezeichnet · ADS-B-Empfang ") : "ADS-B " ) + (auf.node || kontext.node || ""), B - 8), x + 4, y + H - 5.4);
-    doc.text(kuerzen(doc, auf.lat != null ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") + " · " + T("Typen adsbdb/hexdb · Routen adsb.lol") : T("Typen adsbdb/hexdb · Routen adsb.lol"), B - 8), x + 4, y + H - 3.4);
+    doc.text(kuerzen(doc, (kontext.flugzeuge ? tausend(kontext.flugzeuge) + T(" Flugzeuge aufgezeichnet · ADS-B-Empfang ") : "ADS-B " ) + (auf.node || kontext.node || ""), fussBreite), x + 4, y + H - 5.4);
+    doc.text(kuerzen(doc, auf.lat != null ? koordinate(auf.lat, "N", "S") + " · " + koordinate(auf.lon, "O", "W") + " · " + T("Typen adsbdb/hexdb · Routen adsb.lol") : T("Typen adsbdb/hexdb · Routen adsb.lol"), fussBreite), x + eckAbstand(), y + H - 3.4);
   }
 
   function schnittmarken(doc, x, y, w, h) {

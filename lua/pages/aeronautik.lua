@@ -842,6 +842,8 @@ return function()
           return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; }, { groesse: groesse, sprache: sprache });
         }).then(function(doc){
           var name = 'FlightQuad' + (d.anzahl || anzahl) + '-' + d.code + '-' + groesse + (sprache === 'en' ? '-EN' : '');
+          // R901: WIRmachenDRUCK verlangt „Spieletitel_Komponente_Sprache.pdf“.
+          if (groesse === '59x91' && (format === 'karten' || format === 'druckerei')) name = 'FlightQuad' + (d.anzahl || anzahl) + '-' + d.code + '_Karten_' + (sprache === 'en' ? 'EN' : 'DE');
           if (format === 'druckerei' || format === 'a4_druck') return druckdatei(doc, d, name + (format === 'a4_druck' ? '-A4' : ''), groesse, format);
           doc.save(name + (format === 'a4' ? '-A4' : '') + '.pdf');
           return '';
@@ -890,7 +892,7 @@ return function()
       .then(function(r){ if (!r.ok) throw new Error('Druckdatei konnte nicht geladen werden (' + r.status + ').'); return r.blob(); })
       .then(function(blob){
         var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob); a.download = name + '-Druckerei-PDFX1a.pdf';
+        a.href = URL.createObjectURL(blob); a.download = name + (groesse === '59x91' && format === 'druckerei' ? '.pdf' : '-Druckerei-PDFX1a.pdf');
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(function(){ URL.revokeObjectURL(a.href); }, 60000);
         var m = groesse.split('x').map(Number);
