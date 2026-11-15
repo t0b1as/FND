@@ -15,10 +15,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -39,10 +42,25 @@ type hotspotShop struct {
 	MaxStk   int     `json:"max_stueck"`
 	URL      string  `json:"url"`      // Produktseite (Art "link")
 	Hinweise string  `json:"hinweise"` // Anbieter, Widerruf, Versand – auf der Seite aufklappbar
+	// R909: eigene Produktseite auf der Anmeldeseite (/produkt) – vor der
+	// Freischaltung erreichbar, anders als eine Seite im Internet.
+	Lang   string   `json:"lang"`   // ausführliche Beschreibung
+	Bilder []string `json:"bilder"` // Dateien in <DataDir>/hotspot-produkt
 }
 
+const hotspotShopLangStandard = `FLIGHT QUAD 32 ist ein Flugzeug-Quartett mit echten Rekorden aus dem Luftraum über diesem Hotspot – aufgezeichnet von einem eigenen ADS-B-Empfänger: Flughöhe, Geschwindigkeit, Steig- und Sinkrate und Entfernung, jeweils mit Zeitpunkt.
+
+• 32 Spielkarten und 1 Deckblatt mit den Spielregeln
+• 8 Quartette: höchste und niedrigste Höhe, schnellstes und langsamstes Flugzeug, stärkstes Steigen und Sinken, weiteste und nächste Entfernung
+• Format 59 × 91 mm, beidseitig farbig gedruckt
+• Preis inklusive Versand`
+
+var reProduktBild = regexp.MustCompile(`^[0-9a-f]{16}\.(jpg|png)$`)
+
+func (s *Server) produktOrdner() string { return s.hotspotDatei("hotspot-produkt") }
+
 func hotspotShopStandard() hotspotShop {
-	return hotspotShop{Art: "paypal", Titel: "FLIGHT QUAD 32", Preis: 9.90, MaxStk: 5,
+	return hotspotShop{Art: "paypal", Titel: "FLIGHT QUAD 32", Preis: 9.90, MaxStk: 5, Lang: hotspotShopLangStandard,
 		Text: "Das Flugquartett mit 32 Karten: echte Rekorde aus dem Luftraum über diesem Hotspot. Preis inklusive Versand."}
 }
 
@@ -66,6 +84,14 @@ func hotspotShopPruefen(sh *hotspotShop) error {
 	sh.Text = strings.TrimSpace(sh.Text)
 	sh.URL = strings.TrimSpace(sh.URL)
 	sh.Hinweise = strings.TrimSpace(sh.Hinweise)
+	sh.Lang = strings.TrimSpace(sh.Lang)
+	var bl []string
+	for _, b := range sh.Bilder {
+		if reProduktBild.MatchString(b) && len(bl) < 6 {
+			bl = append(bl, b)
+		}
+	}
+	sh.Bilder = bl
 	if sh.Art != "link" {
 		sh.Art = "paypal"
 	}
@@ -77,8 +103,8 @@ func hotspotShopPruefen(sh *hotspotShop) error {
 	if !sh.Aktiv {
 		return nil
 	}
-	if sh.Titel == "" || len(sh.Titel) > 60 || len(sh.Text) > 600 || len(sh.Hinweise) > 6000 {
-		return fmt.Errorf("Verkauf: Titel 1–60 Zeichen, Beschreibung bis 600, Hinweise bis 6000 Zeichen.")
+	if sh.Titel == "" || len(sh.Titel) > 60 || len(sh.Text) > 600 || len(sh.Hinweise) > 6000 || len(sh.Lang) > 6000 {
+		return fmt.Errorf("Verkauf: Titel 1–60 Zeichen, Kurzbeschreibung bis 600, Produktseite und Hinweise je bis 6000 Zeichen.")
 	}
 	if sh.Art == "paypal" && (sh.Preis < 0.5 || sh.Preis > 1000) {
 		return fmt.Errorf("Verkauf: Preis 0,50 bis 1000 €.")
@@ -118,7 +144,7 @@ func (s *Server) hotspotShopAngebot(paypalBereit bool) gin.H {
 		}
 		sh.Art = "link" // R908: dann wenigstens die Produktseite
 	}
-	h := gin.H{"art": sh.Art, "titel": sh.Titel, "text": sh.Text, "hinweise": sh.Hinweise}
+	h := gin.H{"art": sh.Art, "titel": sh.Titel, "text": sh.Text, "hinweise": sh.Hinweise, "lang": sh.Lang, "bilder": sh.Bilder}
 	if sh.Art == "link" {
 		h["url"] = sh.URL
 		if sh.Preis > 0 {
@@ -344,4 +370,85 @@ func (s *Server) hotspotVersandSetzen(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ── Produktbilder (R909) ─────────────────────────────────────────────────────
+
+// POST /api/v1/admin/hotspot/produktbild (multipart „datei“) – höchstens 6 Bilder.
+func (s *Server) produktBildHochladen(c *gin.Context) {
+	f, kopf, err := c.Request.FormFile("datei")
+	if err != nil || kopf.Size > 8<<20 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Bild fehlt oder ist größer als 8 MB."})
+		return
+	}
+	defer f.Close()
+	daten, err := io.ReadAll(io.LimitReader(f, 8<<20+1))
+	if err != nil || len(daten) > 8<<20 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Bild nicht lesbar."})
+		return
+	}
+	endung := map[string]string{"image/jpeg": "jpg", "image/png": "png"}[http.DetectContentType(daten)]
+	if endung == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Nur JPEG oder PNG."})
+		return
+	}
+	hotspotMu.Lock()
+	defer hotspotMu.Unlock()
+	sh := s.hotspotShopLesen()
+	if len(sh.Bilder) >= 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Höchstens 6 Bilder."})
+		return
+	}
+	z := make([]byte, 8)
+	_, _ = rand.Read(z)
+	name := hex.EncodeToString(z) + "." + endung
+	_ = os.MkdirAll(s.produktOrdner(), 0o755)
+	if err := os.WriteFile(filepath.Join(s.produktOrdner(), name), daten, 0o644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	sh.Bilder = append(sh.Bilder, name)
+	if err := jsonAtomar(s.hotspotDatei("hotspot-shop.json"), sh, 0o644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "bilder": sh.Bilder})
+}
+
+// POST /api/v1/admin/hotspot/produktbild/loeschen {datei}
+func (s *Server) produktBildLoeschen(c *gin.Context) {
+	var req struct {
+		Datei string `json:"datei"`
+	}
+	if c.ShouldBindJSON(&req) != nil || !reProduktBild.MatchString(req.Datei) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
+		return
+	}
+	hotspotMu.Lock()
+	defer hotspotMu.Unlock()
+	sh := s.hotspotShopLesen()
+	var rest []string
+	for _, b := range sh.Bilder {
+		if b != req.Datei {
+			rest = append(rest, b)
+		}
+	}
+	sh.Bilder = rest
+	_ = os.Remove(filepath.Join(s.produktOrdner(), req.Datei))
+	if err := jsonAtomar(s.hotspotDatei("hotspot-shop.json"), sh, 0o644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "bilder": sh.Bilder})
+}
+
+// GET /produkt/bild/:datei – auf der Anmeldeseite und in den Einstellungen.
+func (s *Server) produktBildAusliefern(c *gin.Context) {
+	d := c.Param("datei")
+	if !reProduktBild.MatchString(d) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	c.Header("Cache-Control", "public, max-age=86400")
+	c.File(filepath.Join(s.produktOrdner(), d))
 }

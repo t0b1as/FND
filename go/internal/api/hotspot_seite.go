@@ -34,9 +34,16 @@ a.knopf { display:block; text-align:center; padding:12px; border-radius:10px; ba
 .shop details { margin-top:12px; font-size:13px; color:var(--leise); }
 .shop details div { white-space:pre-wrap; margin-top:6px; }
 .danke { padding:12px 14px; border-radius:10px; border:1px solid #2fbf71; margin-top:8px; }
+/* R909: Produktseite */
+.bilder { display:flex; gap:8px; overflow-x:auto; scroll-snap-type:x mandatory; margin:10px 0 12px; }
+.bilder img { flex:0 0 auto; width:100%; max-height:300px; object-fit:contain; scroll-snap-align:center; border-radius:10px; background:var(--bg); }
+.vorschau { float:right; width:84px; height:84px; object-fit:contain; margin:0 0 6px 10px; border-radius:8px; background:var(--bg); }
+.lang { white-space:pre-wrap; font-size:15px; margin:0 0 14px; }
+a.mehr { display:inline-block; margin:0 0 12px; color:var(--akzent); font-weight:600; text-decoration:none; }
+a.zurueck { display:inline-block; margin:0 0 12px; color:var(--leise); text-decoration:none; font-size:14px; }
 </style></head><body><main>
-<h1>WLAN</h1>
-<div class="leise">Wähle eine Geschwindigkeit. Alle Preise in Euro inklusive Umsatzsteuer.</div>
+<h1 id="kopf">WLAN</h1>
+<div class="leise" id="einleitung">Wähle eine Geschwindigkeit. Alle Preise in Euro inklusive Umsatzsteuer.</div>
 <div id="status" class="status" style="display:none"></div>
 <div id="stufen"><div class="leise" style="margin-top:16px">Lade Angebot …</div></div>
 <div id="shop"></div>
@@ -68,9 +75,17 @@ a.knopf { display:block; text-align:center; padding:12px; border-radius:10px; ba
     var holen = vorab ? Promise.resolve(vorab) : fetch('/api/angebot').then(function(r){ return r.json(); });
     vorab = null;
     holen.then(function(d){
+      var pp = d.paypal || {};
+      if (produktAnsicht) { // R909: eigene Produktseite
+        $('kopf').textContent = d.shop ? d.shop.titel : 'Produkt';
+        $('einleitung').innerHTML = '<a class="zurueck" href="/">‹ Zurück zum WLAN</a>';
+        $('stufen').innerHTML = d.shop ? '' : '<div class="status">Derzeit nicht im Angebot.</div>';
+        shopZeigen(d.shop, true);
+        if (d.shop && d.shop.art === 'paypal' && pp.bereit && pp.client_id) paypalLaden(pp.client_id, [], d.shop);
+        return;
+      }
       statusZeigen(d.zugang);
       shopZeigen(d.shop); // R908: auch, wenn das Gerät (noch) nicht erkannt ist
-      var pp = d.paypal || {};
       if (d.hinweis) {
         $('stufen').innerHTML = '<div class="status">' + esc(d.hinweis) + '</div>';
         if (d.shop && d.shop.art === 'paypal' && pp.bereit && pp.client_id) paypalLaden(pp.client_id, [], d.shop);
@@ -103,11 +118,19 @@ a.knopf { display:block; text-align:center; padding:12px; border-radius:10px; ba
     }).catch(function(){ $('stufen').innerHTML = '<div class="status">Angebot nicht ladbar – bitte Seite neu laden.</div>'; });
   }
   // R904: Verkauf – Produktseite oder PayPal-Sofortkauf (Lieferadresse aus PayPal)
-  function shopZeigen(sh){
+  var produktAnsicht = location.pathname === '/produkt';
+  function shopZeigen(sh, voll){
     if (!sh) { $('shop').innerHTML = ''; return; }
     var preis = sh.preis ? '<span class="preis">' + euro(sh.preis) + '</span>' : '';
-    var h = '<div class="shop"><div class="kopf"><h2>' + esc(sh.titel) + '</h2>' + preis + '</div>' +
-      '<div class="werte">' + esc(sh.text) + '</div>';
+    var bilder = sh.bilder || [], bild = function(b){ return '/produkt/bild/' + encodeURIComponent(b); };
+    var h = '<div class="shop"><div class="kopf"><h2>' + esc(sh.titel) + '</h2>' + preis + '</div>';
+    if (voll) {
+      if (bilder.length) h += '<div class="bilder">' + bilder.map(function(b){ return '<img src="' + bild(b) + '" alt="">'; }).join('') + '</div>';
+      h += '<div class="werte">' + esc(sh.text) + '</div>' + (sh.lang ? '<div class="lang">' + esc(sh.lang) + '</div>' : '');
+    } else {
+      h += '<div class="werte">' + (bilder.length ? '<img class="vorschau" src="' + bild(bilder[0]) + '" alt="">' : '') + esc(sh.text) + '</div>' +
+        (sh.lang || bilder.length ? '<a class="mehr" href="/produkt">Mehr zum Produkt ›</a>' : '') + '<div style="clear:both"></div>';
+    }
     if (sh.art === 'link') {
       h += '<a class="knopf" href="' + esc(sh.url) + '" target="_blank" rel="noopener">Zur Produktseite</a>' +
         '<div class="leise" style="margin-top:6px">Die Produktseite öffnet sich, sobald du online bist.</div>';
@@ -125,7 +148,8 @@ a.knopf { display:block; text-align:center; padding:12px; border-radius:10px; ba
   function shopKnopf(){
     var w = $('shop-stueck');
     window.paypal.Buttons({
-      style: { layout: 'vertical', tagline: false, height: 44 },
+      // R909: wie die Knöpfe der WLAN-Stufen (waagerecht: ohne Lastschrift/Karte darunter)
+      style: { layout: 'horizontal', tagline: false, height: 44 },
       createOrder: function(){
         letzter = ''; fehler('shop', '');
         return post('/api/kauf', { stueck: w ? +w.value : 1 }).then(function(d){ return d.id; })

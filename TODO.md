@@ -33,6 +33,13 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R909:** ERR_INTERNET_DISCONNECTED: R908 beantwortete jeden Namen mit
+      10.42.0.1 – Android stufte das WLAN als „ohne Internet“ ein. Jetzt echte
+      Antworten, aber jede DNS-Anfrage nicht freigeschalteter Geräte geht an den
+      Pi (auch bei eigenem DNS-Server); Prüfadressen von iOS/Android/Windows
+      werden vorgehalten (min-cache-ttl 10 min, alle 15 min aufgefrischt).
+      Kaufknopf wie die WLAN-Knöpfe (waagerecht, ohne Lastschrift). Eigene
+      Produktseite /produkt auf der Anmeldeseite mit Text und bis zu 6 Bildern.
 - [x] **R908:** Nicht freigeschaltete Geräte bekommen einen eigenen
       Namensdienst (Port 5300): jeder Name → 10.42.0.1 (TTL 0), nur PayPal echt –
       jede http-Adresse führt sofort zur Anmeldeseite, ohne fremden DNS.

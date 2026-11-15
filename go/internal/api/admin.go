@@ -46,6 +46,9 @@ func (s *Server) registerAdminRoutes() {
 		g.GET("/hotspot",          s.hotspotEinstellungen) // R865: WLAN-Hotspot
 		g.POST("/hotspot",         s.hotspotSpeichern)
 		g.POST("/hotspot/versand", s.hotspotVersandSetzen) // R904: Verkauf als versendet markieren
+		g.POST("/hotspot/produktbild", s.produktBildHochladen)          // R909
+		g.POST("/hotspot/produktbild/loeschen", s.produktBildLoeschen)  // R909
+		g.GET("/hotspot/produktbild/:datei", s.produktBildAusliefern)   // R909: Vorschau in den Einstellungen
 		g.GET("/llm",              s.llmZustand) // R868: KI (Ollama), auch im Heimnetz
 		g.POST("/llm/test",        s.llmTest)
 		g.POST("/neustart",        s.adminNeustart) // R868: Node neu starten (für Einstellungen, die erst danach wirken)

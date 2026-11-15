@@ -327,7 +327,7 @@ func (s *Server) hotspotPortalStarten() {
 		c.Header("Cache-Control", "no-store")
 		c.Next()
 	})
-	r.GET("/", func(c *gin.Context) {
+	seite := func(c *gin.Context) {
 		// R907: Angebot gleich in die Seite – keine zweite Anfrage, bevor
 		// etwas zu sehen ist (das Anmeldefenster der Telefone ist langsam).
 		seite := hotspotSeite
@@ -335,7 +335,10 @@ func (s *Server) hotspotPortalStarten() {
 			seite = strings.Replace(seite, "/*ANGEBOT*/null", string(b), 1)
 		}
 		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(seite))
-	})
+	}
+	r.GET("/", seite)
+	r.GET("/produkt", seite) // R909: Produktseite (dieselbe Seite, andere Ansicht)
+	r.GET("/produkt/bild/:datei", s.produktBildAusliefern)
 	r.GET("/api/angebot", s.hotspotAngebot)
 	r.POST("/api/gratis", s.hotspotGratis)
 	r.POST("/api/bestellung", s.hotspotBestellung)
@@ -590,6 +593,7 @@ func (s *Server) hotspotSpeichern(c *gin.Context) {
 		return
 	}
 	if req.Shop != nil {
+		req.Shop.Bilder = s.hotspotShopLesen().Bilder // R909: Bilder ändern nur Hochladen/Löschen
 		if err := jsonAtomar(s.hotspotDatei("hotspot-shop.json"), req.Shop, 0o644); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
 			return

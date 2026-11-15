@@ -1581,6 +1581,10 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       <label for="hs-shop-preis">Preis je Stück (€, inkl. USt und Versand)</label><input id="hs-shop-preis" type="number" min="0.5" max="1000" step="0.01">
       <label for="hs-shop-max" class="hs-shop-pp">Höchstens Stück je Kauf</label><input id="hs-shop-max" class="hs-shop-pp" type="number" min="1" max="20" step="1">
       <label for="hs-shop-url" class="hs-shop-link">Produktseite</label><input id="hs-shop-url" class="hs-shop-link" placeholder="https://…">
+      <label for="hs-shop-lang">Produktseite</label><textarea id="hs-shop-lang" rows="6" maxlength="6000" class="set-input" style="width:100%;box-sizing:border-box" placeholder="Ausführliche Beschreibung – erscheint auf der Produktseite der Anmeldeseite (http://10.42.0.1:3088/produkt)"></textarea>
+      <label>Produktbilder</label><div><div id="hs-shop-bilder" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        <label class="btn-sm" style="display:inline-block;margin-top:6px;cursor:pointer">Bild hinzufügen <input type="file" id="hs-shop-bild" accept="image/jpeg,image/png" style="display:none"></label>
+        <span id="hs-shop-bild-meldung" class="set-hint"></span></div>
       <label for="hs-shop-hinweise">Anbieter, Versand, Widerruf</label><textarea id="hs-shop-hinweise" rows="4" maxlength="6000" class="set-input" style="width:100%;box-sizing:border-box" placeholder="Name und Anschrift des Anbieters, Versandbedingungen, Widerrufsbelehrung – erscheint aufklappbar unter dem Produkt"></textarea>
     </div>
     <p class="set-hint" style="margin:6px 0 0">Sofortkauf nutzt die PayPal-Zugangsdaten oben und geht auch ohne WLAN-Zugang. Eine Produktseite öffnet sich erst, wenn der Gast online ist (z. B. über die Gratis-Stufe).</p>
@@ -1622,6 +1626,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       $('hs-shop-titel').value = sh.titel || ''; $('hs-shop-text').value = sh.text || '';
       $('hs-shop-preis').value = sh.preis != null ? sh.preis : ''; $('hs-shop-max').value = sh.max_stueck || 5;
       $('hs-shop-url').value = sh.url || ''; $('hs-shop-hinweise').value = sh.hinweise || '';
+      $('hs-shop-lang').value = sh.lang || ''; bilderZeigen(sh.bilder || []);
       shopArt();
       }
       verkaeufeZeigen(d.verkaeufe || []);
@@ -1641,6 +1646,29 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
           '</td><td>' + (x.quelle === 'paypal' ? 'bezahlt' : x.quelle === 'verbund' ? 'von anderem Knoten' : 'gratis') + '</td></tr>'; }).join('') + '</tbody></table>' : 'Keine.';
     }).catch(function(){ $('hs-status').textContent = 'Einstellungen nicht ladbar.'; });
   }
+  // R909: Produktbilder
+  function bilderZeigen(l){
+    $('hs-shop-bilder').innerHTML = l.length ? l.map(function(b){
+      return '<div style="position:relative"><img src="/api/v1/admin/hotspot/produktbild/' + esc(b) + '" style="width:96px;height:72px;object-fit:contain;border:1px solid var(--border);border-radius:6px;background:rgba(127,127,127,.1)">' +
+        '<button type="button" class="btn-sm" data-bild-weg="' + esc(b) + '" title="Entfernen" style="position:absolute;top:2px;right:2px;padding:0 6px">×</button></div>';
+    }).join('') : '<span class="set-hint">Noch keine – ein Foto der Karten macht den Kauf leichter.</span>';
+    document.querySelectorAll('[data-bild-weg]').forEach(function(k){
+      k.onclick = function(){
+        fetch('/api/v1/admin/hotspot/produktbild/loeschen', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ datei: k.dataset.bildWeg }) })
+          .then(function(r){ return r.json(); }).then(function(d){ if (d.error) throw new Error(d.error); bilderZeigen(d.bilder || []); })
+          .catch(function(e){ $('hs-shop-bild-meldung').textContent = '✗ ' + e.message; });
+      };
+    });
+  }
+  $('hs-shop-bild').onchange = function(){
+    var f = this.files[0]; if (!f) return;
+    var fd = new FormData(); fd.append('datei', f);
+    $('hs-shop-bild-meldung').textContent = 'Lade hoch …';
+    fetch('/api/v1/admin/hotspot/produktbild', { method: 'POST', credentials: 'same-origin', body: fd })
+      .then(function(r){ return r.json(); }).then(function(d){ if (d.error) throw new Error(d.error); $('hs-shop-bild-meldung').textContent = ''; bilderZeigen(d.bilder || []); })
+      .catch(function(e){ $('hs-shop-bild-meldung').textContent = '✗ ' + e.message; });
+    this.value = '';
+  };
   // R904: Verkauf
   function shopArt(){
     var link = $('hs-shop-art').value === 'link';
@@ -1677,7 +1705,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
         verbund: { schluessel: $('hs-verbund').value.trim() },
         paypal: { client_id: $('hs-pp-id').value.trim(), secret: $('hs-pp-secret').value.trim(), modus: $('hs-pp-modus').value },
         shop: { aktiv: $('hs-shop-aktiv').checked, art: $('hs-shop-art').value, titel: $('hs-shop-titel').value.trim(), text: $('hs-shop-text').value.trim(),
-          preis: +$('hs-shop-preis').value, max_stueck: +$('hs-shop-max').value, url: $('hs-shop-url').value.trim(), hinweise: $('hs-shop-hinweise').value.trim() } }) })
+          preis: +$('hs-shop-preis').value, max_stueck: +$('hs-shop-max').value, url: $('hs-shop-url').value.trim(), hinweise: $('hs-shop-hinweise').value.trim(), lang: $('hs-shop-lang').value.trim() } }) })
       .then(function(r){ return r.json(); }).then(function(d){
         if (d.error) { $('hs-meldung').textContent = '✗ ' + d.error; return; }
         $('hs-meldung').textContent = '✓ Gespeichert · ' + d.paypal;
