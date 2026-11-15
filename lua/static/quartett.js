@@ -380,17 +380,13 @@
     doc.setFillColor(232, 241, 250); doc.rect(fx, fy, fw, fh, "F");
     var credit = k.foto ? nodeText(k.foto.credit) : "";
     if (k._foto) {
-      // Immer auf volle Kartenbreite (R887); Überstand oben/unten mittig abgeschnitten.
-      // R901: Mit Beschnitt bleibt das Foto innerhalb des Sicherheitsabstands
-      // (3 mm innerhalb der Schnittkante) – das Flugzeug wird nie angeschnitten;
-      // nur der helle Feldgrund läuft in den Beschnitt.
+      // R903: Das ganze Foto, auf das Feld skaliert (nicht beschnitten), in
+      // voller Auflösung – jsPDF bettet die Bildpunkte unverändert ein.
+      // Mit Beschnitt nur bis zum Sicherheitsabstand (3 mm innerhalb der
+      // Schnittkante, R902); der helle Feldgrund läuft in den Beschnitt.
       var px = rand ? x + 3 : fx, pw = rand ? B - 6 : fw;
-      var sc = Math.max(pw / k._foto.w, fh / k._foto.h), bw = k._foto.w * sc, bhh = k._foto.h * sc;
-      doc.saveGraphicsState(); doc.rect(px, fy, pw, fh, null); doc.clip(); doc.discardPath();
+      var sc = Math.min(pw / k._foto.w, fh / k._foto.h), bw = k._foto.w * sc, bhh = k._foto.h * sc;
       doc.addImage(k._foto.daten, k._foto.format, px + (pw - bw) / 2, fy + (fh - bhh) / 2, bw, bhh, k._foto.alias, "FAST");
-      doc.restoreGraphicsState();
-      var hinweis = bearbeitung(k);
-      if (hinweis) credit += " · " + hinweis;
     } else {
       // Silhouette groß, mittig zwischen Typ oben und Route unten.
       var sw = Math.min(54, B - 9), sh = sw * 17.5 / 54;
@@ -651,7 +647,8 @@
         var cv = document.createElement("canvas"); cv.width = img.naturalWidth; cv.height = img.naturalHeight;
         var g = cv.getContext("2d"); g.fillStyle = grund || "#ffffff"; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(img, 0, 0);
         if (druckfarben) bildDruckfarben(g, cv.width, cv.height);
-        ok({ daten: cv.toDataURL("image/jpeg", 0.92), w: cv.width, h: cv.height });
+        // R903: volle Auflösung, hohe Qualität (das Bild wird nur umgefärbt)
+        ok({ daten: cv.toDataURL("image/jpeg", 0.96), w: cv.width, h: cv.height });
       };
       img.onerror = function () { ok(null); };
       img.src = daten;
@@ -702,14 +699,30 @@
         return deckend(b, "#e8f1fa", true).then(function (d) { bilder[kl] = d ? d.daten : b; });
       });
     });
+    // R903: Fotos in voller Auflösung nacheinander vorbereiten (nicht alle
+    // gleichzeitig – sonst lägen Dutzende große Bilder zugleich im Speicher),
+    // jedes Foto nur einmal, auch wenn mehrere Karten es zeigen.
+    var fotoKette = Promise.resolve(), druckFoto = {}, fotoNr = 0;
+    var fotoUrls = karten.filter(function (k) { return k.foto && k.foto.url; }).map(function (k) { return k.foto.url; })
+      .filter(function (u, i, a) { return a.indexOf(u) === i; });
     karten.forEach(function (k) {
-      if (k.foto && k.foto.url) vorbereiten.push(fotoLaden(k.foto.url).then(function (f) {
-        if (!f || !druck) { k._foto = f; return; }
-        return deckend(f.daten, "#ffffff", true).then(function (d) {
-          k._foto = d ? { daten: d.daten, format: "JPEG", w: d.w, h: d.h, alias: f.alias + "-j" } : f;
-        });
-      }));
+      if (!(k.foto && k.foto.url)) return;
+      var u = k.foto.url;
+      fotoKette = fotoKette.then(function () {
+        if (!(u in druckFoto)) {
+          fotoNr++;
+          if (opt && opt.meldung) opt.meldung(fotoNr, fotoUrls.length);
+          druckFoto[u] = fotoLaden(u).then(function (f) {
+            if (!f || !druck) return f;
+            return deckend(f.daten, "#ffffff", true).then(function (d) {
+              return d ? { daten: d.daten, format: "JPEG", w: d.w, h: d.h, alias: f.alias + "-j" } : f;
+            });
+          });
+        }
+        return druckFoto[u].then(function (f) { k._foto = f; });
+      });
     });
+    vorbereiten.push(fotoKette);
     // Zuerst die Titelkarte, dann die Spielkarten.
     var alle = [{ _titel: true }].concat(karten);
     function vorne(d, x, y, k, rand) {

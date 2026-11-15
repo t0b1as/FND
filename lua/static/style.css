@@ -3333,3 +3333,7 @@ summary:focus-visible,
 .meter-zeile .value { font-size:clamp(0.7rem, 3vw, 1.35rem); font-weight:700; line-height:1.25;
   white-space:nowrap; font-variant-numeric:tabular-nums; }
 @media (max-width:340px) { .meter-zeile { gap:6px; } .meter-zeile .value { font-size:0.62rem; } }
+
+/* R903: Leaflet-Karten in eigenen Stapelkontext – ihre Ebenen (z-index 400…1000)
+   liefen beim Scrollen über die Titelzeile (z-index 300) und das Menü. */
+.leaflet-container { isolation:isolate; z-index:0; }

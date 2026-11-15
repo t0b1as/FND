@@ -41,6 +41,82 @@ type typBild struct {
 	Stand     int64  `json:"stand"`
 	KI        bool   `json:"ki,omitempty"` // R883: von der KI erzeugt, kein Foto
 	Manuell   bool   `json:"manuell,omitempty"` // R891: von Hand gewählt (oder gesperrt) – läuft nicht ab
+	Original  bool   `json:"original,omitempty"` // R903: volle Auflösung (bis 3840 px), nicht die 800-px-Fassung
+}
+
+// R903: Fotos in Originalqualität. Commons liefert bis zu dieser Breite die
+// Originaldatei selbst (ist sie schmaler) oder eine Fassung in Standardgröße.
+// 3840 px auf 53 mm Bildbreite sind weit über den 300 dpi der Druckerei.
+const (
+	typBildBreite = 3840
+	typBildMaxMB  = 20 // passt base64-kodiert in eine P2P-Antwort (32 MB) zum Pi ohne Empfänger
+)
+
+// typBildLaden: Bild von Commons holen (Endung nach Inhaltstyp).
+func typBildLaden(adresse string) ([]byte, string, error) {
+	req, _ := http.NewRequest(http.MethodGet, adresse, nil)
+	req.Header.Set("User-Agent", "Fundus-Aeronautik/1.0 (https://github.com/t0b1as/FND; Flugquartett)")
+	cl := &http.Client{Timeout: 120 * time.Second}
+	resp, err := cl.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	endung := map[string]string{"image/jpeg": "jpg", "image/png": "png"}[strings.Split(resp.Header.Get("Content-Type"), ";")[0]]
+	daten, err := io.ReadAll(io.LimitReader(resp.Body, typBildMaxMB<<20+1))
+	if err != nil {
+		return nil, "", err
+	}
+	if resp.StatusCode != http.StatusOK || endung == "" || len(daten) > typBildMaxMB<<20 {
+		return nil, "", fmt.Errorf("Bild nicht ladbar (Status %d, %d Bytes)", resp.StatusCode, len(daten))
+	}
+	return daten, endung, nil
+}
+
+// typBildAltDateien: alte Fotodateien zu einem Schlüssel (nicht KI, nicht json).
+func (s *Server) typBildAltDateien(schl string) []string {
+	l, _ := filepath.Glob(filepath.Join(s.typBildOrdner(), schl+".*"))
+	var out []string
+	for _, d := range l {
+		if !strings.HasSuffix(d, ".json") && !strings.Contains(filepath.Base(d), "-ki.") {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// typBildAufwerten (R903): ein früher in 800 px geladenes Foto in voller
+// Auflösung nachladen – dieselbe Datei auf Commons, gleiche Lizenz.
+func (s *Server) typBildAufwerten(q string) {
+	t := s.typBildCache(q)
+	if t == nil || t.Datei == "" || t.KI || t.Original {
+		return
+	}
+	i := strings.Index(t.Quelle, "File:")
+	if i < 0 {
+		return
+	}
+	datei, err := url.PathUnescape(t.Quelle[i+5:])
+	if err != nil || datei == "" {
+		return
+	}
+	l, err := typBildInfos([]string{datei}, typBildBreite)
+	if err != nil || len(l) == 0 {
+		return
+	}
+	daten, endung, err := typBildLaden(l[0]["thumb"].(string))
+	if err != nil {
+		return
+	}
+	schl := typBildSchluessel(q)
+	for _, d := range s.typBildAltDateien(schl) {
+		_ = os.Remove(d)
+	}
+	if os.WriteFile(filepath.Join(s.typBildOrdner(), schl+"."+endung), daten, 0o644) != nil {
+		return
+	}
+	t.Datei, t.Original = schl+"."+endung, true
+	_ = jsonAtomar(filepath.Join(s.typBildOrdner(), schl+".json"), t, 0o644)
 }
 
 // Credit: Urheberangabe für die Karte.
@@ -142,6 +218,9 @@ func (s *Server) typBildCache(q string) *typBild {
 // oder für den Hintergrund vormerken.
 func (s *Server) typBildHolen(q string, jetzt bool) *typBild {
 	if t := s.typBildCache(q); t != nil {
+		if t.Datei != "" && !t.KI && !t.Original {
+			s.typBildVormerken(q) // R903: im Hintergrund in voller Auflösung nachladen
+		}
 		return t
 	}
 	if !jetzt {
@@ -173,6 +252,8 @@ func (s *Server) typBildHintergrund() {
 	for q := range typBildWarte {
 		if s.typBildCache(q) == nil {
 			_, _ = s.typBildSuchen(q)
+		} else {
+			s.typBildAufwerten(q)
 		}
 		typBildMu.Lock()
 		delete(typBildInArbeit, q)
@@ -250,7 +331,7 @@ func (s *Server) typBildSuchen(q string) (*typBild, error) {
 		} `json:"query"`
 	}
 	v = url.Values{"action": {"query"}, "format": {"json"}, "formatversion": {"2"}, "titles": {"File:" + datei},
-		"prop": {"imageinfo"}, "iiprop": {"url|extmetadata"}, "iiurlwidth": {"800"}}
+		"prop": {"imageinfo"}, "iiprop": {"url|extmetadata"}, "iiurlwidth": {strconv.Itoa(typBildBreite)}}
 	if err := typBildAbfrage("https://commons.wikimedia.org/w/api.php?"+v.Encode(), &info); err != nil {
 		return nil, err
 	}
@@ -271,18 +352,11 @@ func (s *Server) typBildSuchen(q string) (*typBild, error) {
 		return ablegen()
 	}
 	time.Sleep(time.Second)
-	req, _ := http.NewRequest(http.MethodGet, ii.ThumbURL, nil)
-	req.Header.Set("User-Agent", "Fundus-Aeronautik/1.0 (https://github.com/t0b1as/FND; Flugquartett)")
-	resp, err := typBildClient.Do(req)
+	daten, endung, err := typBildLaden(ii.ThumbURL)
 	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	endung := map[string]string{"image/jpeg": "jpg", "image/png": "png"}[strings.Split(resp.Header.Get("Content-Type"), ";")[0]]
-	daten, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
-	if err != nil || resp.StatusCode != http.StatusOK || endung == "" {
 		return ablegen()
 	}
+	ergebnis.Original = true
 	if err := os.WriteFile(filepath.Join(s.typBildOrdner(), schl+"."+endung), daten, 0o644); err != nil {
 		return nil, err
 	}
@@ -303,12 +377,35 @@ func (s *Server) typBildAusliefern(c *gin.Context) {
 	pfad := filepath.Join(s.typBildOrdner(), d)
 	// Nur ein Pi OHNE eigene Aufzeichnung fragt weiter – sonst könnten sich zwei
 	// Empfänger, denen dasselbe Foto fehlt, gegenseitig im Kreis fragen.
-	if _, err := os.Stat(pfad); err != nil && !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "typbild", Datei: d}, 20*time.Second) {
+	if _, err := os.Stat(pfad); err != nil && !s.flugLokal() && s.flugWeiterleiten(c, flugFernAnfrage{Art: "typbild", Datei: d}, 90*time.Second) {
 		return // R879: Foto liegt beim Pi mit Empfänger – geholt und hier abgelegt
 	}
 	c.Header("Cache-Control", "public, max-age=604800")
+	// R903: Liste auf der Seite lädt eine kleine Fassung (512 px) statt des
+	// Originals; zwischengespeichert neben dem Foto, neu bei neuerem Foto.
+	if c.Query("klein") == "1" {
+		klein := pfad + ".klein"
+		ki, e1 := os.Stat(klein)
+		fi, e2 := os.Stat(pfad)
+		if e2 == nil && (e1 != nil || ki.ModTime().Before(fi.ModTime())) {
+			if roh, err := os.ReadFile(pfad); err == nil {
+				typBildKleinMu.Lock()
+				if b, err := makeThumbnail(roh); err == nil {
+					_ = os.WriteFile(klein, b, 0o644)
+				}
+				typBildKleinMu.Unlock()
+			}
+		}
+		if _, err := os.Stat(klein); err == nil {
+			c.Header("Content-Type", "image/jpeg")
+			c.File(klein)
+			return
+		}
+	}
 	c.File(pfad)
 }
+
+var typBildKleinMu sync.Mutex // ein großes Foto nach dem anderen verkleinern
 
 var (
 	reModellZahl     = regexp.MustCompile(`[0-9]{2,4}`)
@@ -478,26 +575,18 @@ func (s *Server) typBildWaehlen(c *gin.Context) {
 	alteDateien, _ := filepath.Glob(filepath.Join(s.typBildOrdner(), schl+".*"))
 	neu := &typBild{Stand: time.Now().Unix(), Manuell: true}
 	if !req.Keins {
-		l, err := typBildInfos([]string{req.Datei}, 800)
+		l, err := typBildInfos([]string{req.Datei}, typBildBreite)
 		if err != nil || len(l) == 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Bild nicht gefunden oder nicht frei lizenziert."})
 			return
 		}
 		k := l[0]
-		req2, _ := http.NewRequest(http.MethodGet, k["thumb"].(string), nil)
-		req2.Header.Set("User-Agent", "Fundus-Aeronautik/1.0 (https://github.com/t0b1as/FND; Flugquartett)")
-		resp, err := typBildClient.Do(req2)
+		daten, endung, err := typBildLaden(k["thumb"].(string))
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Download fehlgeschlagen: " + err.Error()})
+			c.JSON(http.StatusBadGateway, gin.H{"error": "Bild konnte nicht geladen werden: " + err.Error()})
 			return
 		}
-		defer resp.Body.Close()
-		endung := map[string]string{"image/jpeg": "jpg", "image/png": "png"}[strings.Split(resp.Header.Get("Content-Type"), ";")[0]]
-		daten, err := io.ReadAll(io.LimitReader(resp.Body, 6<<20))
-		if err != nil || resp.StatusCode != http.StatusOK || endung == "" {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Bild konnte nicht geladen werden."})
-			return
-		}
+		neu.Original = true
 		for _, d := range alteDateien {
 			if !strings.HasSuffix(d, ".json") && !strings.Contains(d, "-ki.") {
 				_ = os.Remove(d)

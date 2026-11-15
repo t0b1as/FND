@@ -68,14 +68,14 @@ return function()
 .ae-typ { display:grid; grid-template-columns:96px 96px 1fr auto; gap:10px; align-items:center; padding:8px 10px; border-bottom:1px solid var(--border); font-size:13px; }
 .ae-typ:last-child { border-bottom:0; }
 .ae-typ .bild { width:96px; height:54px; border-radius:6px; background:rgba(127,127,127,.12); display:flex; align-items:center; justify-content:center; overflow:hidden; font-size:11px; color:var(--muted); text-align:center; }
-.ae-typ .bild img { width:100%; height:100%; object-fit:cover; cursor:zoom-in; }
+.ae-typ .bild img { width:100%; height:100%; object-fit:contain; cursor:zoom-in; }
 .ae-typ .tasten { display:flex; flex-direction:column; gap:4px; }
 .ae-typ .klein { font-size:11.5px; color:var(--muted); }
 .ae-kand { grid-column:1 / -1; border-top:1px dashed var(--border); padding-top:8px; }
 .ae-kand .raster { display:grid; grid-template-columns:repeat(auto-fill, minmax(120px, 1fr)); gap:8px; margin-top:8px; }
 .ae-kand figure { margin:0; cursor:pointer; border:2px solid transparent; border-radius:8px; overflow:hidden; background:rgba(127,127,127,.1); }
 .ae-kand figure:hover { border-color:var(--green); }
-.ae-kand img { width:100%; height:80px; object-fit:cover; display:block; }
+.ae-kand img { width:100%; height:80px; object-fit:contain; display:block; }
 .ae-kand figcaption { font-size:10.5px; padding:3px 5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 @media (max-width:640px) { .ae-typ { grid-template-columns:72px 72px 1fr; } .ae-typ .bild { width:72px; height:42px; } .ae-typ .tasten { grid-column:1 / -1; flex-direction:row; } }
 .ae-modus { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:9px 12px; margin:0 0 12px; border-radius:10px;
@@ -839,7 +839,7 @@ return function()
         if (!d.karten || !d.karten.length) throw new Error(d.hinweis || 'Keine Daten für diesen Zeitraum.');
         $('ae-q-meldung').textContent = 'Erzeuge PDF …';
         return skript('/static/jspdf.umd.min.js').then(function(){ return skript('/static/quartett-farben.js'); }).then(function(){ return skript('/static/quartett.js'); }).then(function(){
-          return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; }, { groesse: groesse, sprache: sprache });
+          return FundusQuartett.erzeugen(d, format, function(n, gesamt){ $('ae-q-meldung').textContent = 'Erzeuge Karte ' + n + ' von ' + gesamt + ' …'; }, { groesse: groesse, sprache: sprache, meldung: function(n, m){ $('ae-q-meldung').textContent = 'Bereite Foto ' + n + ' von ' + m + ' in voller Auflösung vor …'; } });
         }).then(function(doc){
           var name = 'FlightQuad' + (d.anzahl || anzahl) + '-' + d.code + '-' + groesse + (sprache === 'en' ? '-EN' : '');
           // R901: WIRmachenDRUCK verlangt „Spieletitel_Komponente_Sprache.pdf“.
@@ -916,7 +916,7 @@ return function()
   }
   function bildZelle(b, art){
     if (!b) return '<div class="bild">' + (art === 'ki' ? 'kein KI-Bild' : 'kein Foto') + '</div>';
-    return '<div class="bild"><img loading="lazy" src="' + esc(b.url) + '" alt="" title="' + esc(art === 'ki' ? 'KI-Bild' + (b.ort ? ' (auf ' + b.ort + ')' : '') + (b.beschreibung ? ': ' + b.beschreibung : '') : (b.credit || 'Foto')) + '" data-gross="' + esc(b.url) + '"></div>';
+    return '<div class="bild"><img loading="lazy" src="' + esc(b.url + (b.url.indexOf('?') < 0 ? '?klein=1' : '')) + '" alt="" title="' + esc(art === 'ki' ? 'KI-Bild' + (b.ort ? ' (auf ' + b.ort + ')' : '') + (b.beschreibung ? ': ' + b.beschreibung : '') : (b.credit || 'Foto')) + '" data-gross="' + esc(b.url) + '"></div>';
   }
   function typenZeichnen(){
     var such = $('ae-q-typen-suche').value.trim().toLowerCase(), filter = $('ae-q-typen-filter').value;

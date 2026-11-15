@@ -176,7 +176,7 @@ func (s *Server) quartettDruckdatei(c *gin.Context) {
 			"-dPDFX", "-dCompatibilityLevel=1.3", "-dUseFastColor=true",
 			"-sDEVICE=pdfwrite", "-sColorConversionStrategy=CMYK", "-sProcessColorModel=DeviceCMYK",
 			"-dNoOutputFonts", "-dPDFXSetBleedBoxToMediaBox=true", "-dAutoRotatePages=/None",
-			"-dDownsampleColorImages=false", "-dAutoFilterColorImages=false", "-dColorImageFilter=/DCTEncode", "-dJPEGQ=92",
+			"-dDownsampleColorImages=false", "-dAutoFilterColorImages=false", "-dColorImageFilter=/DCTEncode", "-dJPEGQ=95",
 			"-sOutputFile=" + aus,
 			// Endformat- und Beschnittrahmen setzt die Seite selbst (TrimBox 3 mm
 			// innen); Ghostscript übernimmt sie unverändert.

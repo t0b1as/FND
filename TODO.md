@@ -33,6 +33,11 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R903:** Karten (Leaflet) liefen beim Scrollen über die Titelzeile –
+      eigener Stapelkontext. Quartett-Fotos ganz aufs Feld skaliert statt
+      beschnitten, in voller Auflösung eingebettet (JPEG 96/95); Commons-Fotos
+      bis 3840 px (Original, wenn kleiner), alte 800-px-Fotos werden im
+      Hintergrund nachgeladen; Typenliste lädt 512-px-Vorschau (?klein=1).
 - [x] **R902:** 59 × 91: Tiefschwarz – dunkle Flächen (K ≥ 90 %) mit mindestens
       40 % Cyan, reines Schwarz als C40 K100; Schrift und Linien bleiben reines K.
       FLIGHT QUAD 64 bei 59 × 91 wieder wählbar. Fotos mit Beschnitt nur bis zum
