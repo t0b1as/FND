@@ -22,6 +22,7 @@ RUN=/run/fundus-hotspot
 NETZ=10.42.0
 GW=$NETZ.1
 PORTAL=3088
+PORTDNS=5300   # R908: Namensauflösung für noch nicht freigeschaltete Geräte
 TABELLE=fundus_hotspot
 IFB=ifb-fhs
 SYSNET="${FUNDUS_SYSNET:-/sys/class/net}"   # vorgebbar für Tests
@@ -170,8 +171,8 @@ table inet $TABELLE {
   }
   chain rein { type filter hook input priority filter; policy accept;
     iifname "$AP" ct state established,related accept
-    iifname "$AP" udp dport { 53, 67 } accept
-    iifname "$AP" tcp dport { 53, $PORTAL } accept
+    iifname "$AP" udp dport { 53, 67, $PORTDNS } accept
+    iifname "$AP" tcp dport { 53, $PORTAL, $PORTDNS } accept
     # R907: ablehnen statt verwerfen – sonst wartet das Telefon Sekunden auf
     # eine Antwort (z. B. privates DNS über Port 853), bevor es weitermacht.
     iifname "$AP" meta l4proto tcp reject with tcp reset
@@ -199,14 +200,47 @@ EOF
   sysctl -qw net.ipv4.ip_forward=1
   dnsmasq --conf-file="$RUN/dnsmasq.conf" --pid-file="$RUN/dnsmasq.pid" \
     || { log "dnsmasq startet nicht"; stoppen; status false "Adressvergabe (dnsmasq) startet nicht" "$AP" "$UP"; return 1; }
+  portal_dns
+
   LAEUFT=1; ZUSTAND=""
   return 0
+}
+
+# R908: Jede Adresse führt zur Anmeldeseite. Geräte, die noch nicht frei-
+# geschaltet sind, fragen einen eigenen Namensdienst: Er beantwortet JEDEN
+# Namen sofort mit der Adresse des Pi (Gültigkeit 0 s, nichts bleibt im
+# Telefon hängen) – nur PayPal wird echt aufgelöst. So landet jede http-Seite
+# ohne Umweg über das Internet auf der Anmeldeseite, und die Prüfung von
+# iOS (captive.apple.com) und Android wartet auf keinen fremden DNS-Server.
+# https-Seiten lassen sich nicht umleiten (Zertifikat) – sie werden sofort
+# abgelehnt, damit das Telefon nicht wartet. Erst wenn dieser Dienst läuft,
+# wird umgeleitet; sonst bleibt es beim normalen DNS.
+portal_dns() {
+  cat > "$RUN/dns-portal.conf" << EOF
+port=$PORTDNS
+interface=$AP
+bind-interfaces
+except-interface=lo
+no-resolv
+no-hosts
+address=/#/$GW
+server=/paypal.com/paypalobjects.com/braintreegateway.com/$GW#53
+EOF
+  if dnsmasq --conf-file="$RUN/dns-portal.conf" --pid-file="$RUN/dns-portal.pid" 2>>"$RUN/dns-portal.log"; then
+    nft add rule inet "$TABELLE" vor iifname "$AP" ip saddr != @frei udp dport 53 dnat ip to "$GW:$PORTDNS" \
+      && nft add rule inet "$TABELLE" vor iifname "$AP" ip saddr != @frei tcp dport 53 dnat ip to "$GW:$PORTDNS" \
+      && log "Namensdienst der Anmeldeseite läuft – jede Adresse führt zur Anmeldeseite" \
+      || log "Umleitung der Namensauflösung nicht ladbar – normale Namensauflösung"
+  else
+    log "Namensdienst der Anmeldeseite startet nicht: $(tail -1 "$RUN/dns-portal.log" 2>/dev/null)"
+  fi
 }
 
 stoppen() {
   [ -f "$RUN/hostapd.pid" ] && kill "$(cat "$RUN/hostapd.pid")" 2>/dev/null
   [ -f "$RUN/dnsmasq.pid" ] && kill "$(cat "$RUN/dnsmasq.pid")" 2>/dev/null
-  rm -f "$RUN/hostapd.pid" "$RUN/dnsmasq.pid"
+  [ -f "$RUN/dns-portal.pid" ] && kill "$(cat "$RUN/dns-portal.pid")" 2>/dev/null
+  rm -f "$RUN/hostapd.pid" "$RUN/dnsmasq.pid" "$RUN/dns-portal.pid"
   nft delete table inet "$TABELLE" 2>/dev/null
   if [ -n "$AP" ]; then
     tc qdisc del dev "$AP" root 2>/dev/null; tc qdisc del dev "$AP" ingress 2>/dev/null

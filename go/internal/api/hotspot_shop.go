@@ -28,7 +28,10 @@ import (
 )
 
 type hotspotShop struct {
-	Aktiv    bool    `json:"aktiv"`
+	// R908: gespeichert wird „aus“ – ohne ausdrückliches Abschalten ist der
+	// Verkauf zu sehen (in R904 war er bis zum Einschalten unsichtbar).
+	Aus      bool    `json:"aus"`
+	Aktiv    bool    `json:"aktiv"` // nur für die Einstellungsseite (= !Aus)
 	Art      string  `json:"art"` // "paypal" (Sofortkauf) | "link" (Produktseite)
 	Titel    string  `json:"titel"`
 	Text     string  `json:"text"`
@@ -48,6 +51,7 @@ func (s *Server) hotspotShopLesen() hotspotShop {
 	if b, err := os.ReadFile(s.hotspotDatei("hotspot-shop.json")); err == nil {
 		_ = json.Unmarshal(b, &sh)
 	}
+	sh.Aktiv = !sh.Aus
 	if sh.Art != "link" {
 		sh.Art = "paypal"
 	}
@@ -69,6 +73,7 @@ func hotspotShopPruefen(sh *hotspotShop) error {
 		sh.MaxStk = 5
 	}
 	sh.Preis = math.Round(sh.Preis*100) / 100
+	sh.Aus = !sh.Aktiv
 	if !sh.Aktiv {
 		return nil
 	}
@@ -87,11 +92,31 @@ func hotspotShopPruefen(sh *hotspotShop) error {
 	return nil
 }
 
+// hotspotShopHinweis: warum der Verkauf auf der Anmeldeseite fehlt (für die Einstellungen).
+func (s *Server) hotspotShopHinweis() string {
+	sh, pp := s.hotspotShopLesen(), s.hotspotPayPalLesen()
+	switch {
+	case !sh.Aktiv:
+		return "ausgeschaltet"
+	case sh.Art == "paypal" && (pp.ClientID == "" || pp.Secret == "") && sh.URL == "":
+		return "Nicht sichtbar: Für den Sofortkauf fehlen oben die PayPal-Zugangsdaten (oder eine Produktseite eintragen)."
+	case sh.Art == "paypal" && (pp.ClientID == "" || pp.Secret == ""):
+		return "PayPal ist nicht eingerichtet – die Anmeldeseite zeigt stattdessen den Link zur Produktseite."
+	}
+	return "Auf der Anmeldeseite sichtbar."
+}
+
 // Angebot für die Anmeldeseite.
 func (s *Server) hotspotShopAngebot(paypalBereit bool) gin.H {
 	sh := s.hotspotShopLesen()
-	if !sh.Aktiv || (sh.Art == "paypal" && !paypalBereit) {
+	if !sh.Aktiv {
 		return nil
+	}
+	if sh.Art == "paypal" && !paypalBereit {
+		if sh.URL == "" {
+			return nil // ohne PayPal und ohne Produktseite gibt es nichts zu kaufen
+		}
+		sh.Art = "link" // R908: dann wenigstens die Produktseite
 	}
 	h := gin.H{"art": sh.Art, "titel": sh.Titel, "text": sh.Text, "hinweise": sh.Hinweise}
 	if sh.Art == "link" {

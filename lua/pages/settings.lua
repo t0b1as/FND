@@ -1573,6 +1573,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
 
     <div class="hs-abschnitt" style="margin-top:20px">Verkauf auf der Anmeldeseite</div>
     <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="hs-shop-aktiv"> Produkt auf der Anmeldeseite anbieten</label>
+    <div id="hs-shop-hinweis" class="set-hint" style="margin:0 0 6px 26px"></div>
     <div class="hs-grid">
       <label for="hs-shop-art">Art</label><select id="hs-shop-art"><option value="paypal">PayPal-Sofortkauf (Lieferadresse von PayPal)</option><option value="link">Link auf eine Produktseite</option></select>
       <label for="hs-shop-titel">Produkt</label><input id="hs-shop-titel" maxlength="60">
@@ -1624,6 +1625,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       shopArt();
       }
       verkaeufeZeigen(d.verkaeufe || []);
+      $('hs-shop-hinweis').textContent = d.shop_hinweis && d.shop_hinweis !== 'ausgeschaltet' ? d.shop_hinweis : '';
       $('hs-status').innerHTML = !st ? 'Der Hotspot-Dienst läuft auf diesem Pi noch nicht – er wird beim nächsten Deploy oder Update eingerichtet.'
         : st.laeuft ? '<b style="color:#3ddc84">● Läuft</b> auf ' + esc(st.ap) + ', online über ' + esc(st.uplink) + ' · ' + esc(st.geraete) + ' Gerät(e) freigeschaltet · Anmeldeseite: http://10.42.0.1:3088' +
           (st.grund && st.grund !== 'läuft' ? '<br>' + esc(st.grund.replace(/^läuft – /, '')) : '')

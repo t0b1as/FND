@@ -512,6 +512,7 @@ func (s *Server) hotspotEinstellungen(c *gin.Context) {
 	}
 	h["zugaenge"] = aktiv
 	h["shop"], h["verkaeufe"] = s.hotspotShopLesen(), s.hotspotVerkaeufe(100) // R904
+	h["shop_hinweis"] = s.hotspotShopHinweis()                                // R908
 	hotspotMu.Lock()
 	if hotspotLetzterFehler != "" {
 		h["letzter_fehler"] = gin.H{"text": hotspotLetzterFehler, "zeit": hotspotLetzterFehlerZeit.Unix()}

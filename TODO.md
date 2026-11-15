@@ -33,6 +33,12 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R908:** Nicht freigeschaltete Geräte bekommen einen eigenen
+      Namensdienst (Port 5300): jeder Name → 10.42.0.1 (TTL 0), nur PayPal echt –
+      jede http-Adresse führt sofort zur Anmeldeseite, ohne fremden DNS.
+      Verkauf ist ohne ausdrückliches Abschalten sichtbar (R904 war bis zum
+      Einschalten unsichtbar), auch bei nicht erkanntem Gerät; ohne PayPal
+      ersatzweise der Link; Einstellungen sagen, warum er fehlt.
 - [x] **R907:** Anmeldeseite schneller: DHCP-Option 114 entfernt (verlangt
       HTTPS, iOS/Android warteten darauf), Anfragen an den Pi und nach
       draußen werden abgelehnt statt verworfen (kein Warten auf Zeitüberschreitung,

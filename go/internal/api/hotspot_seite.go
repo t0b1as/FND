@@ -69,8 +69,13 @@ a.knopf { display:block; text-align:center; padding:12px; border-radius:10px; ba
     vorab = null;
     holen.then(function(d){
       statusZeigen(d.zugang);
-      if (d.hinweis) { $('stufen').innerHTML = '<div class="status">' + esc(d.hinweis) + '</div>'; return; }
+      shopZeigen(d.shop); // R908: auch, wenn das Gerät (noch) nicht erkannt ist
       var pp = d.paypal || {};
+      if (d.hinweis) {
+        $('stufen').innerHTML = '<div class="status">' + esc(d.hinweis) + '</div>';
+        if (d.shop && d.shop.art === 'paypal' && pp.bereit && pp.client_id) paypalLaden(pp.client_id, [], d.shop);
+        return;
+      }
       $('stufen').innerHTML = (d.stufen || []).map(function(s){
         var knopf = s.preis > 0
           ? (pp.bereit ? '<div id="pp-' + esc(s.id) + '"></div>' : '<div class="leise">Bezahlung derzeit nicht verfügbar.</div>')
@@ -86,7 +91,6 @@ a.knopf { display:block; text-align:center; padding:12px; border-radius:10px; ba
             .catch(function(e){ b.disabled = false; b.textContent = 'Kostenlos verbinden'; fehler(b.dataset.stufe, e.message); });
         };
       });
-      shopZeigen(d.shop);
       if (pp.bereit && pp.client_id) {
         paypalLaden(pp.client_id, d.stufen || [], d.shop);
         if ((d.stufen || []).some(function(s){ return s.preis > 0; })) {
