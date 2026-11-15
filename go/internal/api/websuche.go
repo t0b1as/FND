@@ -240,6 +240,32 @@ type suchindexAntwort struct {
 	Freigeben bool               `json:"freigeben,omitempty"` // R897
 	Verbund   bool               `json:"verbund,omitempty"`   // R897
 	Voll      bool               `json:"voll,omitempty"`      // R898: nimmt nichts Neues an
+	Darf      bool               `json:"darf,omitempty"`      // R905: der Fragende darf hier suchen
+}
+
+// suchindexDarf (R905): Wer darf in diesem Index suchen? Bei „anbieten“ jeder,
+// im Verbund die Mitglieder – und immer die eigenen Pis desselben Kontos.
+// Vorher scheiterte ein eigener Pi, der den Index eines Verbund-Pis nutzen
+// sollte: Der Status klappte, jede Suche wurde abgewiesen.
+func (s *Server) suchindexDarf(peer string, k websucheConfig) bool {
+	if k.Freigeben || (k.Verbund && s.verbundIstMitglied(peer)) {
+		return true
+	}
+	return s.eigenerPi(peer)
+}
+
+// eigenerPi: gehört der Peer zum selben Konto wie dieser Pi?
+func (s *Server) eigenerPi(peer string) bool {
+	fid := s.eigentuemerFID()
+	if fid == "" || peer == "" {
+		return false
+	}
+	for _, p := range s.eigeneNodes(fid) {
+		if p == peer {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) suchindexBearbeiten(peerID string, data []byte) []byte {
@@ -257,7 +283,8 @@ func (s *Server) suchindexBearbeiten(peerID string, data []byte) []byte {
 		return antwort(suchindexAntwort{Status: http.StatusBadRequest})
 	}
 	k := s.websucheLesen()
-	if (!k.Freigeben && !k.Verbund) || k.Index.Modus == websuche.OrtKnoten {
+	darf := s.suchindexDarf(peerID, k)
+	if (!k.Freigeben && !k.Verbund && !darf) || k.Index.Modus == websuche.OrtKnoten {
 		return antwort(suchindexAntwort{Status: http.StatusNotFound, Fehler: "dieser Pi bietet keinen Index an"})
 	}
 	ab, err := s.websucheAblage(k)
@@ -266,7 +293,7 @@ func (s *Server) suchindexBearbeiten(peerID string, data []byte) []byte {
 	}
 	if a.Art == "status" {
 		i := ab.Info()
-		return antwort(suchindexAntwort{Status: http.StatusOK, Info: &i, Freigeben: k.Freigeben, Verbund: k.Verbund, Voll: s.websuchePlatz(k, ab).Voll})
+		return antwort(suchindexAntwort{Status: http.StatusOK, Info: &i, Freigeben: k.Freigeben, Verbund: k.Verbund, Voll: s.websuchePlatz(k, ab).Voll, Darf: darf})
 	}
 	if a.Art == "kopie" { // R897: nur unter Verbund-Mitgliedern
 		if !k.Verbund || !s.verbundIstMitglied(peerID) {
@@ -289,8 +316,8 @@ func (s *Server) suchindexBearbeiten(peerID string, data []byte) []byte {
 		return antwort(suchindexAntwort{Status: http.StatusOK})
 	}
 	if a.Art == "suche" && a.Weit {
-		if !k.Freigeben {
-			return antwort(suchindexAntwort{Status: http.StatusForbidden, Fehler: "dieser Pi bietet keinen Index an"})
+		if !darf {
+			return antwort(suchindexAntwort{Status: http.StatusForbidden, Fehler: "dieser Pi bietet seinen Index nicht an – dort „Index anderen Pis anbieten“ einschalten"})
 		}
 		ctx, abbr := context.WithTimeout(context.Background(), 7*time.Second)
 		defer abbr()
@@ -300,7 +327,7 @@ func (s *Server) suchindexBearbeiten(peerID string, data []byte) []byte {
 		}
 		return antwort(suchindexAntwort{Status: http.StatusOK, Treffer: t})
 	}
-	if a.Art == "suche" && !k.Freigeben && !s.verbundIstMitglied(peerID) {
+	if a.Art == "suche" && !darf && !s.verbundIstMitglied(peerID) {
 		return antwort(suchindexAntwort{Status: http.StatusForbidden, Fehler: "dieser Pi bietet keinen Index an"})
 	}
 	if a.Art == "vormerken" {
@@ -441,10 +468,14 @@ func (s *Server) websucheSpeichern(c *gin.Context) {
 			return
 		}
 		ctx, abbr := context.WithTimeout(c.Request.Context(), 6*time.Second)
-		_, err := s.suchindexFrage(ctx, req.Index.Knoten, suchindexAnfrage{Art: "status"})
+		ant, err := s.suchindexFrage(ctx, req.Index.Knoten, suchindexAnfrage{Art: "status"})
 		abbr()
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Dieser Pi bietet keinen Index an: " + err.Error()})
+			return
+		}
+		if !ant.Darf && !ant.Freigeben { // R905: Status ja, Suche nein – gleich hier sagen
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Dieser Pi lässt die Suche in seinem Index nicht zu – dort „Index anderen Pis anbieten“ einschalten (oder beide Pis mit demselben Konto anmelden)."})
 			return
 		}
 	default:
@@ -504,22 +535,42 @@ func (s *Server) websucheKnoten(c *gin.Context) {
 	}
 	liste := []eintrag{}
 	if s.node != nil {
-		ctx, abbr := context.WithTimeout(c.Request.Context(), 4*time.Second)
+		ctx, abbr := context.WithTimeout(c.Request.Context(), 8*time.Second)
 		defer abbr()
 		var mu sync.Mutex
 		var wg sync.WaitGroup
+		// R905: verbundene Peers, die eigenen Pis des Kontos und die Verbund-
+		// Mitglieder – nicht jeder eigene Pi ist gerade direkt verbunden.
+		kandidaten, gesehen := []string{}, map[string]bool{s.nodeID(): true}
+		dazu := func(p string) {
+			if p != "" && !gesehen[p] {
+				gesehen[p] = true
+				kandidaten = append(kandidaten, p)
+			}
+		}
 		for _, p := range s.node.Peers() {
+			dazu(p.String())
+		}
+		if fid := s.eigentuemerFID(); fid != "" {
+			for _, p := range s.eigeneNodes(fid) {
+				dazu(p)
+			}
+		}
+		for _, p := range verbundMitglieder() {
+			dazu(p)
+		}
+		for _, p := range kandidaten {
 			wg.Add(1)
 			go func(pid string) {
 				defer wg.Done()
 				ant, err := s.suchindexFrage(ctx, pid, suchindexAnfrage{Art: "status"})
-				if err != nil || ant.Info == nil || !ant.Freigeben {
+				if err != nil || ant.Info == nil || (!ant.Freigeben && !ant.Darf) {
 					return
 				}
 				mu.Lock()
 				liste = append(liste, eintrag{pid, ant.Node, ant.Info})
 				mu.Unlock()
-			}(p.String())
+			}(p)
 		}
 		wg.Wait()
 	}

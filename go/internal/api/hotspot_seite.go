@@ -25,11 +25,21 @@ h1 { font-size:24px; margin:0 0 4px; }
 button.gratis { width:100%; padding:12px; border:0; border-radius:10px; background:var(--akzent); color:#fff; font-size:16px; font-weight:600; cursor:pointer; }
 .fehler { color:#e5484d; font-size:14px; margin-top:8px; }
 footer { margin-top:24px; font-size:12.5px; color:var(--leise); }
+/* R904: Verkauf */
+.shop { margin:22px 0 12px; padding:16px; border-radius:14px; background:var(--karte); border:2px solid var(--akzent); }
+.shop h2 { font-size:19px; margin:0; }
+.shop .menge { display:flex; align-items:center; gap:10px; margin:0 0 12px; font-size:15px; }
+.shop select { font-size:16px; padding:6px 10px; border-radius:8px; border:1px solid var(--rand); background:var(--bg); color:var(--text); }
+a.knopf { display:block; text-align:center; padding:12px; border-radius:10px; background:var(--akzent); color:#fff; font-weight:600; text-decoration:none; }
+.shop details { margin-top:12px; font-size:13px; color:var(--leise); }
+.shop details div { white-space:pre-wrap; margin-top:6px; }
+.danke { padding:12px 14px; border-radius:10px; border:1px solid #2fbf71; margin-top:8px; }
 </style></head><body><main>
 <h1>WLAN</h1>
 <div class="leise">Wähle eine Geschwindigkeit. Alle Preise in Euro inklusive Umsatzsteuer.</div>
 <div id="status" class="status" style="display:none"></div>
 <div id="stufen"><div class="leise" style="margin-top:16px">Lade Angebot …</div></div>
+<div id="shop"></div>
 <footer>Betrieben mit Fundus. Die Zahlung läuft über PayPal; dieser Hotspot sieht keine Zahlungsdaten.</footer>
 </main>
 <script>
@@ -73,8 +83,9 @@ footer { margin-top:24px; font-size:12.5px; color:var(--leise); }
             .catch(function(e){ b.disabled = false; b.textContent = 'Kostenlos verbinden'; fehler(b.dataset.stufe, e.message); });
         };
       });
+      shopZeigen(d.shop);
       if (pp.bereit && pp.client_id) {
-        paypalLaden(pp.client_id, d.stufen || []);
+        paypalLaden(pp.client_id, d.stufen || [], d.shop);
         if ((d.stufen || []).some(function(s){ return s.preis > 0; })) {
           var h = document.createElement('div'); h.className = 'leise'; h.style.marginTop = '10px';
           h.innerHTML = 'Öffnet sich das PayPal-Fenster nicht? Manche Telefone zeigen diese Seite in einem eingeschränkten Fenster. ' +
@@ -84,11 +95,60 @@ footer { margin-top:24px; font-size:12.5px; color:var(--leise); }
       }
     }).catch(function(){ $('stufen').innerHTML = '<div class="status">Angebot nicht ladbar – bitte Seite neu laden.</div>'; });
   }
+  // R904: Verkauf – Produktseite oder PayPal-Sofortkauf (Lieferadresse aus PayPal)
+  function shopZeigen(sh){
+    if (!sh) { $('shop').innerHTML = ''; return; }
+    var preis = sh.preis ? '<span class="preis">' + euro(sh.preis) + '</span>' : '';
+    var h = '<div class="shop"><div class="kopf"><h2>' + esc(sh.titel) + '</h2>' + preis + '</div>' +
+      '<div class="werte">' + esc(sh.text) + '</div>';
+    if (sh.art === 'link') {
+      h += '<a class="knopf" href="' + esc(sh.url) + '" target="_blank" rel="noopener">Zur Produktseite</a>' +
+        '<div class="leise" style="margin-top:6px">Die Produktseite öffnet sich, sobald du online bist.</div>';
+    } else {
+      var opt = ''; for (var i = 1; i <= (sh.max_stueck || 1); i++) opt += '<option value="' + i + '">' + i + '</option>';
+      h += (sh.max_stueck > 1 ? '<div class="menge">Anzahl <select id="shop-stueck">' + opt + '</select><span id="shop-summe" class="leise"></span></div>' : '') +
+        '<div id="pp-shop"></div><div class="leise" style="margin-top:6px">Zahlung und Lieferadresse über PayPal – der Anbieter erhält Name und Lieferadresse für den Versand. Du brauchst dafür keinen WLAN-Zugang.</div>' +
+        '<div class="fehler" id="f-shop"></div><div id="shop-danke"></div>';
+    }
+    if (sh.hinweise) h += '<details><summary>Anbieter, Versand und Widerruf</summary><div>' + esc(sh.hinweise) + '</div></details>';
+    $('shop').innerHTML = h + '</div>';
+    var w = $('shop-stueck');
+    if (w) w.onchange = function(){ $('shop-summe').textContent = '= ' + euro(sh.preis * +w.value); };
+  }
+  function shopKnopf(){
+    var w = $('shop-stueck');
+    window.paypal.Buttons({
+      style: { layout: 'vertical', tagline: false, height: 44 },
+      createOrder: function(){
+        letzter = ''; fehler('shop', '');
+        return post('/api/kauf', { stueck: w ? +w.value : 1 }).then(function(d){ return d.id; })
+          .catch(function(e){ letzter = e.message; throw e; });
+      },
+      onApprove: function(data){
+        fehler('shop', 'Zahlung wird bestätigt …');
+        return post('/api/kauf/abschluss', { id: data.orderID }).then(function(x){
+          fehler('shop', '');
+          $('pp-shop').style.display = 'none'; if (w) w.disabled = true;
+          $('shop-danke').innerHTML = '<div class="danke"><b>Danke für deine Bestellung!</b><br>' + x.stueck + ' Stück · ' + euro(x.betrag) +
+            (x.name ? '<br>Versand an ' + esc(x.name) + (x.ort ? ', ' + esc(x.ort) : '') : '') +
+            '<div class="leise">Beleg: ' + esc(x.beleg) + ' – die Bestätigung kommt auch per E-Mail von PayPal.</div></div>';
+        }).catch(function(e){ fehler('shop', e.message); });
+      },
+      onCancel: function(){ letzter = ''; fehler('shop', 'Kauf abgebrochen – es wurde nichts abgebucht.'); },
+      onError: function(err){
+        var grund = letzter || String((err && (err.message || err)) || 'unbekannt').slice(0, 200);
+        letzter = '';
+        fehler('shop', 'Der Kauf hat nicht geklappt: ' + grund + ' Es wurde nichts abgebucht.');
+        post('/api/fehler', { stufe: 'shop', text: grund }).catch(function(){});
+      }
+    }).render('#pp-shop');
+  }
   var letzter = '';
-  function paypalLaden(clientId, stufen){
+  function paypalLaden(clientId, stufen, shop){
     var sk = document.createElement('script');
     sk.src = 'https://www.paypal.com/sdk/js?client-id=' + encodeURIComponent(clientId) + '&currency=EUR&intent=capture&components=buttons&locale=de_DE';
     sk.onload = function(){
+      if (shop && shop.art === 'paypal' && $('pp-shop')) shopKnopf();
       stufen.filter(function(s){ return s.preis > 0; }).forEach(function(s){
         window.paypal.Buttons({
           style: { layout: 'horizontal', tagline: false, height: 44 },
@@ -114,7 +174,10 @@ footer { margin-top:24px; font-size:12.5px; color:var(--leise); }
         }).render('#pp-' + s.id);
       });
     };
-    var weg = function(){ stufen.forEach(function(s){ if (s.preis > 0) fehler(s.id, 'PayPal nicht erreichbar – bitte später erneut versuchen.'); }); };
+    var weg = function(){
+      stufen.forEach(function(s){ if (s.preis > 0) fehler(s.id, 'PayPal nicht erreichbar – bitte später erneut versuchen.'); });
+      if ($('pp-shop')) fehler('shop', 'PayPal nicht erreichbar – bitte später erneut versuchen.');
+    };
     sk.onerror = weg;
     // Antwortet PayPal gar nicht (statt abzulehnen), käme nie ein Fehler – deshalb eine Frist.
     setTimeout(function(){ if (!window.paypal) weg(); }, 15000);

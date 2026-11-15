@@ -201,6 +201,11 @@ func (s *Server) hotspotAufraeumen() {
 				delete(hotspotOffen, id)
 			}
 		}
+		for id, o := range shopOffen {
+			if time.Since(o.Angelegt) > 30*time.Minute {
+				delete(shopOffen, id)
+			}
+		}
 		hotspotMu.Unlock()
 	}
 }
@@ -328,6 +333,8 @@ func (s *Server) hotspotPortalStarten() {
 	r.POST("/api/bestellung", s.hotspotBestellung)
 	r.POST("/api/abschluss", s.hotspotAbschluss)
 	r.POST("/api/fehler", s.hotspotBrowserFehler) // R875: Fehler des PayPal-Skripts im Telefon
+	r.POST("/api/kauf", s.hotspotKauf)                  // R904: Verkauf (PayPal-Sofortkauf)
+	r.POST("/api/kauf/abschluss", s.hotspotKaufAbschluss)
 	// Erkennungsanfragen der Telefone (generate_204, hotspot-detect …) und
 	// jede andere Adresse: zur Anmeldeseite.
 	r.NoRoute(func(c *gin.Context) { c.Redirect(http.StatusFound, "http://"+hotspotGW+hotspotPortal+"/") })
@@ -344,6 +351,9 @@ func (s *Server) hotspotAngebot(c *gin.Context) {
 	ip, mac, _ := s.hotspotGeraet(c)
 	cfg, pp := s.hotspotConfigLesen(), s.hotspotPayPalLesen()
 	h := gin.H{"stufen": cfg.Stufen, "paypal": gin.H{"client_id": pp.ClientID, "bereit": pp.ClientID != "" && pp.Secret != ""}, "ip": ip}
+	if sh := s.hotspotShopAngebot(pp.ClientID != "" && pp.Secret != ""); sh != nil {
+		h["shop"] = sh // R904
+	}
 	for _, z := range s.hotspotAktuell() {
 		if z.MAC == mac && mac != "" && z.Bis > time.Now().Unix() {
 			h["zugang"] = z
@@ -489,6 +499,7 @@ func (s *Server) hotspotEinstellungen(c *gin.Context) {
 		aktiv = []hotspotZugang{}
 	}
 	h["zugaenge"] = aktiv
+	h["shop"], h["verkaeufe"] = s.hotspotShopLesen(), s.hotspotVerkaeufe(100) // R904
 	hotspotMu.Lock()
 	if hotspotLetzterFehler != "" {
 		h["letzter_fehler"] = gin.H{"text": hotspotLetzterFehler, "zeit": hotspotLetzterFehlerZeit.Unix()}
@@ -505,6 +516,7 @@ func (s *Server) hotspotSpeichern(c *gin.Context) {
 		Verbund struct {
 			Schluessel string `json:"schluessel"`
 		} `json:"verbund"`
+		Shop *hotspotShop `json:"shop"` // R904; fehlt = unverändert
 	}
 	if c.ShouldBindJSON(&req) != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
@@ -533,6 +545,12 @@ func (s *Server) hotspotSpeichern(c *gin.Context) {
 		}
 		cfg.Stufen[i] = st
 	}
+	if req.Shop != nil {
+		if err := hotspotShopPruefen(req.Shop); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+	}
 	alt := s.hotspotPayPalLesen()
 	pp := hotspotPayPal{ClientID: strings.TrimSpace(req.PayPal.ClientID), Secret: alt.Secret, Modus: req.PayPal.Modus}
 	if sec := strings.TrimSpace(req.PayPal.Secret); sec != "" {
@@ -557,6 +575,12 @@ func (s *Server) hotspotSpeichern(c *gin.Context) {
 	if err := jsonAtomar(s.hotspotDatei("hotspot-paypal.json"), pp, 0o600); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
 		return
+	}
+	if req.Shop != nil {
+		if err := jsonAtomar(s.hotspotDatei("hotspot-shop.json"), req.Shop, 0o644); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
+			return
+		}
 	}
 	hotspotMu.Lock()
 	hotspotToken = "" // neue Zugangsdaten: neu anmelden

@@ -1569,6 +1569,21 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       <span id="hs-meldung" class="set-hint"></span>
     </div>
 
+    <div class="hs-abschnitt" style="margin-top:20px">Verkauf auf der Anmeldeseite</div>
+    <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="hs-shop-aktiv"> Produkt auf der Anmeldeseite anbieten</label>
+    <div class="hs-grid">
+      <label for="hs-shop-art">Art</label><select id="hs-shop-art"><option value="paypal">PayPal-Sofortkauf (Lieferadresse von PayPal)</option><option value="link">Link auf eine Produktseite</option></select>
+      <label for="hs-shop-titel">Produkt</label><input id="hs-shop-titel" maxlength="60">
+      <label for="hs-shop-text">Beschreibung</label><textarea id="hs-shop-text" rows="2" maxlength="600" class="set-input" style="width:100%;box-sizing:border-box"></textarea>
+      <label for="hs-shop-preis">Preis je Stück (€, inkl. USt und Versand)</label><input id="hs-shop-preis" type="number" min="0.5" max="1000" step="0.01">
+      <label for="hs-shop-max" class="hs-shop-pp">Höchstens Stück je Kauf</label><input id="hs-shop-max" class="hs-shop-pp" type="number" min="1" max="20" step="1">
+      <label for="hs-shop-url" class="hs-shop-link">Produktseite</label><input id="hs-shop-url" class="hs-shop-link" placeholder="https://…">
+      <label for="hs-shop-hinweise">Anbieter, Versand, Widerruf</label><textarea id="hs-shop-hinweise" rows="4" maxlength="6000" class="set-input" style="width:100%;box-sizing:border-box" placeholder="Name und Anschrift des Anbieters, Versandbedingungen, Widerrufsbelehrung – erscheint aufklappbar unter dem Produkt"></textarea>
+    </div>
+    <p class="set-hint" style="margin:6px 0 0">Sofortkauf nutzt die PayPal-Zugangsdaten oben und geht auch ohne WLAN-Zugang. Eine Produktseite öffnet sich erst, wenn der Gast online ist (z. B. über die Gratis-Stufe).</p>
+    <div class="hs-abschnitt" style="margin-top:14px">Verkäufe</div>
+    <div id="hs-verkaeufe" class="set-hint">–</div>
+
     <div class="hs-abschnitt">Aktive Zugänge</div>
     <div id="hs-zugaenge" class="set-hint">–</div>
   </div>
@@ -1599,7 +1614,14 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       $('hs-pp-secret').value = '';
       $('hs-pp-secret').placeholder = pp.secret_gesetzt ? 'gesetzt – leer lassen, um es zu behalten' : 'Secret der PayPal-App';
       $('hs-pp-modus').value = pp.modus || 'sandbox';
+      var sh = d.shop || {};
+      $('hs-shop-aktiv').checked = !!sh.aktiv; $('hs-shop-art').value = sh.art || 'paypal';
+      $('hs-shop-titel').value = sh.titel || ''; $('hs-shop-text').value = sh.text || '';
+      $('hs-shop-preis').value = sh.preis != null ? sh.preis : ''; $('hs-shop-max').value = sh.max_stueck || 5;
+      $('hs-shop-url').value = sh.url || ''; $('hs-shop-hinweise').value = sh.hinweise || '';
+      shopArt();
       }
+      verkaeufeZeigen(d.verkaeufe || []);
       $('hs-status').innerHTML = !st ? 'Der Hotspot-Dienst läuft auf diesem Pi noch nicht – er wird beim nächsten Deploy oder Update eingerichtet.'
         : st.laeuft ? '<b style="color:#3ddc84">● Läuft</b> auf ' + esc(st.ap) + ', online über ' + esc(st.uplink) + ' · ' + esc(st.geraete) + ' Gerät(e) freigeschaltet · Anmeldeseite: http://10.42.0.1:3088' +
           (st.grund && st.grund !== 'läuft' ? '<br>' + esc(st.grund.replace(/^läuft – /, '')) : '')
@@ -1615,6 +1637,31 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
           '</td><td>' + (x.quelle === 'paypal' ? 'bezahlt' : x.quelle === 'verbund' ? 'von anderem Knoten' : 'gratis') + '</td></tr>'; }).join('') + '</tbody></table>' : 'Keine.';
     }).catch(function(){ $('hs-status').textContent = 'Einstellungen nicht ladbar.'; });
   }
+  // R904: Verkauf
+  function shopArt(){
+    var link = $('hs-shop-art').value === 'link';
+    document.querySelectorAll('.hs-shop-link').forEach(function(e){ e.style.display = link ? '' : 'none'; });
+    document.querySelectorAll('.hs-shop-pp').forEach(function(e){ e.style.display = link ? 'none' : ''; });
+  }
+  $('hs-shop-art').onchange = shopArt;
+  function verkaeufeZeigen(l){
+    if (!l.length) { $('hs-verkaeufe').textContent = 'Noch keine.'; return; }
+    var adr = function(a){ a = a || {}; return [a.address_line_1, a.address_line_2, [a.postal_code, a.admin_area_2].filter(Boolean).join(' '), a.admin_area_1, a.country_code && a.country_code !== 'DE' ? a.country_code : ''].filter(Boolean).map(esc).join('<br>'); };
+    $('hs-verkaeufe').innerHTML = '<table class="hs-tab"><thead><tr><th>Datum</th><th>Lieferung an</th><th>Stück · €</th><th>Versendet</th></tr></thead><tbody>' +
+      l.map(function(v){
+        return '<tr style="vertical-align:top"><td>' + new Date(v.zeit * 1000).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) +
+          (v.modus !== 'live' ? '<br><i>Sandbox</i>' : '') + '</td><td><b>' + esc(v.name || '–') + '</b><br>' + adr(v.adresse) +
+          (v.email ? '<br><span style="opacity:.75">' + esc(v.email) + '</span>' : '') + '<br><span style="opacity:.6;font-size:11px">' + esc(v.bestellung) + '</span></td><td>' +
+          esc(v.stueck) + ' · ' + esc(String(v.betrag_eur).replace('.', ',')) + '</td><td><input type="checkbox" data-versand="' + esc(v.bestellung) + '"' + (v.versendet ? ' checked' : '') + '></td></tr>';
+      }).join('') + '</tbody></table>';
+    document.querySelectorAll('[data-versand]').forEach(function(cb){
+      cb.onchange = function(){
+        fetch('/api/v1/admin/hotspot/versand', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bestellung: cb.dataset.versand, versendet: cb.checked }) })
+          .then(function(r){ if (!r.ok) throw 0; }).catch(function(){ cb.checked = !cb.checked; alert('Nicht gespeichert.'); });
+      };
+    });
+  }
   $('hs-speichern').onclick = function(){
     var stufen = [].map.call(document.querySelectorAll('#hs-stufen tr'), function(tr){
       var w = function(f){ return tr.querySelector('[data-f="' + f + '"]').value; };
@@ -1624,7 +1671,9 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     fetch('/api/v1/admin/hotspot', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config: { aktiv: $('hs-aktiv').checked, mitbenutzen: $('hs-mitbenutzen').checked, ssid: $('hs-ssid').value.trim(), kanal: +$('hs-kanal').value, stufen: stufen },
         verbund: { schluessel: $('hs-verbund').value.trim() },
-        paypal: { client_id: $('hs-pp-id').value.trim(), secret: $('hs-pp-secret').value.trim(), modus: $('hs-pp-modus').value } }) })
+        paypal: { client_id: $('hs-pp-id').value.trim(), secret: $('hs-pp-secret').value.trim(), modus: $('hs-pp-modus').value },
+        shop: { aktiv: $('hs-shop-aktiv').checked, art: $('hs-shop-art').value, titel: $('hs-shop-titel').value.trim(), text: $('hs-shop-text').value.trim(),
+          preis: +$('hs-shop-preis').value, max_stueck: +$('hs-shop-max').value, url: $('hs-shop-url').value.trim(), hinweise: $('hs-shop-hinweise').value.trim() } }) })
       .then(function(r){ return r.json(); }).then(function(d){
         if (d.error) { $('hs-meldung').textContent = '✗ ' + d.error; return; }
         $('hs-meldung').textContent = '✓ Gespeichert · ' + d.paypal;

@@ -33,6 +33,17 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R905:** Index auf anderem Pi: Status klappte, jede Suche wurde
+      abgewiesen, wenn der Index-Pi nur im Verbund war (nicht „anbieten“).
+      Jetzt dürfen eigene Pis desselben Kontos immer suchen; Speichern prüft
+      das gleich mit; die Auswahlliste fragt auch eigene Pis und
+      Verbund-Mitglieder, die gerade nicht direkt verbunden sind.
+- [x] **R904:** Verkauf auf der Hotspot-Anmeldeseite: FLIGHT QUAD 32 (9,90 €,
+      einstellbar) als PayPal-Sofortkauf – Lieferadresse aus dem PayPal-Konto
+      (GET_FROM_FILE), Zahlung von PayPal bestätigt, Beleg mit Adresse in
+      hotspot-verkaeufe.jsonl, Push an den Eigentümer, Verkaufsliste mit
+      „versendet“ in den Einstellungen – oder Link auf eine Produktseite.
+- [ ] Hotspot-Verkauf im Sandbox-Modus mit echtem Telefon durchspielen.
 - [x] **R903:** Karten (Leaflet) liefen beim Scrollen über die Titelzeile –
       eigener Stapelkontext. Quartett-Fotos ganz aufs Feld skaliert statt
       beschnitten, in voller Auflösung eingebettet (JPEG 96/95); Commons-Fotos
