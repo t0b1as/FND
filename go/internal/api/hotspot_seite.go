@@ -63,8 +63,11 @@ a.knopf { display:block; text-align:center; padding:12px; border-radius:10px; ba
     el.style.display = '';
   }
   function fehler(id, text){ var e = $('f-' + id); if (e) e.textContent = text; }
+  var vorab = /*ANGEBOT*/null; // R907: vom Node gleich in die Seite geschrieben
   function laden(){
-    fetch('/api/angebot').then(function(r){ return r.json(); }).then(function(d){
+    var holen = vorab ? Promise.resolve(vorab) : fetch('/api/angebot').then(function(r){ return r.json(); });
+    vorab = null;
+    holen.then(function(d){
       statusZeigen(d.zugang);
       if (d.hinweis) { $('stufen').innerHTML = '<div class="status">' + esc(d.hinweis) + '</div>'; return; }
       var pp = d.paypal || {};

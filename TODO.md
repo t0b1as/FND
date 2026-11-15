@@ -33,6 +33,13 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R907:** Anmeldeseite schneller: DHCP-Option 114 entfernt (verlangt
+      HTTPS, iOS/Android warteten darauf), Anfragen an den Pi und nach
+      draußen werden abgelehnt statt verworfen (kein Warten auf Zeitüberschreitung,
+      z. B. privates DNS), DHCP authoritative + Rapid Commit, keine
+      IPv6-Antworten, vor der Freischaltung 5/20 statt 2 Mbit/s, Angebot direkt
+      in der Seite. Wächter startet nach einem Update mit neuer Fassung neu.
+- [ ] Anmeldeseite mit iPhone und Android messen (Zeit bis zum Fenster).
 - [x] **R906:** Node-Übersicht zeigt je Node die Adresse im Heimnetz und den
       freien Platz des Datenträgers (% und GB, unter 10 % rot).
 - [x] **R905:** Index auf anderem Pi: Status klappte, jede Suche wurde

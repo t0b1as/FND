@@ -56,5 +56,12 @@ if [ "$NEU" -eq 1 ]; then
   systemctl start fundus-hotspot-konfig.path 2>/dev/null
   echo "   Hotspot-Dienste eingerichtet (Hotspot: $AKTIV)."
 fi
+# R907: Neue Fassung des Wächters gilt sofort, nicht erst nach einem Neustart.
+STAND=/var/lib/fundus-hotspot.stand
+SKRIPT=$(md5sum "$WERKZEUGE/fundus-hotspot.sh" 2>/dev/null | cut -c1-16)
+if [ -n "$SKRIPT" ] && [ "$(cat "$STAND" 2>/dev/null)" != "$SKRIPT" ]; then
+  [ "$NEU" -eq 1 ] || systemctl restart fundus-hotspot.service 2>/dev/null
+  printf '%s\n' "$SKRIPT" > "$STAND"
+fi
 systemctl is-active --quiet fundus-hotspot.service || systemctl start fundus-hotspot.service 2>/dev/null
 exit 0

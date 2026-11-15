@@ -327,7 +327,15 @@ func (s *Server) hotspotPortalStarten() {
 		c.Header("Cache-Control", "no-store")
 		c.Next()
 	})
-	r.GET("/", func(c *gin.Context) { c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(hotspotSeite)) })
+	r.GET("/", func(c *gin.Context) {
+		// R907: Angebot gleich in die Seite – keine zweite Anfrage, bevor
+		// etwas zu sehen ist (das Anmeldefenster der Telefone ist langsam).
+		seite := hotspotSeite
+		if b, err := json.Marshal(s.hotspotAngebotDaten(c)); err == nil {
+			seite = strings.Replace(seite, "/*ANGEBOT*/null", string(b), 1)
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(seite))
+	})
 	r.GET("/api/angebot", s.hotspotAngebot)
 	r.POST("/api/gratis", s.hotspotGratis)
 	r.POST("/api/bestellung", s.hotspotBestellung)
@@ -348,6 +356,10 @@ func (s *Server) hotspotPortalStarten() {
 }
 
 func (s *Server) hotspotAngebot(c *gin.Context) {
+	c.JSON(http.StatusOK, s.hotspotAngebotDaten(c))
+}
+
+func (s *Server) hotspotAngebotDaten(c *gin.Context) gin.H {
 	ip, mac, _ := s.hotspotGeraet(c)
 	cfg, pp := s.hotspotConfigLesen(), s.hotspotPayPalLesen()
 	h := gin.H{"stufen": cfg.Stufen, "paypal": gin.H{"client_id": pp.ClientID, "bereit": pp.ClientID != "" && pp.Secret != ""}, "ip": ip}
@@ -362,7 +374,7 @@ func (s *Server) hotspotAngebot(c *gin.Context) {
 	if mac == "" {
 		h["hinweis"] = "Gerät nicht erkannt – bitte WLAN kurz trennen und neu verbinden."
 	}
-	c.JSON(http.StatusOK, h)
+	return h
 }
 
 func (s *Server) hotspotGratis(c *gin.Context) {

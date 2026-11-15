@@ -129,15 +129,26 @@ except-interface=lo
 dhcp-range=$NETZ.10,$NETZ.250,255.255.255.0,12h
 dhcp-option=3,$GW
 dhcp-option=6,$GW
-dhcp-option=114,http://$GW:$PORTAL/
 dhcp-leasefile=$RUN/leases
+# R907: schneller verbinden – sofort antworten (auch auf alte Leases nach
+# einem Neustart) und Adresse in einem Schritt (Rapid Commit, Android).
+dhcp-authoritative
+dhcp-rapid-commit
 nftset=/paypal.com/paypalobjects.com/braintreegateway.com/4#inet#$TABELLE#offen
+filter-AAAA
 EOF
+  # R907: KEINE DHCP-Option 114 mehr. Sie verlangt eine HTTPS-Schnittstelle
+  # (RFC 8908); mit der bisherigen http-Adresse warteten iOS und Android erst
+  # vergeblich darauf, bevor sie die übliche Prüfung machten – das Anmelde-
+  # fenster kam spät. filter-AAAA: Der Hotspot hat kein IPv6; ohne IPv6-
+  # Antworten versucht das Telefon es gar nicht erst.
   # nftset ist nicht in jedem dnsmasq einkompiliert. Fehlt es, die PayPal-
   # Adressen stattdessen selbst regelmäßig auflösen und freigeben.
   PAYPAL_SELBST=0
   if ! dnsmasq --test --conf-file="$RUN/dnsmasq.conf" >/dev/null 2>&1; then
-    sed -i '/^nftset=/d' "$RUN/dnsmasq.conf"; PAYPAL_SELBST=1
+    # nftset und filter-AAAA gibt es erst ab dnsmasq 2.87.
+    sed -i '/^nftset=/d; /^filter-AAAA/d' "$RUN/dnsmasq.conf"; PAYPAL_SELBST=1
+    dnsmasq --test --conf-file="$RUN/dnsmasq.conf" >/dev/null 2>&1 || sed -i '/^dhcp-rapid-commit/d' "$RUN/dnsmasq.conf"
     log "dnsmasq ohne nftset – PayPal-Adressen werden selbst aufgelöst"
   fi
   hostapd -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" > "$RUN/hostapd.log" 2>&1 \
@@ -161,13 +172,17 @@ table inet $TABELLE {
     iifname "$AP" ct state established,related accept
     iifname "$AP" udp dport { 53, 67 } accept
     iifname "$AP" tcp dport { 53, $PORTAL } accept
-    iifname "$AP" drop
+    # R907: ablehnen statt verwerfen – sonst wartet das Telefon Sekunden auf
+    # eine Antwort (z. B. privates DNS über Port 853), bevor es weitermacht.
+    iifname "$AP" meta l4proto tcp reject with tcp reset
+    iifname "$AP" reject with icmpx type admin-prohibited
   }
   chain weiter { type filter hook forward priority filter; policy accept;
     oifname "$AP" ct state established,related accept
     iifname "$AP" meta nfproto ipv6 drop
     iifname "$AP" ip saddr @frei oifname "$UP" accept
     iifname "$AP" ip daddr @offen tcp dport 443 oifname "$UP" accept
+    iifname "$AP" meta l4proto tcp reject with tcp reset
     iifname "$AP" reject with icmpx type admin-prohibited
     oifname "$AP" drop
   }
@@ -232,12 +247,14 @@ abgleichen() {
   tc qdisc del dev "$AP" root 2>/dev/null; tc qdisc del dev "$AP" ingress 2>/dev/null
   ip link del "$IFB" 2>/dev/null
   tc qdisc add dev "$AP" root handle 1: htb default 9
-  tc class add dev "$AP" parent 1: classid 1:9 htb rate 2mbit ceil 2mbit   # Anmeldeseite
+  # Anmeldeseite und PayPal vor der Freischaltung (R907: 2 → 5/20 Mbit/s –
+  # das PayPal-Skript allein sind einige hundert KB)
+  tc class add dev "$AP" parent 1: classid 1:9 htb rate 5mbit ceil 20mbit
   ip link add "$IFB" type ifb 2>/dev/null; ip link set "$IFB" up
   tc qdisc add dev "$AP" handle ffff: ingress
   tc filter add dev "$AP" parent ffff: protocol ip matchall action mirred egress redirect dev "$IFB"
   tc qdisc add dev "$IFB" root handle 1: htb default 9
-  tc class add dev "$IFB" parent 1: classid 1:9 htb rate 2mbit ceil 2mbit
+  tc class add dev "$IFB" parent 1: classid 1:9 htb rate 5mbit ceil 20mbit
   while read -r ip d u; do
     [ -z "$ip" ] && continue
     nft add element inet "$TABELLE" frei "{ $ip }"
