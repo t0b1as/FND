@@ -33,6 +33,8 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R913:** Quartett: Entfernung mit drei Nachkommastellen (Meter); die
+      Aufzeichnung speichert sie jetzt auf den Meter genau (vorher 10 m).
 - [x] **R912:** Quartett für alle: auch die Druckdatei (PDF/X-1a) ohne
       Eigentümer-Anmeldung (öffentliche Endpunkte, Auftragsnummer zufällig).
       Besucher: höchstens 3 pro Stunde, nach 15 min Schluss; eine Umwandlung

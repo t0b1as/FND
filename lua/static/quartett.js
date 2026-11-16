@@ -143,14 +143,14 @@
       case "geschw": return tausend(w.v) + " km/h";
       // Gedankenstrich statt Minuszeichen: U+2212 fehlt in der PDF-Standardschrift.
       case "steig": return (w.v > 0 ? "+" : w.v < 0 ? "–" : "") + komma(Math.abs(w.v), 1) + " m/s";
-      case "km": return komma(w.v, 1) + " km";
+      case "km": return komma(w.v, 3) + " km"; // R913: auf den Meter – für die nächste Entfernung
     }
     return String(w.v);
   }
   function rekordText(k) {
     var v = (k.moment || {}).v, e = k.einheit || "";
     if (v == null) return katTitel(k.kategorie, k.kategorie_titel);
-    var s = e === "m" || e === "km/h" ? tausend(v) : e === "m/s" ? (v > 0 ? "+" : "–") + komma(Math.abs(v), 1) : komma(v, 1);
+    var s = e === "m" || e === "km/h" ? tausend(v) : e === "m/s" ? (v > 0 ? "+" : "–") + komma(Math.abs(v), 1) : komma(v, e === "km" ? 3 : 1);
     return katTitel(k.kategorie, k.kategorie_titel) + " " + s + " " + e;
   }
   function kuerzen(doc, t, breite) {

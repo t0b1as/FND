@@ -288,7 +288,8 @@ func (s *Server) flugEingang(jetzt time.Time, hex, flug, squawk string, hoeheM *
 	if lat != nil && lon != nil {
 		z.lat, z.lon, z.hatPos, posNeu = *lat, *lon, true, true
 		if flugOrtLat != 0 || flugOrtLon != 0 {
-			z.km = math.Round(haversineKm(flugOrtLat, flugOrtLon, *lat, *lon)*100) / 100
+			// R913: auf den Meter (vorher 10 m) – die nächste Entfernung braucht die Auflösung
+			z.km = math.Round(haversineKm(flugOrtLat, flugOrtLon, *lat, *lon)*1000) / 1000
 			kmOK = !f.An || z.km <= f.MaxKm
 		}
 	}
