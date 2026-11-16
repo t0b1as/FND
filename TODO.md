@@ -33,6 +33,24 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R920:** SR-71 auf dem Kartenrücken nach dem NASA-Foto (Umriss per
+      GrabCut, tiefe Schatten als zweiter Ton), Spielname und „Best of“
+      2,4 mm höher für mehr Platz.
+- [x] **R919:** SR-71 auf dem Kartenrücken schräg von vorn oben statt
+      Draufsicht – Umriss nach dem Foto des Nutzers nachgezeichnet, Gondeln mit
+      feinen Linien in Hintergrundfarbe abgesetzt.
+- [x] **R918:** Kartenrücken: Silhouette einer SR-71 Blackbird (Draufsicht,
+      Nase rechts, eigene Umrisszeichnung) zwischen „Best of …“ und „TKM x HELIX“.
+- [x] **R917:** Kartenrücken: heller Schein um das Logo (zur Mitte bis 62 %
+      aufgehellt, ohne Transparenz – PDF/X-1a), Netzlinien folgen dem Schein.
+- [x] **R916:** Kartenrücken: deutlicherer Verlauf (oben 90,230,130 →
+      unten 12,130,72), schwarze Schrift weiter lesbar.
+- [x] **R915:** Kartenrücken: Verlauf unten hell (20,150,85 statt fast
+      schwarz) – schwarze Schrift bis unten lesbar.
+- [x] **R914:** Kartenrücken: Logo und Schrift schwarz, Schrift Inter
+      (eingebettet; FUNDUS in Black, wie jetzt auch in der Kopfzeile der
+      Seite – inter-black.woff2 liegt im Paket), unter „TKM x HELIX“ der
+      Erstellungszeitpunkt JJJJMMTThhmmss.
 - [x] **R913:** Quartett: Entfernung mit drei Nachkommastellen (Meter); die
       Aufzeichnung speichert sie jetzt auf den Meter genau (vorher 10 m).
 - [x] **R912:** Quartett für alle: auch die Druckdatei (PDF/X-1a) ohne

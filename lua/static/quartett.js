@@ -247,7 +247,22 @@
     g.putImageData(d, 0, 0);
   }
 
+  // R914: Inter (dieselbe Schrift wie FUNDUS auf der Seite) im PDF einbetten.
+  var INTER = false;
+  function schriftAnmelden(doc) {
+    var f = window.FUNDUS_SCHRIFT;
+    INTER = false;
+    if (!f) return;
+    try {
+      ["black", "bold", "normal"].forEach(function (st) {
+        doc.addFileToVFS("Inter-" + st + ".ttf", f[st]);
+        doc.addFont("Inter-" + st + ".ttf", "Inter", st);
+      });
+      INTER = true;
+    } catch (e) { INTER = false; }
+  }
   function sicherMachen(doc, opt) {
+    schriftAnmelden(doc);
     var text = doc.text, breite = doc.getTextWidth;
     if (opt && opt.druck && druckTabellen()) {
       // Alle Vektorfarben direkt als CMYK – Ghostscript lässt CMYK unverändert.
@@ -506,7 +521,10 @@
       .then(function (svg) { var m = svg.match(/ d="([^"]+)"/); LOGO_D = m ? m[1] : ""; return LOGO_D; })
       .catch(function () { LOGO_D = ""; return ""; });
   }
-  var VERLAUF = [[0, [0, 200, 83]], [0.45, [23, 168, 98]], [1, [6, 53, 31]]];
+  // R915/R916: unten nicht mehr fast schwarz (6,53,31) – die schwarze Schrift
+  // (R914) bleibt bis unten lesbar (Kontrast ≥ 4,5:1); oben heller, damit der
+  // Verlauf deutlich sichtbar bleibt.
+  var VERLAUF = [[0, [90, 230, 130]], [0.45, [10, 185, 95]], [1, [12, 130, 72]]];
   function verlaufFarbe(t) {
     t = Math.max(0, Math.min(1, t));
     for (var i = 1; i < VERLAUF.length; i++) {
@@ -519,6 +537,12 @@
   }
   function mischen(farbe, deckkraft) { return farbe.map(function (c) { return Math.round(255 * deckkraft + c * (1 - deckkraft)); }); }
 
+  // R920: SR-71 Blackbird nach dem NASA-Foto (Flug über der Sierra Nevada):
+  // Umriss per Bildsegmentierung (GrabCut) gewonnen, dazu die tiefen Schatten
+  // (Triebwerkseinläufe, Rumpfkante) als zweiter Ton – sonst verschwänden die
+  // Gondeln in der Fläche. Bildpunkte, Nase links unten.
+  var SR71 = { breite: 961, hoehe: 761, umriss: [[961,483],[959,478],[938,459],[924,449],[915,446],[900,435],[896,435],[879,423],[873,421],[862,411],[854,409],[827,391],[811,389],[804,390],[804,368],[802,369],[800,367],[802,361],[794,350],[794,338],[809,181],[797,188],[795,191],[761,317],[745,323],[730,333],[708,355],[705,362],[700,366],[695,363],[691,357],[687,358],[681,354],[685,348],[695,345],[697,343],[693,343],[696,340],[704,339],[700,334],[703,328],[699,321],[690,312],[680,307],[636,275],[632,274],[629,269],[624,269],[616,263],[613,263],[608,258],[606,251],[608,244],[604,238],[600,226],[599,216],[592,216],[589,213],[579,212],[559,215],[543,220],[537,215],[530,213],[514,204],[502,195],[498,195],[490,188],[484,188],[479,183],[475,183],[455,171],[451,171],[448,167],[450,163],[423,162],[411,158],[405,158],[398,154],[390,157],[386,156],[400,137],[405,119],[401,100],[395,92],[407,82],[437,50],[491,0],[468,9],[384,80],[374,82],[369,80],[346,79],[338,80],[318,88],[235,39],[222,33],[218,29],[183,13],[176,11],[165,11],[159,15],[159,25],[161,29],[165,59],[184,103],[189,109],[192,120],[189,124],[172,133],[159,146],[160,151],[150,159],[145,169],[141,183],[143,208],[140,215],[140,233],[142,241],[145,245],[137,272],[140,270],[150,272],[166,269],[180,275],[196,276],[210,272],[228,262],[243,259],[251,269],[258,288],[257,291],[262,298],[270,326],[274,331],[275,342],[270,348],[252,359],[125,449],[93,479],[61,518],[48,538],[28,575],[19,597],[4,646],[4,655],[1,667],[0,706],[5,751],[1,761],[3,759],[6,761],[18,758],[23,755],[64,754],[67,752],[132,742],[142,737],[158,734],[184,725],[189,725],[198,720],[214,717],[217,714],[238,706],[249,699],[252,699],[267,691],[270,692],[271,689],[292,677],[297,678],[296,676],[327,657],[375,619],[388,606],[388,602],[393,601],[417,575],[422,567],[431,558],[433,558],[434,553],[466,516],[466,514],[473,509],[491,484],[497,478],[502,476],[509,477],[520,475],[538,479],[545,477],[602,480],[615,483],[621,489],[621,494],[617,505],[617,521],[620,532],[626,542],[624,568],[629,566],[635,567],[648,562],[663,566],[680,565],[694,559],[711,546],[731,546],[744,541],[746,544],[750,539],[763,534],[766,536],[765,534],[773,527],[777,526],[798,511],[805,499],[812,492],[834,493],[889,500],[904,500],[956,492],[961,489]],
+    schatten: [[[327,418],[325,419],[326,428],[324,432],[331,438],[341,430],[341,427]],[[760,320],[758,319],[736,330],[709,356],[702,367],[695,365],[691,368],[677,386],[667,409],[658,423],[658,427],[653,436],[647,441],[644,439],[644,436],[652,424],[652,418],[675,382],[676,375],[674,374],[650,393],[640,399],[620,429],[616,438],[609,444],[605,452],[592,467],[588,478],[612,480],[622,488],[622,495],[618,506],[618,520],[621,531],[627,541],[625,560],[629,560],[645,532],[654,521],[663,501],[674,490],[687,494],[697,504],[701,514],[701,527],[696,538],[688,546],[655,562],[664,565],[683,563],[708,547],[714,528],[713,512],[701,487],[682,471],[683,447],[689,438],[699,434],[701,422],[707,419],[714,421],[719,418],[723,419],[725,418],[725,415],[730,412],[728,408],[719,403],[724,396],[724,384],[732,379],[730,373],[732,364],[737,360],[748,359],[751,357]],[[571,246],[575,257],[567,265],[567,269],[564,272],[563,286],[565,300],[570,313],[583,328],[652,378],[671,360],[678,356],[684,347],[691,345],[695,339],[702,338],[699,335],[690,336],[673,320],[625,297],[602,304],[598,303],[598,299],[611,296],[614,292],[599,286],[588,275],[584,268],[582,256],[577,245],[574,244]],[[331,227],[328,226],[325,228],[325,232],[318,238],[312,249],[311,255],[306,261],[309,262],[313,259],[314,255],[321,254],[320,248],[324,244],[326,234],[331,230]],[[538,223],[532,222],[519,226],[459,258],[430,276],[428,279],[422,281],[407,294],[372,316],[369,320],[354,328],[350,335],[338,334],[332,340],[330,345],[319,348],[316,354],[309,356],[303,362],[290,369],[290,372],[286,376],[273,382],[264,393],[256,396],[256,398],[248,402],[245,407],[239,409],[235,414],[230,416],[229,421],[215,431],[213,435],[183,454],[168,469],[159,473],[130,479],[78,499],[71,507],[71,511],[77,523],[85,528],[87,532],[63,551],[54,564],[54,574],[56,579],[70,597],[68,598],[68,602],[64,605],[63,610],[53,610],[53,612],[58,614],[59,617],[56,619],[55,623],[47,626],[47,632],[41,638],[40,647],[35,652],[33,663],[27,676],[27,683],[23,691],[14,735],[8,749],[10,750],[16,746],[28,732],[30,726],[44,711],[46,705],[57,696],[70,678],[84,665],[94,651],[106,641],[110,626],[115,620],[120,618],[121,608],[125,602],[125,598],[134,595],[144,583],[148,586],[152,594],[156,594],[200,537],[210,516],[229,500],[240,499],[263,467],[263,452],[270,445],[280,441],[278,438],[269,442],[266,440],[266,437],[272,430],[290,422],[296,415],[304,411],[310,411],[315,415],[321,411],[329,411],[332,404],[341,397],[344,391],[364,375],[373,381],[375,380],[370,374],[370,371],[377,369],[382,372],[385,370],[386,366],[392,363],[395,354],[409,342],[411,336],[408,334],[408,328],[423,310],[436,301],[440,303],[450,297],[456,297],[458,291],[483,268],[484,264],[490,258],[508,246],[512,239],[538,225]],[[331,203],[329,202],[295,221],[293,225],[295,226],[329,207]],[[375,83],[347,80],[330,84],[304,94],[226,67],[177,81],[177,85],[180,89],[186,90],[209,103],[221,114],[221,117],[177,138],[151,160],[142,184],[144,209],[141,216],[141,232],[146,246],[141,262],[145,262],[186,205],[192,200],[200,200],[209,205],[219,218],[221,225],[220,241],[212,252],[191,263],[175,267],[171,270],[181,274],[195,275],[209,271],[220,265],[227,258],[232,248],[234,226],[225,203],[203,182],[214,166],[212,158],[220,153],[235,153],[235,150],[230,147],[235,140],[247,135],[260,126],[263,120],[306,93],[326,99],[340,113],[354,104],[364,94],[372,90],[375,87]]] };
   // rand (mm): Beschnitt; rund: abgerundete Ecken (A4-Faltvorlage)
   function rueckseiteVektor(doc, x, y, kontext, rand, rund) {
     rand = rand || 0;
@@ -541,6 +565,28 @@
         { op: "l", c: [a1x + nx * weit, a1y + ny * weit] }, { op: "l", c: [a1x - nx * weit, a1y - ny * weit] }, { op: "h", c: [] }]);
       doc.fill();
     }
+    // R917: Schein um das Logo – zur Logomitte hin aufgehellt. Ringe aus
+    // kleinen Feldern, jedes in der Verlaufsfarbe SEINER Stelle, nur mit Weiß
+    // gemischt: Der äußere Rand geht so unsichtbar in den Verlauf über.
+    // Ohne Transparenz (PDF/X-1a erlaubt keine).
+    var gcx = x + B / 2, gcy = y + 34 + (H - 88) / 2, GR = 27;
+    var schein = function (px, py) { var r = Math.sqrt((px - gcx) * (px - gcx) + (py - gcy) * (py - gcy)); return 0.62 * Math.pow(Math.max(0, 1 - r / GR), 1.6); };
+    var grund = function (px, py) { return mischen(verlaufFarbe(tVon(px, py)), schein(px, py)); };
+    (function () {
+      var cx = gcx, cy = gcy, R = GR, NR = 28, NS = 56, TAU = 2 * Math.PI;
+      for (var k = NR - 1; k >= 0; k--) {
+        var r0 = R * k / NR, r1 = R * (k + 1) / NR + 0.05, rm = (r0 + r1) / 2;
+        var w = 0.62 * Math.pow(Math.max(0, 1 - rm / R), 1.6);
+        for (var j = 0; j < NS; j++) {
+          var a0 = TAU * j / NS, a1 = TAU * (j + 1) / NS + 0.01, am = (a0 + a1) / 2;
+          var c = mischen(verlaufFarbe(tVon(cx + rm * Math.cos(am), cy + rm * Math.sin(am))), w);
+          doc.setFillColor(c[0], c[1], c[2]);
+          doc.path([{ op: "m", c: [cx + r0 * Math.cos(a0), cy + r0 * Math.sin(a0)] }, { op: "l", c: [cx + r1 * Math.cos(a0), cy + r1 * Math.sin(a0)] },
+            { op: "l", c: [cx + r1 * Math.cos(a1), cy + r1 * Math.sin(a1)] }, { op: "l", c: [cx + r0 * Math.cos(a1), cy + r0 * Math.sin(a1)] }, { op: "h", c: [] }]);
+          doc.fill();
+        }
+      }
+    })();
     // Knotennetz: fester Startwert – ALLE Karten haben exakt dieselbe Rückseite.
     var zufall = (function (a) { return function () { a = (a * 1664525 + 1013904223) >>> 0; return a / 4294967296; }; })(64);
     var knoten = [];
@@ -549,12 +595,12 @@
     for (var a1 = 0; a1 < knoten.length; a1++) for (var b1 = a1 + 1; b1 < knoten.length; b1++) {
       var dx = knoten[a1][0] - knoten[b1][0], dy = knoten[a1][1] - knoten[b1][1], d = Math.sqrt(dx * dx + dy * dy);
       if (d < 16.5) {
-        var lf = mischen(verlaufFarbe(tVon((knoten[a1][0] + knoten[b1][0]) / 2, (knoten[a1][1] + knoten[b1][1]) / 2)), 0.28 * (1 - d / 16.5));
+        var lf = mischen(grund((knoten[a1][0] + knoten[b1][0]) / 2, (knoten[a1][1] + knoten[b1][1]) / 2), 0.28 * (1 - d / 16.5));
         doc.setDrawColor(lf[0], lf[1], lf[2]); doc.line(knoten[a1][0], knoten[a1][1], knoten[b1][0], knoten[b1][1]);
       }
     }
     knoten.forEach(function (p) {
-      var kf = mischen(verlaufFarbe(tVon(p[0], p[1])), 0.55);
+      var kf = mischen(grund(p[0], p[1]), 0.55);
       doc.setFillColor(kf[0], kf[1], kf[2]); doc.circle(p[0], p[1], p[2], "F");
     });
     doc.restoreGraphicsState();
@@ -563,22 +609,39 @@
     doc.setDrawColor(rf[0], rf[1], rf[2]); doc.setLineWidth(0.4);
     doc.roundedRect(x + 4, y + 4, B - 8, H - 8, 2, 2, "S");
     // Schrift und Logo (Maße wie bisher: 1 mm = 10 Einheiten der Rasterfassung)
+    // R914: schwarz, in Inter – FUNDUS fett (Black wie auf der Seite);
+    // darunter der Zeitstempel der Erstellung.
     var dyMm = (H - 88) / 2;
-    function zeile(s, yy, mm, abstand, deckkraft, fett) {
-      var pt = mm / 0.3528, f = mischen(verlaufFarbe(tVon(x + B / 2, yy)), deckkraft);
-      doc.setFont("helvetica", fett ? "bold" : "normal"); doc.setFontSize(pt); doc.setTextColor(f[0], f[1], f[2]);
+    function zeile(s, yy, mm, abstand, stil) {
+      var pt = mm / 0.3528;
+      if (INTER) doc.setFont("Inter", stil);
+      else doc.setFont("helvetica", stil === "normal" ? "normal" : "bold");
+      doc.setFontSize(pt); doc.setTextColor(0, 0, 0);
       var breite = doc.getTextWidth(s) + abstand * (sicher(s).length - 1);
       doc.text(s, x + (B - breite) / 2, yy, abstand ? { charSpace: abstand } : undefined);
     }
-    zeile("FUNDUS", y + 13.2 + dyMm, 5.6, 1.4, 1, true);
+    zeile("FUNDUS", y + 13.2 + dyMm, 5.6, 1.4, "black");
     if (LOGO_D) {
-      doc.setFillColor(255, 255, 255);
+      doc.setFillColor(0, 0, 0);
       doc.path(svgPfad(LOGO_D, 33 / 200, x + (B - 33) / 2, y + 17.5 + dyMm));
       doc.fillEvenOdd();
     }
-    zeile(kontext.spiel || "FLIGHT QUAD 64", y + 59.3 + dyMm, 5.4, 0, 1, true);
-    zeile("Best of " + (kontext.code || ""), y + 65.3 + dyMm, 3.8, 0, 0.88, true);
-    zeile("TKM x HELIX", y + H - 9.8, 3.0, 0.6, 0.75, true);
+    zeile(kontext.spiel || "FLIGHT QUAD 64", y + 59.3 - 2.4 + dyMm, 5.4, 0, "bold"); // R920: 2,4 mm höher
+    zeile("Best of " + (kontext.code || ""), y + 65.3 - 2.4 + dyMm, 3.8, 0, "bold");
+    // R918–R920: SR-71 Blackbird zwischen „Best of …“ und „TKM x HELIX“ –
+    // dunkelgrau mit schwarzen Schatten (wie eine Schablone).
+    (function () {
+      var oben = y + 65.3 - 2.4 + dyMm + 0.9, unten = y + H - 10.4 - 2.8;
+      var sk = 0.97 * (unten - oben) / SR71.hoehe, bx = x + (B - SR71.breite * sk) / 2, by = (oben + unten) / 2 - SR71.hoehe * sk / 2;
+      var flaeche = function (pkte) {
+        var weg = pkte.map(function (p, i) { return { op: i ? "l" : "m", c: [bx + p[0] * sk, by + p[1] * sk] }; });
+        weg.push({ op: "h", c: [] }); doc.path(weg); doc.fill();
+      };
+      doc.setFillColor(40, 43, 49); flaeche(SR71.umriss);
+      doc.setFillColor(0, 0, 0); SR71.schatten.forEach(flaeche);
+    })();
+    zeile("TKM x HELIX", y + H - 10.4, 3.0, 0.6, "bold");
+    if (kontext.erstellt) zeile(kontext.erstellt, y + H - 7.2, 2.2, 0.3, "normal");
   }
 
   // ── Titelkarte (R890): Spielname, Zeitraum, die acht Quartette, Regeln ──
@@ -686,8 +749,11 @@
     B = masse[0]; H = masse[1];
     var karten = daten.karten || [];
     var anzahl = daten.anzahl === 32 || (!daten.anzahl && karten.length <= 32) ? 32 : 64;
+    // R914: Erstellungszeitpunkt (Ortszeit) als JJJJMMTThhmmss auf jeder Rückseite
+    var jetzt = new Date(), zz = function (n) { return (n < 10 ? "0" : "") + n; };
+    var erstellt = jetzt.getFullYear() + zz(jetzt.getMonth() + 1) + zz(jetzt.getDate()) + zz(jetzt.getHours()) + zz(jetzt.getMinutes()) + zz(jetzt.getSeconds());
     var kontext = { titel: daten.titel, node: daten.node, code: daten.code, aufnahme: daten.aufnahme,
-      anzahl: anzahl, spiel: "FLIGHT QUAD " + anzahl, flugzeuge: daten.flugzeuge };
+      anzahl: anzahl, spiel: "FLIGHT QUAD " + anzahl, flugzeuge: daten.flugzeuge, erstellt: erstellt };
     var klassen = {};
     karten.forEach(function (k) { klassen[k.klasse] = true; });
     var istA4 = format === "a4" || format === "a4_druck";

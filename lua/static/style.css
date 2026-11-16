@@ -1508,6 +1508,11 @@ body.home footer { margin-top: 1rem; padding: 0.75rem; }
   src:url('/static/fonts/inter-regular.woff2') format('woff2'); }
 @font-face { font-family:'Inter'; font-style:normal; font-weight:700; font-display:swap;
   src:url('/static/fonts/inter-bold.woff2') format('woff2'); }
+/* R914: FUNDUS in der Kopfzeile in Inter Black – dieselbe Schrift steht auf der
+   Kartenrückseite des Quartetts (dort im PDF eingebettet). Liegt im Paket. */
+@font-face { font-family:'Inter'; font-style:normal; font-weight:900; font-display:swap;
+  src:url('/static/fonts/inter-black.woff2') format('woff2'); }
+.brand, nav .brand { font-family:'Inter', system-ui, -apple-system, "Segoe UI", sans-serif; }
 @font-face { font-family:'Roboto'; font-style:normal; font-weight:400; font-display:swap;
   src:url('/static/fonts/roboto-regular.woff2') format('woff2'); }
 @font-face { font-family:'Lora'; font-style:normal; font-weight:400; font-display:swap;
