@@ -33,6 +33,8 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R921:** Kartenrücken: „fnd.resolve.bar“ unter FUNDUS, gleich breit
+      (Zeichenabstand angepasst).
 - [x] **R920:** SR-71 auf dem Kartenrücken nach dem NASA-Foto (Umriss per
       GrabCut, tiefe Schatten als zweiter Ton), Spielname und „Best of“
       2,4 mm höher für mehr Platz.

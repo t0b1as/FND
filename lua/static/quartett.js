@@ -621,6 +621,19 @@
       doc.text(s, x + (B - breite) / 2, yy, abstand ? { charSpace: abstand } : undefined);
     }
     zeile("FUNDUS", y + 13.2 + dyMm, 5.6, 1.4, "black");
+    // R921: Adresse darunter, genau so breit wie FUNDUS (Zeichenabstand passt sich an)
+    (function () {
+      var url = "fnd.resolve.bar", n = url.length;
+      if (INTER) doc.setFont("Inter", "black"); else doc.setFont("helvetica", "bold");
+      doc.setFontSize(5.6 / 0.3528);
+      var ziel = doc.getTextWidth("FUNDUS") + 1.4 * 5;
+      if (INTER) doc.setFont("Inter", "bold"); else doc.setFont("helvetica", "bold");
+      var mm = 2.2, w;
+      do { doc.setFontSize(mm / 0.3528); w = doc.getTextWidth(url); if (w <= ziel) break; mm -= 0.1; } while (mm > 1.2);
+      var abst = (ziel - w) / (n - 1);
+      doc.setTextColor(0, 0, 0);
+      doc.text(url, x + (B - ziel) / 2, y + 16.4 + dyMm, abst > 0 ? { charSpace: abst } : undefined);
+    })();
     if (LOGO_D) {
       doc.setFillColor(0, 0, 0);
       doc.path(svgPfad(LOGO_D, 33 / 200, x + (B - 33) / 2, y + 17.5 + dyMm));
