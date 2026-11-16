@@ -88,12 +88,19 @@ func (s *Server) hotspotTLSStarten() {
 		}
 		w.Header().Set("Cache-Control", "no-store")
 		http.Redirect(w, r, "http://"+hotspotGW+hotspotPortal+"/", http.StatusFound)
+		portalAufrufEintragen(r.RemoteAddr, r.UserAgent(), "https://"+r.Host, r.URL.Path, http.StatusFound, 0) // R911
 	})
 	srv := &http.Server{Addr: hotspotTLSPort, Handler: weiter, ReadHeaderTimeout: 10 * time.Second,
 		TLSConfig: &tls.Config{Certificates: []tls.Certificate{zert}, MinVersion: tls.VersionTLS12}}
 	// Abgebrochene Handshakes (Zertifikat abgelehnt) sind hier der Normalfall –
 	// nicht ins Protokoll.
 	srv.ErrorLog = log.New(io.Discard, "", 0)
+	srv.TLSConfig.GetConfigForClient = func(h *tls.ClientHelloInfo) (*tls.Config, error) {
+		// R911: Jeder https-Versuch eines Gastes – auch die, deren Zertifikat
+		// der Browser ablehnt – erscheint in der Diagnose mit dem Namen der Seite.
+		portalAufrufEintragen(h.Conn.RemoteAddr().String(), "", "https://"+h.ServerName, "(Verbindungsaufbau)", 0, 0)
+		return nil, nil
+	}
 	for {
 		if err := srv.ListenAndServeTLS("", ""); err != nil && s.log != nil {
 			s.log.Warn("Hotspot-https: Port belegt", zap.Error(err))

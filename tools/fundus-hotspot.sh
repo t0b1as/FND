@@ -28,11 +28,21 @@ IFB=ifb-fhs
 SYSNET="${FUNDUS_SYSNET:-/sys/class/net}"   # vorgebbar für Tests
 mkdir -p "$RUN"; chmod 755 "$RUN"
 
-log() { echo "$(date +%H:%M:%S) $*"; }
+# R911: zusätzlich in $RUN/protokoll (die letzten ~300 Zeilen) – die
+# Einstellungsseite zeigt es, ohne dass jemand auf den Pi muss.
+log() {
+  local z; z="$(date +%H:%M:%S) $*"; echo "$z"
+  echo "$z" >> "$RUN/protokoll" 2>/dev/null
+  if [ "$(wc -l < "$RUN/protokoll" 2>/dev/null || echo 0)" -gt 400 ]; then
+    tail -n 300 "$RUN/protokoll" > "$RUN/protokoll.neu" 2>/dev/null && mv "$RUN/protokoll.neu" "$RUN/protokoll"
+  fi
+  chmod 644 "$RUN/protokoll" 2>/dev/null
+}
+STARTS=0; SEIT=0
 
 status() { # laeuft grund [ap] [uplink] [geraete]
-  printf '{"laeuft":%s,"grund":"%s","ap":"%s","uplink":"%s","geraete":%s,"stand":%s}\n' \
-    "$1" "$2" "${3:-}" "${4:-}" "${5:-0}" "$(date +%s)" > "$RUN/status.json.neu"
+  printf '{"laeuft":%s,"grund":"%s","ap":"%s","uplink":"%s","geraete":%s,"stand":%s,"seit":%s,"starts":%s}\n' \
+    "$1" "$2" "${3:-}" "${4:-}" "${5:-0}" "$(date +%s)" "$SEIT" "$STARTS" > "$RUN/status.json.neu"
   chmod 644 "$RUN/status.json.neu"; mv "$RUN/status.json.neu" "$RUN/status.json"
 }
 
@@ -212,6 +222,8 @@ EOF
   portal_dns
 
   LAEUFT=1; ZUSTAND=""
+  STARTS=$((STARTS + 1)); SEIT=$(date +%s)   # R911: Neustarts sichtbar machen
+  log "Hotspot läuft (Start $STARTS seit Dienstbeginn)"
   return 0
 }
 
@@ -228,6 +240,30 @@ portal_dns() {
     && nft add rule inet "$TABELLE" vor iifname "$AP" ip saddr != @frei ip daddr != $GW tcp dport 53 dnat ip to "$GW:53" \
     || log "Umleitung der Namensauflösung nicht ladbar"
   pruefadressen_vorhalten
+}
+
+# R911: Dauer der Namensauflösung über den Hotspot messen (jede Minute) –
+# für die Diagnose in den Einstellungen ($RUN/dns.json).
+DNS_ZULETZT=0
+dns_messen() {
+  local jetzt; jetzt=$(date +%s)
+  [ $((jetzt - DNS_ZULETZT)) -lt 60 ] && return
+  DNS_ZULETZT=$jetzt
+  python3 - "$GW" "$RUN/dns.json" << 'PY' >/dev/null 2>&1 &
+import json, os, random, socket, struct, sys, time
+def frage(name):
+    q = struct.pack(">HHHHHH", random.randint(0, 65535), 0x0100, 1, 0, 0, 0) + b"".join(bytes([len(t)]) + t.encode() for t in name.split(".")) + b"\0" + struct.pack(">HH", 1, 1)
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(5)
+    t0 = time.time()
+    try:
+        s.sendto(q, (sys.argv[1], 53)); a = s.recv(512)
+        rc = a[3] & 15
+        return {"ms": round((time.time() - t0) * 1000), "ok": rc in (0, 3)}
+    except Exception:
+        return {"ms": 5000, "ok": False}
+e = {"zeit": int(time.time()), "pruef": frage("captive.apple.com"), "internet": frage("fundus-%d.example.com" % random.randint(1, 10**9))}
+open(sys.argv[2] + ".neu", "w").write(json.dumps(e)); os.chmod(sys.argv[2] + ".neu", 0o644); os.replace(sys.argv[2] + ".neu", sys.argv[2])
+PY
 }
 
 # Prüfadressen von iOS, Android und Windows im Zwischenspeicher halten.
@@ -288,6 +324,7 @@ abgleichen() {
     done
   fi
   pruefadressen_vorhalten
+  dns_messen
   [ "$neu" = "$ZUSTAND" ] && return
   ZUSTAND="$neu"
   nft flush set inet "$TABELLE" frei 2>/dev/null

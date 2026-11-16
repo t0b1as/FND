@@ -214,8 +214,15 @@ a.zurueck { display:inline-block; margin:0 0 12px; color:var(--leise); text-deco
     };
     sk.onerror = weg;
     // Antwortet PayPal gar nicht (statt abzulehnen), käme nie ein Fehler – deshalb eine Frist.
-    setTimeout(function(){ if (!window.paypal) weg(); }, 15000);
-    document.head.appendChild(sk);
+    // R911: PayPal erst NACH dem Laden der Seite holen. Ein Skript, das schon
+    // während des Ladens eingefügt wird, hält das „fertig“ der Seite auf –
+    // das Anmeldefenster von iOS/Android wartet darauf.
+    var starten = function(){
+      setTimeout(function(){ if (!window.paypal) weg(); }, 15000);
+      document.head.appendChild(sk);
+    };
+    if (document.readyState === 'complete') setTimeout(starten, 0);
+    else window.addEventListener('load', function(){ setTimeout(starten, 0); });
   }
   laden();
 })();

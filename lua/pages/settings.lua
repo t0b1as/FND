@@ -1533,6 +1533,8 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
   <div class="set-head"><h3>WLAN-Hotspot</h3></div>
   <div class="set-body">
     <div id="hs-status" class="set-hint" style="margin:0 0 10px">Lade …</div>
+    <details id="hs-diag" style="margin-top:8px"><summary class="set-hint" style="cursor:pointer">Diagnose: Anmeldeseite, Namensauflösung, Protokoll</summary>
+      <div id="hs-diag-inhalt" class="set-hint" style="margin-top:6px">–</div></details>
     <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="hs-aktiv"> Hotspot einschalten</label>
     <p class="set-hint" style="margin:6px 0 0">Läuft nur, wenn dieser Pi über Kabel oder einen zweiten WLAN-Adapter online ist – das eingebaute WLAN wird dann zum Hotspot. Wer Internetzugang gegen Geld anbietet, muss das in der Regel bei der Bundesnetzagentur melden.</p>
 
@@ -1635,6 +1637,11 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
         : st.laeuft ? '<b style="color:#3ddc84">● Läuft</b> auf ' + esc(st.ap) + ', online über ' + esc(st.uplink) + ' · ' + esc(st.geraete) + ' Gerät(e) freigeschaltet · Anmeldeseite: http://10.42.0.1:3088' +
           (st.grund && st.grund !== 'läuft' ? '<br>' + esc(st.grund.replace(/^läuft – /, '')) : '')
         : '<b>○ Aus</b> – ' + esc(st.grund);
+      if (st && st.laeuft && st.seit) {
+        $('hs-status').innerHTML += '<br>Läuft seit ' + new Date(st.seit * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' +
+          (st.starts > 1 ? ' · <b style="color:var(--danger,#e5484d)">' + st.starts + ' Starts seit Dienstbeginn</b> – Geräte verlieren dabei kurz das WLAN (siehe Diagnose)' : '');
+      }
+      diagnoseZeigen(d.diagnose || {});
       if (d.letzter_fehler) {
         $('hs-status').innerHTML += '<br><span style="color:var(--danger,#e5484d)">Letzter Zahlungsfehler (' +
           new Date(d.letzter_fehler.zeit * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + '): ' + esc(d.letzter_fehler.text) + '</span>';
@@ -1645,6 +1652,23 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
           new Date(x.bis * 1000).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) +
           '</td><td>' + (x.quelle === 'paypal' ? 'bezahlt' : x.quelle === 'verbund' ? 'von anderem Knoten' : 'gratis') + '</td></tr>'; }).join('') + '</tbody></table>' : 'Keine.';
     }).catch(function(){ $('hs-status').textContent = 'Einstellungen nicht ladbar.'; });
+  }
+  // R911: Diagnose
+  function diagnoseZeigen(g){
+    var t = [], uhr = function(z){ return new Date(z * 1000).toLocaleTimeString('de-DE'); };
+    var dn = g.dns;
+    if (dn) {
+      var w = function(x){ return x ? (x.ok ? x.ms + ' ms' : '<span style="color:var(--danger,#e5484d)">✗ ' + (x.ms >= 5000 ? 'keine Antwort' : 'Fehler') + '</span>') : '–'; };
+      t.push('<b>Namensauflösung</b> (' + uhr(dn.zeit) + '): Prüfadresse captive.apple.com ' + w(dn.pruef) + ' · neuer Name über das Internet ' + w(dn.internet) +
+        ((dn.internet && dn.internet.ms > 1500) ? ' – <b>langsam</b>: Telefone warten darauf' : ''));
+    }
+    var a = g.aufrufe || [];
+    t.push('<b>Letzte Aufrufe der Anmeldeseite</b>' + (a.length ? '<table class="hs-tab"><thead><tr><th>Zeit</th><th>Gerät</th><th>Adresse</th><th>Antwort</th></tr></thead><tbody>' +
+      a.map(function(x){ return '<tr><td>' + uhr(x.zeit) + '</td><td>' + esc(x.geraet) + '</td><td style="word-break:break-all">' + esc(x.host + x.pfad) + '</td><td>' +
+        (x.status ? x.status + ' · ' + x.ms + ' ms' : 'https') + '</td></tr>'; }).join('') + '</tbody></table>' : ': noch keine (seit dem Start des Nodes).'));
+    var p = g.protokoll || [];
+    if (p.length) t.push('<b>Protokoll des Hotspots</b><pre style="white-space:pre-wrap;font-size:11.5px;max-height:240px;overflow:auto;margin:4px 0 0">' + esc(p.slice().reverse().join('\n')) + '</pre>');
+    $('hs-diag-inhalt').innerHTML = t.join('<br>');
   }
   // R909: Produktbilder
   function bilderZeigen(l){

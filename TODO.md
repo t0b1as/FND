@@ -33,6 +33,15 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R912:** Quartett für alle: auch die Druckdatei (PDF/X-1a) ohne
+      Eigentümer-Anmeldung (öffentliche Endpunkte, Auftragsnummer zufällig).
+      Besucher: höchstens 3 pro Stunde, nach 15 min Schluss; eine Umwandlung
+      zur Zeit wie bisher; Eigentümer unbegrenzt.
+- [x] **R911:** Hotspot-Diagnose in den Einstellungen: letzte Aufrufe der
+      Anmeldeseite (Gerät, Adresse, Dauer, auch https-Versuche), Messung der
+      Namensauflösung (jede Minute), Protokoll des Wächters, Starts seit
+      Dienstbeginn. PayPal-Skript erst nach dem Laden der Seite.
+- [ ] ROT: Anmeldeseite > 30 s und ERR_INTERNET_DISCONNECTED – Ursache mit der Diagnose klären.
 - [x] **R910:** https vor der Freischaltung: Port 443 (außer PayPal) geht an
       den Pi (3443, eigenes Zertifikat) → Chrome/Firefox erkennen das
       Anmeldenetz und bieten „Im WLAN anmelden“ statt eines Netzfehlers;

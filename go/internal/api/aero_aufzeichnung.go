@@ -897,6 +897,10 @@ func (s *Server) registerFlugdaten(r *gin.Engine) {
 	r.GET("/api/v1/aeronautik/quartett/typen", s.quartettTypen) // R887
 	r.GET("/api/v1/aeronautik/typbild/kandidaten", s.typBildKandidaten) // R891
 	r.GET("/api/v1/aeronautik/typbild/:datei", s.typBildAusliefern)
+	// R912: Druckdatei für alle (Auftragsnummer = zufällig, nur dem Ersteller bekannt)
+	r.POST("/api/v1/aeronautik/druckdatei", s.quartettDruckdateiOeffentlich)
+	r.GET("/api/v1/aeronautik/druckdatei/:id", s.quartettDruckStand)
+	r.POST("/api/v1/aeronautik/druckdatei/:id/abbrechen", s.quartettDruckAbbrechen)
 	s.flugStarten()
 	s.flugFernStarten() // R879: Anfragen von Pis ohne Empfänger beantworten
 	go s.typBildHintergrund() // Fotos, die beim Quartett nicht rechtzeitig fertig wurden

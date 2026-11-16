@@ -325,7 +325,9 @@ func (s *Server) hotspotPortalStarten() {
 			return
 		}
 		c.Header("Cache-Control", "no-store")
+		t0 := time.Now()
 		c.Next()
+		portalAufrufMerken(c, time.Since(t0)) // R911: Diagnose
 	})
 	seite := func(c *gin.Context) {
 		// R910: immer unter der festen Adresse zeigen. Kam die Seite über eine
@@ -512,6 +514,7 @@ func (s *Server) hotspotEinstellungen(c *gin.Context) {
 			h["status"] = st
 		}
 	}
+	h["diagnose"] = hotspotDiagnose() // R911
 	var aktiv []hotspotZugang
 	for _, z := range s.hotspotAktuell() {
 		if z.Bis > time.Now().Unix() {

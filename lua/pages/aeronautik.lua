@@ -866,13 +866,12 @@ return function()
   function druckdatei(doc, d, name, groesse, format){
     var seiten = doc.getNumberOfPages();
     $('ae-q-meldung').textContent = 'Lade die Seiten zur Umwandlung hoch …';
-    var basis = '/api/v1/admin/aeronautik/druckdatei';
+    var basis = '/api/v1/aeronautik/druckdatei'; // R912: für alle – das Quartett ist ein digitales Geschenk
     return fetch(basis + '?titel=' + encodeURIComponent('FLIGHT QUAD ' + (d.anzahl || 64) + ' ' + d.code), { method: 'POST', credentials: 'same-origin',
         headers: { 'Content-Type': 'application/pdf' }, body: doc.output('blob') })
       .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(x){ return [r, x]; }); })
       .then(function(x){
         var r = x[0], a = x[1];
-        if (r.status === 401 || r.status === 403) throw new Error('Die Druckdatei kann nur der Eigentümer dieses Nodes erzeugen.');
         if (!a.id) throw new Error(a.error || 'Umwandlung nicht gestartet (' + r.status + ').');
         var start = Date.now();
         return new Promise(function(fertig, fehler){
@@ -946,7 +945,7 @@ return function()
   if (/^en/i.test(document.documentElement.lang || '')) $('ae-q-sprache').value = 'en';
   $('ae-q-abbrechen').onclick = function(){
     var id = this.dataset.id; if (!id) return;
-    fetch('/api/v1/admin/aeronautik/druckdatei/' + id + '/abbrechen', { method: 'POST', credentials: 'same-origin' });
+    fetch('/api/v1/aeronautik/druckdatei/' + id + '/abbrechen', { method: 'POST', credentials: 'same-origin' });
   };
   // R891: anderes Foto aus Wikipedia/Wikimedia Commons wählen – nur frei lizenziert.
   function kandidatenOeffnen(zeile, t, text){

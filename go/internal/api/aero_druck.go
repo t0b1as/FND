@@ -160,7 +160,11 @@ func (s *Server) quartettDruckdatei(c *gin.Context) {
 	zufall := make([]byte, 8)
 	_, _ = rand.Read(zufall)
 	id := hex.EncodeToString(zufall) // zufällig: nicht zu erraten, nie doppelt
-	ctx, abbr := context.WithTimeout(context.Background(), 30*time.Minute)
+	dauer := 30 * time.Minute
+	if c.GetBool("druck_oeffentlich") {
+		dauer = 15 * time.Minute // R912: Besucher belegen die Umwandlung kürzer
+	}
+	ctx, abbr := context.WithTimeout(context.Background(), dauer)
 	auftrag := &druckAuftrag{Status: "laeuft", ordner: ordner, start: time.Now(), abbr: abbr}
 	druckAuftragMu.Lock()
 	druckAuftraege[id] = auftrag
@@ -302,4 +306,48 @@ func (s *Server) quartettDruckLaufend(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{})
+}
+
+// ── R912: Das Quartett ist ein digitales Geschenk – jeder darf es erzeugen,
+// auch die Druckdatei (PDF/X-1a). Nur die gedruckte Ausgabe kostet. Weil die
+// Umwandlung den Pi minutenlang beschäftigt: eine zur Zeit (wie bisher),
+// je Besucher höchstens 3 pro Stunde, nach 15 min Schluss. Der Eigentümer
+// ist nicht begrenzt und kann eine laufende Umwandlung abbrechen.
+
+var (
+	druckBesucherMu sync.Mutex
+	druckBesucher   = map[string][]time.Time{}
+)
+
+func druckBesucherErlaubt(ip string) bool {
+	druckBesucherMu.Lock()
+	defer druckBesucherMu.Unlock()
+	jetzt := time.Now()
+	var l []time.Time
+	for _, t := range druckBesucher[ip] {
+		if jetzt.Sub(t) < time.Hour {
+			l = append(l, t)
+		}
+	}
+	if len(druckBesucher) > 5000 {
+		druckBesucher = map[string][]time.Time{}
+	}
+	if len(l) >= 3 {
+		druckBesucher[ip] = l
+		return false
+	}
+	druckBesucher[ip] = append(l, jetzt)
+	return true
+}
+
+// POST /api/v1/aeronautik/druckdatei – öffentlich.
+func (s *Server) quartettDruckdateiOeffentlich(c *gin.Context) {
+	if !s.isAdminRequest(c) {
+		if !druckBesucherErlaubt(c.ClientIP()) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Höchstens 3 Druckdateien pro Stunde – bitte später erneut versuchen."})
+			return
+		}
+		c.Set("druck_oeffentlich", true)
+	}
+	s.quartettDruckdatei(c)
 }
