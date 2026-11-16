@@ -1,8 +1,8 @@
 {
-  "version": "R912",
-  "description": "FUNDUS R912 - Flight Quad 32",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R912/FND-R912-update.zip",
-  "node_argon2": "7f228d8b799e2d0d37d921192c9b6a1e7098e00ceea1a0b0a5e59d540468f06e",
-  "published_at": "2026-11-16T07:50:10.5991075Z",
-  "signature": "0xcf7e1595227031add2b06079947048ec0c507f2c1144afa1e9e9cb9360841ec2656b412c95f5f7cf70d107886043e44dfa922bf1c46b49ec0f14271f9ef742ad1c"
+  "version": "R913",
+  "description": "FUNDUS R913 - Flight Quad 32",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R913/FND-R913-update.zip",
+  "node_argon2": "5662f4f26bfb4bd5946fd97395ec19661b65a4f6fdeb185046201295a10d4623",
+  "published_at": "2026-11-16T08:59:28.9278881Z",
+  "signature": "0x3efcdee554432a38822b923edca48f2e0fcb3eae7d469f0c5c655e2cea8645e50d4d935ea780e52b26aa83b0815c3d78d39e849e1577cd99dde59244901443a81c"
 }
