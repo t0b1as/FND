@@ -1,8 +1,8 @@
 {
-  "version": "R910",
-  "description": "FUNDUS R910 - Captive Portal",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R910/FND-R910-update.zip",
-  "node_argon2": "673390d3a83ce466f05a0e4870609f86f1d88c8ea208401ffa5ba5fb79e44ead",
-  "published_at": "2026-11-15T11:17:34.5259196Z",
-  "signature": "0x61a83f8801b1f1f86aebe97165f77ed17c297a191dc9726074258b03a6537d2f5170d7d29cf821e91c5fb169674cfe7ac6c813af6d1402e411d9119b5033dfac1c"
+  "version": "R912",
+  "description": "FUNDUS R912 - Flight Quad 32",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R912/FND-R912-update.zip",
+  "node_argon2": "7f228d8b799e2d0d37d921192c9b6a1e7098e00ceea1a0b0a5e59d540468f06e",
+  "published_at": "2026-11-16T07:50:10.5991075Z",
+  "signature": "0xcf7e1595227031add2b06079947048ec0c507f2c1144afa1e9e9cb9360841ec2656b412c95f5f7cf70d107886043e44dfa922bf1c46b49ec0f14271f9ef742ad1c"
 }
