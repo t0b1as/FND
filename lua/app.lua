@@ -33,26 +33,12 @@ local routes = {
     -- TOS akzeptieren: setzt den Cookie und leitet zurück. OHNE diese Route
     -- läuft der POST ins Leere, der Cookie wird nie gesetzt, und der TOS-Guard
     -- im Header leitet jede Seite endlos auf /tos zurück.
+    -- TOS akzeptieren. nginx schickt /tos/accept direkt an
+    -- pages/tos_accept.lua (location = /tos/accept); dieser Eintrag ist nur
+    -- die Rückfallebene, falls eine nginx-Konfiguration das nicht tut.
     { method = "POST", pattern = "^/tos/accept$",
       handler = function()
-          local tos = require "pages.tos"
-          ngx.header["Set-Cookie"] = tos.COOKIE .. "=" .. tos.VERSION ..
-              "; Path=/; Max-Age=31536000; SameSite=Lax"
-          -- back-Ziel absichern: nur interne Pfade (beginnt mit einem einzelnen
-          -- "/", kein "//" — sonst Open-Redirect auf fremde Hosts).
-          ngx.req.read_body()
-          local args = ngx.req.get_post_args() or {}
-          local back = args.back or "/"
-          if type(back) ~= "string" or back:sub(1,1) ~= "/" or back:sub(1,2) == "//" then
-              back = "/"
-          end
-          -- R930: angemeldet → Zustimmung beim Konto vermerken.
-          local render = require "render"
-          if render.sitzung() then
-              local _, _, st = render.api_post("/v1/konto/tos", { version = tos.VERSION })
-              if st == 200 then render.tos_gemerkt(tos.VERSION) end
-          end
-          return ngx.redirect(back, 302)
+          dofile("/opt/fundus/lua/pages/tos_accept.lua")
       end },
 
     -- Startseite
