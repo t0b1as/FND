@@ -1,8 +1,8 @@
 {
-  "version": "R925",
-  "description": "FUNDUS R925 - Warenkorb",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R925/FND-R925-update.zip",
-  "node_argon2": "4be55e655f4a2e95bd65eddfb91d8c629ef5d6cda9f27eaba49fc6976929b4fc",
-  "published_at": "2026-11-17T06:58:15.4001888Z",
-  "signature": "0xb419e99ce06d78552db8091d10a22d2bf875c4dfbe59f38ac1542de7103877f457936612427ad303e862e8903004a36e8e320e59511acef9e5ae987be69d77ea1b"
+  "version": "R926",
+  "description": "FUNDUS R926 - Guest Access",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R926/FND-R926-update.zip",
+  "node_argon2": "453362e5ec9ca61612e0b0854eadab6fbf03d8e00ea59db690ae4bf6b5a565f7",
+  "published_at": "2026-11-17T08:57:36.4449751Z",
+  "signature": "0x0764ddce52e50a59a890cac8ddd6f6dbf38b267b9261363b0318f3f7b6b91cab7221724c8912491c42b6b00d9631d7f7f39c7b114dd8c69b19b24ed00c5436011c"
 }
