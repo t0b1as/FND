@@ -1561,12 +1561,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     <p class="set-hint" style="margin:6px 0 0">Trag auf allen Hotspot-Knoten denselben Netznamen und denselben Schlüssel ein. Dann gilt ein Zugang auf jedem dieser Knoten, und Telefone wechseln von selbst zum stärkeren – nach wenigen Sekunden sind sie dort wieder online. Ins Fundus-Netz geht dabei nur ein mit dem Schlüssel gebildeter Prüfwert, nie die Geräteadresse; ohne Schlüssel kann niemand Zugänge für deine Knoten ausstellen.</p>
 
     <div class="hs-abschnitt">PayPal</div>
-    <div class="hs-grid">
-      <label for="hs-pp-id">Client-ID</label><input id="hs-pp-id" autocomplete="off" placeholder="aus developer.paypal.com → Apps &amp; Credentials">
-      <label for="hs-pp-secret">Secret</label><input id="hs-pp-secret" type="password" autocomplete="new-password">
-      <label for="hs-pp-modus">Modus</label><select id="hs-pp-modus"><option value="sandbox">Sandbox (Test, kein echtes Geld)</option><option value="live">Live</option></select>
-    </div>
-    <p class="set-hint" style="margin:6px 0 0">Das Geld geht direkt auf dein PayPal-Konto. Zum Ausprobieren erst Sandbox-Zugangsdaten verwenden, dann auf Live umstellen.</p>
+    <p class="set-hint" style="margin:0" id="hs-pp-hinweis">Die PayPal-Zugangsdaten stehen in der Lasche PayPal – sie gelten für Hotspot und Marktplatz.</p>
 
     <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <button type="button" class="btn btn-primary" id="hs-speichern" style="width:auto">Speichern</button>
@@ -1619,10 +1614,8 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       $('hs-verbund').value = (d.verbund && d.verbund.schluessel) || '';
       $('hs-kanal').value = String(c.kanal || 6);
       $('hs-stufen').innerHTML = (c.stufen || []).map(zeile).join('');
-      $('hs-pp-id').value = pp.client_id || '';
-      $('hs-pp-secret').value = '';
-      $('hs-pp-secret').placeholder = pp.secret_gesetzt ? 'gesetzt – leer lassen, um es zu behalten' : 'Secret der PayPal-App';
-      $('hs-pp-modus').value = pp.modus || 'sandbox';
+      $('hs-pp-hinweis').innerHTML = (pp.client_id ? '✓ PayPal ist eingerichtet (' + (pp.modus === 'live' ? 'Live' : 'Sandbox') + ').' : 'PayPal ist noch nicht eingerichtet.') +
+        ' Die Zugangsdaten stehen in der Lasche <b>PayPal</b> – sie gelten für Hotspot und Marktplatz.';
       var sh = d.shop || {};
       $('hs-shop-aktiv').checked = !!sh.aktiv; $('hs-shop-art').value = sh.art || 'paypal';
       $('hs-shop-titel').value = sh.titel || ''; $('hs-shop-text').value = sh.text || '';
@@ -1727,7 +1720,6 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     fetch('/api/v1/admin/hotspot', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config: { aktiv: $('hs-aktiv').checked, mitbenutzen: $('hs-mitbenutzen').checked, ssid: $('hs-ssid').value.trim(), kanal: +$('hs-kanal').value, stufen: stufen },
         verbund: { schluessel: $('hs-verbund').value.trim() },
-        paypal: { client_id: $('hs-pp-id').value.trim(), secret: $('hs-pp-secret').value.trim(), modus: $('hs-pp-modus').value },
         shop: { aktiv: $('hs-shop-aktiv').checked, art: $('hs-shop-art').value, titel: $('hs-shop-titel').value.trim(), text: $('hs-shop-text').value.trim(),
           preis: +$('hs-shop-preis').value, max_stueck: +$('hs-shop-max').value, url: $('hs-shop-url').value.trim(), hinweise: $('hs-shop-hinweise').value.trim(), lang: $('hs-shop-lang').value.trim() } }) })
       .then(function(r){ return r.json(); }).then(function(d){
@@ -1748,6 +1740,71 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
   };
   laden();
   setInterval(function(){ if (document.getElementById('hs-card').offsetParent) laden(true); }, 15000);
+})();
+</script>
+
+<!-- ── PayPal (R922) – eigener Reiter: Zugang für Hotspot UND Marktplatz ── -->
+<div class="set-card" id="paypal">
+  <div class="set-head"><h3>PayPal</h3></div>
+  <div class="set-body">
+    <p class="set-hint" style="margin:0 0 10px">Mit diesem Zugang legt der Node PayPal-Zahlungen an und bestätigt sie – für den WLAN-Hotspot und für den Marktplatz. Im Marktplatz geht das Geld <b>direkt an den Verkäufer</b>, an die PayPal-Adresse aus seinem Angebot (1 FND = 1 €). Über deinen Zugang läuft dabei kein Geld.</p>
+    <div class="hs-grid">
+      <label for="pp-id">Client-ID</label><input id="pp-id" autocomplete="off" placeholder="aus developer.paypal.com → Apps &amp; Credentials">
+      <label for="pp-secret">Secret</label><input id="pp-secret" type="password" autocomplete="new-password">
+      <label for="pp-modus">Modus</label><select id="pp-modus"><option value="sandbox">Sandbox (Test, kein echtes Geld)</option><option value="live">Live</option></select>
+    </div>
+    <p class="set-hint" style="margin:6px 0 0">Zum Ausprobieren erst Sandbox-Zugangsdaten verwenden, dann auf Live umstellen. Das Geld aus dem Hotspot geht auf das PayPal-Konto dieses Zugangs.</p>
+    <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary" id="pp-speichern" style="width:auto">Speichern</button>
+      <span id="pp-meldung" class="set-hint"></span>
+    </div>
+    <div class="hs-abschnitt" style="margin-top:20px">Verkäufe eigener Angebote per PayPal</div>
+    <div id="pp-verkaeufe" class="set-hint">–</div>
+    <p class="set-hint" style="margin:6px 0 0">Die Lieferadresse steht auch in deinem PayPal-Konto bei der Zahlung. Verkäufe im Hotspot stehen in der Lasche Hotspot.</p>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(i){ return document.getElementById(i); };
+  var esc = function(t){ return String(t == null ? '' : t).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
+  function verkaeufe(l){
+    if (!l.length) { $('pp-verkaeufe').textContent = 'Noch keine.'; return; }
+    var adr = function(a){ a = a || {}; return [a.address_line_1, a.address_line_2, [a.postal_code, a.admin_area_2].filter(Boolean).join(' '), a.admin_area_1, a.country_code && a.country_code !== 'DE' ? a.country_code : ''].filter(Boolean).map(esc).join('<br>'); };
+    $('pp-verkaeufe').innerHTML = '<table class="hs-tab"><thead><tr><th>Datum</th><th>Angebot</th><th>Käufer / Lieferung</th><th>Stück · €</th><th>Versendet</th></tr></thead><tbody>' +
+      l.map(function(v){
+        return '<tr style="vertical-align:top"><td>' + new Date(v.zeit * 1000).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }) +
+          (v.modus !== 'live' ? '<br><i>Sandbox</i>' : '') + '</td><td><a href="/listings/' + encodeURIComponent(v.listing_id) + '">' + esc(v.titel) + '</a></td><td><b>' + esc(v.name || '–') + '</b><br>' +
+          (v.versand ? adr(v.adresse) : '<i>Abholung</i>') + (v.email ? '<br><span style="opacity:.75">' + esc(v.email) + '</span>' : '') +
+          '<br><span style="opacity:.6;font-size:11px">' + esc(v.bestellung) + '</span></td><td>' + esc(v.anzahl) + ' · ' + esc(String(v.betrag_eur).replace('.', ',')) + '</td><td>' +
+          (v.versand ? '<input type="checkbox" data-pp-versand="' + esc(v.bestellung) + '" data-pp-listing="' + esc(v.listing_id) + '"' + (v.versendet ? ' checked' : '') + '>' : '–') + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    document.querySelectorAll('[data-pp-versand]').forEach(function(cb){
+      cb.onchange = function(){
+        fetch('/api/v1/admin/paypal/versand', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bestellung: cb.dataset.ppVersand, listing_id: cb.dataset.ppListing, versendet: cb.checked }) })
+          .then(function(r){ if (!r.ok) throw 0; }).catch(function(){ cb.checked = !cb.checked; alert('Nicht gespeichert.'); });
+      };
+    });
+  }
+  function laden(){
+    fetch('/api/v1/admin/paypal', { credentials: 'same-origin' }).then(function(r){ if (!r.ok) throw r.status; return r.json(); }).then(function(d){
+      var pp = d.paypal || {};
+      $('pp-id').value = pp.client_id || ''; $('pp-secret').value = '';
+      $('pp-secret').placeholder = pp.secret_gesetzt ? 'gesetzt – leer lassen, um es zu behalten' : 'Secret der PayPal-App';
+      $('pp-modus').value = pp.modus || 'sandbox';
+      verkaeufe(d.verkaeufe || []);
+    }).catch(function(e){ $('pp-verkaeufe').textContent = (e === 401 || e === 403) ? 'Nur für den Eigentümer.' : '–'; });
+  }
+  $('pp-speichern').onclick = function(){
+    $('pp-meldung').textContent = 'Speichere …';
+    fetch('/api/v1/admin/paypal', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id: $('pp-id').value.trim(), secret: $('pp-secret').value.trim(), modus: $('pp-modus').value }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) { $('pp-meldung').textContent = '✗ ' + d.error; return; }
+        $('pp-meldung').textContent = '✓ Gespeichert · ' + d.paypal; laden();
+      }).catch(function(){ $('pp-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+  laden();
 })();
 </script>
 
@@ -1829,6 +1886,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     ['node',     'Node',        /update|chain|node|profil|profile|revision/i],
     ['standort', 'Standort',    /^\s*standort/i],
     ['hotspot',  'Hotspot',     /^\s*wlan-hotspot/i],
+    ['paypal',   'PayPal',      /^\s*paypal/i],
     ['ki',       'KI',          /^\s*ki\b/i],
     ['suche',    'Websuche',    /^\s*websuche/i],
     ['security', 'Sicherheit',  /sicherung|backup|admin|passwort|password/i],

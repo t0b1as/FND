@@ -712,6 +712,7 @@ async function submitListing(event) {
         condition:    getField("f-condition"),
         price:        parseFloat(getField("f-price")) || 0,
         seller_wallet: getField("f-seller-wallet") || "",
+        paypal:       (getField("f-paypal") || "").trim(), // R922: PayPal-Empfänger
         delivery:     (document.querySelector('input[name="f-delivery"]:checked')||{}).value || "pickup",
         shipping_cost: parseFloat(getField("f-shipping-cost")) || 0,
         description:  getField("f-description"),
@@ -1054,3 +1055,13 @@ function attrAnKategorie(){
   anwenden();
 }
 document.addEventListener('DOMContentLoaded', attrAnKategorie);
+
+// R922: PayPal-Empfänger fürs nächste Angebot merken (nur in diesem Browser).
+(function () {
+  try {
+    var f = document.getElementById("f-paypal");
+    if (!f) return;
+    if (!f.value && location.pathname === "/listings/new") f.value = localStorage.getItem("fnd.paypal.empfaenger") || "";
+    f.addEventListener("change", function () { try { localStorage.setItem("fnd.paypal.empfaenger", f.value.trim()); } catch (e) {} });
+  } catch (e) {}
+})();

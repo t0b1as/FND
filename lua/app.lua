@@ -62,6 +62,9 @@ local routes = {
       handler = require "pages.listing_edit" },
     { method = "GET",  pattern = "^/listings/([^/]+)$",
       handler = require "pages.listing_show" },
+    -- R922: Warenkorb (liegt im Browser, bezahlt je Verkäufer per PayPal)
+    { method = "GET",  pattern = "^/warenkorb$",
+      handler = require "pages.warenkorb" },
 
     -- Energie-Token
     { method = "GET",  pattern = "^/energy$",

@@ -1596,9 +1596,10 @@ Höhe dieses Nodes: %d<br>Transaktion: <code>%s</code></p>
 const listingSoldProtocol = "/fundus/listing-sold/1.0.0"
 
 type listingSoldMsg struct {
-	ListingID string `json:"listing_id"`
-	Tx        string `json:"tx"`
-	Quantity  int    `json:"quantity"`
+	ListingID string     `json:"listing_id"`
+	Tx        string     `json:"tx"`
+	Quantity  int        `json:"quantity"`
+	PayPal    *mpVerkauf `json:"paypal,omitempty"` // R922: Kauf per PayPal, mit Lieferadresse
 }
 
 // notifySaleToOwner meldet den Kauf direkt an den Node, dem das Angebot gehört.
@@ -1639,6 +1640,12 @@ func (s *Server) registerListingSoldProtocol() {
 		}
 		// applySale prüft selbst: nur eigenes Angebot, jede Kennung nur einmal.
 		s.applySale(m.ListingID, m.Tx, n)
+		// R922: PayPal-Kauf – Lieferadresse für den Verkäufer vermerken und melden.
+		if m.PayPal != nil && m.PayPal.ListingID == m.ListingID && strings.HasPrefix(m.Tx, "pp") {
+			if rec, err := s.store.Get(storage.RecordListing, m.ListingID); err == nil && rec != nil && rec.OwnerID == s.nodeID() {
+				s.mpVerkaufVermerken(rec.Data, *m.PayPal)
+			}
+		}
 		return []byte(`{"ok":true}`)
 	})
 }

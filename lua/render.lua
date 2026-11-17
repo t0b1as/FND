@@ -259,6 +259,8 @@ function _M.header(title_key, active)
 <div class="drawer" id="drawer">
   <div class="drawer-section">]] .. t("nav.sec_marketplace") .. [[</div>
   <a href="/listings"     class="%s" data-nav-key="listings" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("listings") .. [[</span>]] .. t("nav.market") .. [[</a>
+  <a href="/warenkorb" data-nav-key="warenkorb" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("warenkorb") .. [[</span>Warenkorb <span class="wk-zahl" data-warenkorb-zahl style="display:none;margin-left:6px;font-size:11px;background:var(--accent,#3ddc84);color:#000;border-radius:999px;padding:0 7px;font-weight:700"></span></a>
+<script>try{var wkn=(JSON.parse(localStorage.getItem('fnd.warenkorb')||'[]')||[]).reduce(function(s,x){return s+(x.anzahl||1)},0);document.querySelectorAll('[data-warenkorb-zahl]').forEach(function(e){e.textContent=wkn||'';e.style.display=wkn?'':'none';});}catch(e){}</script>
   <a href="/energy"       class="%s" data-nav-key="energy" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("energy") .. [[</span>]] .. t("nav.energy") .. [[<span class="wip-pill">BETA</span></a>
   <a href="/aeronautik"   class="%s" data-nav-key="aeronautik" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("aeronautik") .. [[</span>Aeronautik</a>
   <a href="/ki"   class="%s" data-nav-key="ki" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("ki") .. [[</span>KI-Chat</a>

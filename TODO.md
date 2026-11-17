@@ -33,6 +33,14 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R922:** PayPal in eigener Lasche (Zugang für Hotspot und Marktplatz,
+      Liste der PayPal-Verkäufe eigener Angebote mit Lieferadresse). Marktplatz:
+      Angebote mit PayPal-Empfänger (E-Mail/Händler-ID) lassen sich per PayPal
+      bezahlen, 1 FND = 1 €, Geld direkt an den Verkäufer (payee). Betrag rechnet
+      der Node; Bestand vor der Abbuchung reserviert; Kaufvermerk wie beim
+      Escrow → Verkäufer-Node zieht Bestand ab, Push mit Lieferadresse.
+      Warenkorb (/warenkorb, im Browser), bezahlt je Verkäufer.
+- [ ] Marktplatz-PayPal im Sandbox-Modus mit zwei Konten durchspielen (payee ≠ App-Inhaber).
 - [x] **R921:** Kartenrücken: „fnd.resolve.bar“ unter FUNDUS, gleich breit
       (Zeichenabstand angepasst).
 - [x] **R920:** SR-71 auf dem Kartenrücken nach dem NASA-Foto (Umriss per

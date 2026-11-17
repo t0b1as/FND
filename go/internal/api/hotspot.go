@@ -539,7 +539,7 @@ func (s *Server) hotspotEinstellungen(c *gin.Context) {
 func (s *Server) hotspotSpeichern(c *gin.Context) {
 	var req struct {
 		Config  hotspotConfig `json:"config"`
-		PayPal  hotspotPayPal `json:"paypal"`
+		PayPal  *hotspotPayPal `json:"paypal"` // R922: fehlt = unverändert (eigene Lasche „PayPal“)
 		Verbund struct {
 			Schluessel string `json:"schluessel"`
 		} `json:"verbund"`
@@ -578,14 +578,6 @@ func (s *Server) hotspotSpeichern(c *gin.Context) {
 			return
 		}
 	}
-	alt := s.hotspotPayPalLesen()
-	pp := hotspotPayPal{ClientID: strings.TrimSpace(req.PayPal.ClientID), Secret: alt.Secret, Modus: req.PayPal.Modus}
-	if sec := strings.TrimSpace(req.PayPal.Secret); sec != "" {
-		pp.Secret = sec // leer = bisheriges behalten
-	}
-	if pp.Modus != "live" {
-		pp.Modus = "sandbox"
-	}
 	if err := jsonAtomar(s.hotspotDatei("hotspot.json"), cfg, 0o644); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
 		return
@@ -599,9 +591,13 @@ func (s *Server) hotspotSpeichern(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
 		return
 	}
-	if err := jsonAtomar(s.hotspotDatei("hotspot-paypal.json"), pp, 0o600); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
-		return
+	pp := s.hotspotPayPalLesen()
+	if req.PayPal != nil {
+		var err error
+		if pp, err = s.paypalZugangSchreiben(*req.PayPal); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
+			return
+		}
 	}
 	if req.Shop != nil {
 		req.Shop.Bilder = s.hotspotShopLesen().Bilder // R909: Bilder ändern nur Hochladen/Löschen

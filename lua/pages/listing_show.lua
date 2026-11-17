@@ -299,6 +299,25 @@ return function(captures)
             t("listing.buy"), walletRow, shipRow, qtyPicker, buyDisabled,
             record.id, (sellerWallet or ""), (price_min > 0 and string.format("%.2f", price_min) or ""),
             record.id, contactBtn)
+        -- R922: PayPal (Geld direkt an den Verkäufer, 1 FND = 1 €) und Warenkorb
+        local ppEmpf = tostring((record.data and record.data.paypal) or "")
+        if ppEmpf ~= "" and price_min > 0 and remaining > 0 then
+            local scost = tonumber(record.data and record.data.shipping_cost) or 0
+            buySection = buySection .. string.format([==[
+  <div class="pp-box" id="pp-box" style="display:none" data-id="%s" data-titel="%s" data-preis="%.2f" data-max="%d"
+       data-versand-moeglich="%s" data-versandkosten="%.2f" data-empf="%s">
+    <h3 style="margin:0 0 4px">Mit PayPal bezahlen</h3>
+    <p class="buy-hint" style="margin:0 0 10px">1 FND = 1 €. Das Geld geht direkt an den Verkäufer; bei Versand kommt die Lieferadresse aus deinem PayPal-Konto. Käuferschutz über PayPal statt Escrow.</p>
+    <div style="font-size:18px;font-weight:700;margin:0 0 10px">Betrag: <span id="pp-summe">–</span></div>
+    <div id="pp-knopf" style="max-width:420px"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <button type="button" class="btn btn-outline" id="wk-btn">🛒 In den Warenkorb</button>
+      <a href="/warenkorb" id="wk-link" class="meta" style="display:none">Zum Warenkorb (<span data-warenkorb-zahl></span>) →</a>
+    </div>
+    <div id="pp-status" class="escrow-status" style="margin-top:8px"></div>
+  </div>]==], render.html_escape(record.id), render.html_escape(tostring(record.data.title or "")), price_min, remaining,
+                (isShipping and "1" or "0"), scost, render.html_escape(ppEmpf))
+        end
     end
 
     ngx.print(string.format([[
@@ -1095,6 +1114,41 @@ code           { font-family:monospace; font-size:11px; background:var(--bg); co
 </script>]==])
     -- Ähnliche Angebote (gleiche Kategorie) und Seiten-Skripte (R552)
     ngx.print('<section id="similar" class="similar" style="display:none"><h2>Ähnliche Angebote</h2><div class="hit-grid" id="similar-grid"></div></section>')
+    -- R922: PayPal-Knopf und Warenkorb
+    ngx.print('<script src="/static/marktplatz-paypal.js?v=' .. require("render").rev() .. '"></script>')
+    ngx.print([==[<script>
+(function(){
+  var box = document.getElementById('pp-box'); if (!box || !window.FundusMarktPayPal) return;
+  var M = window.FundusMarktPayPal, d = box.dataset;
+  function anzahl(){ var q = document.getElementById('buy-qty'); var n = q ? parseInt(q.value, 10) || 1 : 1; return Math.max(1, Math.min(n, +d.max || 1)); }
+  function versand(){ if (d.versandMoeglich !== '1') return false; var r = document.querySelector('input[name="deliv"]:checked'); return !!(r && r.value === 'shipping'); }
+  function summe(){ return (+d.preis) * anzahl() + (versand() ? (+d.versandkosten || 0) : 0); }
+  function zeigen(){ document.getElementById('pp-summe').textContent = M.euro(summe()) + (versand() ? ' inkl. Versand' : ''); }
+  function melde(t){ document.getElementById('pp-status').textContent = t; document.getElementById('pp-status').classList.toggle('hidden', !t); }
+  document.addEventListener('input', function(e){ if (e.target && (e.target.id === 'buy-qty')) zeigen(); });
+  document.addEventListener('change', function(e){ if (e.target && e.target.name === 'deliv') zeigen(); });
+  M.info().then(function(i){
+    if (!i.bereit) return; // Node ohne PayPal-Zugang: kein PayPal-Kauf
+    box.style.display = '';
+    zeigen();
+    M.knopf('#pp-knopf', function(){ return [{ listing_id: d.id, anzahl: anzahl(), versand: versand() }]; }, {
+      meldung: melde,
+      fertig: function(x){
+        document.getElementById('pp-knopf').style.display = 'none';
+        melde('✓ Bezahlt: ' + M.euro(+x.betrag) + (x.sandbox ? ' (Sandbox)' : '') + (x.ort ? ' – Versand an ' + x.name + ', ' + x.ort : '') + '. Beleg ' + x.beleg + '. Der Verkäufer wurde benachrichtigt.');
+        setTimeout(function(){ location.reload(); }, 6000);
+      }
+    }).catch(function(e){ melde('✗ ' + e.message); });
+  });
+  document.getElementById('wk-btn').onclick = function(){
+    M.warenkorb.hinzu({ id: d.id, titel: d.titel, preis: +d.preis, anzahl: anzahl(), max: +d.max, versand: versand(),
+      versand_moeglich: d.versandMoeglich === '1', versandkosten: +d.versandkosten || 0, empf: d.empf });
+    this.textContent = '✓ Im Warenkorb';
+    document.getElementById('wk-link').style.display = '';
+  };
+  if (M.warenkorb.anzahl()) document.getElementById('wk-link').style.display = '';
+})();
+</script>]==])
     ngx.print('<script>window.LISTING_META=' .. (require("cjson.safe").encode({ id = record.id, title = tostring(record.data and record.data.title or ""), category = tostring(record.data and record.data.category or "") }) or "{}") .. ';</script>')
     ngx.print([==[<script>
 (function(){

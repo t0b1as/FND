@@ -45,6 +45,9 @@ func (s *Server) registerAdminRoutes() {
 		g.POST("/funk/komponenten", s.funkKomponentenSetzen) // R864: Ausstattung zuschalten
 		g.GET("/hotspot",          s.hotspotEinstellungen) // R865: WLAN-Hotspot
 		g.POST("/hotspot",         s.hotspotSpeichern)
+		g.GET("/paypal", s.paypalEinstellungen)          // R922: eigene Lasche
+		g.POST("/paypal", s.paypalSpeichern)             // R922
+		g.POST("/paypal/versand", s.paypalVersandSetzen) // R922
 		g.POST("/hotspot/versand", s.hotspotVersandSetzen) // R904: Verkauf als versendet markieren
 		g.POST("/hotspot/produktbild", s.produktBildHochladen)          // R909
 		g.POST("/hotspot/produktbild/loeschen", s.produktBildLoeschen)  // R909

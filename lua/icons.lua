@@ -30,6 +30,7 @@ local P = {
   -- Feed (R812): drei Wellen – Beiträge, die sich im Netz ausbreiten.
   feed         = '<path d="M3 7q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M3 12q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M3 17q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/>',
   suche        = '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/>',
+  warenkorb    = '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h3l2.4 11.2h11.4l2-8H6.6"/>',
   star         = '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',
 }
 

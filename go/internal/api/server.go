@@ -372,6 +372,10 @@ func (s *Server) registerRoutes() {
 		listings.PUT("/:id",   s.updateListing)
 		listings.DELETE("/:id", s.deleteListing)
 	}
+	// R922: PayPal im Marktplatz (Geld direkt an den Verkäufer, 1 FND = 1 EUR)
+	r.GET("/api/v1/marktplatz/paypal", s.marktplatzPayPalInfo)
+	r.POST("/api/v1/marktplatz/paypal/bestellung", s.marktplatzPayPalBestellung)
+	r.POST("/api/v1/marktplatz/paypal/abschluss", s.marktplatzPayPalAbschluss)
 
 	// Sammelbestellungen (R696): gemeinsam bestellen, um den Mengenpreis zu
 	// bekommen. Der Händler braucht dafür keine Wallet – die Hinterlegung läuft
@@ -526,7 +530,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R921"
+const NodeRevision = "R922"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -853,6 +857,10 @@ func (s *Server) createListing(c *gin.Context) {
 		return
 	}
 	stripCreatorFields(body) // nur der Server setzt den Ersteller
+	if err := paypalFeldPruefen(body); err != nil { // R922
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	// Beschreibung als Rich-Text sanitizen (nur sichere Formatierungs-Tags).
 	if desc, ok := body["description"].(string); ok {
 		body["description"] = sanitizeRichText(desc)
@@ -1028,6 +1036,10 @@ func (s *Server) updateListing(c *gin.Context) {
 		return
 	}
 	stripCreatorFields(body) // Ersteller ist nicht änderbar
+	if err := paypalFeldPruefen(body); err != nil { // R922
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	// Beschreibung als Rich-Text sanitizen (nur sichere Formatierungs-Tags).
 	if desc, ok := body["description"].(string); ok {
 		body["description"] = sanitizeRichText(desc)

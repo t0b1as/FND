@@ -109,6 +109,11 @@ return function(captures)
     </div>
     <small class="meta" data-current-wallet="%s">]] .. t("listing.seller_wallet_hint") .. [[</small></div>
   <div class="field">
+      <label for="f-paypal">PayPal-Empfänger (optional)</label>
+      <input type="text" id="f-paypal" name="paypal" autocomplete="email" placeholder="E-Mail deines PayPal-Kontos oder Händlerkonto-ID">
+      <small class="meta">Mit Eintrag können Käufer auch per PayPal bezahlen (1 FND = 1 €) – das Geld geht direkt auf dieses PayPal-Konto. Die Adresse ist im Angebot für andere Nodes sichtbar; die Händlerkonto-ID (PayPal → Kontoeinstellungen) verrät weniger.</small>
+    </div>
+  <div class="field">
     <label>%s</label>
     <div class="fee-mode-row" style="margin:6px 0;font-size:13px">
       <label style="margin-right:16px;cursor:pointer">
@@ -285,6 +290,7 @@ async function submitEdit(e) {
         price:        parseFloat(document.getElementById("f-price").value) || 0,
         quantity:     Math.max(0, parseInt(document.getElementById("f-quantity").value, 10) || 0), // noch verfügbar
         seller_wallet: (document.getElementById("f-seller-wallet")||{}).value || "",
+        paypal:       ((document.getElementById("f-paypal")||{}).value || "").trim(), // R922
         delivery:     (document.querySelector('input[name="f-delivery"]:checked')||{}).value || "pickup",
         shipping_cost: parseFloat((document.getElementById("f-shipping-cost")||{}).value) || 0,
         keywords:     document.getElementById("f-keywords").value.split(",").map(s=>s.trim()).filter(Boolean),
@@ -334,6 +340,9 @@ async function submitEdit(e) {
         t("general.save"), id, t("general.back"),
         jsStr, id, id
     ))
+    -- R922: PayPal-Empfänger vorbelegen (ohne die Formatliste oben zu verschieben)
+    ngx.print('<script>(function(){var f=document.getElementById("f-paypal");if(f)f.value=' ..
+        (cjson.encode(tostring(d.paypal or "")) or '""') .. ';})();</script>')
 
     render.footer()
 end
