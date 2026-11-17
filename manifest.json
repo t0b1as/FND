@@ -1,8 +1,8 @@
 {
-  "version": "R922",
-  "description": "FUNDUS R922 - Warenkorb",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R922/FND-R922-update.zip",
-  "node_argon2": "d9dafcc81391d66ee25be7d33f259812980317f86d8f9a63c9f8734a20596758",
-  "published_at": "2026-11-17T05:53:10.74576Z",
-  "signature": "0x870c5522bacaf19b0ab4798b18ee7df839882e35002193f2f43be1c2fe5098ca07af9994961cd9a7023174945a5fb1706b1540465b488e2d7b3ef1787e4a2a321c"
+  "version": "R923",
+  "description": "FUNDUS R923 - Warenkorb",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R923/FND-R923-update.zip",
+  "node_argon2": "5b880170d695114f4d8bb561c28bcb9f188043502b703b92bd99be6031bd1380",
+  "published_at": "2026-11-17T06:14:07.2051605Z",
+  "signature": "0x51e18ac8e8083d6419c7f40902780f08596fab65c76dab34a35d676131df0ace22762093a825c7fa0d28443a6d86601be7a78572ce431fb8a3ef2706e3bbff9d1b"
 }
