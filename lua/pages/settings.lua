@@ -1863,7 +1863,11 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     <p class="set-hint" style="margin:0 0 10px">Konten, die sich auf diesem Node angemeldet haben, mit Wallet-Adresse und FND-Guthaben, soweit bekannt. Gespeichert sind nur die öffentliche Fundus-ID und die Wallet-Adresse. E-Mail und Passwort kennt der Node nicht. <b>Online</b> heißt: aktiv in den letzten 5 Minuten.</p>
     <div id="kt-summe" style="display:flex;gap:18px;flex-wrap:wrap;margin:0 0 10px;font-size:14px"></div>
     <div id="kt-liste" class="set-hint">Lade …</div>
-    <div style="margin-top:10px"><button type="button" class="btn" id="kt-neu" style="width:auto">Aktualisieren</button></div>
+    <div style="margin-top:10px;display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn" id="kt-neu" style="width:auto">Aktualisieren</button>
+      <label class="set-hint" style="margin:0;display:flex;gap:6px;align-items:center"><input type="checkbox" id="kt-chain"> Alle Wallets der Blockchain einblenden</label>
+    </div>
+    <div id="kt-chain-liste" style="margin-top:14px;display:none"></div>
   </div>
 </div>
 <script>
@@ -1873,10 +1877,32 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
   var zeit = function(u){ return u ? new Date(u * 1000).toLocaleString('de-DE', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '–'; };
   var kurz = function(a){ return a && a.length > 14 ? a.slice(0, 8) + '…' + a.slice(-4) : (a || ''); };
   var vor = function(u){ if (!u) return ''; var s = Math.max(0, Date.now() / 1000 - u); return s < 90 ? 'gerade eben' : s < 3600 ? 'vor ' + Math.round(s / 60) + ' min' : s < 86400 ? 'vor ' + Math.round(s / 3600) + ' h' : 'vor ' + Math.round(s / 86400) + ' T'; };
+  function chainZeigen(c){
+    var ziel = $('kt-chain-liste');
+    if (!$('kt-chain').checked) { ziel.style.display = 'none'; return; }
+    ziel.style.display = '';
+    if (!c) { ziel.innerHTML = '<p class="set-hint">Lade …</p>'; return; }
+    if (!c.verfuegbar) { ziel.innerHTML = '<p class="set-hint">Auf diesem Node läuft keine Chain.</p>'; return; }
+    var fnd = function(v){ return esc(String(v || '0').replace('.', ',')); };
+    ziel.innerHTML = '<div class="hs-abschnitt">Alle Wallets der Blockchain</div>' +
+      '<p class="set-hint" style="margin:4px 0 8px"><b>' + c.anzahl + '</b> Wallets mit Guthaben, Stake oder Transaktionen · zusammen <b>' + fnd(c.summe) + ' FND</b>' + (c.stake && c.stake !== '0' ? ' + ' + fnd(c.stake) + ' FND gestakt' : '') + ' · Blockhöhe ' + esc(c.hoehe) + '. Namen stehen nur bei Konten, die sich hier angemeldet und ihre Wallet geöffnet haben.</p>' +
+      '<div style="overflow-x:auto"><table class="hs-tab"><thead><tr><th>Wallet</th><th>Zuordnung</th><th style="text-align:right">FND</th><th style="text-align:right">Stake</th><th style="text-align:right">Tx</th></tr></thead><tbody>' +
+      (c.konten || []).map(function(k){
+        var wer = k.name ? '<b>' + esc(k.name) + '</b>' : '';
+        if (k.rolle) wer += (wer ? '<br>' : '') + '<span style="opacity:.75">' + esc(k.rolle) + '</span>';
+        return '<tr><td style="font-family:monospace;font-size:12px" title="' + esc(k.adresse) + '">' + esc(kurz(k.adresse)) +
+          ' <button type="button" class="kt-kopie" data-a="' + esc(k.adresse) + '" title="Adresse kopieren" style="background:none;border:0;cursor:pointer;color:inherit;opacity:.6">⧉</button></td><td>' + (wer || '<span style="opacity:.5">–</span>') +
+          '</td><td style="text-align:right;white-space:nowrap">' + fnd(k.fnd) + '</td><td style="text-align:right;white-space:nowrap">' + (k.stake ? fnd(k.stake) : '–') + '</td><td style="text-align:right">' + esc(k.tx) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+    ziel.querySelectorAll('.kt-kopie').forEach(function(b){ b.onclick = function(){ try { navigator.clipboard.writeText(b.dataset.a); b.textContent = '✓'; } catch(e){} }; });
+  }
   function laden(){
-    fetch('/api/v1/admin/konten', { credentials: 'same-origin' }).then(function(r){ if (!r.ok) throw r.status; return r.json(); }).then(function(d){
+    var mitChain = $('kt-chain').checked;
+    if (mitChain) chainZeigen(null);
+    fetch('/api/v1/admin/konten' + (mitChain ? '?chain=1' : ''), { credentials: 'same-origin' }).then(function(r){ if (!r.ok) throw r.status; return r.json(); }).then(function(d){
       var l = d.konten || [], tos = l.filter(function(k){ return k.tos_version; }).length, mitW = l.filter(function(k){ return k.wallet; }).length;
       $('kt-summe').innerHTML = '<span><b>' + d.gesamt + '</b> Konten</span><span><b style="color:var(--green,#00e676)">' + d.online + '</b> online</span><span><b>' + d.angemeldet + '</b> angemeldet</span><span><b>' + tos + '</b> Bedingungen bestätigt</span><span><b>' + mitW + '</b> mit bekannter Wallet</span>';
+      chainZeigen(d.chain);
       if (!l.length) { $('kt-liste').textContent = 'Noch niemand angemeldet (gezählt wird ab R930).'; return; }
       $('kt-liste').innerHTML = '<div style="overflow-x:auto"><table class="hs-tab"><thead><tr><th>Konto</th><th>Status</th><th>Erste / letzte Anmeldung</th><th>Anm.</th><th>Bedingungen</th><th>Wallet · FND</th></tr></thead><tbody>' +
         l.map(function(k){
@@ -1890,6 +1916,8 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     }).catch(function(e){ $('kt-liste').textContent = (e === 401 || e === 403) ? 'Nur für den Eigentümer.' : 'Konnte nicht geladen werden.'; });
   }
   $('kt-neu').onclick = laden;
+  try { $('kt-chain').checked = localStorage.getItem('fundus.konten.chain') === '1'; } catch(e){}
+  $('kt-chain').onchange = function(){ try { localStorage.setItem('fundus.konten.chain', this.checked ? '1' : '0'); } catch(e){} laden(); };
   laden();
 })();
 </script>

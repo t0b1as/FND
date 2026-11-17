@@ -13,6 +13,7 @@ package api
 
 import (
 	"encoding/json"
+	"math/big"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fundus/node/internal/chain"
 	"github.com/gin-gonic/gin"
 )
 
@@ -168,23 +170,25 @@ func (s *Server) kontoTOSAkzeptieren(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
-// GET /api/v1/admin/konten – Übersicht für den Betreiber.
+type zeileKonto struct {
+	FID         string `json:"fid"`
+	Name        string `json:"name"`
+	Erste       int64  `json:"erste"`
+	Letzte      int64  `json:"letzte"`
+	Anmeldungen int    `json:"anmeldungen"`
+	TOSVersion  string `json:"tos_version,omitempty"`
+	TOSZeit     int64  `json:"tos_zeit,omitempty"`
+	Wallet      string `json:"wallet,omitempty"`
+	FND         string `json:"fnd,omitempty"` // Guthaben in FND, wenn Adresse bekannt
+	Angemeldet  bool   `json:"angemeldet"`    // Sitzung besteht (Cookie gültig)
+	Online      bool   `json:"online"`        // Aktivität in den letzten 5 Minuten
+	Aktiv       int64  `json:"aktiv,omitempty"`
+	Geraete     int    `json:"geraete"` // gültige Sitzungs-Cookies
+}
+
+// GET /api/v1/admin/konten – Übersicht für den Betreiber (?chain=1: dazu alle
+// Konten der Blockchain, R932).
 func (s *Server) adminKonten(c *gin.Context) {
-	type zeile struct {
-		FID         string `json:"fid"`
-		Name        string `json:"name"`
-		Erste       int64  `json:"erste"`
-		Letzte      int64  `json:"letzte"`
-		Anmeldungen int    `json:"anmeldungen"`
-		TOSVersion  string `json:"tos_version,omitempty"`
-		TOSZeit     int64  `json:"tos_zeit,omitempty"`
-		Wallet      string `json:"wallet,omitempty"`
-		FND         string `json:"fnd,omitempty"` // Guthaben in FND, wenn Adresse bekannt
-		Angemeldet  bool   `json:"angemeldet"`    // Sitzung besteht (Cookie gültig)
-		Online      bool   `json:"online"`        // Aktivität in den letzten 5 Minuten
-		Aktiv       int64  `json:"aktiv,omitempty"`
-		Geraete     int    `json:"geraete"` // gültige Sitzungs-Cookies
-	}
 	// Sitzungen
 	type sitz struct {
 		aktiv  int64
@@ -226,9 +230,9 @@ func (s *Server) adminKonten(c *gin.Context) {
 	if geaendert {
 		s.kontenSchreiben()
 	}
-	liste := make([]zeile, 0, len(k))
+	liste := make([]zeileKonto, 0, len(k))
 	for fid, e := range k {
-		liste = append(liste, zeile{FID: fid, Erste: e.Erste, Letzte: e.Letzte, Anmeldungen: e.Anmeldungen,
+		liste = append(liste, zeileKonto{FID: fid, Erste: e.Erste, Letzte: e.Letzte, Anmeldungen: e.Anmeldungen,
 			TOSVersion: e.TOSVersion, TOSZeit: e.TOSZeit, Wallet: e.Wallet})
 	}
 	kontenMu.Unlock()
@@ -259,7 +263,72 @@ func (s *Server) adminKonten(c *gin.Context) {
 		}
 		return liste[a].Letzte > liste[b].Letzte
 	})
-	c.JSON(http.StatusOK, gin.H{"konten": liste, "gesamt": len(liste), "online": online, "angemeldet": len(sitzungen)})
+	antwort := gin.H{"konten": liste, "gesamt": len(liste), "online": online, "angemeldet": len(sitzungen)}
+	if c.Query("chain") == "1" {
+		antwort["chain"] = s.chainKontenListe(liste)
+	}
+	c.JSON(http.StatusOK, antwort)
+}
+
+// chainZeile (R932): ein Konto der Blockchain mit allem, was dieser Node
+// darüber weiß – ob es ein Konto von hier ist, eine Node-Wallet, der
+// Gebühren-Sammler …
+type chainZeile struct {
+	Adresse string `json:"adresse"`
+	FND     string `json:"fnd"`
+	Stake   string `json:"stake,omitempty"`
+	TX      uint64 `json:"tx"`
+	Rolle   string `json:"rolle,omitempty"`
+	Name    string `json:"name,omitempty"`
+	FID     string `json:"fid,omitempty"`
+}
+
+func (s *Server) chainKontenListe(hier []zeileKonto) gin.H {
+	if s.chain == nil {
+		return gin.H{"verfuegbar": false}
+	}
+	bekannt := map[string]zeileKonto{}
+	for _, k := range hier {
+		if k.Wallet != "" {
+			bekannt[strings.ToLower(k.Wallet)] = k
+		}
+	}
+	rollen := map[string]string{}
+	for _, v := range chain.FoundingValidators {
+		rollen[strings.ToLower(v)] = "Gründungs-Validator"
+	}
+	for _, v := range s.chain.ValidatorAddrs() {
+		if _, ok := rollen[strings.ToLower(v)]; !ok {
+			rollen[strings.ToLower(v)] = "Validator"
+		}
+	}
+	if fc := s.chain.FeeCollectorAdresse(); fc != (chain.Address{}) {
+		rollen[strings.ToLower(fc.Hex())] = "Gebühren-Sammler"
+	}
+	if eigen, _, _ := s.chain.ConsensusSelf(); eigen != "" {
+		rollen[strings.ToLower(eigen)] = "Wallet dieses Nodes"
+	}
+	konten := s.chain.AlleKonten()
+	out := make([]chainZeile, 0, len(konten))
+	summe, stake := new(big.Int), new(big.Int)
+	for _, k := range konten {
+		z := chainZeile{Adresse: k.Adresse, FND: fndDezimal(k.Saldo), TX: k.Nonce, Rolle: rollen[strings.ToLower(k.Adresse)]}
+		if k.Stake != "" && k.Stake != "0" {
+			z.Stake = fndDezimal(k.Stake)
+		}
+		if b, ok := bekannt[strings.ToLower(k.Adresse)]; ok {
+			z.Name, z.FID = b.Name, b.FID
+		}
+		if v, ok := new(big.Int).SetString(k.Saldo, 10); ok {
+			summe.Add(summe, v)
+		}
+		if v, ok := new(big.Int).SetString(k.Stake, 10); ok {
+			stake.Add(stake, v)
+		}
+		out = append(out, z)
+	}
+	return gin.H{"verfuegbar": true, "hoehe": s.chain.Height(), "konten": out, "anzahl": len(out),
+		"summe": fndDezimal(summe.String()), "stake": fndDezimal(stake.String())}
 }
 
 // fndDezimal: uFND (1 FND = 1e9 uFND, chain.UFNDPerFND) → „12.5“.
