@@ -15,6 +15,14 @@
   const offen = ['/login', '/setup', '/shared'];
   if (offen.some(function (p) { return location.pathname.indexOf(p) === 0; })) return;
 
+  // R926: Marktplatz, Aeronautik und Feed sind ohne Anmeldung lesbar. Dort
+  // sperrt nichts beim Laden; erst eine Aktion, die ein Konto braucht
+  // (Anlegen, Liken, Kommentieren, Kaufen mit FND …), fragt nach der Anmeldung –
+  // und das Fenster lässt sich schließen.
+  const pfadJetzt = location.pathname;
+  const lesbar = pfadJetzt === '/listings' || (/^\/listings\/[^/]+$/.test(pfadJetzt) && pfadJetzt !== '/listings/new') ||
+    pfadJetzt === '/warenkorb' || pfadJetzt === '/aeronautik' || pfadJetzt === '/feed';
+
   function overlayZeigen() {
     if (document.getElementById('auth-gate')) return;
     const d = document.createElement('div');
@@ -22,8 +30,11 @@
     d.innerHTML =
       '<div class="ag-box">' +
       '<div class="ag-titel">Bitte anmelden</div>' +
-      '<p>Fundus ist dein eigener Knoten im Netz. Ohne Konto lässt sich nichts ' +
-      'ansehen oder tun – es gibt keinen Gastzugang.</p>' +
+      (lesbar ? '<p>Dafür brauchst du ein Konto. Ansehen geht auch ohne – Marktplatz, ' +
+        'Aeronautik und Feed sind für alle offen.</p>' :
+      '<p>Fundus ist dein eigener Knoten im Netz. Ohne Konto lässt sich hier nichts ' +
+      'ansehen oder tun. Offen für alle: <a href="/listings">Marktplatz</a>, ' +
+      '<a href="/aeronautik">Aeronautik</a> und <a href="/feed">Feed</a>.</p>') +
       '<div class="ag-weg"><b>Mit E-Mail und Passwort</b><br>' +
       'Du wählst beides selbst. Daraus entsteht dein Konto – es wird nirgends ' +
       'hinterlegt und nicht geprüft. Dieselbe Eingabe führt immer zum selben Konto, ' +
@@ -34,11 +45,14 @@
       '<p class="ag-warn">Bewahre beides gut auf. Es gibt niemanden, der dein ' +
       'Passwort zurücksetzen könnte – dein Konto entsteht rechnerisch daraus.</p>' +
       '<button class="btn" id="ag-los">Anmelden</button>' +
+      (lesbar ? '<button class="btn" id="ag-gast" style="margin-top:8px;background:transparent;border:1px solid currentColor;opacity:.8">Weiter ohne Anmeldung</button>' : '') +
       '</div>';
     document.body.appendChild(d);
     document.documentElement.style.overflow = 'hidden';
     const b = document.getElementById('ag-los');
     if (b) b.onclick = anmeldenOeffnen;
+    const g = document.getElementById('ag-gast');
+    if (g) g.onclick = overlayWeg;
   }
 
   function overlayWeg() {
@@ -89,13 +103,13 @@
       const offen = document.getElementById('wallet-dialog') ||
                     document.getElementById('wallet-menu');
       if ((!offen && versuche > 2) || versuche > 150) {
-        clearInterval(takt); _amAnmelden = false; overlayZeigen();
+        clearInterval(takt); _amAnmelden = false; if (!lesbar) overlayZeigen();
       }
     }, 2000);
   }
 
   async function pruefen() {
-    if (_amAnmelden) return;
+    if (_amAnmelden || lesbar) return;
     try {
       const r = await fetch('/api/v1/identity/me', { credentials: 'same-origin' });
       if (!r.ok) { overlayZeigen(); return; }
@@ -110,10 +124,14 @@
   else pruefen();
 
   // Weist der Node später ab (Sitzung abgelaufen), sofort wieder sperren.
-  window.fetch = function () {
+  window.fetch = function (eingabe, opt) {
+    const methode = String((opt && opt.method) || (eingabe && eingabe.method) || 'GET').toUpperCase();
     return originalFetch.apply(this, arguments).then(function (r) {
+      // Auf den offenen Seiten nur bei Aktionen nachfragen – ein Lesezugriff
+      // im Hintergrund, der ein Konto bräuchte, soll Gäste nicht aussperren.
       if (!_amAnmelden && r && r.status === 401 &&
-          String(r.url || '').indexOf('/api/') >= 0) overlayZeigen();
+          String(r.url || '').indexOf('/api/') >= 0 &&
+          (!lesbar || (methode !== 'GET' && methode !== 'HEAD'))) overlayZeigen();
       return r;
     });
   };

@@ -532,7 +532,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R925"
+const NodeRevision = "R926"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -972,6 +972,10 @@ func (s *Server) getListing(c *gin.Context) {
 			s.sessionFID(c) == strings.ToLower(strings.TrimSpace(cr)) {
 			editable = true
 		}
+	}
+	// R926: Gäste (ohne Anmeldung) sehen keinen Bearbeiten-Knopf.
+	if editable && s.sessionFID(c) == "" && !s.isAdminRequest(c) {
+		editable = false
 	}
 	// Bestand maßgeblich aus den Kaufvermerken (R572) – die Seite soll nicht
 	// auf die im Angebot mitgeschriebene Zahl angewiesen sein.

@@ -21,7 +21,7 @@ import (
 var gateOpenPrefixes = []string{
 	// Anmelden und Konto anlegen
 	"/api/v1/identity/derive",
-	"/api/v1/identity/me",       // zum Prüfen, OB jemand angemeldet ist
+	"/api/v1/identity/me", // zum Prüfen, OB jemand angemeldet ist
 	"/api/v1/identity/logout",
 	"/api/v1/wallet/open",
 	"/api/v1/wallet/derive",
@@ -44,6 +44,54 @@ var gateOpenExact = []string{
 	"/api/v1/shop/price", // Referenzkurs: reine Information, kein Bezug zu Personen
 }
 
+// R926: Marktplatz, Aeronautik und Feed sind ohne Anmeldung LESBAR. Offen ist
+// nur Lesen (GET/HEAD) – Anlegen, Bearbeiten, Liken, Kommentieren, Kaufen mit
+// FND und alles andere verlangt weiter ein Konto. Was dabei herauskommt,
+// entscheiden die Handler wie bisher selbst: Der Feed zeigt Gästen nur
+// öffentliche Beiträge (feedZugang ohne Sitzung), Angebote sind ohnehin
+// öffentlich im Netz verteilt.
+var gateLesenPrefixes = []string{
+	"/api/v1/listings",       // Liste, Einzelansicht, Vorschaubild, Eigenschaften, Kategorien
+	"/api/v1/search",         // Marktplatzsuche (von außen gedrosselt, publicHeavyGuard)
+	"/api/v1/ratings",        // Bewertungen des Verkäufers
+	"/api/v1/identity/names", // Anzeigenamen
+	"/api/v1/identity/avatar/",
+	"/api/v1/files/thumb/",    // Bilder der Angebote und Beiträge
+	"/api/v1/files/download/", // nur über den Inhalts-Hash, nicht erratbar
+	"/api/v1/aeronautik/",
+	"/api/v1/funk/",
+	"/api/v1/feed",
+}
+
+// gateOffenAlle: ohne Anmeldung mit jeder Methode erreichbar.
+var gateOffenAlle = []string{
+	// Bezahlen per PayPal geht als Gast: Das Geld geht direkt an den Verkäufer,
+	// den Betrag rechnet der Node selbst aus.
+	"/api/v1/marktplatz/paypal",
+	// Quartett-Druckdatei: digitales Goodie für jeden (R920).
+	"/api/v1/aeronautik/druckdatei",
+}
+
+func gateIstLesbar(methode, pfad string) bool {
+	for _, p := range gateOffenAlle {
+		if pfad == p || strings.HasPrefix(pfad, p+"/") {
+			return true
+		}
+	}
+	if methode != http.MethodGet && methode != http.MethodHead {
+		return false
+	}
+	if pfad == "/api/v1/feed/groups" { // eigene Gruppen: nur mit Konto
+		return false
+	}
+	for _, p := range gateLesenPrefixes {
+		if pfad == p || strings.HasPrefix(pfad, strings.TrimSuffix(p, "/")+"/") {
+			return true
+		}
+	}
+	return false
+}
+
 func gateIstOffen(pfad string) bool {
 	for _, p := range gateOpenExact {
 		if pfad == p {
@@ -62,7 +110,7 @@ func gateIstOffen(pfad string) bool {
 func (s *Server) loginGate() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pfad := c.Request.URL.Path
-		if !strings.HasPrefix(pfad, "/api/") || gateIstOffen(pfad) {
+		if !strings.HasPrefix(pfad, "/api/") || gateIstOffen(pfad) || gateIstLesbar(c.Request.Method, pfad) {
 			c.Next()
 			return
 		}
