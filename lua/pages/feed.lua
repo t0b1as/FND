@@ -6,6 +6,7 @@ local icons = require "icons"
 
 return function()
     ngx.header["Content-Type"] = "text/html"
+    render.vorschau({ titel = "Feed", text = "Öffentliche Beiträge aus dem Fundus-Netz." })
     render.header("Feed", "feed")
 
     ngx.print([[

@@ -4,6 +4,21 @@ local render = require "render"
 return function(captures)
     local id = captures and captures[1] or ""
     ngx.header["Content-Type"] = "text/html"
+    -- R929: Angebot VOR dem Kopf laden – für die Link-Vorschau (Open Graph).
+    local vorab, vorabErr
+    if id ~= "" then vorab, vorabErr = render.api_get("/v1/listings/" .. id) end
+    if vorab and vorab.data then
+        local d = vorab.data
+        local preis = tonumber(d.price_min) or 0
+        local teile = {}
+        if preis > 0 then table.insert(teile, (string.format("%.2f", preis):gsub("%.", ",")) .. " FND (= €)") end
+        if type(d.condition) == "string" and d.condition ~= "" then table.insert(teile, d.condition:sub(1,1):upper() .. d.condition:sub(2)) end
+        local text = render.kurztext(d.description or d.listing_text or "", 220)
+        if #teile > 0 then text = table.concat(teile, " · ") .. (text ~= "" and (" – " .. text) or "") end
+        render.vorschau({ titel = tostring(d.title or "Angebot"), text = text, typ = "product",
+            bild = "/api/v1/listings/" .. ngx.escape_uri(id) .. "/thumb",
+            preis = preis > 0 and string.format("%.2f", preis) or nil })
+    end
     local t = render.header("listing.detail_title", "listings")
 
     if id == "" then
@@ -11,7 +26,7 @@ return function(captures)
         render.footer(); return
     end
 
-    local record, err = render.api_get("/v1/listings/" .. id)
+    local record, err = vorab, vorabErr
     if err or not record then
         ngx.print("<p class='error'>" .. t("general.not_found") .. ": " .. (err or id) .. "</p>")
         render.footer(); return

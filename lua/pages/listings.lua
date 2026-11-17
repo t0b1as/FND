@@ -3,6 +3,7 @@ local render = require "render"
 
 return function()
     ngx.header["Content-Type"] = "text/html"
+    render.vorschau({ titel = "Marktplatz", text = "Angebote aus der Nachbarschaft – direkt vom Anbieter, bezahlt mit FND oder PayPal (1 FND = 1 €)." })
     local t = render.header("listing.title_page", "listings")
 
     ngx.print('<div class="top-bar"><a href="/listings/new" class="btn">' .. t("listing.new") .. '</a><div id="filter-mount"></div></div>')

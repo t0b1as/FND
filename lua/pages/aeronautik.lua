@@ -6,6 +6,7 @@ local icons = require "icons"
 
 return function()
     ngx.header["Content-Type"] = "text/html"
+    render.vorschau({ titel = "Aeronautik", text = "Flugverkehr live aus den Transpondersignalen der Fundus-Empfänger – Karte, Aufzeichnungen und das Flugzeug-Quartett zum Ausdrucken." })
     render.header("Aeronautik", "aeronautik")
 
     ngx.print([==[

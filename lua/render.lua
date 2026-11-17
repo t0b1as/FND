@@ -161,6 +161,94 @@ function _M.rev()
     return read_revision()
 end
 
+-- R929: Vorschau für geteilte Links (Facebook, WhatsApp, Telegram, Signal …).
+-- Die Abrufer der Plattformen haben keinen Nutzungsbedingungen-Cookie und
+-- landeten bisher immer auf /tos – die Vorschau zeigte deshalb die
+-- Nutzungsbedingungen statt des Angebots. Sie bekommen die Seite jetzt direkt,
+-- mit Open-Graph-Angaben (Titel, Text, Bild).
+local VORSCHAU_BOTS = {
+    "facebookexternalhit", "facebot", "meta%-externalagent", "meta%-externalfetcher",
+    "twitterbot", "linkedinbot", "whatsapp", "telegrambot", "slackbot", "slack%-imgproxy",
+    "discordbot", "skypeuripreview", "pinterest", "redditbot", "applebot",
+    "googlebot", "bingbot", "duckduckbot", "yandex", "mastodon", "embedly", "iframely",
+    "vkshare", "xing%-contenttabreceiver", "snapchat", "viber", "line%-poker", "bluesky", "cardyb",
+}
+function _M.ist_vorschau_bot()
+    local ua = (ngx.var.http_user_agent or ""):lower()
+    if ua == "" then return false end
+    for _, m in ipairs(VORSCHAU_BOTS) do
+        if ua:find(m) then return true end
+    end
+    return false
+end
+
+local _vorschau = nil
+-- render.vorschau{titel=, text=, bild="/pfad", typ="product"} VOR header() aufrufen.
+function _M.vorschau(v) _vorschau = v end
+
+local function absolut(pfad)
+    if not pfad or pfad == "" then return "" end
+    if pfad:match("^https?://") then return pfad end
+    local proto = ngx.var.http_x_forwarded_proto
+    if not proto or proto == "" then proto = ngx.var.scheme or "https" end
+    proto = proto:match("^(%a+)") or "https"
+    local host = ngx.var.http_x_forwarded_host
+    if not host or host == "" then host = ngx.var.host or "" end
+    host = host:match("^[%w%.%-:%[%]]+") or ""
+    return proto .. "://" .. host .. pfad
+end
+
+-- Text für die Vorschau: ohne HTML, Leerraum zusammengezogen, höchstens ~200
+-- Zeichen (ohne ein UTF-8-Zeichen zu zerschneiden).
+local function kurztext(t, max)
+    t = tostring(t or ""):gsub("<[^>]*>", " "):gsub("&nbsp;", " "):gsub("%s+", " ")
+    t = t:gsub("^ ", ""):gsub(" $", "")
+    max = max or 200
+    if #t > max then
+        local cut = max
+        while cut > 0 do
+            local b = t:byte(cut + 1)
+            if not b or b < 0x80 or b >= 0xC0 then break end
+            cut = cut - 1
+        end
+        t = t:sub(1, cut):gsub("%s+%S*$", "") .. " …"
+    end
+    return t
+end
+_M.kurztext = kurztext
+
+local function vorschau_html()
+    local v = _vorschau or {}
+    _vorschau = nil
+    local e = function(x) return _M.html_escape(x or "") end
+    local titel = v.titel and (v.titel .. " – FUNDUS") or "FUNDUS – dein Marktplatz im Netz der Nachbarn"
+    local text = kurztext(v.text or "Kaufen, verkaufen, teilen – direkt zwischen Menschen, ohne Plattform dazwischen. Bezahlen mit FND oder PayPal.")
+    local bild = absolut(v.bild or "/static/icon-192.png")
+    -- Klick-Kennungen der Plattformen gehören nicht in die Adresse des Angebots.
+    local args = (ngx.var.args or ""):gsub("[^&]*", function(p)
+        if p:match("^fbclid=") or p:match("^utm_") or p:match("^gclid=") or p:match("^igshid=") then return "" end
+    end):gsub("&&+", "&"):gsub("^&", ""):gsub("&$", "")
+    local url = absolut((ngx.var.uri or "/") .. ((args and args ~= "") and ("?" .. args) or ""))
+    local h = {
+        '<meta name="description" content="' .. e(text) .. '">',
+        '<meta property="og:site_name" content="FUNDUS">',
+        '<meta property="og:type" content="' .. e(v.typ or "website") .. '">',
+        '<meta property="og:title" content="' .. e(titel) .. '">',
+        '<meta property="og:description" content="' .. e(text) .. '">',
+        '<meta property="og:url" content="' .. e(url) .. '">',
+        '<meta property="og:image" content="' .. e(bild) .. '">',
+        '<meta property="og:locale" content="de_DE">',
+        '<meta name="twitter:card" content="' .. (v.bild and "summary_large_image" or "summary") .. '">',
+        '<link rel="canonical" href="' .. e(url) .. '">',
+    }
+    if v.preis then
+        table.insert(h, '<meta property="product:price:amount" content="' .. e(v.preis) .. '">')
+        table.insert(h, '<meta property="product:price:currency" content="EUR">')
+    end
+    -- string.format folgt: Prozentzeichen verdoppeln.
+    return (table.concat(h, "\n  "):gsub("%%", "%%%%"))
+end
+
 function _M.header(title_key, active)
     active = active or ""
     local t, lang = i18n.init()
@@ -174,7 +262,7 @@ function _M.header(title_key, active)
     -- TOS-Guard: beim ersten Aufruf auf /tos weiterleiten
     -- Ausnahme: /tos selbst und /static/ werden nicht geprüft
     local uri = ngx.var.uri or ""
-    if uri ~= "/tos" and not uri:match("^/tos/") and not uri:match("^/static/") then
+    if uri ~= "/tos" and not uri:match("^/tos/") and not uri:match("^/static/") and not _M.ist_vorschau_bot() then
         local tos = require "pages.tos"
         if not tos.accepted() then
             -- Aktuelle URL als Back-Parameter mitgeben
@@ -202,6 +290,7 @@ function _M.header(title_key, active)
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="FUNDUS">
   <link rel="apple-touch-icon" href="/static/icon.svg?v=]] .. rev .. [[">
+  ]] .. vorschau_html() .. [[
   <script>
   // fundusMe(): EINE gemeinsame /identity/me-Abfrage pro Seite (vorher 3-4x).
   // Liefert die Session-Daten oder null. force=true nach Login/Logout.

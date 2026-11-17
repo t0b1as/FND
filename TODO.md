@@ -33,6 +33,12 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R929:** Link-Vorschau: Abrufer von Facebook, WhatsApp, Telegram, X,
+      LinkedIn, Discord u. a. bekommen die Seite direkt statt /tos;
+      Open-Graph-Angaben (Titel, Text, Preis, Bild 512 px) für Angebote,
+      Marktplatz, Aeronautik, Feed; fbclid/utm_* aus og:url entfernt.
+- [ ] **ROT:** Mit dem Facebook Sharing Debugger (developers.facebook.com/tools/debug)
+      prüfen und „Erneut scrapen“, damit die alte TOS-Vorschau aus dem Cache fliegt.
 - [x] **R928:** Navigation (Startseite/Menü/Zugriffsleiste) je Konto statt je
       Browser: selbst-verschlüsselt beim Node (nav_prefs, fundus.contacts,
       Peer-Sync), ohne Anmeldung Standard. Aeronautik und Drive standardmäßig
