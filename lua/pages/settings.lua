@@ -1758,6 +1758,17 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       <button type="button" class="btn btn-primary" id="pp-speichern" style="width:auto">Speichern</button>
       <span id="pp-meldung" class="set-hint"></span>
     </div>
+    <div class="hs-abschnitt" style="margin-top:20px">Mein PayPal-Empfänger für alle meine Angebote</div>
+    <div class="hs-grid">
+      <label for="pp-konto">E-Mail oder Händler-ID</label><input id="pp-konto" autocomplete="email" placeholder="E-Mail deines PayPal-Kontos oder Händlerkonto-ID">
+    </div>
+    <label style="display:flex;gap:8px;align-items:center;margin:8px 0 0;font-size:13px"><input type="checkbox" id="pp-konto-alle"> auch Angebote ändern, in denen ein anderer Empfänger steht</label>
+    <div style="margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn btn-primary" id="pp-konto-speichern" style="width:auto">Für meine Angebote übernehmen</button>
+      <span id="pp-konto-meldung" class="set-hint"></span>
+    </div>
+    <p class="set-hint" style="margin:6px 0 0" id="pp-konto-stand">Gilt für das angemeldete Fundus-Konto: Der Node trägt die Adresse in alle deine Angebote ein – auch auf deinen anderen Nodes – und in neue Angebote, wenn dort nichts steht. Leer lassen und übernehmen entfernt sie.</p>
+
     <div class="hs-abschnitt" style="margin-top:20px">Verkäufe eigener Angebote per PayPal</div>
     <div id="pp-verkaeufe" class="set-hint">–</div>
     <p class="set-hint" style="margin:6px 0 0">Die Lieferadresse steht auch in deinem PayPal-Konto bei der Zahlung. Verkäufe im Hotspot stehen in der Lasche Hotspot.</p>
@@ -1805,6 +1816,28 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       }).catch(function(){ $('pp-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
   };
   laden();
+  // R923: Empfänger je Konto
+  function kontoLaden(){
+    fetch('/api/v1/konto/paypal', { credentials: 'same-origin' }).then(function(r){ return r.json().then(function(d){ return [r.status, d]; }); }).then(function(x){
+      var st = x[0], d = x[1];
+      if (st === 401) { $('pp-konto').disabled = true; $('pp-konto-speichern').disabled = true; $('pp-konto-meldung').textContent = 'Bitte mit deinem Fundus-Konto anmelden.'; return; }
+      $('pp-konto').value = d.empfaenger || '';
+      $('pp-konto-meldung').textContent = 'Deine Angebote: ' + d.angebote_mit + ' mit diesem Empfänger, ' + d.angebote_ohne + ' ohne' + (d.angebote_anders ? ', ' + d.angebote_anders + ' mit anderem' : '') + '.';
+    }).catch(function(){});
+  }
+  $('pp-konto-speichern').onclick = function(){
+    $('pp-konto-meldung').textContent = 'Übernehme …';
+    fetch('/api/v1/konto/paypal', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ empfaenger: $('pp-konto').value.trim(), alle: $('pp-konto-alle').checked }) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        if (d.error) { $('pp-konto-meldung').textContent = '✗ ' + d.error; return; }
+        var t = '✓ Gespeichert · ' + (d.geaendert + d.weitergeleitet) + ' Angebote angepasst' + (d.weitergeleitet ? ' (davon ' + d.weitergeleitet + ' auf anderen Nodes)' : '') +
+          (d.fehler ? ' · ' + d.fehler + ' nicht erreichbar: ' + (d.gruende || []).join('; ') : '');
+        $('pp-konto-meldung').textContent = t;
+        setTimeout(kontoLaden, 4000);
+      }).catch(function(){ $('pp-konto-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
+  };
+  kontoLaden();
 })();
 </script>
 

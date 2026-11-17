@@ -33,6 +33,9 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R923:** PayPal-Empfänger je Konto (Einstellungen → PayPal): wird in
+      alle Angebote des Kontos eingetragen (eigene direkt, auf anderen Nodes per
+      signierter Weiterleitung) und in neue Angebote mit leerem Feld.
 - [x] **R922:** PayPal in eigener Lasche (Zugang für Hotspot und Marktplatz,
       Liste der PayPal-Verkäufe eigener Angebote mit Lieferadresse). Marktplatz:
       Angebote mit PayPal-Empfänger (E-Mail/Händler-ID) lassen sich per PayPal

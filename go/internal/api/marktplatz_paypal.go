@@ -35,6 +35,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fundus/node/internal/p2p"
 	"github.com/fundus/node/internal/storage"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -571,4 +572,173 @@ func (s *Server) paypalVersandSetzen(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// ── R923: PayPal-Empfänger je Benutzerkonto ────────────────────────────────
+// Statt jedes Angebot einzeln zu bearbeiten, hinterlegt der Nutzer seine
+// PayPal-Adresse einmal für sein Konto (Fundus-ID). Der Node
+//   - trägt sie in alle Angebote dieses Kontos ein (eigene direkt, Angebote auf
+//     anderen eigenen Nodes über die signierte Weiterleitung aus R611),
+//   - setzt sie bei neuen Angeboten ein, wenn das Feld leer bleibt.
+// Ein im Angebot abweichend eingetragener Empfänger bleibt, außer der Nutzer
+// verlangt ausdrücklich „alle“.
+
+var kontoPayPalMu sync.Mutex
+
+func (s *Server) kontoPayPalLesen() map[string]string {
+	m := map[string]string{}
+	if b, err := os.ReadFile(s.hotspotDatei("paypal-konten.json")); err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	return m
+}
+
+// kontoPayPal: hinterlegter Empfänger einer Fundus-ID ("" = keiner).
+func (s *Server) kontoPayPal(fid string) string {
+	if fid == "" {
+		return ""
+	}
+	kontoPayPalMu.Lock()
+	defer kontoPayPalMu.Unlock()
+	return s.kontoPayPalLesen()[strings.ToLower(fid)]
+}
+
+// listingsDesKontos: alle nicht gelöschten Angebote einer Fundus-ID.
+func (s *Server) listingsDesKontos(fid string) []*storage.Record {
+	var out []*storage.Record
+	recs, err := s.store.List(storage.RecordListing)
+	if err != nil {
+		return nil
+	}
+	for _, r := range recs {
+		if r == nil || r.DeletedAt != nil || r.Data == nil {
+			continue
+		}
+		if cr, _ := r.Data["creator_fid"].(string); strings.EqualFold(strings.TrimSpace(cr), fid) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// eigenesListingFeld: ein Feld im EIGENEN Angebot setzen, neu signieren, verteilen.
+func (s *Server) eigenesListingFeld(rec *storage.Record, feld string, wert any) error {
+	listingStockMu.Lock()
+	aktuell, err := s.store.Get(storage.RecordListing, rec.ID)
+	if err != nil || aktuell == nil || aktuell.Data == nil {
+		listingStockMu.Unlock()
+		return fmt.Errorf("Angebot nicht gefunden")
+	}
+	aktuell.Data[feld] = wert
+	aktuell.UpdatedAt = time.Now()
+	if s.node != nil && len(aktuell.Signature) > 0 {
+		if sig, err := s.node.SignData(aktuell.SigningBytes()); err == nil {
+			aktuell.Signature = sig
+		}
+	}
+	err = s.store.Put(aktuell)
+	listingStockMu.Unlock()
+	if err != nil {
+		return err
+	}
+	if s.node != nil {
+		if data, err := marshalRecord(aktuell); err == nil {
+			go func() {
+				defer func() { _ = recover() }()
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				_ = s.node.Publish(ctx, p2p.TopicListings, data)
+			}()
+		}
+	}
+	return nil
+}
+
+// GET /api/v1/konto/paypal – Empfänger des angemeldeten Kontos und Stand seiner Angebote.
+func (s *Server) kontoPayPalZeigen(c *gin.Context) {
+	fid := s.sessionFID(c)
+	if fid == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte mit deinem Fundus-Konto anmelden."})
+		return
+	}
+	empf := s.kontoPayPal(fid)
+	mit, ohne, anders := 0, 0, 0
+	for _, r := range s.listingsDesKontos(fid) {
+		e, _ := r.Data["paypal"].(string)
+		switch {
+		case e == "":
+			ohne++
+		case empf != "" && !strings.EqualFold(e, empf):
+			anders++
+		default:
+			mit++
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"fid": fid, "empfaenger": empf, "angebote_mit": mit, "angebote_ohne": ohne, "angebote_anders": anders})
+}
+
+// POST /api/v1/konto/paypal {empfaenger, alle}
+func (s *Server) kontoPayPalSetzen(c *gin.Context) {
+	fid := s.sessionFID(c)
+	if fid == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte mit deinem Fundus-Konto anmelden."})
+		return
+	}
+	var req struct {
+		Empfaenger string `json:"empfaenger"`
+		Alle       bool   `json:"alle"`
+	}
+	if c.ShouldBindJSON(&req) != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
+		return
+	}
+	neu, err := paypalEmpfaengerNorm(req.Empfaenger)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	kontoPayPalMu.Lock()
+	m := s.kontoPayPalLesen()
+	alt := m[fid]
+	if neu == "" {
+		delete(m, fid)
+	} else {
+		m[fid] = neu
+	}
+	err = jsonAtomar(s.hotspotDatei("paypal-konten.json"), m, 0o600)
+	kontoPayPalMu.Unlock()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
+		return
+	}
+	// Angebote nachziehen: leere, die mit dem bisherigen Standard – oder alle.
+	geaendert, weiter, fehler := 0, 0, 0
+	var gruende []string
+	for _, r := range s.listingsDesKontos(fid) {
+		e, _ := r.Data["paypal"].(string)
+		if strings.EqualFold(e, neu) {
+			continue
+		}
+		if !(req.Alle || e == "" || (alt != "" && strings.EqualFold(e, alt))) {
+			continue
+		}
+		if r.OwnerID == "" || r.OwnerID == s.nodeID() {
+			if err := s.eigenesListingFeld(r, "paypal", neu); err != nil {
+				fehler++
+				gruende = append(gruende, err.Error())
+				continue
+			}
+			geaendert++
+			continue
+		}
+		if err := s.forwardListingEdit(c, r, map[string]any{"paypal": neu}); err != nil {
+			fehler++
+			if len(gruende) < 3 {
+				gruende = append(gruende, kiKuerzen(fmt.Sprint(r.Data["title"]), 40)+": "+err.Error())
+			}
+			continue
+		}
+		weiter++
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "empfaenger": neu, "geaendert": geaendert, "weitergeleitet": weiter, "fehler": fehler, "gruende": gruende})
 }

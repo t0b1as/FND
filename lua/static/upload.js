@@ -1061,7 +1061,12 @@ document.addEventListener('DOMContentLoaded', attrAnKategorie);
   try {
     var f = document.getElementById("f-paypal");
     if (!f) return;
-    if (!f.value && location.pathname === "/listings/new") f.value = localStorage.getItem("fnd.paypal.empfaenger") || "";
+    if (!f.value && location.pathname === "/listings/new") {
+      f.value = localStorage.getItem("fnd.paypal.empfaenger") || "";
+      // R923: sonst den fürs Konto hinterlegten Empfänger zeigen
+      fetch("/api/v1/konto/paypal", { credentials: "same-origin" }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) { if (d && d.empfaenger && !f.value) f.value = d.empfaenger; }).catch(function () {});
+    }
     f.addEventListener("change", function () { try { localStorage.setItem("fnd.paypal.empfaenger", f.value.trim()); } catch (e) {} });
   } catch (e) {}
 })();

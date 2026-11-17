@@ -376,6 +376,8 @@ func (s *Server) registerRoutes() {
 	r.GET("/api/v1/marktplatz/paypal", s.marktplatzPayPalInfo)
 	r.POST("/api/v1/marktplatz/paypal/bestellung", s.marktplatzPayPalBestellung)
 	r.POST("/api/v1/marktplatz/paypal/abschluss", s.marktplatzPayPalAbschluss)
+	r.GET("/api/v1/konto/paypal", s.kontoPayPalZeigen)  // R923: Empfänger je Konto
+	r.POST("/api/v1/konto/paypal", s.kontoPayPalSetzen)
 
 	// Sammelbestellungen (R696): gemeinsam bestellen, um den Mengenpreis zu
 	// bekommen. Der Händler braucht dafür keine Wallet – die Hinterlegung läuft
@@ -530,7 +532,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R922"
+const NodeRevision = "R923"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -896,6 +898,14 @@ func (s *Server) createListing(c *gin.Context) {
 	}
 	// Ersteller (angemeldeter Nutzer) + seine Signatur über den Inhalts-Hash.
 	s.signCreator(c, body, "listing")
+	// R923: PayPal-Empfänger leer → der fürs Konto hinterlegte
+	if e, _ := body["paypal"].(string); e == "" {
+		if cr, _ := body["creator_fid"].(string); cr != "" {
+			if k := s.kontoPayPal(strings.ToLower(cr)); k != "" {
+				body["paypal"] = k
+			}
+		}
+	}
 	record := &storage.Record{
 		ID:        generateID(),
 		Type:      storage.RecordListing,

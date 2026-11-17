@@ -173,7 +173,7 @@ return function()
     <div class="field">
       <label for="f-paypal">PayPal-Empfänger (optional)</label>
       <input type="text" id="f-paypal" name="paypal" autocomplete="email" placeholder="E-Mail deines PayPal-Kontos oder Händlerkonto-ID">
-      <small class="meta">Mit Eintrag können Käufer auch per PayPal bezahlen (1 FND = 1 €) – das Geld geht direkt auf dieses PayPal-Konto. Die Adresse ist im Angebot für andere Nodes sichtbar; die Händlerkonto-ID (PayPal → Kontoeinstellungen) verrät weniger.</small>
+      <small class="meta">Mit Eintrag können Käufer auch per PayPal bezahlen (1 FND = 1 €) – das Geld geht direkt auf dieses PayPal-Konto. Leer lassen: Es gilt der Empfänger aus Einstellungen → PayPal für dein Konto. Die Adresse ist im Angebot für andere Nodes sichtbar; die Händlerkonto-ID (PayPal → Kontoeinstellungen) verrät weniger.</small>
     </div>
     <div class="field">
       <label>%s</label>
