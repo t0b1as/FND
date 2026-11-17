@@ -1,8 +1,8 @@
 {
-  "version": "R927",
-  "description": "FUNDUS R927 - Guest Access",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R927/FND-R927-update.zip",
-  "node_argon2": "726ecf650f03891faaba406094b4d4c7b933748430183e0a71c7fb04c32b215d",
-  "published_at": "2026-11-17T09:41:13.9775639Z",
-  "signature": "0x0e00f22a96b26fbe77157d4fb3d2a7613583926fe26b3b438103b3a4ae724bba78840da43ecb6d2bda1e514983843dce11efe4541386eccfec47b7adf8d651a91c"
+  "version": "R928",
+  "description": "FUNDUS R928 - Guest Access",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R928/FND-R928-update.zip",
+  "node_argon2": "23776f8b855bf51dafb20a9264095e01b1640a4152f58961d3b7ffdf66bec318",
+  "published_at": "2026-11-17T10:01:31.0088843Z",
+  "signature": "0x4cd44e773572ccd079f5fdaf58a01a71a5e976c381170ce8b0066251cb69fbbf7f804ce5f1541a495a79b845c90d08b474f1bc9d695ed1bf724504dd1057a0521c"
 }
