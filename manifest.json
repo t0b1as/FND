@@ -1,8 +1,8 @@
 {
-  "version": "R931",
-  "description": "FUNDUS R931 - Guest Access",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R931/FND-R931-update.zip",
-  "node_argon2": "241289aede8d674f30e6c0065c31c3fdb38056ab45d3de213c1b7fb3325bfb2c",
-  "published_at": "2026-11-17T16:09:59.984351Z",
-  "signature": "0xee2a93d2d8f51ad60aa2d44ce0079a8b8fe9c0cdf9fc0077312001af76d41aa91cfad6ae969061379dc09e34f7c846f1a5ab0df1bdb7632bb2f5fd4b003b9e121b"
+  "version": "R932",
+  "description": "FUNDUS R932 - Guest Access",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R932/FND-R932-update.zip",
+  "node_argon2": "8b9c4674c0f5188b3bb4fecd345070073161763976ff2a8ab9bbbb36f89b13f0",
+  "published_at": "2026-11-17T16:21:52.2854896Z",
+  "signature": "0xd59a7269558bcca446792423c8b25be4f0c593caeb975003331d9ec4efabada05acd65c0eea29b03c31cfd46481a1de8d1d49fc8bee86b914645c8f4ec63c8bf1b"
 }
