@@ -35,6 +35,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/fundus/node/internal/identity"
 	"github.com/fundus/node/internal/p2p"
 	"github.com/fundus/node/internal/storage"
 	"github.com/gin-gonic/gin"
@@ -124,8 +125,6 @@ var (
 	mpMu    sync.Mutex
 	mpOffen = map[string]mpOffeneBestellung{}
 )
-
-
 
 // mpPositionenPruefen rechnet die Positionen aus den Angeboten selbst aus.
 func (s *Server) mpPositionenPruefen(roh []mpPosition) ([]mpPos, string, error) {
@@ -685,14 +684,19 @@ type kontoLaufErgebnis struct {
 	Ort    string `json:"ort"` // "dieser Node" | "Node …abcdef"
 	OK     bool   `json:"ok"`
 	Fehler string `json:"fehler,omitempty"`
+	// R925: nicht erreicht, wird automatisch erneut versucht
+	Ausstehend bool `json:"ausstehend,omitempty"`
+	Nachgeholt bool `json:"nachgeholt,omitempty"`
 }
 
 type kontoLauf struct {
-	Laeuft     bool                `json:"laeuft"`
-	Empfaenger string              `json:"empfaenger"`
-	Gesamt     int                 `json:"gesamt"`
-	Ergebnisse []kontoLaufErgebnis `json:"ergebnisse"`
-	Start      int64               `json:"start"`
+	Laeuft           bool                `json:"laeuft"`
+	Empfaenger       string              `json:"empfaenger"`
+	Gesamt           int                 `json:"gesamt"`
+	Ergebnisse       []kontoLaufErgebnis `json:"ergebnisse"`
+	Start            int64               `json:"start"`
+	Ausstehend       int                 `json:"ausstehend"` // R925
+	NaechsterVersuch int64               `json:"naechster_versuch,omitempty"`
 }
 
 var (
@@ -774,6 +778,9 @@ func (s *Server) kontoPayPalSetzen(c *gin.Context) {
 			lauf.Laeuft = false
 			kontoLaeufeMu.Unlock()
 		}()
+		// Ein Node, der das Protokoll nicht kennt (ältere Version), kennt es
+		// auch beim nächsten Angebot nicht – nicht 13× 25 s warten.
+		ohneProtokoll := map[string]string{}
 		for _, r := range ziele {
 			erg := kontoLaufErgebnis{ID: r.ID, Titel: kiKuerzen(fmt.Sprint(r.Data["title"]), 60), Ort: "dieser Node"}
 			var err error
@@ -781,25 +788,43 @@ func (s *Server) kontoPayPalSetzen(c *gin.Context) {
 				err = s.eigenesListingFeld(r, "paypal", neu)
 			} else {
 				erg.Ort = "Node …" + r.OwnerID[max(0, len(r.OwnerID)-6):]
-				ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-				err = s.forwardListingEditIdent(ctx, ident, r, map[string]any{"paypal": neu})
-				cancel()
+				if f, ok := ohneProtokoll[r.OwnerID]; ok {
+					err = fmt.Errorf("%s", f)
+				} else {
+					err = s.ppFernSetzen(ident, r, neu)
+					if err != nil && ppAlteVersion(err) {
+						ohneProtokoll[r.OwnerID] = err.Error()
+					}
+				}
 				// Die lokale Kopie NICHT selbst ändern: Sie trüge sonst eine
 				// ungültige Unterschrift und wäre neuer als die echte Fassung des
 				// Besitzers, die dann nie ankäme. Bis sie da ist, gilt hier der
 				// Konto-Empfänger (paypalEffektiv).
+				if err != nil {
+					erg.Ausstehend = true
+				}
 			}
 			if err != nil {
-				erg.Fehler = err.Error()
+				erg.Fehler = ppFehlerText(err)
 			} else {
 				erg.OK = true
 			}
 			if s.log != nil {
-				s.log.Info("PayPal-Empfänger ins Angebot", zap.String("listing", r.ID), zap.String("ort", erg.Ort), zap.Bool("ok", erg.OK), zap.String("fehler", erg.Fehler))
+				s.log.Info("PayPal-Empfänger ins Angebot", zap.String("listing", r.ID), zap.String("ort", erg.Ort), zap.Bool("ok", erg.OK), zap.String("fehler", err2s(err)))
 			}
 			kontoLaeufeMu.Lock()
 			lauf.Ergebnisse = append(lauf.Ergebnisse, erg)
+			if erg.Ausstehend {
+				lauf.Ausstehend++
+			}
 			kontoLaeufeMu.Unlock()
+		}
+		kontoLaeufeMu.Lock()
+		lauf.Laeuft = false
+		offen := lauf.Ausstehend
+		kontoLaeufeMu.Unlock()
+		if offen > 0 {
+			s.ppNachholen(fid, neu, ident, lauf)
 		}
 	}()
 	c.JSON(http.StatusOK, gin.H{"ok": true, "empfaenger": neu, "anzahl": len(ziele)})
@@ -814,4 +839,115 @@ func (s *Server) paypalEffektiv(d map[string]any) string {
 	}
 	cr, _ := d["creator_fid"].(string)
 	return s.kontoPayPal(strings.ToLower(strings.TrimSpace(cr)))
+}
+
+func err2s(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// ppFernSetzen schickt die Änderung an den Besitzer-Node des Angebots.
+func (s *Server) ppFernSetzen(ident *identity.Identity, r *storage.Record, neu string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	return s.forwardListingEditIdent(ctx, ident, r, map[string]any{"paypal": neu})
+}
+
+func ppAlteVersion(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "protocols not supported")
+}
+
+// ppFehlerText übersetzt p2p-Fehler in etwas, mit dem man etwas anfangen kann.
+func ppFehlerText(err error) string {
+	t := err.Error()
+	switch {
+	case ppAlteVersion(err):
+		return "Dieser Node hat eine ältere Fundus-Version ohne Fernbearbeitung – bitte dort aktualisieren. Wird danach automatisch nachgeholt."
+	case strings.Contains(t, "leere Antwort"), strings.Contains(t, "deadline"), strings.Contains(t, "timeout"),
+		strings.Contains(t, "no addresses"), strings.Contains(t, "failed to dial"), strings.Contains(t, "connection refused"):
+		return "Node gerade nicht erreichbar (Neustart oder offline). Wird automatisch nachgeholt."
+	}
+	return t
+}
+
+// ppNachholen (R925): Angebote, deren Node nicht erreichbar war oder noch die
+// alte Version hat, alle 3 Minuten erneut versuchen – bis zu 12 Stunden lang,
+// solange der Empfänger fürs Konto gleich bleibt und kein neuer Lauf begann.
+// Die Unterschrift braucht die Identität des Kontos; sie liegt nur im Speicher,
+// nach einem Neustart dieses Nodes muss man „Übernehmen“ erneut drücken.
+func (s *Server) ppNachholen(fid, neu string, ident *identity.Identity, lauf *kontoLauf) {
+	ende := time.Now().Add(12 * time.Hour)
+	for time.Now().Before(ende) {
+		kontoLaeufeMu.Lock()
+		lauf.NaechsterVersuch = time.Now().Add(3 * time.Minute).Unix()
+		kontoLaeufeMu.Unlock()
+		time.Sleep(3 * time.Minute)
+		kontoLaeufeMu.Lock()
+		aktuell := kontoLaeufe[fid] == lauf
+		var offen []int
+		for i, e := range lauf.Ergebnisse {
+			if e.Ausstehend {
+				offen = append(offen, i)
+			}
+		}
+		kontoLaeufeMu.Unlock()
+		if !aktuell || len(offen) == 0 || !strings.EqualFold(s.kontoPayPal(fid), neu) {
+			break
+		}
+		ohneProtokoll := map[string]bool{}
+		for _, i := range offen {
+			kontoLaeufeMu.Lock()
+			id := lauf.Ergebnisse[i].ID
+			kontoLaeufeMu.Unlock()
+			r, err := s.store.Get(storage.RecordListing, id)
+			if err != nil || r == nil || r.Data == nil {
+				s.ppErgebnis(lauf, i, nil, "Angebot nicht mehr vorhanden")
+				continue
+			}
+			if e, _ := r.Data["paypal"].(string); strings.EqualFold(e, neu) {
+				s.ppErgebnis(lauf, i, nil, "")
+				continue
+			}
+			if ohneProtokoll[r.OwnerID] {
+				continue
+			}
+			err = s.ppFernSetzen(ident, r, neu)
+			if err != nil {
+				if ppAlteVersion(err) {
+					ohneProtokoll[r.OwnerID] = true
+				}
+				kontoLaeufeMu.Lock()
+				lauf.Ergebnisse[i].Fehler = ppFehlerText(err)
+				kontoLaeufeMu.Unlock()
+				continue
+			}
+			s.ppErgebnis(lauf, i, nil, "")
+			if s.log != nil {
+				s.log.Info("PayPal-Empfänger nachgeholt", zap.String("listing", id))
+			}
+		}
+	}
+	kontoLaeufeMu.Lock()
+	lauf.NaechsterVersuch = 0
+	kontoLaeufeMu.Unlock()
+}
+
+// ppErgebnis schließt einen ausstehenden Eintrag ab: erfolgreich (grund == "")
+// oder endgültig gescheitert.
+func (s *Server) ppErgebnis(lauf *kontoLauf, i int, _ error, grund string) {
+	kontoLaeufeMu.Lock()
+	defer kontoLaeufeMu.Unlock()
+	e := &lauf.Ergebnisse[i]
+	if !e.Ausstehend {
+		return
+	}
+	e.Ausstehend = false
+	lauf.Ausstehend--
+	if grund == "" {
+		e.OK, e.Fehler, e.Nachgeholt = true, "", true
+	} else {
+		e.Fehler = grund
+	}
 }

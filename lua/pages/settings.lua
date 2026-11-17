@@ -1826,16 +1826,20 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       $('pp-konto-meldung').textContent = 'Deine Angebote: ' + d.angebote_mit + ' mit diesem Empfänger, ' + d.angebote_ohne + ' ohne' + (d.angebote_anders ? ', ' + d.angebote_anders + ' mit anderem' : '') + '.';
       laufZeigen(d.lauf);
       if (d.lauf && d.lauf.laeuft) setTimeout(kontoLaden, 2000);
+      else if (d.lauf && d.lauf.ausstehend > 0) setTimeout(kontoLaden, 30000); // R925: Nachholen
     }).catch(function(){});
   }
   // R924: Ergebnis je Angebot
   function laufZeigen(l){
     if (!l) { $('pp-konto-lauf').innerHTML = ''; return; }
-    var e = l.ergebnisse || [], ok = e.filter(function(x){ return x.ok; }).length;
-    $('pp-konto-lauf').innerHTML = '<b>' + (l.laeuft ? 'Übernehme … ' : 'Zuletzt übernommen: ') + ok + ' von ' + l.gesamt + ' Angeboten geändert' + (e.length - ok ? ', ' + (e.length - ok) + ' nicht' : '') + '</b>' +
+    var e = l.ergebnisse || [], ok = e.filter(function(x){ return x.ok; }).length, warte = l.ausstehend || 0;
+    var nv = l.naechster_versuch ? Math.max(0, Math.round((l.naechster_versuch * 1000 - Date.now()) / 60000)) : -1;
+    $('pp-konto-lauf').innerHTML = '<b>' + (l.laeuft ? 'Übernehme … ' : 'Zuletzt übernommen: ') + ok + ' von ' + l.gesamt + ' Angeboten geändert' +
+      (warte ? ', ' + warte + ' ausstehend' : '') + (e.length - ok - warte > 0 ? ', ' + (e.length - ok - warte) + ' nicht' : '') + '</b>' +
+      (warte && !l.laeuft ? '<div>Nicht erreichte Nodes werden alle 3 Minuten erneut versucht' + (nv >= 0 ? ' (nächster Versuch in ' + (nv || '<1') + ' min)' : '') + '. Bis dahin gilt dein Empfänger auf diesem Node trotzdem schon.</div>' : '') +
       (e.length ? '<table class="hs-tab" style="margin-top:6px"><thead><tr><th>Angebot</th><th>liegt auf</th><th>Ergebnis</th></tr></thead><tbody>' +
         e.map(function(x){ return '<tr><td><a href="/listings/' + encodeURIComponent(x.id) + '">' + esc(x.titel) + '</a></td><td>' + esc(x.ort) + '</td><td>' +
-          (x.ok ? '✓' : '<span style="color:var(--danger,#e5484d)">✗ ' + esc(x.fehler) + '</span>') + '</td></tr>'; }).join('') + '</tbody></table>' : '');
+          (x.ok ? '✓' + (x.nachgeholt ? ' nachgeholt' : '') : x.ausstehend ? '<span style="color:var(--warn,#f5a623)">⏳ ' + esc(x.fehler) + '</span>' : '<span style="color:var(--danger,#e5484d)">✗ ' + esc(x.fehler) + '</span>') + '</td></tr>'; }).join('') + '</tbody></table>' : '');
   }
   $('pp-konto-speichern').onclick = function(){
     $('pp-konto-meldung').textContent = 'Übernehme …';

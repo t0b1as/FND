@@ -33,6 +33,12 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R925:** PayPal-Empfänger je Konto: nicht erreichte Nodes (Neustart,
+      offline, ältere Version ohne /fundus/listing-edit/1.0.0) werden alle 3 min
+      bis zu 12 h erneut versucht (⏳ → „✓ nachgeholt“); Node ohne Protokoll wird
+      nach dem ersten Fehlschlag nicht für jedes Angebot erneut abgewartet;
+      verständliche Fehlertexte.
+- [ ] **ROT:** Node …4KbuWC auf R925 aktualisieren, dann Nachholen prüfen.
 - [x] **R924:** PayPal-Empfänger je Konto: Übernehmen läuft im Hintergrund mit
       Ergebnis je Angebot (liegt auf, ✓/Fehler) und Protokollzeile; bis die
       Änderung ein Angebot erreicht, gilt der Konto-Empfänger (Anzeige und
