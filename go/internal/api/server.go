@@ -377,6 +377,8 @@ func (s *Server) registerRoutes() {
 	r.POST("/api/v1/marktplatz/paypal/bestellung", s.marktplatzPayPalBestellung)
 	r.POST("/api/v1/marktplatz/paypal/abschluss", s.marktplatzPayPalAbschluss)
 	r.GET("/api/v1/konto/paypal", s.kontoPayPalZeigen) // R923: Empfänger je Konto
+	r.GET("/api/v1/konto/navigation", s.kontoNavZeigen) // R928: Navigation je Konto
+	r.PUT("/api/v1/konto/navigation", s.kontoNavSpeichern)
 	r.POST("/api/v1/konto/paypal", s.kontoPayPalSetzen)
 
 	// Sammelbestellungen (R696): gemeinsam bestellen, um den Mengenpreis zu
@@ -532,7 +534,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R927"
+const NodeRevision = "R928"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

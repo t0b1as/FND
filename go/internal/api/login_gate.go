@@ -42,6 +42,9 @@ var gateOpenPrefixes = []string{
 // gateOpenExact ergänzt einzelne Pfade.
 var gateOpenExact = []string{
 	"/api/v1/shop/price", // Referenzkurs: reine Information, kein Bezug zu Personen
+	// R928: Navigation je Konto – ohne Anmeldung kommt nur „nicht angemeldet“
+	// zurück (Standard-Navigation), Speichern prüft die Sitzung selbst.
+	"/api/v1/konto/navigation",
 }
 
 // R926: Marktplatz, Aeronautik und Feed sind ohne Anmeldung LESBAR. Offen ist

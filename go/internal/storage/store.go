@@ -46,6 +46,7 @@ const (
 	RecordPost           RecordType = "post"              // Feed-Beitrag (R812), öffentlich oder für Kontakte verschlüsselt
 	RecordPostReact      RecordType = "post_react"        // Like, Kommentar oder Löschmarke zu einem Feed-Beitrag (R812)
 	RecordFeedGroups     RecordType = "feed_groups"       // eigene Feed-Gruppen je Konto, selbst-verschlüsselt (R813)
+	RecordNavPrefs       RecordType = "nav_prefs"         // Navigation je Konto (Zugriffsleiste, Menü, Kacheln), selbst-verschlüsselt (R928)
 	RecordFeedMedia      RecordType = "feed_media"        // NUR LOKAL: welche Feed-Beiträge eine Datei nutzen (R817)
 	RecordTxIndex        RecordType = "txindex"           // NUR LOKAL: Buchungen je Adresse, Kennung "<adresse>/<höhe>-<tx>-<n>" (R823)
 	RecordTxIndexStand   RecordType = "txindex_stand"     // NUR LOKAL: bis zu welchem Block der Buchungsindex reicht (R823)
@@ -620,6 +621,9 @@ var PublicRecordTypes = []RecordType{
 	// Nutzer von mehreren eigenen Nodes aus denselben Verlauf sieht. Lesbar
 	// nur mit dem Schlüssel der angemeldeten Identität.
 	RecordHistSync,
+	// Navigation je Konto (R928): selbst-verschlüsselt, folgt dem Konto auf
+	// jeden Node, auch auf einen, der beim Speichern nicht zuhörte.
+	RecordNavPrefs,
 	// Postfach (R583): Bisher wurden diese Einträge nur im Moment des Sendens
 	// gerufen – ein Node, der gerade nicht zuhörte, bekam die Nachricht nie.
 	// Beim Abgleich werden sie jetzt nachgeholt. Der Inhalt ist

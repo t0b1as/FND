@@ -1,8 +1,10 @@
 // navvis.js — zentrale Steuerung der Navigations-Sichtbarkeit.
 // Drei unabhängige Zielorte je Navigationspunkt: Landing-Page, Burger-Menü,
-// und die Schnellzugriff-Leiste in der Titelzeile. Einstellung liegt lokal
-// (localStorage), ist also pro Gerät/Browser — passend zum Ausblenden von
-// Beta-Features.
+// und die Schnellzugriff-Leiste in der Titelzeile.
+// R928: Die Einstellung gehört zum KONTO, nicht zum Browser – sie liegt
+// verschlüsselt beim Node (/api/v1/konto/navigation) und folgt dem Konto auf
+// jeden Node. Ohne Anmeldung gilt die Standard-Navigation. Im Browser liegt nur
+// eine Kopie der letzten Antwort, damit die Leiste ohne Flackern erscheint.
 
 (function(){
   // Die konfigurierbaren Navigationspunkte (bis inkl. Fundus Love).
@@ -10,10 +12,10 @@
   window.NAV_ITEMS = [
     { key:"listings",     path:"/listings",     label:"Marktplatz",   icon:"🛒", color:"green",  defQuick:true },
     { key:"energy",       path:"/energy",       label:"Energie",      icon:"⚡", beta:true, color:"gold" },
-    { key:"aeronautik",   path:"/aeronautik",   label:"Aeronautik",   icon:"✈", color:"blue" },
+    { key:"aeronautik",   path:"/aeronautik",   label:"Aeronautik",   icon:"✈", color:"blue",   defQuick:true },
     { key:"certificates", path:"/certificates", label:"Zertifikate",  icon:"📜", beta:true, color:"blue" },
     { key:"shop",         path:"/shop",         label:"FND/SOL",      icon:"💰", color:"green",  defQuick:true },
-    { key:"drive",        path:"/drive",        label:"Drive",        icon:"🚗", color:"cyan" },
+    { key:"drive",        path:"/drive",        label:"Drive",        icon:"🚗", color:"cyan",   defQuick:true },
     { key:"jobs",         path:"/jobs",         label:"Jobs",         icon:"💼", beta:true, color:"purple", defLanding:false },
     { key:"files",        path:"/files",        label:"Dateien",      icon:"📁", color:"pink",   defQuick:true, quickPath:"/shared", quickLabel:"Freigaben" },
     { key:"messenger",    path:"/messenger",    label:"Messenger",    icon:"💬", color:"blue", defQuick:true },
@@ -30,11 +32,18 @@
     quick:   false   // Button in der Titelzeilen-Schnellzugriffsleiste
   };
 
-  const LS_KEY = "fundus_nav_vis";
+  const CACHE_KEY = "fundus_nav_konto"; // Kopie der Kontoeinstellung (R928)
+  try { localStorage.removeItem("fundus_nav_vis"); } catch(e){} // alte Geräte-Einstellung (bis R927)
+
+  let _konto = null;        // Einstellung des angemeldeten Kontos (oder null = Standard)
+  let _angemeldet = false;
+  try { const c = JSON.parse(localStorage.getItem(CACHE_KEY) || "null"); if (c && c.vis) { _konto = c.vis; _angemeldet = true; } } catch(e){}
+
+  window.navAngemeldet = function(){ return _angemeldet; };
 
   window.navGetVis = function(){
     let v = {};
-    try { v = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); } catch(e){ v = {}; }
+    try { v = JSON.parse(JSON.stringify(_konto || {})); } catch(e){ v = {}; }
     // Fehlende Punkte mit Defaults füllen (quick pro Item über defQuick).
     window.NAV_ITEMS.forEach(function(it){
       const defQuick = !!it.defQuick;
@@ -52,10 +61,35 @@
     return v;
   };
 
+  // Speichert fürs angemeldete Konto. Liefert ein Promise (true = gespeichert).
   window.navSetVis = function(v){
-    try { localStorage.setItem(LS_KEY, JSON.stringify(v)); } catch(e){}
+    _konto = v;
+    try { localStorage.setItem(CACHE_KEY, JSON.stringify({ vis: v })); } catch(e){}
     window.navApply();
+    return fetch("/api/v1/konto/navigation", { method: "PUT", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ vis: v }) })
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(d){
+        if (!r.ok || d.error) throw new Error(d.error || ("Fehler " + r.status)); return true; }); });
   };
+
+  // Kontoeinstellung vom Node holen; danach neu anwenden und Bescheid geben.
+  function kontoLaden(){
+    fetch("/api/v1/konto/navigation", { credentials: "same-origin" })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (!d) return;
+        _angemeldet = !!d.angemeldet;
+        _konto = (d.angemeldet && d.vis && typeof d.vis === "object") ? d.vis : null;
+        try {
+          if (_konto) localStorage.setItem(CACHE_KEY, JSON.stringify({ vis: _konto }));
+          else localStorage.removeItem(CACHE_KEY);
+        } catch(e){}
+        try { window.navApply(); } catch(e){}
+        try { document.dispatchEvent(new CustomEvent("fundus-nav-geladen")); } catch(e){}
+      }).catch(function(){});
+  }
+  window.navNeuLaden = kontoLaden; // z. B. nach An- oder Abmelden
+  kontoLaden();
 
   // Wendet die Sichtbarkeit auf die aktuelle Seite an: Burger-Einträge,
   // Landing-Kacheln und die Schnellzugriffsleiste.

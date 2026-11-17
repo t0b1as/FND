@@ -679,7 +679,8 @@ document.addEventListener('DOMContentLoaded', updLoad);
 <div class="set-card">
   <div class="set-head"><h3>Navigation anpassen</h3></div>
   <div class="set-body">
-    <p class="set-hint" style="margin-bottom:10px">Lege fest, wo jeder Bereich erscheint: als Kachel auf der Startseite, im Menü (Burger), und/oder als Schnellzugriff-Button oben in der Titelleiste (Ein-Klick-Navigation). Gilt nur für dieses Gerät.</p>
+    <p class="set-hint" style="margin-bottom:10px">Lege fest, wo jeder Bereich erscheint: als Kachel auf der Startseite, im Menü (Burger), und/oder als Schnellzugriff-Button oben in der Titelleiste (Ein-Klick-Navigation). Gilt für dein Konto – auf jedem Gerät und jedem Node, an dem du angemeldet bist, nicht für andere Konten.</p>
+    <p class="set-hint" id="nav-vis-meldung" style="margin:0 0 8px"></p>
     <table class="nav-vis-table" id="nav-vis-table">
       <thead>
         <tr><th>Bereich</th><th>Startseite</th><th>Menü</th><th>Schnellzugriff</th></tr>
@@ -2466,9 +2467,13 @@ async function saveAdminWallet() {
 loadAdminWallet();
 onProtoChange();
 // ── Navigation-Sichtbarkeit: Tabelle aufbauen + Checkboxen verdrahten ──
-(function(){
+function navTabelle(){
   const body = document.getElementById("nav-vis-body");
   if (!body || !window.NAV_ITEMS) return;
+  body.innerHTML = "";
+  const meld = document.getElementById("nav-vis-meldung");
+  const drin = !window.navAngemeldet || window.navAngemeldet();
+  if (meld) meld.textContent = drin ? "" : "Nicht angemeldet – es gilt die Standard-Navigation. Zum Anpassen bitte anmelden.";
   const v = window.navGetVis();
   window.NAV_ITEMS.forEach(function(it){
     const tr = document.createElement("tr");
@@ -2486,14 +2491,19 @@ onProtoChange();
         const cur = window.navGetVis();
         if (!cur[it.key]) cur[it.key] = {};
         cur[it.key][zone] = cb.checked;
-        window.navSetVis(cur);
+        const p = window.navSetVis(cur);
+        if (p && p.then) p.then(function(){ if (meld) { meld.textContent = "✓ Gespeichert für dein Konto"; meld.style.color = ""; } })
+          .catch(function(e){ cb.checked = !cb.checked; if (meld) { meld.textContent = "✗ " + e.message; meld.style.color = "var(--red)"; } });
       };
+      cb.disabled = !drin;
       td.appendChild(cb);
       tr.appendChild(td);
     });
     body.appendChild(tr);
   });
-})();
+}
+navTabelle();
+document.addEventListener("fundus-nav-geladen", navTabelle); // R928: Kontoeinstellung angekommen
 </script>
 ]])
 

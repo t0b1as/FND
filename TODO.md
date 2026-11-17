@@ -33,6 +33,10 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R928:** Navigation (Startseite/Menü/Zugriffsleiste) je Konto statt je
+      Browser: selbst-verschlüsselt beim Node (nav_prefs, fundus.contacts,
+      Peer-Sync), ohne Anmeldung Standard. Aeronautik und Drive standardmäßig
+      in der Zugriffsleiste. Alte Geräte-Einstellung (fundus_nav_vis) verworfen.
 - [x] **R927:** Besitz eines Angebots = angemeldetes Konto ist Ersteller (API
       „mine“), nicht mehr „liegt auf diesem Node“ – Gäste sahen fremde
       Angebote als eigene (Bearbeiten/Löschen statt Kaufen). Betreiber im

@@ -62,6 +62,7 @@
     const d = await r.json();
     if (!r.ok || d.error) throw new Error(d.error || "Login fehlgeschlagen");
     await window.walletRefresh(true);
+    if (window.navNeuLaden) window.navNeuLaden(); // R928: Navigation des Kontos
     return d;
   };
 
@@ -70,6 +71,7 @@
     try { await fetch("/api/v1/identity/logout", {method:"POST", credentials:"same-origin"}); } catch(e){}
     // Nachrichten-Zähler und Badge zurücksetzen (nicht mehr eingeloggt).
     try { localStorage.removeItem("fnd_msg_unread"); } catch(e){}
+    try { localStorage.removeItem("fundus_nav_konto"); } catch(e){} // R928
     if (window.msgNotifyReset) window.msgNotifyReset();
     await window.walletRefresh(true);
     // Seite neu laden, damit alle Bereiche (Messenger, Kontakte) sauber
