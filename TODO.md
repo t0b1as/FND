@@ -33,6 +33,10 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R924:** PayPal-Empfänger je Konto: Übernehmen läuft im Hintergrund mit
+      Ergebnis je Angebot (liegt auf, ✓/Fehler) und Protokollzeile; bis die
+      Änderung ein Angebot erreicht, gilt der Konto-Empfänger (Anzeige und
+      Zahlung auf diesem Node).
 - [x] **R923:** PayPal-Empfänger je Konto (Einstellungen → PayPal): wird in
       alle Angebote des Kontos eingetragen (eigene direkt, auf anderen Nodes per
       signierter Weiterleitung) und in neue Angebote mit leerem Feld.

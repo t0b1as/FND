@@ -155,8 +155,7 @@ func (s *Server) mpPositionenPruefen(roh []mpPosition) ([]mpPos, string, error) 
 		}
 		d := rec.Data
 		titel, _ := d["title"].(string)
-		e, _ := d["paypal"].(string)
-		e, err = paypalEmpfaengerNorm(e)
+		e, err := paypalEmpfaengerNorm(s.paypalEffektiv(d))
 		if err != nil || e == "" {
 			return nil, "", fmt.Errorf("„%s“ kann nicht per PayPal bezahlt werden", kiKuerzen(titel, 60))
 		}
@@ -674,13 +673,50 @@ func (s *Server) kontoPayPalZeigen(c *gin.Context) {
 			mit++
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"fid": fid, "empfaenger": empf, "angebote_mit": mit, "angebote_ohne": ohne, "angebote_anders": anders})
+	c.JSON(http.StatusOK, gin.H{"fid": fid, "empfaenger": empf, "angebote_mit": mit, "angebote_ohne": ohne, "angebote_anders": anders,
+		"lauf": kontoLaufStand(fid)})
+}
+
+// R924: Übernehmen läuft im Hintergrund, mit Ergebnis je Angebot – die
+// Einstellungsseite zeigt, was wo geändert wurde und was nicht (und warum).
+type kontoLaufErgebnis struct {
+	ID     string `json:"id"`
+	Titel  string `json:"titel"`
+	Ort    string `json:"ort"` // "dieser Node" | "Node …abcdef"
+	OK     bool   `json:"ok"`
+	Fehler string `json:"fehler,omitempty"`
+}
+
+type kontoLauf struct {
+	Laeuft     bool                `json:"laeuft"`
+	Empfaenger string              `json:"empfaenger"`
+	Gesamt     int                 `json:"gesamt"`
+	Ergebnisse []kontoLaufErgebnis `json:"ergebnisse"`
+	Start      int64               `json:"start"`
+}
+
+var (
+	kontoLaeufeMu sync.Mutex
+	kontoLaeufe   = map[string]*kontoLauf{}
+)
+
+func kontoLaufStand(fid string) *kontoLauf {
+	kontoLaeufeMu.Lock()
+	defer kontoLaeufeMu.Unlock()
+	l := kontoLaeufe[fid]
+	if l == nil {
+		return nil
+	}
+	k := *l
+	k.Ergebnisse = append([]kontoLaufErgebnis(nil), l.Ergebnisse...)
+	return &k
 }
 
 // POST /api/v1/konto/paypal {empfaenger, alle}
 func (s *Server) kontoPayPalSetzen(c *gin.Context) {
 	fid := s.sessionFID(c)
-	if fid == "" {
+	sess := s.getSession(c)
+	if fid == "" || sess == nil || sess.identity == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte mit deinem Fundus-Konto anmelden."})
 		return
 	}
@@ -695,6 +731,10 @@ func (s *Server) kontoPayPalSetzen(c *gin.Context) {
 	neu, err := paypalEmpfaengerNorm(req.Empfaenger)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if l := kontoLaufStand(fid); l != nil && l.Laeuft {
+		c.JSON(http.StatusConflict, gin.H{"error": "Läuft noch – bitte warten, bis alle Angebote durch sind."})
 		return
 	}
 	kontoPayPalMu.Lock()
@@ -712,33 +752,66 @@ func (s *Server) kontoPayPalSetzen(c *gin.Context) {
 		return
 	}
 	// Angebote nachziehen: leere, die mit dem bisherigen Standard – oder alle.
-	geaendert, weiter, fehler := 0, 0, 0
-	var gruende []string
+	var ziele []*storage.Record
 	for _, r := range s.listingsDesKontos(fid) {
 		e, _ := r.Data["paypal"].(string)
 		if strings.EqualFold(e, neu) {
 			continue
 		}
-		if !(req.Alle || e == "" || (alt != "" && strings.EqualFold(e, alt))) {
-			continue
+		if req.Alle || e == "" || (alt != "" && strings.EqualFold(e, alt)) {
+			ziele = append(ziele, r)
 		}
-		if r.OwnerID == "" || r.OwnerID == s.nodeID() {
-			if err := s.eigenesListingFeld(r, "paypal", neu); err != nil {
-				fehler++
-				gruende = append(gruende, err.Error())
-				continue
-			}
-			geaendert++
-			continue
-		}
-		if err := s.forwardListingEdit(c, r, map[string]any{"paypal": neu}); err != nil {
-			fehler++
-			if len(gruende) < 3 {
-				gruende = append(gruende, kiKuerzen(fmt.Sprint(r.Data["title"]), 40)+": "+err.Error())
-			}
-			continue
-		}
-		weiter++
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "empfaenger": neu, "geaendert": geaendert, "weitergeleitet": weiter, "fehler": fehler, "gruende": gruende})
+	lauf := &kontoLauf{Laeuft: len(ziele) > 0, Empfaenger: neu, Gesamt: len(ziele), Start: time.Now().Unix()}
+	kontoLaeufeMu.Lock()
+	kontoLaeufe[fid] = lauf
+	kontoLaeufeMu.Unlock()
+	ident := sess.identity
+	go func() {
+		defer func() {
+			_ = recover()
+			kontoLaeufeMu.Lock()
+			lauf.Laeuft = false
+			kontoLaeufeMu.Unlock()
+		}()
+		for _, r := range ziele {
+			erg := kontoLaufErgebnis{ID: r.ID, Titel: kiKuerzen(fmt.Sprint(r.Data["title"]), 60), Ort: "dieser Node"}
+			var err error
+			if r.OwnerID == "" || r.OwnerID == s.nodeID() {
+				err = s.eigenesListingFeld(r, "paypal", neu)
+			} else {
+				erg.Ort = "Node …" + r.OwnerID[max(0, len(r.OwnerID)-6):]
+				ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+				err = s.forwardListingEditIdent(ctx, ident, r, map[string]any{"paypal": neu})
+				cancel()
+				// Die lokale Kopie NICHT selbst ändern: Sie trüge sonst eine
+				// ungültige Unterschrift und wäre neuer als die echte Fassung des
+				// Besitzers, die dann nie ankäme. Bis sie da ist, gilt hier der
+				// Konto-Empfänger (paypalEffektiv).
+			}
+			if err != nil {
+				erg.Fehler = err.Error()
+			} else {
+				erg.OK = true
+			}
+			if s.log != nil {
+				s.log.Info("PayPal-Empfänger ins Angebot", zap.String("listing", r.ID), zap.String("ort", erg.Ort), zap.Bool("ok", erg.OK), zap.String("fehler", erg.Fehler))
+			}
+			kontoLaeufeMu.Lock()
+			lauf.Ergebnisse = append(lauf.Ergebnisse, erg)
+			kontoLaeufeMu.Unlock()
+		}
+	}()
+	c.JSON(http.StatusOK, gin.H{"ok": true, "empfaenger": neu, "anzahl": len(ziele)})
+}
+
+// paypalEffektiv: Empfänger eines Angebots – eingetragen oder (R924) der fürs
+// Konto des Erstellers hinterlegte, falls die Änderung das Angebot noch nicht
+// erreicht hat.
+func (s *Server) paypalEffektiv(d map[string]any) string {
+	if e, _ := d["paypal"].(string); e != "" {
+		return e
+	}
+	cr, _ := d["creator_fid"].(string)
+	return s.kontoPayPal(strings.ToLower(strings.TrimSpace(cr)))
 }

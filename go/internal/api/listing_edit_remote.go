@@ -53,22 +53,31 @@ func editSigningBytes(m *listingEditMsg) []byte {
 
 // forwardListingEdit schickt die Änderung an den Besitzer-Node des Angebots.
 func (s *Server) forwardListingEdit(c *gin.Context, rec *storage.Record, body map[string]any) error {
+	sess := s.getSession(c)
+	if sess == nil || sess.identity == nil {
+		return fmt.Errorf("nicht angemeldet")
+	}
+	return s.forwardListingEditIdent(c.Request.Context(), sess.identity, rec, body)
+}
+
+// forwardListingEditIdent: wie forwardListingEdit, aber mit der Identität
+// statt der Anfrage – für Hintergrundaufträge (R924).
+func (s *Server) forwardListingEditIdent(basis context.Context, ident *identity.Identity, rec *storage.Record, body map[string]any) error {
 	if s.node == nil {
 		return fmt.Errorf("kein Netzwerk")
 	}
-	sess := s.getSession(c)
-	if sess == nil || sess.identity == nil {
+	if ident == nil {
 		return fmt.Errorf("nicht angemeldet")
 	}
 	stripCreatorFields(body) // Ersteller und Besitzer sind nicht änderbar
 	msg := &listingEditMsg{
 		ListingID: rec.ID,
-		FID:       strings.ToLower(sess.identity.FundusID),
+		FID:       strings.ToLower(ident.FundusID),
 		TS:        time.Now().Unix(),
 		Data:      body,
-		PubKey:    sess.identity.PublicKeyHex,
+		PubKey:    ident.PublicKeyHex,
 	}
-	sig, err := sess.identity.Sign(editSigningBytes(msg))
+	sig, err := ident.Sign(editSigningBytes(msg))
 	if err != nil {
 		return fmt.Errorf("Unterschrift fehlgeschlagen: %w", err)
 	}
@@ -77,7 +86,7 @@ func (s *Server) forwardListingEdit(c *gin.Context, rec *storage.Record, body ma
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(basis, 20*time.Second)
 	defer cancel()
 	resp, err := s.node.SendAndReceive(ctx, rec.OwnerID, listingEditProtocol, payload)
 	if err != nil {

@@ -1767,6 +1767,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       <button type="button" class="btn btn-primary" id="pp-konto-speichern" style="width:auto">Für meine Angebote übernehmen</button>
       <span id="pp-konto-meldung" class="set-hint"></span>
     </div>
+    <div id="pp-konto-lauf" class="set-hint" style="margin-top:8px"></div>
     <p class="set-hint" style="margin:6px 0 0" id="pp-konto-stand">Gilt für das angemeldete Fundus-Konto: Der Node trägt die Adresse in alle deine Angebote ein – auch auf deinen anderen Nodes – und in neue Angebote, wenn dort nichts steht. Leer lassen und übernehmen entfernt sie.</p>
 
     <div class="hs-abschnitt" style="margin-top:20px">Verkäufe eigener Angebote per PayPal</div>
@@ -1821,9 +1822,20 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     fetch('/api/v1/konto/paypal', { credentials: 'same-origin' }).then(function(r){ return r.json().then(function(d){ return [r.status, d]; }); }).then(function(x){
       var st = x[0], d = x[1];
       if (st === 401) { $('pp-konto').disabled = true; $('pp-konto-speichern').disabled = true; $('pp-konto-meldung').textContent = 'Bitte mit deinem Fundus-Konto anmelden.'; return; }
-      $('pp-konto').value = d.empfaenger || '';
+      if (document.activeElement !== $('pp-konto')) $('pp-konto').value = d.empfaenger || '';
       $('pp-konto-meldung').textContent = 'Deine Angebote: ' + d.angebote_mit + ' mit diesem Empfänger, ' + d.angebote_ohne + ' ohne' + (d.angebote_anders ? ', ' + d.angebote_anders + ' mit anderem' : '') + '.';
+      laufZeigen(d.lauf);
+      if (d.lauf && d.lauf.laeuft) setTimeout(kontoLaden, 2000);
     }).catch(function(){});
+  }
+  // R924: Ergebnis je Angebot
+  function laufZeigen(l){
+    if (!l) { $('pp-konto-lauf').innerHTML = ''; return; }
+    var e = l.ergebnisse || [], ok = e.filter(function(x){ return x.ok; }).length;
+    $('pp-konto-lauf').innerHTML = '<b>' + (l.laeuft ? 'Übernehme … ' : 'Zuletzt übernommen: ') + ok + ' von ' + l.gesamt + ' Angeboten geändert' + (e.length - ok ? ', ' + (e.length - ok) + ' nicht' : '') + '</b>' +
+      (e.length ? '<table class="hs-tab" style="margin-top:6px"><thead><tr><th>Angebot</th><th>liegt auf</th><th>Ergebnis</th></tr></thead><tbody>' +
+        e.map(function(x){ return '<tr><td><a href="/listings/' + encodeURIComponent(x.id) + '">' + esc(x.titel) + '</a></td><td>' + esc(x.ort) + '</td><td>' +
+          (x.ok ? '✓' : '<span style="color:var(--danger,#e5484d)">✗ ' + esc(x.fehler) + '</span>') + '</td></tr>'; }).join('') + '</tbody></table>' : '');
   }
   $('pp-konto-speichern').onclick = function(){
     $('pp-konto-meldung').textContent = 'Übernehme …';
@@ -1831,10 +1843,8 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       body: JSON.stringify({ empfaenger: $('pp-konto').value.trim(), alle: $('pp-konto-alle').checked }) })
       .then(function(r){ return r.json(); }).then(function(d){
         if (d.error) { $('pp-konto-meldung').textContent = '✗ ' + d.error; return; }
-        var t = '✓ Gespeichert · ' + (d.geaendert + d.weitergeleitet) + ' Angebote angepasst' + (d.weitergeleitet ? ' (davon ' + d.weitergeleitet + ' auf anderen Nodes)' : '') +
-          (d.fehler ? ' · ' + d.fehler + ' nicht erreichbar: ' + (d.gruende || []).join('; ') : '');
-        $('pp-konto-meldung').textContent = t;
-        setTimeout(kontoLaden, 4000);
+        $('pp-konto-meldung').textContent = '✓ Gespeichert · ' + d.anzahl + ' Angebote werden angepasst …';
+        setTimeout(kontoLaden, 800);
       }).catch(function(){ $('pp-konto-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
   };
   kontoLaden();

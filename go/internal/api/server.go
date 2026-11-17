@@ -532,7 +532,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R923"
+const NodeRevision = "R924"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -980,6 +980,11 @@ func (s *Server) getListing(c *gin.Context) {
 		record.Data["quantity"] = qty
 		record.Data["sold_count"] = sold
 		record.Data["sold"] = sold >= qty
+		if e, _ := record.Data["paypal"].(string); e == "" { // R924
+			if k := s.paypalEffektiv(record.Data); k != "" {
+				record.Data["paypal"] = k
+			}
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"id":         record.ID,
