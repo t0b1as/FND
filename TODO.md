@@ -33,6 +33,12 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R927:** Besitz eines Angebots = angemeldetes Konto ist Ersteller (API
+      „mine“), nicht mehr „liegt auf diesem Node“ – Gäste sahen fremde
+      Angebote als eigene (Bearbeiten/Löschen statt Kaufen). Betreiber im
+      Heimnetz bearbeitet fremde Angebote seines Nodes weiter, sieht aber
+      Kaufen. Hotspot-Geräte (10.42.0.x) gelten nicht mehr als Heimnetz
+      (Go isLANRequest, nginx $fundus_lan).
 - [x] **R926:** Marktplatz, Aeronautik und Feed ohne Anmeldung lesbar (nur
       GET; Feed zeigt Gästen nur öffentliche Beiträge). PayPal-Kauf und
       Warenkorb als Gast; Quartett-Druckdatei offen. Anlegen, Bearbeiten,

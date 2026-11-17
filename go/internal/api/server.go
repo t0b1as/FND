@@ -1,30 +1,30 @@
 package api
 
 import (
-	"sync/atomic"
-	"path/filepath"
 	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/time/rate"
 	"math"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"golang.org/x/time/rate"
+	"sync/atomic"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	ethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
 	"lukechampine.com/blake3"
 
-	"github.com/fundus/node/internal/config"
 	"github.com/fundus/node/internal/chain"
+	"github.com/fundus/node/internal/config"
 	"github.com/fundus/node/internal/filestore"
 	"github.com/fundus/node/internal/geo"
 	"github.com/fundus/node/internal/grid"
@@ -38,14 +38,14 @@ import (
 
 // Server ist der lokale REST-API Server für das Lua-Frontend.
 type Server struct {
-	updateCtl *UpdateControl // Software-Update (prüfen/installieren)
-	router      *gin.Engine
-	srv         *http.Server
-	node        p2p.P2PNode
-	store       *storage.Store
-	analyzer    *llm.Analyzer
-	meterTokens     <-chan meter.Token
-	capacityMgr     *topology.CapacityManager
+	updateCtl        *UpdateControl // Software-Update (prüfen/installieren)
+	router           *gin.Engine
+	srv              *http.Server
+	node             p2p.P2PNode
+	store            *storage.Store
+	analyzer         *llm.Analyzer
+	meterTokens      <-chan meter.Token
+	capacityMgr      *topology.CapacityManager
 	shareMgr_        *filestore.ShareManager
 	orderBook        *OrderBook
 	swapMgr          *SwapManager
@@ -57,9 +57,9 @@ type Server struct {
 	pendingWallet    *pendingWalletState
 	pendingWalletMu  sync.Mutex
 	settlementEngine *topology.SettlementEngine
-	cfg         *config.Config
-	log         *zap.Logger
-	version     string
+	cfg              *config.Config
+	log              *zap.Logger
+	version          string
 
 	// Shop (optional)
 	shopWatcher *shop.SolWatcher
@@ -91,7 +91,7 @@ type Server struct {
 	adminWallet   *adminWalletStore
 
 	// Topology – Netzgraph und Handelspfad-Routing
-	topology  *topology.Manager
+	topology *topology.Manager
 }
 
 // NewServer erstellt den API-Server und registriert alle Routen.
@@ -109,17 +109,17 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	r.Use(requestLogger(log))
 
 	s := &Server{
-		router:      r,
-		node:        node,
-		store:       store,
-		analyzer:    analyzer,
-		meterTokens: meterTokens,
-		cfg:         cfg,
-		version:     version,
-		log:         log,
-		searchMgr:   newSearchManager(),
+		router:        r,
+		node:          node,
+		store:         store,
+		analyzer:      analyzer,
+		meterTokens:   meterTokens,
+		cfg:           cfg,
+		version:       version,
+		log:           log,
+		searchMgr:     newSearchManager(),
 		fileSearchMgr: newFileSearchManager(),
-		jobSearchMgr: newJobSearchManager(),
+		jobSearchMgr:  newJobSearchManager(),
 	}
 
 	// GLOBALE Tunnel-Schutzregel: gilt für ALLE Routen. Blockiert schreibende
@@ -127,7 +127,7 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	// Lokale Anfragen sind unberührt. MUSS vor der Routen-Registrierung stehen.
 	r.Use(s.tunnelGuardMiddleware())
 	r.Use(s.ownerGuardMiddleware())
-	r.Use(s.publicHeavyGuard()) // von außen: connect nur Heimnetz, Analyse/Streams nur angemeldet + begrenzt
+	r.Use(s.publicHeavyGuard())   // von außen: connect nur Heimnetz, Analyse/Streams nur angemeldet + begrenzt
 	r.Use(s.externalWriteGuard()) // von außen: Schreiben nur angemeldet, Betreiber-Pfade nur Heimnetz
 
 	s.registerRoutes()
@@ -143,33 +143,33 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 	s.registerSearchRoutes()
 	s.registerJobSearchRoutes()
 	s.registerFileSearchRoutes()
-	s.registerRatingRoutes() // Bewertungen von Handelspartnern
-	s.registerPushRoutes()   // Push-Benachrichtigungen
-	s.registerBackupRoutes() // verschlüsselte automatische Sicherung
-	s.registerMailRoutes()   // E-Mail-Benachrichtigungen
-	s.registerPriceRoute()   // Referenzkurs – auch ohne eingerichteten Shop (R617)
-	s.registerDriveRoutes()  // Transportdienst Drive (R635)
-	driveCleanupOnce.Do(func() { go s.driveCleanupLoop() }) // erledigte Fahrten aufräumen (R642)
+	s.registerRatingRoutes()                                        // Bewertungen von Handelspartnern
+	s.registerPushRoutes()                                          // Push-Benachrichtigungen
+	s.registerBackupRoutes()                                        // verschlüsselte automatische Sicherung
+	s.registerMailRoutes()                                          // E-Mail-Benachrichtigungen
+	s.registerPriceRoute()                                          // Referenzkurs – auch ohne eingerichteten Shop (R617)
+	s.registerDriveRoutes()                                         // Transportdienst Drive (R635)
+	driveCleanupOnce.Do(func() { go s.driveCleanupLoop() })         // erledigte Fahrten aufräumen (R642)
 	listingReconcileOnce.Do(func() { go s.reconcileOwnListings() }) // Bestand eigener Angebote
-	s.registerListingSoldProtocol() // Verkaufsmeldungen anderer Nodes
-	s.registerHistSyncProtocol()    // Verlaufseinträge der eigenen Nodes
-	s.registerListingEditProtocol() // Angebote von einem anderen Node bearbeiten
-	s.registerThumbProtocol()       // fertige Vorschaubilder zwischen Nodes
-	s.registerDriveActionProtocol() // Fahrten vom Node des Fahrers aus ändern (R644)
-	s.registerDriveNotifyProtocol() // Meldungen über Node-Grenzen zustellen (R646)
-	s.registerKeyDirAsk()           // fehlende Schlüssel im Netz erfragen (R687)
-	s.registerListingAsk()          // fehlende Angebote im Netz erfragen (R793)
-	s.registerPushAsk()             // Anrufmeldung über Node-Grenzen (R689)
-	s.registerPushMeldung()         // Meldungen an alle Nodes eines Kontos (R795)
+	s.registerListingSoldProtocol()                                 // Verkaufsmeldungen anderer Nodes
+	s.registerHistSyncProtocol()                                    // Verlaufseinträge der eigenen Nodes
+	s.registerListingEditProtocol()                                 // Angebote von einem anderen Node bearbeiten
+	s.registerThumbProtocol()                                       // fertige Vorschaubilder zwischen Nodes
+	s.registerDriveActionProtocol()                                 // Fahrten vom Node des Fahrers aus ändern (R644)
+	s.registerDriveNotifyProtocol()                                 // Meldungen über Node-Grenzen zustellen (R646)
+	s.registerKeyDirAsk()                                           // fehlende Schlüssel im Netz erfragen (R687)
+	s.registerListingAsk()                                          // fehlende Angebote im Netz erfragen (R793)
+	s.registerPushAsk()                                             // Anrufmeldung über Node-Grenzen (R689)
+	s.registerPushMeldung()                                         // Meldungen an alle Nodes eines Kontos (R795)
 	// Selbsterkennung für die Lastverteilung (R671): fragt die Nachbarn über
 	// das P2P-Netz und schreibt die Empfängerliste selbst.
 	go s.clusterLoop(context.Background())
 	// Betreiberbereich von außen freischalten (R650) – nur aus dem Heimnetz.
 	s.router.GET("/api/v1/admin/external-access", s.getExternalAdmin)
 	s.router.POST("/api/v1/admin/external-access", s.setExternalAdmin)
-	thumbPregenOnce.Do(func() { go s.thumbPregenLoop() }) // Vorschaubilder im Voraus (R631)
+	thumbPregenOnce.Do(func() { go s.thumbPregenLoop() })   // Vorschaubilder im Voraus (R631)
 	s.router.GET("/api/v1/nodes/overview", s.nodesOverview) // Übersicht aller Nodes (nur Heimnetz)
-	s.registerNodeInfo()                                     // P2P: "Wie geht es dir?"
+	s.registerNodeInfo()                                    // P2P: "Wie geht es dir?"
 	s.registerWalletRoutes()
 	s.registerChainRoutes()
 
@@ -208,8 +208,8 @@ func NewServer(cfg *config.Config, node p2p.P2PNode, store *storage.Store, analy
 // überwacht. Die Solana-Transaktion selbst ist die "Beauftragung" — es braucht
 // keine Node-zu-Node-Kommunikation.
 func (s *Server) WithShop(watcher *shop.SolWatcher, feed *shop.PriceFeed, receiveAddr string) *Server {
-	s.shopWatcher     = watcher
-	s.shopFeed        = feed
+	s.shopWatcher = watcher
+	s.shopFeed = feed
 	s.shopReceiveAddr = receiveAddr
 	s.registerShopRoutes() // erst jetzt registrieren, da Feed/Adresse gesetzt sind
 	return s
@@ -244,7 +244,7 @@ func (s *Server) WithOrderBook(node p2pNode) *Server {
 	}
 	s.orderBook = newOrderBook(node, obPath)
 	go s.orderBook.Run(context.Background())
-	go s.runOutboxWorker() // wartende Nachrichten zustellen sobald Empfänger online
+	go s.runOutboxWorker()    // wartende Nachrichten zustellen sobald Empfänger online
 	go s.mempoolMaintenance() // wartende Txs bereinigen + erneut verteilen (Validatoren erreichen)
 	// Swap-Manager mit den Solana-Parametern aus der Config.
 	solRPC, htlcProg := "", ""
@@ -261,10 +261,10 @@ func (s *Server) WithOrderBook(node p2pNode) *Server {
 	}
 	s.orch = newOrchestrator(s)
 	s.swapCoord = newSwapCoordinator(s)
-	s.swapCoord.loadDeposits() // hinterlegte Schlüssel nach Neustart zurückholen
-	s.swapCoord.loadTakers()   // Käufer-Swaps (Geheimnis) nach Neustart zurückholen
-	go s.resumeSolClaimsLoop() // offene SOL-Abholungen nach Neustart wieder aufnehmen
-	go s.resumeRefundsLoop()   // abgelaufene eigene Sperren zurückholen (anhand der Chain)
+	s.swapCoord.loadDeposits()      // hinterlegte Schlüssel nach Neustart zurückholen
+	s.swapCoord.loadTakers()        // Käufer-Swaps (Geheimnis) nach Neustart zurückholen
+	go s.resumeSolClaimsLoop()      // offene SOL-Abholungen nach Neustart wieder aufnehmen
+	go s.resumeRefundsLoop()        // abgelaufene eigene Sperren zurückholen (anhand der Chain)
 	go s.discardOldChainSwapsLoop() // Altlasten früherer Chains verwerfen
 	go s.validatorRejoinLoop()      // inaktive Validatoren mit Stake stellen sich selbst wieder auf
 	// Swap-Init-Protokoll am p2pNode registrieren (falls Orderbuch aktiv).
@@ -353,30 +353,30 @@ func (s *Server) registerRoutes() {
 	r.Use(s.loginGate())
 
 	// Health & Status
-	r.GET("/health",       s.getHealth)
+	r.GET("/health", s.getHealth)
 	r.GET("/api/v1/status", s.getStatus)
-	r.GET("/api/v1/nat",    s.getNATStatus)  // NAT-Traversal-Status
+	r.GET("/api/v1/nat", s.getNATStatus)           // NAT-Traversal-Status
 	r.GET("/api/v1/donate/config", s.donateConfig) // freiwillige PayPal-Spende (Shop)
 	r.GET("/api/v1/update/info", s.updateInfo)     // Update-Knopf: laufende + verfügbare Revision (öffentlich)
-	r.POST("/api/v1/connect", s.postConnectPeer) // gezielt mit Peer verbinden (Test/Diagnose)
+	r.POST("/api/v1/connect", s.postConnectPeer)   // gezielt mit Peer verbinden (Test/Diagnose)
 
 	// Listings (Waren & Dienste)
 	listings := r.Group("/api/v1/listings")
 	{
-		listings.GET("/attrs", s.listingAttrs) // Eigenschaften je Kategorie (R652)
+		listings.GET("/attrs", s.listingAttrs)        // Eigenschaften je Kategorie (R652)
 		listings.GET("/categories", s.listCategories) // alle im Netz benutzten Kategorien (R608)
-		listings.GET("",       s.listListings)
-		listings.POST("",      s.createListing)
-		listings.GET("/:id",   s.getListing)
+		listings.GET("", s.listListings)
+		listings.POST("", s.createListing)
+		listings.GET("/:id", s.getListing)
 		listings.GET("/:id/thumb", s.listingThumbnail) // Vorschaubild über die Angebots-ID (R626)
-		listings.PUT("/:id",   s.updateListing)
+		listings.PUT("/:id", s.updateListing)
 		listings.DELETE("/:id", s.deleteListing)
 	}
 	// R922: PayPal im Marktplatz (Geld direkt an den Verkäufer, 1 FND = 1 EUR)
 	r.GET("/api/v1/marktplatz/paypal", s.marktplatzPayPalInfo)
 	r.POST("/api/v1/marktplatz/paypal/bestellung", s.marktplatzPayPalBestellung)
 	r.POST("/api/v1/marktplatz/paypal/abschluss", s.marktplatzPayPalAbschluss)
-	r.GET("/api/v1/konto/paypal", s.kontoPayPalZeigen)  // R923: Empfänger je Konto
+	r.GET("/api/v1/konto/paypal", s.kontoPayPalZeigen) // R923: Empfänger je Konto
 	r.POST("/api/v1/konto/paypal", s.kontoPayPalSetzen)
 
 	// Sammelbestellungen (R696): gemeinsam bestellen, um den Mengenpreis zu
@@ -416,18 +416,18 @@ func (s *Server) registerRoutes() {
 	// Wallet-Adressbuch (lokale Empfangsadressen für Kaufabwicklung)
 	addrbook := r.Group("/api/v1/addressbook")
 	{
-		addrbook.GET("",        s.listAddressBook)
-		addrbook.POST("",       s.addAddressBookEntry)
-		addrbook.PUT("/:id",    s.updateAddressBookEntry) // Bearbeiten (R553)
+		addrbook.GET("", s.listAddressBook)
+		addrbook.POST("", s.addAddressBookEntry)
+		addrbook.PUT("/:id", s.updateAddressBookEntry) // Bearbeiten (R553)
 		addrbook.DELETE("/:id", s.deleteAddressBookEntry)
 	}
 
 	// Dezentrales FND/SOL-Orderbuch (P2P-propagierte Orders)
 	orders := r.Group("/api/v1/orders")
 	{
-		orders.POST("",       s.orderCreate)
-		orders.GET("/mine",   s.orderListMine)
-		orders.GET("/book",   s.orderBookGet)
+		orders.POST("", s.orderCreate)
+		orders.GET("/mine", s.orderListMine)
+		orders.GET("/book", s.orderBookGet)
 		orders.DELETE("/:id", s.orderCancel)
 		orders.POST("/:id/renew", s.orderRenew) // eigene Order verlängern
 	}
@@ -440,35 +440,35 @@ func (s *Server) registerRoutes() {
 	// nur mit FUNDUS_SWAP_TESTSEITE=1 erreichbar.
 	swap := r.Group("/api/v1/swap")
 	{
-		swap.GET("/params",     s.swapParams)
-		swap.GET("/health",     s.swapHealth)
-		swap.GET("/secret",     nurTestbetrieb(s.swapSecret))
-		swap.GET("/htlcs",      s.swapHTLCList)
-		swap.GET("/all",        s.swapListAll)
-		swap.GET("/deposits",   s.swapDeposits)
+		swap.GET("/params", s.swapParams)
+		swap.GET("/health", s.swapHealth)
+		swap.GET("/secret", nurTestbetrieb(s.swapSecret))
+		swap.GET("/htlcs", s.swapHTLCList)
+		swap.GET("/all", s.swapListAll)
+		swap.GET("/deposits", s.swapDeposits)
 		swap.POST("/derive-addrs", s.swapDeriveAddrs)
-		swap.POST("/keyaddr",   nurTestbetrieb(s.swapKeyAddress))
+		swap.POST("/keyaddr", nurTestbetrieb(s.swapKeyAddress))
 		swap.POST("/sol/initiate", nurTestbetrieb(s.swapSolInitiate))
-		swap.POST("/sol/redeem",   nurTestbetrieb(s.swapSolRedeem))
-		swap.POST("/sol/refund",   nurTestbetrieb(s.swapSolRefund))
-		swap.POST("/fnd/lock",     nurTestbetrieb(s.swapFndLock))
-		swap.POST("/fnd/claim",    nurTestbetrieb(s.swapFndClaim))
-		swap.POST("/fnd/refund",   nurTestbetrieb(s.swapFndRefund))
-		swap.POST("/auto/start",   nurTestbetrieb(s.swapAutoStart))
-		swap.POST("/deposit",      s.swapDepositKeys)
-		swap.POST("/buy",          s.swapBuy)
-		swap.POST("",           s.swapInitiate)
-		swap.GET("/:id",        s.swapGet)
+		swap.POST("/sol/redeem", nurTestbetrieb(s.swapSolRedeem))
+		swap.POST("/sol/refund", nurTestbetrieb(s.swapSolRefund))
+		swap.POST("/fnd/lock", nurTestbetrieb(s.swapFndLock))
+		swap.POST("/fnd/claim", nurTestbetrieb(s.swapFndClaim))
+		swap.POST("/fnd/refund", nurTestbetrieb(s.swapFndRefund))
+		swap.POST("/auto/start", nurTestbetrieb(s.swapAutoStart))
+		swap.POST("/deposit", s.swapDepositKeys)
+		swap.POST("/buy", s.swapBuy)
+		swap.POST("", s.swapInitiate)
+		swap.GET("/:id", s.swapGet)
 		swap.POST("/:id/phase", s.swapUpdatePhase)
 	}
 
 	// Energie-Token
 	energy := r.Group("/api/v1/energy")
 	{
-		energy.GET("",           s.listEnergyTokens)
-		energy.POST("",          s.createEnergyToken)
-		energy.GET("/:id",       s.getEnergyToken)
-		energy.GET("/:id/fee",   s.calculateGridFee)
+		energy.GET("", s.listEnergyTokens)
+		energy.POST("", s.createEnergyToken)
+		energy.GET("/:id", s.getEnergyToken)
+		energy.GET("/:id/fee", s.calculateGridFee)
 	}
 
 	// Zertifikate
@@ -493,15 +493,15 @@ func (s *Server) registerRoutes() {
 	// Jobs
 	jobs := r.Group("/api/v1/jobs")
 	{
-		jobs.GET("",      s.listJobs)
-		jobs.POST("",     s.createJob)
-		jobs.GET("/:id",  s.getJob)
-		jobs.POST("/:id/sign", s.signJob)  // Vertrags-Signatur (Arbeitgeber/Auftragnehmer) verankern
+		jobs.GET("", s.listJobs)
+		jobs.POST("", s.createJob)
+		jobs.GET("/:id", s.getJob)
+		jobs.POST("/:id/sign", s.signJob) // Vertrags-Signatur (Arbeitgeber/Auftragnehmer) verankern
 	}
 
 	// P2P-Netzwerk-Info
-	r.GET("/api/v1/peers",  s.getPeers)
-	r.GET("/api/v1/node",   s.getNodeInfo)
+	r.GET("/api/v1/peers", s.getPeers)
+	r.GET("/api/v1/node", s.getNodeInfo)
 
 	// P2P-HTTP-Tunnel: Zugriff auf andere Nodes über libp2p (auch ohne direkte IP).
 	// /api/v1/proxy/<peer-id>/<pfad> → tunnelt zur Web-UI des Ziel-Nodes.
@@ -532,7 +532,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R926"
+const NodeRevision = "R927"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).
@@ -570,8 +570,8 @@ func (s *Server) getStatus(c *gin.Context) {
 	var addrs []string
 	peerCount := 0
 	if s.node != nil {
-		nodeID    = s.node.ID().String()
-		addrs     = s.node.Addrs()
+		nodeID = s.node.ID().String()
+		addrs = s.node.Addrs()
 		peerCount = len(s.node.Peers())
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -665,11 +665,11 @@ func (s *Server) listListings(c *gin.Context) {
 	}
 
 	// --- Filter-/Such-/Sortier-Parameter ---
-	q        := strings.ToLower(strings.TrimSpace(c.Query("q")))         // Volltext
-	category := strings.ToLower(strings.TrimSpace(c.Query("category")))  // Kategorie
-	plz      := strings.TrimSpace(c.Query("plz"))                        // Umkreis-Zentrum
-	radiusKm := parseFloatDefault(c.Query("radius_km"), 0)               // 0 = kein Umkreisfilter
-	sortBy   := c.Query("sort")                                          // "distance" | "price" | "newest"
+	q := strings.ToLower(strings.TrimSpace(c.Query("q")))               // Volltext
+	category := strings.ToLower(strings.TrimSpace(c.Query("category"))) // Kategorie
+	plz := strings.TrimSpace(c.Query("plz"))                            // Umkreis-Zentrum
+	radiusKm := parseFloatDefault(c.Query("radius_km"), 0)              // 0 = kein Umkreisfilter
+	sortBy := c.Query("sort")                                           // "distance" | "price" | "newest"
 
 	var centerLat, centerLon float64
 	hasCenter := false
@@ -858,7 +858,7 @@ func (s *Server) createListing(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	stripCreatorFields(body) // nur der Server setzt den Ersteller
+	stripCreatorFields(body)                        // nur der Server setzt den Ersteller
 	if err := paypalFeldPruefen(body); err != nil { // R922
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -962,20 +962,24 @@ func (s *Server) getListing(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
-	// editable: lokaler Owner ODER unsignierter Altbestand (adoptierbar)
-	editable := (record.OwnerID != "" && record.OwnerID == s.nodeID()) ||
-		len(record.Signature) == 0
-	// R611: Der Ersteller darf auch von einem anderen Node aus bearbeiten –
-	// die Änderung wird dann an den Besitzer-Node weitergereicht.
-	if !editable && record.Data != nil {
-		if cr, _ := record.Data["creator_fid"].(string); cr != "" &&
-			s.sessionFID(c) == strings.ToLower(strings.TrimSpace(cr)) {
-			editable = true
-		}
+	// R927: „mine“ = das Angebot gehört dem angemeldeten Konto (Ersteller).
+	// „editable“ = darf bearbeiten: der Ersteller (auch von einem anderen Node
+	// aus, R611) oder der Betreiber im Heimnetz bei Angeboten dieses Nodes.
+	// Vorher hieß „Angebot liegt auf diesem Node“ schon „gehört dir“ – damit
+	// sah jeder Besucher, auch ein Gast, fremde Angebote als eigene, bekam
+	// Bearbeiten/Löschen statt Kaufen angezeigt.
+	lokal := (record.OwnerID != "" && record.OwnerID == s.nodeID()) || len(record.Signature) == 0
+	ich := s.sessionFID(c)
+	cr := ""
+	if record.Data != nil {
+		cr, _ = record.Data["creator_fid"].(string)
+		cr = strings.ToLower(strings.TrimSpace(cr))
 	}
-	// R926: Gäste (ohne Anmeldung) sehen keinen Bearbeiten-Knopf.
-	if editable && s.sessionFID(c) == "" && !s.isAdminRequest(c) {
-		editable = false
+	mine := ich != "" && cr != "" && ich == cr
+	betreiber := ich != "" && lokal && besucherIstBetreiber(c)
+	editable := mine || betreiber
+	if cr == "" && betreiber {
+		mine = true // Altbestand ohne Ersteller: gehört dem Node, also dem Betreiber
 	}
 	// Bestand maßgeblich aus den Kaufvermerken (R572) – die Seite soll nicht
 	// auf die im Angebot mitgeschriebene Zahl angewiesen sein.
@@ -998,6 +1002,7 @@ func (s *Server) getListing(c *gin.Context) {
 		"updated_at": record.UpdatedAt,
 		"data":       record.Data,
 		"editable":   editable,
+		"mine":       mine, // R927
 	})
 }
 
@@ -1054,7 +1059,7 @@ func (s *Server) updateListing(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	stripCreatorFields(body) // Ersteller ist nicht änderbar
+	stripCreatorFields(body)                        // Ersteller ist nicht änderbar
 	if err := paypalFeldPruefen(body); err != nil { // R922
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1213,19 +1218,19 @@ func (s *Server) calculateGridFee(c *gin.Context) {
 	genLon, _ := data["generator_lon"].(float64)
 	conLat, _ := data["lat"].(float64)
 	conLon, _ := data["lon"].(float64)
-	kwh, _   := data["kwh"].(float64)
+	kwh, _ := data["kwh"].(float64)
 
-	distKm   := geo.HaversineKm(genLat, genLon, conLat, conLon)
+	distKm := geo.HaversineKm(genLat, genLon, conLat, conLon)
 	feeRatio := geo.GridFeeRatio(distKm)
-	feeKwh   := kwh * feeRatio
+	feeKwh := kwh * feeRatio
 
 	c.JSON(http.StatusOK, gin.H{
-		"token_id":       id,
-		"kwh":            kwh,
-		"distance_km":    math.Round(distKm*100) / 100,
-		"fee_ratio":      math.Round(feeRatio*10000) / 10000,
-		"fee_kwh":        math.Round(feeKwh*10000) / 10000,
-		"net_kwh":        math.Round((kwh-feeKwh)*10000) / 10000,
+		"token_id":    id,
+		"kwh":         kwh,
+		"distance_km": math.Round(distKm*100) / 100,
+		"fee_ratio":   math.Round(feeRatio*10000) / 10000,
+		"fee_kwh":     math.Round(feeKwh*10000) / 10000,
+		"net_kwh":     math.Round((kwh-feeKwh)*10000) / 10000,
 	})
 }
 
@@ -1233,13 +1238,15 @@ func (s *Server) calculateGridFee(c *gin.Context) {
 //  Handler: Zertifikate & Jobs (vereinfacht – gleiche Struktur wie Listings)
 // =============================================================================
 
-func (s *Server) listCertificates(c *gin.Context)  { s.listRecords(c, storage.RecordCertificate) }
-func (s *Server) createCertificate(c *gin.Context) { s.createRecord(c, storage.RecordCertificate, p2p.TopicCertificate) }
-func (s *Server) getCertificate(c *gin.Context)    { s.getRecord(c, storage.RecordCertificate) }
+func (s *Server) listCertificates(c *gin.Context) { s.listRecords(c, storage.RecordCertificate) }
+func (s *Server) createCertificate(c *gin.Context) {
+	s.createRecord(c, storage.RecordCertificate, p2p.TopicCertificate)
+}
+func (s *Server) getCertificate(c *gin.Context) { s.getRecord(c, storage.RecordCertificate) }
 
-func (s *Server) listJobs(c *gin.Context)   { s.listRecords(c, storage.RecordJob) }
-func (s *Server) createJob(c *gin.Context)  { s.createRecord(c, storage.RecordJob, p2p.TopicJobs) }
-func (s *Server) getJob(c *gin.Context)     { s.getRecord(c, storage.RecordJob) }
+func (s *Server) listJobs(c *gin.Context)  { s.listRecords(c, storage.RecordJob) }
+func (s *Server) createJob(c *gin.Context) { s.createRecord(c, storage.RecordJob, p2p.TopicJobs) }
+func (s *Server) getJob(c *gin.Context)    { s.getRecord(c, storage.RecordJob) }
 
 // signJob verankert eine Vertrags-Signatur (Arbeitgeber oder Auftragnehmer) im
 // Job-Record. Erwartet {role, wallet, hash, signature}. Der Hash ist der SHA-256
@@ -1498,7 +1505,7 @@ func (s *Server) listCategories(c *gin.Context) {
 		Name  string `json:"name"`
 		Count int    `json:"count"`
 	}
-	zaehler := map[string]int{}   // Kleinschreibung → Anzahl
+	zaehler := map[string]int{}    // Kleinschreibung → Anzahl
 	anzeige := map[string]string{} // Kleinschreibung → zuerst gesehene Schreibweise
 	if s.store != nil {
 		if recs, err := s.store.List(storage.RecordListing); err == nil {

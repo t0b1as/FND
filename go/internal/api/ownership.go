@@ -11,6 +11,7 @@ package api
 // angelegt) gehören weiter dem Node: nur aus dem Heimnetz änderbar.
 
 import (
+	"net"
 	"net/http"
 	"strings"
 
@@ -36,7 +37,9 @@ func (s *Server) sessionFID(c *gin.Context) string {
 
 // mayModify: darf der Aufrufer einen Eintrag mit diesem Ersteller ändern?
 func (s *Server) mayModify(c *gin.Context, creator string) bool {
-	if s.isAdminRequest(c) || isLANRequest(c) {
+	// R927: Hotspot-Gäste (10.42.0.x) haben zwar eine private Adresse, sind aber
+	// nicht der Betreiber – für sie gilt wie für alle anderen: nur der Ersteller.
+	if s.isAdminRequest(c) || (isLANRequest(c) && !istHotspotGast(clientIP(c))) {
 		return true // Betreiber: im Heimnetz (wie vor R530) oder mit Admin-Passwort
 	}
 	creator = strings.ToLower(strings.TrimSpace(creator))
@@ -62,4 +65,32 @@ func (s *Server) signCreator(c *gin.Context, data map[string]any, kind string) {
 	if sig, err := sess.identity.Sign([]byte("fundus-" + kind + ":" + fid + ":" + ch)); err == nil {
 		data["creator_sig"] = sig
 	}
+}
+
+// istHotspotGast: Gerät im WLAN-Hotspot dieses Nodes (10.42.0.0/24, ohne den
+// Pi selbst).
+func istHotspotGast(ip string) bool {
+	return strings.HasPrefix(ip, "10.42.0.") && ip != hotspotGW
+}
+
+// besucherIP (R927): Adresse des Browsers. Ruft die Lua-Oberfläche den Node
+// beim Seitenaufbau direkt auf (127.0.0.1, ohne nginx), reicht sie die Adresse
+// des Besuchers in X-Fundus-Besucher mit – geglaubt wird das nur von dort.
+func besucherIP(c *gin.Context) string {
+	if isLocalRequest(c) && c.GetHeader("X-Real-IP") == "" {
+		if v := strings.TrimSpace(c.GetHeader("X-Fundus-Besucher")); v != "" {
+			return v
+		}
+	}
+	return clientIP(c)
+}
+
+// besucherIstBetreiber: Browser im Heimnetz (nicht im Hotspot) – dort darf der
+// Betreiber auch fremde Angebote seines Nodes bearbeiten (wie mayModify).
+func besucherIstBetreiber(c *gin.Context) bool {
+	ip := net.ParseIP(besucherIP(c))
+	if ip == nil {
+		return false
+	}
+	return (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()) && !istHotspotGast(ip.String())
 }

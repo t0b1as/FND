@@ -22,9 +22,12 @@ return function(captures)
     -- Eigentümer-Status bestimmen: nur der Ersteller darf bearbeiten/loeschen.
     local status_data = render.api_get("/v1/status")
     local myNodeID = status_data and status_data.node_id or ""
-    -- editable kommt von der API (lokaler Owner ODER unsignierter Altbestand)
-    local isOwner = (record.editable == true) or
-        (record.owner_id ~= nil and record.owner_id ~= "" and record.owner_id == myNodeID)
+    -- R927: Die API sagt, ob das Angebot DEM ANGEMELDETEN KONTO gehört (mine)
+    -- und ob er es bearbeiten darf (editable: Ersteller oder Betreiber im
+    -- Heimnetz). Dass es auf diesem Node liegt, heißt nicht „gehört dir“ –
+    -- sonst sah jeder Besucher, auch ein Gast, fremde Angebote als eigene.
+    local isOwner = (record.mine == true)
+    local canEdit = (record.editable == true)
 
     -- Zustand lokalisieren
     local condMap = {
@@ -318,6 +321,15 @@ return function(captures)
   </div>]==], render.html_escape(record.id), render.html_escape(tostring(record.data.title or "")), price_min, remaining,
                 (isShipping and "1" or "0"), scost, render.html_escape(ppEmpf))
         end
+    end
+    -- R927: Betreiber im Heimnetz darf fremde Angebote seines Nodes bearbeiten
+    -- und löschen – sieht aber den Kaufen-Bereich wie jeder andere.
+    if canEdit and not isOwner then
+        ownerActions = string.format(
+            '<a href="/listings/%s/edit" class="btn">%s</a>' ..
+            '<button class="btn btn-danger" onclick="deleteListing(\'%s\')">%s</button>' ..
+            '<span class="meta" style="font-size:12px;align-self:center">als Betreiber</span>',
+            record.id, t("general.edit"), record.id, t("general.delete"))
     end
 
     ngx.print(string.format([[

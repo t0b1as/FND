@@ -46,6 +46,13 @@ local function http_request(method, path, body)
     -- (z.B. Partnerprofil laden beim Seitenaufbau) als eingeloggt gelten.
     -- Kam die Seite über den P2P-Tunnel (nur von 127.0.0.1 glaubwürdig),
     -- die Kennung weiterreichen: sonst gälten interne Abrufe als Betreiber.
+    -- R927: Adresse des Browsers mitgeben – der Node sieht hier nur
+    -- 127.0.0.1 und könnte Gast und Betreiber sonst nicht unterscheiden.
+    local besucher = ngx.var.http_x_real_ip
+    if not besucher or besucher == "" or ngx.var.remote_addr ~= "127.0.0.1" then besucher = ngx.var.remote_addr end
+    if besucher and besucher:match("^[%x%.:]+$") then
+        table.insert(headers, "X-Fundus-Besucher: " .. besucher)
+    end
     local tun = ngx.var.http_x_fundus_tunnel
     if tun and tun ~= "" and ngx.var.remote_addr == "127.0.0.1" then
         table.insert(headers, "X-Fundus-Tunnel: " .. tun)

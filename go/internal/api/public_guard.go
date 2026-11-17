@@ -36,6 +36,12 @@ func isLANRequest(c *gin.Context) bool {
 	if ip == nil {
 		return false
 	}
+	// R927: Geräte im WLAN-Hotspot haben zwar private Adressen, sind aber
+	// Gäste – nicht das Heimnetz des Betreibers (Dateien des Pi, Guthaben,
+	// fremde Angebote bearbeiten …).
+	if istHotspotGast(ip.String()) {
+		return false
+	}
 	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
