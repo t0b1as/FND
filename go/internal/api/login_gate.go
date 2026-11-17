@@ -45,6 +45,7 @@ var gateOpenExact = []string{
 	// R928: Navigation je Konto – ohne Anmeldung kommt nur „nicht angemeldet“
 	// zurück (Standard-Navigation), Speichern prüft die Sitzung selbst.
 	"/api/v1/konto/navigation",
+	"/api/v1/konto/tos", // R930: ohne Anmeldung nur „nicht angemeldet“
 }
 
 // R926: Marktplatz, Aeronautik und Feed sind ohne Anmeldung LESBAR. Offen ist

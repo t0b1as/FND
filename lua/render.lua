@@ -249,6 +249,38 @@ local function vorschau_html()
     return (table.concat(h, "\n  "):gsub("%%", "%%%%"))
 end
 
+-- Sitzungs-Cookie des Browsers (oder nil).
+function _M.sitzung()
+    local c = ngx.var.cookie_fundus_session
+    if c and c ~= "" then return c end
+    return nil
+end
+
+-- tos_ok(version): true, wenn niemand angemeldet ist oder das angemeldete
+-- Konto diese Fassung bestätigt hat. Ein „ja“ wird je Sitzung 10 min gemerkt,
+-- damit nicht jede Seite den Node fragt. Ist der Node nicht erreichbar, wird
+-- nicht gesperrt (sonst stünde man vor einer Weiterleitungsschleife).
+function _M.tos_ok(version)
+    local tok = _M.sitzung()
+    if not tok then return true end
+    local cache = ngx.shared.fundus_sess
+    local schluessel = "tos:" .. version .. ":" .. ngx.md5(tok)
+    if cache and cache:get(schluessel) then return true end
+    local d = _M.api_get("/v1/konto/tos?version=" .. ngx.escape_uri(version))
+    if not d then return true end
+    if d.angemeldet ~= true or d.akzeptiert == true then
+        if cache and d.akzeptiert == true then cache:set(schluessel, 1, 600) end
+        return true
+    end
+    return false
+end
+
+function _M.tos_gemerkt(version)
+    local tok = _M.sitzung()
+    local cache = ngx.shared.fundus_sess
+    if tok and cache then cache:set("tos:" .. version .. ":" .. ngx.md5(tok), 1, 600) end
+end
+
 function _M.header(title_key, active)
     active = active or ""
     local t, lang = i18n.init()
@@ -259,13 +291,14 @@ function _M.header(title_key, active)
     -- Zurückkehren in einen Tab). Statische Dateien tragen ?v=<Revision>.
     ngx.header["Cache-Control"] = "no-store, no-cache, must-revalidate"
 
-    -- TOS-Guard: beim ersten Aufruf auf /tos weiterleiten
-    -- Ausnahme: /tos selbst und /static/ werden nicht geprüft
+    -- TOS-Guard (R930): Die Nutzungsbedingungen bestätigt jedes KONTO nach der
+    -- Anmeldung (und nach einer neuen Fassung) – nicht mehr jeder Browser beim
+    -- ersten Aufruf. Gäste sehen die Seiten direkt; die Bedingungen stehen im
+    -- Fuß verlinkt. Abrufer für Link-Vorschauen prüfen wir gar nicht.
     local uri = ngx.var.uri or ""
     if uri ~= "/tos" and not uri:match("^/tos/") and not uri:match("^/static/") and not _M.ist_vorschau_bot() then
         local tos = require "pages.tos"
-        if not tos.accepted() then
-            -- Aktuelle URL als Back-Parameter mitgeben
+        if not _M.tos_ok(tos.VERSION) then
             local back = uri
             if ngx.var.args and ngx.var.args ~= "" then
                 back = back .. "?" .. ngx.var.args
@@ -317,7 +350,7 @@ function _M.header(title_key, active)
     document.body.insertBefore(b, document.body.firstChild);
   });
   </script>
-  <script>window.FUNDUS_ICONS=]] .. require("icons").json() .. [[;</script>
+  <script>window.FUNDUS_ICONS=]] .. require("icons").json() .. [[;window.FUNDUS_TOS="]] .. require("pages.tos").VERSION .. [[";</script>
   <script src="/static/ui.js?v=]] .. rev .. [[" defer></script>
   <script src="/static/navvis.js?v=]] .. rev .. [["></script>
   <script src="/static/bg-network.js?v=]] .. rev .. [[" defer></script>

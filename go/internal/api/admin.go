@@ -27,88 +27,89 @@ func (s *Server) registerAdminRoutes() {
 		// Login/Logout/Status: müssen OHNE bestehende Session erreichbar sein,
 		// stehen daher außerhalb der Blockade (die Middleware lässt sie durch,
 		// weil sie nur schreibende Admin-Aktionen über den Tunnel sperrt).
-		g.POST("/login",   s.adminLoginGone)
-		g.POST("/logout",  s.adminLoginGone)
-		g.GET("/auth",     s.adminAuthStatus)
-		g.GET("/wallet",   s.adminGetWallet)  // aktuelle Admin-Wallet (öffentliche Adresse)
-		g.POST("/wallet",  s.adminSetWallet)  // Admin-Wallet aus Seed setzen (nur lokal)
-		g.GET("/version",          s.adminVersion)
-		g.POST("/update",          s.adminPublishUpdate)
-		g.GET("/update/status",    s.updateStatus)
-		g.GET("/solana/rpc",       s.adminSolRPCGet)  // Solana-Zugang: Liste + Zustand
-		g.POST("/solana/rpc",      s.adminSolRPCSet)  // Solana-Zugang speichern (leer = fundus.env)
-		g.GET("/energie",          s.energieEinstellungenGet) // R839: Zähler, Home Assistant, Position, Handel
-		g.POST("/energie",         s.energieEinstellungenSet)
+		g.POST("/login", s.adminLoginGone)
+		g.POST("/logout", s.adminLoginGone)
+		g.GET("/auth", s.adminAuthStatus)
+		g.GET("/wallet", s.adminGetWallet)  // aktuelle Admin-Wallet (öffentliche Adresse)
+		g.POST("/wallet", s.adminSetWallet) // Admin-Wallet aus Seed setzen (nur lokal)
+		g.GET("/version", s.adminVersion)
+		g.POST("/update", s.adminPublishUpdate)
+		g.GET("/update/status", s.updateStatus)
+		g.GET("/solana/rpc", s.adminSolRPCGet)       // Solana-Zugang: Liste + Zustand
+		g.POST("/solana/rpc", s.adminSolRPCSet)      // Solana-Zugang speichern (leer = fundus.env)
+		g.GET("/energie", s.energieEinstellungenGet) // R839: Zähler, Home Assistant, Position, Handel
+		g.POST("/energie", s.energieEinstellungenSet)
 		g.POST("/energie/ha-test", s.energieHATest)
-		g.POST("/funk/modus",      s.funkModusSetzen) // R859: Empfänger umschalten (Flugzeuge/Funknachrichten/Schiffe)
-		g.POST("/funk/wetter",     s.wetterAutomatikSetzen) // R863: Wettersatelliten automatisch aufnehmen
+		g.POST("/funk/modus", s.funkModusSetzen)             // R859: Empfänger umschalten (Flugzeuge/Funknachrichten/Schiffe)
+		g.POST("/funk/wetter", s.wetterAutomatikSetzen)      // R863: Wettersatelliten automatisch aufnehmen
 		g.POST("/funk/komponenten", s.funkKomponentenSetzen) // R864: Ausstattung zuschalten
-		g.GET("/hotspot",          s.hotspotEinstellungen) // R865: WLAN-Hotspot
-		g.POST("/hotspot",         s.hotspotSpeichern)
-		g.GET("/paypal", s.paypalEinstellungen)          // R922: eigene Lasche
-		g.POST("/paypal", s.paypalSpeichern)             // R922
-		g.POST("/paypal/versand", s.paypalVersandSetzen) // R922
-		g.POST("/hotspot/versand", s.hotspotVersandSetzen) // R904: Verkauf als versendet markieren
-		g.POST("/hotspot/produktbild", s.produktBildHochladen)          // R909
-		g.POST("/hotspot/produktbild/loeschen", s.produktBildLoeschen)  // R909
-		g.GET("/hotspot/produktbild/:datei", s.produktBildAusliefern)   // R909: Vorschau in den Einstellungen
-		g.GET("/llm",              s.llmZustand) // R868: KI (Ollama), auch im Heimnetz
-		g.POST("/llm/test",        s.llmTest)
-		g.POST("/neustart",        s.adminNeustart) // R868: Node neu starten (für Einstellungen, die erst danach wirken)
-		g.GET("/ki/suche",         s.kiSucheGet) // R871: Websuche für den KI-Chat
-		g.POST("/ki/suche",        s.kiSucheSet)
-		g.GET("/websuche",         s.websucheEinstellungen) // R895: Metasuche, Ablageort des Suchindex
-		g.POST("/websuche",        s.websucheSpeichern)
-		g.GET("/websuche/knoten",  s.websucheKnoten)
+		g.GET("/hotspot", s.hotspotEinstellungen)            // R865: WLAN-Hotspot
+		g.POST("/hotspot", s.hotspotSpeichern)
+		g.GET("/paypal", s.paypalEinstellungen)                        // R922: eigene Lasche
+		g.GET("/konten", s.adminKonten)                                // R930: Konten auf diesem Node
+		g.POST("/paypal", s.paypalSpeichern)                           // R922
+		g.POST("/paypal/versand", s.paypalVersandSetzen)               // R922
+		g.POST("/hotspot/versand", s.hotspotVersandSetzen)             // R904: Verkauf als versendet markieren
+		g.POST("/hotspot/produktbild", s.produktBildHochladen)         // R909
+		g.POST("/hotspot/produktbild/loeschen", s.produktBildLoeschen) // R909
+		g.GET("/hotspot/produktbild/:datei", s.produktBildAusliefern)  // R909: Vorschau in den Einstellungen
+		g.GET("/llm", s.llmZustand)                                    // R868: KI (Ollama), auch im Heimnetz
+		g.POST("/llm/test", s.llmTest)
+		g.POST("/neustart", s.adminNeustart) // R868: Node neu starten (für Einstellungen, die erst danach wirken)
+		g.GET("/ki/suche", s.kiSucheGet)     // R871: Websuche für den KI-Chat
+		g.POST("/ki/suche", s.kiSucheSet)
+		g.GET("/websuche", s.websucheEinstellungen) // R895: Metasuche, Ablageort des Suchindex
+		g.POST("/websuche", s.websucheSpeichern)
+		g.GET("/websuche/knoten", s.websucheKnoten)
 		g.GET("/websuche/crawler", s.websucheCrawlerGet) // R896: Crawler
 		g.POST("/websuche/crawler", s.websucheCrawlerSetzen)
-		g.GET("/ki/bild",          s.kiBildGet) // R873: Bilderzeugung (ComfyUI)
-		g.POST("/ki/bild",         s.kiBildSet)
-		g.POST("/ki/bild/test",    s.kiBildTest)
-		g.POST("/aeronautik/aufzeichnung", s.flugEinstellen) // R877: Flugdaten aufzeichnen
+		g.GET("/ki/bild", s.kiBildGet) // R873: Bilderzeugung (ComfyUI)
+		g.POST("/ki/bild", s.kiBildSet)
+		g.POST("/ki/bild/test", s.kiBildTest)
+		g.POST("/aeronautik/aufzeichnung", s.flugEinstellen)      // R877: Flugdaten aufzeichnen
 		g.POST("/aeronautik/nachtragen", s.flugNachtragenStarten) // R880: Quartettwerte aus Aufgezeichnetem
-		g.POST("/aeronautik/kibild", s.quartettKIBildAendern) // R887: misslungene KI-Bilder löschen/neu
+		g.POST("/aeronautik/kibild", s.quartettKIBildAendern)     // R887: misslungene KI-Bilder löschen/neu
 		g.POST("/aeronautik/druckdatei", s.quartettDruckdatei)    // R889: PDF/X-1a für die Druckerei
 		g.GET("/aeronautik/druckdatei/:id", s.quartettDruckStand)
 		g.POST("/aeronautik/druckdatei/:id/abbrechen", s.quartettDruckAbbrechen) // R891
 		g.GET("/aeronautik/druckdatei", s.quartettDruckLaufend)
 		g.POST("/aeronautik/typbild/waehlen", s.typBildWaehlen) // R891: anderes Foto / kein Foto
-		g.POST("/update/check",    s.updateCheck)
-		g.POST("/update/apply",    s.updateApply)
-		g.POST("/update/auto",     s.updateAutoSet)   // Automatik umschalten (R664)
-		g.GET("/balance",          s.balanceGet)      // Lastverteilung (R669)
-		g.POST("/balance",         s.balanceSet)
-		g.GET("/platform",         s.platformGet)     // erkanntes Gerät (R670)
-		g.GET("/cluster",          s.clusterGet)      // erkannte Nachbarn (R671)
-		g.GET("/config",           s.adminCheckConfig)
-		g.POST("/grid/init",       s.adminInitGridWallets)
-		g.GET("/grid/wallets",     s.adminListGridWallets)
-		g.POST("/storage/expand",  s.adminStorageExpand)
-		g.GET("/storage/stats",    s.adminStorageStats)
+		g.POST("/update/check", s.updateCheck)
+		g.POST("/update/apply", s.updateApply)
+		g.POST("/update/auto", s.updateAutoSet) // Automatik umschalten (R664)
+		g.GET("/balance", s.balanceGet)         // Lastverteilung (R669)
+		g.POST("/balance", s.balanceSet)
+		g.GET("/platform", s.platformGet) // erkanntes Gerät (R670)
+		g.GET("/cluster", s.clusterGet)   // erkannte Nachbarn (R671)
+		g.GET("/config", s.adminCheckConfig)
+		g.POST("/grid/init", s.adminInitGridWallets)
+		g.GET("/grid/wallets", s.adminListGridWallets)
+		g.POST("/storage/expand", s.adminStorageExpand)
+		g.GET("/storage/stats", s.adminStorageStats)
 		g.POST("/listings/purge-orphans", s.adminPurgeOrphans)
-		g.POST("/partner/purge-stale",    s.adminPurgePartnerAds)
-		g.GET("/uploads/sessions",        s.adminListUploadSessions)
-		g.POST("/uploads/purge",          s.adminPurgeUploadSessions)
-		g.GET("/storage/drives",          s.adminListDrives)
-		g.GET("/storage/volumes",         s.adminListVolumes)
-		g.POST("/storage/cleanup",        s.adminCleanup)
-		g.POST("/storage/volumes",        s.adminAddVolume)
-		g.DELETE("/storage/volumes",      s.adminRemoveVolume)
-		g.POST("/storage/volume-offer",   s.adminSetVolumeOffer)
-		g.POST("/storage/chain-move",     s.adminChainMove)
-		g.GET("/location",                s.adminGetLocation)
-		g.POST("/location",               s.adminSetLocation)
+		g.POST("/partner/purge-stale", s.adminPurgePartnerAds)
+		g.GET("/uploads/sessions", s.adminListUploadSessions)
+		g.POST("/uploads/purge", s.adminPurgeUploadSessions)
+		g.GET("/storage/drives", s.adminListDrives)
+		g.GET("/storage/volumes", s.adminListVolumes)
+		g.POST("/storage/cleanup", s.adminCleanup)
+		g.POST("/storage/volumes", s.adminAddVolume)
+		g.DELETE("/storage/volumes", s.adminRemoveVolume)
+		g.POST("/storage/volume-offer", s.adminSetVolumeOffer)
+		g.POST("/storage/chain-move", s.adminChainMove)
+		g.GET("/location", s.adminGetLocation)
+		g.POST("/location", s.adminSetLocation)
 
 		// Privilegierte Operationen über den fundus-helper (root-Daemon):
 		// externe Laufwerke mounten, WLAN wechseln. Alle prüfen zuerst, ob der
 		// Helper überhaupt läuft, und antworten sonst mit einer klaren Meldung.
-		g.GET("/system/helper",           s.adminHelperStatus)
-		g.GET("/system/blockdevices",     s.adminListBlockDevices)
-		g.POST("/system/mount",           s.adminMountDrive)
-		g.POST("/system/unmount",         s.adminUnmountDrive)
-		g.GET("/system/wifi",             s.adminListWifi)
-		g.GET("/system/wifi/status",      s.adminWifiStatus)
-		g.POST("/system/wifi/connect",    s.adminConnectWifi)
+		g.GET("/system/helper", s.adminHelperStatus)
+		g.GET("/system/blockdevices", s.adminListBlockDevices)
+		g.POST("/system/mount", s.adminMountDrive)
+		g.POST("/system/unmount", s.adminUnmountDrive)
+		g.GET("/system/wifi", s.adminListWifi)
+		g.GET("/system/wifi/status", s.adminWifiStatus)
+		g.POST("/system/wifi/connect", s.adminConnectWifi)
 	}
 }
 
@@ -174,18 +175,18 @@ func (s *Server) adminListGridWallets(c *gin.Context) {
 	}
 
 	type entry struct {
-		ID       string `json:"id"`
-		Name     string `json:"name"`
+		ID        string `json:"id"`
+		Name      string `json:"name"`
 		Commodity string `json:"commodity"`
-		Address  string `json:"address"`
+		Address   string `json:"address"`
 	}
 	list := make([]entry, 0, len(s.gridWallets))
 	for _, w := range s.gridWallets {
 		list = append(list, entry{
-			ID:       w.OperatorID,
-			Name:     w.Name,
+			ID:        w.OperatorID,
+			Name:      w.Name,
 			Commodity: string(w.Commodity),
-			Address:  w.Address,
+			Address:   w.Address,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"wallets": list, "count": len(list)})
@@ -194,7 +195,7 @@ func (s *Server) adminListGridWallets(c *gin.Context) {
 // adminVersion gibt die aktuelle Version zurück.
 func (s *Server) adminVersion(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"version":   s.version,
+		"version":       s.version,
 		"fee_collector": config.KanonischeFeeCollector,
 	})
 }
@@ -235,7 +236,7 @@ func (s *Server) adminPublishUpdate(c *gin.Context) {
 
 	s.log.Info("Update-Manifest verbreitet",
 		zap.String("version", m.Version),
-		zap.String("argon2",  m.NodeArgon2[:16]+"…"),
+		zap.String("argon2", m.NodeArgon2[:16]+"…"),
 	)
 
 	c.JSON(http.StatusOK, gin.H{
@@ -270,8 +271,9 @@ func (s *Server) adminCheckConfig(c *gin.Context) {
 // Body: { "alloc_gb": 500, "offer_gb": 100 }
 //
 // Regeln:
-//   alloc_gb ≥ 5 × offer_gb  (eigene + 4 Spiegel-Chunks)
-//   alloc_gb > aktuell        (keine Verkleinerung)
+//
+//	alloc_gb ≥ 5 × offer_gb  (eigene + 4 Spiegel-Chunks)
+//	alloc_gb > aktuell        (keine Verkleinerung)
 func (s *Server) adminStorageExpand(c *gin.Context) {
 	if s.fileStore == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -350,7 +352,9 @@ func (s *Server) adminStorageStats(c *gin.Context) {
 }
 
 func max64Int64(a, b int64) int64 {
-	if a > b { return a }
+	if a > b {
+		return a
+	}
 	return b
 }
 

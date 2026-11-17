@@ -1,8 +1,10 @@
 -- =============================================================================
 --  pages/tos.lua – Nutzungsbedingungen / Terms of Service
 --
---  Wird beim ersten Aufruf angezeigt.
---  Akzeptanz wird als Cookie gespeichert (fundus_tos=v1).
+--  R930: Wird nach der ersten Anmeldung eines Kontos angezeigt (und nach
+--  einer neuen Fassung). Die Zustimmung vermerkt der Node je Konto
+--  (/api/v1/konto/tos, konten.json); der Cookie fundus_tos bleibt nur als
+--  Hinweis für Gäste, die die Bedingungen über den Fuß aufrufen.
 --  Kein JavaScript erforderlich – funktioniert mit reinem POST-Formular.
 -- =============================================================================
 

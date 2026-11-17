@@ -46,6 +46,12 @@ local routes = {
           if type(back) ~= "string" or back:sub(1,1) ~= "/" or back:sub(1,2) == "//" then
               back = "/"
           end
+          -- R930: angemeldet → Zustimmung beim Konto vermerken.
+          local render = require "render"
+          if render.sitzung() then
+              local _, _, st = render.api_post("/v1/konto/tos", { version = tos.VERSION })
+              if st == 200 then render.tos_gemerkt(tos.VERSION) end
+          end
           return ngx.redirect(back, 302)
       end },
 

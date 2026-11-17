@@ -63,6 +63,15 @@
     if (!r.ok || d.error) throw new Error(d.error || "Login fehlgeschlagen");
     await window.walletRefresh(true);
     if (window.navNeuLaden) window.navNeuLaden(); // R928: Navigation des Kontos
+    // R930: Nutzungsbedingungen nach der (ersten) Anmeldung bestätigen lassen.
+    try {
+      const v = window.FUNDUS_TOS || "v1";
+      const tr = await fetch("/api/v1/konto/tos?version=" + encodeURIComponent(v), { credentials: "same-origin" });
+      const td = tr.ok ? await tr.json() : null;
+      if (td && td.angemeldet && !td.akzeptiert && location.pathname !== "/tos") {
+        location.href = "/tos?back=" + encodeURIComponent(location.pathname + location.search);
+      }
+    } catch (e) {}
     return d;
   };
 

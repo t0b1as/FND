@@ -1,8 +1,6 @@
 package api
 
 import (
-	"runtime/debug"
-	"sync/atomic"
 	"context"
 	crand "crypto/rand"
 	"encoding/hex"
@@ -10,9 +8,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -74,11 +74,11 @@ type Session struct {
 	// 2FA
 	totp         *identity.TOTPManager // nil wenn TOTP nicht eingerichtet
 	totpVerified bool                  // true nach erfolgreichem TOTP-Code
-	identity  *identity.Identity
-	messenger *messenger.Messenger
-	history   *messenger.HistoryStore // persistenter, verschlüsselter Verlauf
-	wsConns   []*websocket.Conn
-	wsMu      sync.Mutex
+	identity     *identity.Identity
+	messenger    *messenger.Messenger
+	history      *messenger.HistoryStore // persistenter, verschlüsselter Verlauf
+	wsConns      []*websocket.Conn
+	wsMu         sync.Mutex
 
 	// Doppelte Zustellung abfangen (R667). Dieselbe Nachricht kommt über
 	// mehrere Wege an: direkt, aus dem Postfach, über den Abgleich mit den
@@ -142,7 +142,9 @@ func (s *Session) removeWS(c *websocket.Conn) {
 	s.wsMu.Lock()
 	out := s.wsConns[:0]
 	for _, x := range s.wsConns {
-		if x != c { out = append(out, x) }
+		if x != c {
+			out = append(out, x)
+		}
 	}
 	s.wsConns = out
 	s.wsMu.Unlock()
@@ -173,38 +175,38 @@ func (s *Server) registerMessengerRoutes() {
 	g := s.router.Group("/api/v1")
 	{
 		// Identitäts-Ableitung (Argon2id auf Server-Seite)
-		g.POST("/identity/derive",  s.loginThrottleMiddleware(), s.identityDerive) // Anmeldebremse (öffentlich)
-		mailboxPumpOnce.Do(func() { go s.mailboxPumpLoop() }) // Postfächer serverseitig abholen
-		g.GET("/identity/me",       s.identityMe)
-		g.GET("/identity/seed",     s.identitySeedWords) // Wallet-Seed anzeigen (eigene Session)
+		g.POST("/identity/derive", s.loginThrottleMiddleware(), s.identityDerive) // Anmeldebremse (öffentlich)
+		mailboxPumpOnce.Do(func() { go s.mailboxPumpLoop() })                     // Postfächer serverseitig abholen
+		g.GET("/identity/me", s.identityMe)
+		g.GET("/identity/seed", s.identitySeedWords)             // Wallet-Seed anzeigen (eigene Session)
 		g.POST("/identity/email-dir/publish", s.emailDirPublish) // opt-in email→FundusID
-		g.GET("/identity/email-dir/lookup",   s.emailDirLookup)  // email → FundusID nachschlagen
-		g.POST("/identity/keydir/publish", s.keyDirPublish) // eigenen X25519-PubKey veröffentlichen
-		g.GET("/identity/keydir/lookup",   s.keyDirLookup)  // FundusID → X25519-PubKey nachschlagen
-		g.POST("/identity/logout",  s.identityLogout)
-		g.POST("/identity/sign",    s.identitySign)  // signiert eine Nachricht mit dem Session-Schlüssel
+		g.GET("/identity/email-dir/lookup", s.emailDirLookup)    // email → FundusID nachschlagen
+		g.POST("/identity/keydir/publish", s.keyDirPublish)      // eigenen X25519-PubKey veröffentlichen
+		g.GET("/identity/keydir/lookup", s.keyDirLookup)         // FundusID → X25519-PubKey nachschlagen
+		g.POST("/identity/logout", s.identityLogout)
+		g.POST("/identity/sign", s.identitySign) // signiert eine Nachricht mit dem Session-Schlüssel
 
 		// Messenger
-		g.POST("/messenger/send",     s.messengerSend)
-		g.POST("/messenger/read",     s.messengerMarkRead)
-		g.POST("/messenger/decrypt",  s.messengerDecrypt)
+		g.POST("/messenger/send", s.messengerSend)
+		g.POST("/messenger/read", s.messengerMarkRead)
+		g.POST("/messenger/decrypt", s.messengerDecrypt)
 		g.POST("/messenger/presence", s.messengerPresence)
-		g.POST("/identity/name", s.identitySetName)   // Anzeigenamen setzen
-		g.GET("/identity/names", s.identityNames)     // Anzeigenamen nachschlagen
+		g.POST("/identity/name", s.identitySetName)      // Anzeigenamen setzen
+		g.GET("/identity/names", s.identityNames)        // Anzeigenamen nachschlagen
 		g.GET("/identity/avatar/:fid", s.identityAvatar) // Profilbild (geprüft)
 		g.GET("/messenger/online", s.messengerOnline)
-		g.GET("/messenger/contacts",  s.messengerContacts)
-		g.POST("/messenger/contacts/sync", s.contactsSync) // verschlüsselte Liste speichern
-		g.GET("/messenger/contacts/load",  s.contactsLoad) // verschlüsselte Liste abrufen
+		g.GET("/messenger/contacts", s.messengerContacts)
+		g.POST("/messenger/contacts/sync", s.contactsSync)     // verschlüsselte Liste speichern
+		g.GET("/messenger/contacts/load", s.contactsLoad)      // verschlüsselte Liste abrufen
 		g.POST("/messenger/mailbox/deposit", s.mailboxDeposit) // Offline-Nachricht ablegen
-		g.GET("/messenger/mailbox/fetch",    s.mailboxFetch)   // eigene wartende Nachrichten abholen
-		g.GET("/messenger/whoami",    s.messengerWhoami)
+		g.GET("/messenger/mailbox/fetch", s.mailboxFetch)      // eigene wartende Nachrichten abholen
+		g.GET("/messenger/whoami", s.messengerWhoami)
 		g.POST("/messenger/contacts", s.messengerAddContact)
-		g.GET("/messenger/history",   s.messengerHistory)
+		g.GET("/messenger/history", s.messengerHistory)
 		// Bearbeiten, Löschen, Verlauf leeren (R662)
-		g.POST("/messenger/edit",   s.messengerEdit)
+		g.POST("/messenger/edit", s.messengerEdit)
 		g.POST("/messenger/delete", s.messengerDelete)
-		g.POST("/messenger/clear",  s.messengerClear)
+		g.POST("/messenger/clear", s.messengerClear)
 
 		// WebSocket für Echtzeit-Nachrichten
 		g.GET("/messenger/ws", s.messengerWebSocket)
@@ -400,17 +402,17 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 					}
 					out["decrypted"] = true
 				}
-			// R690: Anrufsignale an jeder Stufe sichtbar machen. Ich habe vier
-			// Versuche lang geraten, wo es hängt – ohne Spur ist das nicht zu
-			// entscheiden. Die Zeile sagt: Signal da, wie viele Verbindungen
-			// erreicht, und ob eine Push-Anmeldung vorliegt.
-			if payload != nil && payload.Signal != nil && s.log != nil {
-				s.log.Info("Anrufsignal empfangen",
-					zap.String("art", string(payload.Signal.Type)),
-					zap.String("von", msg.SenderID),
-					zap.Int("ws_verbindungen", sess.wsAnzahl()),
-					zap.Bool("push_anmeldung", s.hatPushAnmeldung(sess.identity.FundusID)))
-			}
+				// R690: Anrufsignale an jeder Stufe sichtbar machen. Ich habe vier
+				// Versuche lang geraten, wo es hängt – ohne Spur ist das nicht zu
+				// entscheiden. Die Zeile sagt: Signal da, wie viele Verbindungen
+				// erreicht, und ob eine Push-Anmeldung vorliegt.
+				if payload != nil && payload.Signal != nil && s.log != nil {
+					s.log.Info("Anrufsignal empfangen",
+						zap.String("art", string(payload.Signal.Type)),
+						zap.String("von", msg.SenderID),
+						zap.Int("ws_verbindungen", sess.wsAnzahl()),
+						zap.Bool("push_anmeldung", s.hatPushAnmeldung(sess.identity.FundusID)))
+				}
 				if !sess.broadcastWS(out) {
 					s.log.Warn("WS-Zustellung fehlgeschlagen")
 				}
@@ -466,7 +468,7 @@ func (s *Server) identityDerive(c *gin.Context) {
 
 	// Passwort und Email sofort aus Request-Struct löschen
 	req.Password = ""
-	req.Email    = ""
+	req.Email = ""
 
 	// Session anlegen (Messenger, Verlauf, Empfangs-Handler)
 	sess := s.buildSession(id)
@@ -494,6 +496,7 @@ func (s *Server) identityDerive(c *gin.Context) {
 	// Über Neustarts/Updates hinweg: verschlüsselt ablegen (Schlüssel = Token).
 	s.forgetSession(forgetOld)
 	s.persistSession(token, id)
+	s.kontoAnmeldungVermerken(id.FundusID, id.ChainAddr()) // R930: Kontenübersicht
 
 	// Cookie: HttpOnly, SameSite=Lax OHNE Secure. Mit selbstsigniertem Zertifikat
 	// speichert/sendet Chrome Secure-Cookies unzuverlässig; Lax reicht, weil alle
@@ -610,14 +613,14 @@ func (s *Server) messengerSend(c *gin.Context) {
 	}
 
 	var req struct {
-		RecipientID     string              `json:"recipient_id"`
-		RecipientPubKey string              `json:"recipient_pub_key"`
-		Text            string              `json:"text,omitempty"`
-		FileHash        string              `json:"file_hash,omitempty"`
-		FileName        string              `json:"file_name,omitempty"`
-		FileSize        int64               `json:"file_size,omitempty"`
-		MimeType        string              `json:"mime_type,omitempty"`
-		Signal          *messenger.SignalMsg `json:"signal,omitempty"`
+		RecipientID     string                `json:"recipient_id"`
+		RecipientPubKey string                `json:"recipient_pub_key"`
+		Text            string                `json:"text,omitempty"`
+		FileHash        string                `json:"file_hash,omitempty"`
+		FileName        string                `json:"file_name,omitempty"`
+		FileSize        int64                 `json:"file_size,omitempty"`
+		MimeType        string                `json:"mime_type,omitempty"`
+		Signal          *messenger.SignalMsg  `json:"signal,omitempty"`
 		Type            messenger.MessageType `json:"type"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -815,7 +818,7 @@ func (s *Server) messengerSend(c *gin.Context) {
 			Timestamp: msg.Timestamp,
 		}
 		_ = sess.history.Append(he)
-		s.shareHistoryEntry(sess, he) // eigene gesendete Nachricht an die eigenen Nodes (R584)
+		s.shareHistoryEntry(sess, he)    // eigene gesendete Nachricht an die eigenen Nodes (R584)
 		s.forwardHistoryToHome(sess, he) // Gast-Node: auch beim Heim-Node ablegen
 	}
 
@@ -888,6 +891,7 @@ func (s *Server) messengerSend(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message_id": msg.ID})
 }
+
 // Nachrichten an deren Absender. Das Frontend ruft dies beim Öffnen eines Chats
 // für alle noch nicht als gelesen quittierten eingehenden Nachrichten auf.
 //
@@ -920,7 +924,9 @@ func (s *Server) messengerMarkRead(c *gin.Context) {
 		if s.node != nil {
 			if raw := s.node.RequestKeyDir(c.Request.Context(), rid); len(raw) > 0 {
 				var dr storage.Record
-				if json.Unmarshal(raw, &dr) == nil { rec = &dr }
+				if json.Unmarshal(raw, &dr) == nil {
+					rec = &dr
+				}
 			}
 		}
 		if rec == nil {
@@ -1248,7 +1254,12 @@ func (s *Server) messengerWebSocket(c *gin.Context) {
 		for range ticker.C {
 			sess.wsMu.Lock()
 			active := false
-			for _, c := range sess.wsConns { if c == conn { active = true; break } }
+			for _, c := range sess.wsConns {
+				if c == conn {
+					active = true
+					break
+				}
+			}
 			sess.wsMu.Unlock()
 			if !active {
 				return // Verbindung wurde entfernt
@@ -1417,7 +1428,7 @@ func (s *Server) totpVerify(c *gin.Context) {
 	}
 	if err := sess.totp.Verify(req.Code); err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
-			"error":        err.Error(),
+			"error":         err.Error(),
 			"totp_required": true,
 		})
 		return
@@ -1508,7 +1519,9 @@ func (s *Server) walletRestore(c *gin.Context) {
 	}
 	address, err := identity.DeriveAddressFromSeed(req.Words)
 	// Wörter sofort aus Slice löschen (best-effort)
-	for i := range req.Words { req.Words[i] = "" }
+	for i := range req.Words {
+		req.Words[i] = ""
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -1954,7 +1967,9 @@ func (s *Server) ensureKeyDir(c *gin.Context, id *identity.Identity) {
 	// Entschlüsselung scheitert ("message authentication failed").
 	curX := id.X25519PublicKeyHex()
 	myPeerID := ""
-	if s.node != nil { myPeerID = s.node.ID().String() }
+	if s.node != nil {
+		myPeerID = s.node.ID().String()
+	}
 	fidOK, chainOK := false, false
 	// Heim-Node: einmal festgelegt, nie überschrieben (Hybrid-Datenzugriff).
 	// peer_id bleibt "wo bin ich gerade" (direkte Zustellung), home_peer ist

@@ -33,6 +33,11 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R930:** Nutzungsbedingungen je Konto nach der Anmeldung bestätigen
+      (konten.json, /api/v1/konto/tos; Lua-Guard nur mit Sitzung, Ja 10 min
+      gemerkt) statt beim ersten Seitenaufruf. Einstellungen → Konten:
+      Anmeldungen je Konto (erste/letzte/Anzahl), online/angemeldet/Geräte,
+      Bedingungen, Wallet-Adresse + FND-Guthaben (/api/v1/admin/konten).
 - [x] **R929:** Link-Vorschau: Abrufer von Facebook, WhatsApp, Telegram, X,
       LinkedIn, Discord u. a. bekommen die Seite direkt statt /tos;
       Open-Graph-Angaben (Titel, Text, Preis, Bild 512 px) für Angebote,

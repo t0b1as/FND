@@ -1856,6 +1856,44 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
 })();
 </script>
 
+<!-- ── Konten (R930): wer sich auf diesem Node angemeldet hat ── -->
+<div class="set-card" id="konten">
+  <div class="set-head"><h3>Konten · Anmeldungen</h3></div>
+  <div class="set-body">
+    <p class="set-hint" style="margin:0 0 10px">Konten, die sich auf diesem Node angemeldet haben, mit Wallet-Adresse und FND-Guthaben, soweit bekannt. Gespeichert sind nur die öffentliche Fundus-ID und die Wallet-Adresse. E-Mail und Passwort kennt der Node nicht. <b>Online</b> heißt: aktiv in den letzten 5 Minuten.</p>
+    <div id="kt-summe" style="display:flex;gap:18px;flex-wrap:wrap;margin:0 0 10px;font-size:14px"></div>
+    <div id="kt-liste" class="set-hint">Lade …</div>
+    <div style="margin-top:10px"><button type="button" class="btn" id="kt-neu" style="width:auto">Aktualisieren</button></div>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(i){ return document.getElementById(i); };
+  var esc = function(t){ return String(t == null ? '' : t).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
+  var zeit = function(u){ return u ? new Date(u * 1000).toLocaleString('de-DE', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' }) : '–'; };
+  var kurz = function(a){ return a && a.length > 14 ? a.slice(0, 8) + '…' + a.slice(-4) : (a || ''); };
+  var vor = function(u){ if (!u) return ''; var s = Math.max(0, Date.now() / 1000 - u); return s < 90 ? 'gerade eben' : s < 3600 ? 'vor ' + Math.round(s / 60) + ' min' : s < 86400 ? 'vor ' + Math.round(s / 3600) + ' h' : 'vor ' + Math.round(s / 86400) + ' T'; };
+  function laden(){
+    fetch('/api/v1/admin/konten', { credentials: 'same-origin' }).then(function(r){ if (!r.ok) throw r.status; return r.json(); }).then(function(d){
+      var l = d.konten || [], tos = l.filter(function(k){ return k.tos_version; }).length, mitW = l.filter(function(k){ return k.wallet; }).length;
+      $('kt-summe').innerHTML = '<span><b>' + d.gesamt + '</b> Konten</span><span><b style="color:var(--green,#00e676)">' + d.online + '</b> online</span><span><b>' + d.angemeldet + '</b> angemeldet</span><span><b>' + tos + '</b> Bedingungen bestätigt</span><span><b>' + mitW + '</b> mit bekannter Wallet</span>';
+      if (!l.length) { $('kt-liste').textContent = 'Noch niemand angemeldet (gezählt wird ab R930).'; return; }
+      $('kt-liste').innerHTML = '<div style="overflow-x:auto"><table class="hs-tab"><thead><tr><th>Konto</th><th>Status</th><th>Erste / letzte Anmeldung</th><th>Anm.</th><th>Bedingungen</th><th>Wallet · FND</th></tr></thead><tbody>' +
+        l.map(function(k){
+          var st = k.online ? '<b style="color:var(--green,#00e676)">● online</b>' : k.angemeldet ? '○ angemeldet' : '<span style="opacity:.6">abgemeldet</span>';
+          if (k.angemeldet && k.aktiv) st += '<br><span style="opacity:.7;font-size:11px">' + vor(k.aktiv) + (k.geraete > 1 ? ' · ' + k.geraete + ' Geräte' : '') + '</span>';
+          return '<tr style="vertical-align:top"><td><b>' + esc(k.name) + '</b><br><span style="opacity:.6;font-size:11px;font-family:monospace" title="' + esc(k.fid) + '">' + esc(kurz(k.fid)) + '</span></td><td>' + st + '</td><td>' +
+            zeit(k.erste) + '<br>' + zeit(k.letzte) + '</td><td>' + (k.anmeldungen || '–') + '</td><td>' +
+            (k.tos_version ? '✓ ' + esc(k.tos_version) + '<br><span style="opacity:.7;font-size:11px">' + zeit(k.tos_zeit) + '</span>' : '<span style="color:var(--warn,#f5a623)">offen</span>') + '</td><td>' +
+            (k.wallet ? '<span style="font-family:monospace" title="' + esc(k.wallet) + '">' + esc(kurz(k.wallet)) + '</span><br>' + (k.fnd != null && k.fnd !== '' ? esc(String(k.fnd).replace('.', ',')) + ' FND' : '–') : '<span style="opacity:.6">noch nicht geöffnet</span>') + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+    }).catch(function(e){ $('kt-liste').textContent = (e === 401 || e === 403) ? 'Nur für den Eigentümer.' : 'Konnte nicht geladen werden.'; });
+  }
+  $('kt-neu').onclick = laden;
+  laden();
+})();
+</script>
+
 <!-- ── Filesharing / Storage ────────────────────────────────── -->
 <div class="set-card">
   <div class="set-head"><h3>]] .. t("settings.storage_head") .. [[</h3></div>
@@ -1935,6 +1973,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     ['standort', 'Standort',    /^\s*standort/i],
     ['hotspot',  'Hotspot',     /^\s*wlan-hotspot/i],
     ['paypal',   'PayPal',      /^\s*paypal/i],
+    ['konten',   'Konten',      /^\s*konten/i],
     ['ki',       'KI',          /^\s*ki\b/i],
     ['suche',    'Websuche',    /^\s*websuche/i],
     ['security', 'Sicherheit',  /sicherung|backup|admin|passwort|password/i],
