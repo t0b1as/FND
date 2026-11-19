@@ -41,7 +41,7 @@ param(
     [switch]$BuildOnly   = $false,  # nur Node+Helper bauen (bin\), kein Deploy (fuer deploy-all-pis)
     [switch]$IgnoreSourceFP = $false,  # Fingerabdruck-Pruefung des Quellordners uebergehen (Notausgang)
     [switch]$AllowDowngrade = $false,  # aelteres Programm als das laufende hochladen (Notausgang)
-    [string]$GoCmd       = "",      # Go-Toolchain (z.B. "go1.25.4"), leer = auto
+    [string]$GoCmd       = "",      # Go-Toolchain (z.B. "go1.27.4"), leer = "go" (mind. 1.26.11, sonst automatisch geladen)
     [string]$BootstrapPeer = "",    # Multiaddr eines bekannten Peers (z.B. /ip4/10.10.11.39/tcp/4001/p2p/12D3...)
     [string]$SwapHtlcProgram = "",  # Solana-HTLC-Programm-ID (leer = bestehende fundus.env nicht aendern; Erstinstallation: Standard-ID)
     [string]$SolanaRpc     = "",    # Solana-RPC-URL(s) (leer = nicht aendern; Erstinstallation: oeffentlicher Mainnet-Endpunkt)
@@ -104,46 +104,26 @@ function Write-Fail([string]$msg)  {
 function Invoke-LocalBuild([string]$targetArch) {
     Write-Step "Binary cross-kompilieren (linux/$targetArch)..."
 
-    # Go-Toolchain waehlen. Go 1.26 hat einen quic-go-Inkompatibilitaetsbug
-    # ("where's my session ticket?" Panic). Daher bevorzugt go1.25.x nutzen,
-    # falls installiert. Mit -GoCmd kann explizit gewaehlt werden.
-    $script:GoBin = $GoCmd
-    if (-not $script:GoBin) {
-        # Auto: go1.25.x bevorzugen wenn vorhanden - die NEUESTE (R936: die
-        # Patch-Versionen enthalten Sicherheitsfixes der Standardbibliothek;
-        # vorher wurde fest go1.25.4 genommen).
-        $g125 = $null
-        $kand = @(Get-ChildItem "$env:USERPROFILE\go\bin\go1.25*" -ErrorAction SilentlyContinue)
-        foreach ($n in @("go1.25.14","go1.25.13","go1.25.12","go1.25.11","go1.25.10","go1.25.4")) {
-            $c = Get-Command $n -ErrorAction SilentlyContinue
-            if ($c) { $kand += $c }
-        }
-        if ($kand.Count -gt 0) {
-            $g125 = $kand | Sort-Object { try { [version](($_.Name -replace '\.exe$','') -replace '^go','') } catch { [version]"0.0" } } -Descending | Select-Object -First 1
-        }
-        if ($g125) {
-            $script:GoBin = $g125.Name -replace '\.exe$',''
-            Write-Info "Go 1.25 gefunden - nutze $($script:GoBin) (vermeidet Go-1.26 quic-go-Bug)"
-        } else {
-            $script:GoBin = "go"
-        }
-    }
+    # Go-Toolchain waehlen (R937). Seit go-libp2p v0.52 / quic-go 0.64 baut
+    # Fundus mit Go 1.26 (go.mod: go 1.26.6) - die alte "session ticket"-Panik
+    # gab es nur mit quic-go 0.54. Go 1.25 bekommt keine Sicherheitsfixes mehr.
+    # Mindeststand: 1.26.11 bzw. 1.27.4 (Sicherheitsrelease 10.11.2026). Ist die
+    # installierte Version aelter, laedt Go den Stand selbst (GOTOOLCHAIN).
+    $script:GoBin = if ($GoCmd) { $GoCmd } else { "go" }
     if (-not (Get-Command $script:GoBin -ErrorAction SilentlyContinue)) {
         Write-Fail "Go-Toolchain '$($script:GoBin)' nicht gefunden (https://go.dev/dl/)."
     }
-    Write-Info "Go: $(& $script:GoBin version)"
-    # R936: aeltere 1.25-Patchstaende haben bekannte Luecken in net/http,
-    # crypto/tls, crypto/x509 u. a. - 1.25.14 ist der letzte Stand der Reihe.
-    if ((& $script:GoBin version) -match "go1\.25\.(\d+)") {
-        if ([int]$Matches[1] -lt 14) {
-            Write-Warn "Go 1.25.$($Matches[1]) hat bekannte Sicherheitsluecken der Standardbibliothek - bitte go1.25.14 nutzen:"
-            Write-Warn "  go install golang.org/dl/go1.25.14@latest; go1.25.14 download"
-        }
-    }
-    if ((& $script:GoBin version) -match "go1\.26") {
-        Write-Warn "Go 1.26 erkannt - quic-go kann 'session ticket' Panic werfen."
-        Write-Warn "Empfehlung: go install golang.org/dl/go1.25.4@latest; go1.25.4 download"
-        Write-Warn "Dann erneut mit -GoCmd go1.25.4 deployen."
+    $env:GOTOOLCHAIN = ""
+    $gv = (& $script:GoBin env GOVERSION 2>$null)
+    if (-not $gv) { $gv = ((& $script:GoBin version) -replace '^go version (\S+).*$','$1') }
+    $gvNum = [version]"0.0.0"
+    if ($gv -match '^go(\d+)\.(\d+)(?:\.(\d+))?') { $gvNum = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $(if ($Matches[3]) { $Matches[3] } else { 0 })) }
+    $aktuell = ($gvNum -ge [version]"1.27.4") -or ($gvNum.Major -eq 1 -and $gvNum.Minor -eq 26 -and $gvNum.Build -ge 11)
+    if ($aktuell) {
+        Write-Info "Go: $gv"
+    } else {
+        $env:GOTOOLCHAIN = "go1.26.11"
+        Write-Info "Go $gv ist zu alt bzw. ohne die Sicherheitsfixes vom 10.11.2026 - baue mit go1.26.11 (wird beim ersten Mal automatisch geladen)"
     }
 
     # go-Verzeichnis finden (neben dem Skript oder Skript liegt drin)
@@ -208,7 +188,7 @@ function Invoke-LocalBuild([string]$targetArch) {
         $hsz = [math]::Round((Get-Item $helperOut).Length / 1MB, 1)
         Write-Ok "Binary gebaut: bin\fundus-helper ($hsz MB, linux/$targetArch)"
     } finally {
-        $env:GOOS=""; $env:GOARCH=""; $env:GOARM=""; $env:CGO_ENABLED=""; $env:GOFLAGS=""
+        $env:GOOS=""; $env:GOARCH=""; $env:GOARM=""; $env:CGO_ENABLED=""; $env:GOFLAGS=""; $env:GOTOOLCHAIN=""
         Pop-Location
     }
 }
@@ -776,11 +756,11 @@ vfat_allow=uid=$UID,gid=$GID,flush,utf8,shortname,umask,dmask,fmask,codepage,ioc
 Write-Step "Go-Installation prüfen..."
 $goCheck = Invoke-SSH-Safe "export PATH=`$PATH:/usr/local/go/bin && go version 2>/dev/null || echo missing"
 if ($goCheck.Output.Trim() -eq "missing" -or $goCheck.Output -notmatch "go version") {
-    Write-Info "Go nicht gefunden – installiere go1.22..."
+    Write-Info "Go nicht gefunden – installiere go1.26.11..."
     # Go-Download passend zur Ziel-Architektur (arm64 für Pis, amd64 für x86-Nodes).
     $goArchDl = if ($Arch -eq "amd64") { "amd64" } elseif ($Arch -eq "arm") { "armv6l" } else { "arm64" }
     $_c2 = @"
-wget -q https://go.dev/dl/go1.22.4.linux-$goArchDl.tar.gz -O /tmp/go.tar.gz && sudo tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
+wget -q https://go.dev/dl/go1.26.11.linux-$goArchDl.tar.gz -O /tmp/go.tar.gz && sudo tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz
 "@
     Invoke-SSH $_c2
     Invoke-SSH "echo 'export PATH=`$PATH:/usr/local/go/bin' | sudo tee /etc/profile.d/go.sh"

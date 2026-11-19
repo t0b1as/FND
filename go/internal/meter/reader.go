@@ -830,7 +830,11 @@ func (r *Reader) readHTTP(ctx context.Context) (*Reading, error) {
 	resp, err := r.client.Do(req)
 	if err != nil { return nil, err }
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	// R938: Fehlerseiten (5xx/4xx) nicht als Messwert auswerten.
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return nil, fmt.Errorf("http: Status %d von %s", resp.StatusCode, r.cfg.HTTPURL)
+	}
 
 	reading := &Reading{Timestamp: time.Now().UTC(), MeterID: r.cfg.MeterID}
 
@@ -862,6 +866,23 @@ func (r *Reader) readHTTP(ctx context.Context) (*Reading, error) {
 		reading.Leistungsfaktor = e.Factor
 		reading.KWh         = reading.KWhBezug
 		reading.WattNow     = reading.WattGesamt
+		return reading, nil
+	}
+
+	// R938: Generisches Format {"kwh": <Zählerstand>, "watt": <Leistung>}
+	// (eigene Skripte, ESPHome-/Node-RED-Brücken). Ging bei der Umstellung auf
+	// Shelly/Tasmota verloren.
+	var generic struct {
+		KWh  *float64 `json:"kwh"`
+		Watt *float64 `json:"watt"`
+	}
+	if json.Unmarshal(body, &generic) == nil && generic.KWh != nil {
+		reading.KWhBezug = *generic.KWh
+		if generic.Watt != nil {
+			reading.WattGesamt = *generic.Watt
+		}
+		reading.KWh = reading.KWhBezug
+		reading.WattNow = reading.WattGesamt
 		return reading, nil
 	}
 

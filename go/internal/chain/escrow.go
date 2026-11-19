@@ -667,6 +667,8 @@ func (s *State) GetEscrow(id [32]byte) (Escrow, bool) {
 		Amount: new(big.Int).Set(e.Amount), Deadline: e.Deadline,
 		ContentHash: e.ContentHash, State: e.State,
 		Insured: e.Insured,
+		// R938: Rücksende-Frist und Tracking-Hash fehlten in der Kopie.
+		ReturnDeadline: e.ReturnDeadline, TrackingHash: e.TrackingHash,
 	}
 	if e.Premium != nil {
 		cp.Premium = new(big.Int).Set(e.Premium)

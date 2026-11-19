@@ -33,10 +33,35 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R938:** Chain-Tests grün. Echter Fehler: GetEscrow kopierte
+      Rücksende-Frist und Tracking-Hash nicht mit (API meldete return_deadline 0).
+      BlockSync- und Validator-Test an die R477-Regel (Gründer statt lokaler
+      Bootstrap-Liste) angepasst; Storage-Tests an Löschvermerk und netzweiten
+      Marktplatz-Cache. Zähler per HTTP: generisches {"kwh","watt"}-Format
+      wieder unterstützt, Fehlerseiten (4xx/5xx) nicht mehr ausgewertet.
+      push-release.ps1 wählt die Go-Toolchain wie deploy-fundus.ps1 (≥ 1.26.11).
+      go.sum (Node + Admin) nur noch mit offiziellen Einträgen; die Prüfsummen
+      der neuen Module ergänzt go mod tidy über sum.golang.org (R937 enthielt
+      Prüfsummen des Offline-Ersatz-Proxys → checksum mismatch otel/trace).
+- [ ] **ROT:** Veraltete Tests: internal/api (Partner/Listings/Energie – 401 durch
+      Login-Pflicht, 410 Energie-Token abgeschaltet, Thumbnail 512 px; Panic in
+      TestAPI_EnergyTokens_Fee_Calculation bricht den Lauf ab), internal/meter
+      (Rundung KWh/Watt), internal/partner (Klartext-Profil, s. u.).
+- [ ] **ROT:** Partner-Profil: Geschlecht, Alter, Hobbys, Vorlieben und sexuelle
+      Präferenzen gehen im Klartext ins Netz; nur das Bio-Feld trägt den Hinweis
+      „wird öffentlich geteilt“. Entscheidung offen (Hinweis an allen Feldern
+      oder Felder nur gehasht).
+- [x] **R937:** go-libp2p v0.43 → v0.52 (quic-go 0.64.1, kad-dht v0.43,
+      pubsub v0.19, go-datastore v0.9.2, ds-leveldb v0.5.3); Go 1.26 (go.mod
+      go 1.26.6). Einzige API-Änderung: dht.New ohne Kontext. Deploy baut mit
+      der installierten Go-Version ab 1.26.11/1.27.4, sonst lädt es go1.26.11.
+      Getestet: Build amd64/arm64/arm, go vet, zwei Nodes über QUIC und TCP,
+      Feed-Gossip neu↔neu und neu↔alt (R936) in beide Richtungen, alter
+      Datenordner mit neuem Programm.
 - [x] **R936:** Sicherheits-Check: quic-go 0.54.0 → 0.54.1 (GO-2025-4017,
       Panic aus dem Netz); Deploy nimmt die neueste go1.25.x und warnt unter
       1.25.14; SCTP-Kernelmodul gesperrt (ungepatchte Kernel-Lücke Nov. 2026).
-- [ ] **ROT:** Go 1.25 ist ohne Support (seit Go 1.27). Umzug auf Go 1.26/1.27
+- [x] **(R937 erledigt)** Go 1.25 ist ohne Support (seit Go 1.27). Umzug auf Go 1.26/1.27
       braucht neueres go-libp2p (≥ v0.4x mit quic-go ≥ 0.59, „session ticket“-
       Panic) – eigenes Release mit Testlauf.
 - [x] **R935:** Volles Systemupgrade ist Standard bei jedem Deploy

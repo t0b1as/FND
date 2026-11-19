@@ -262,7 +262,7 @@ func NewNode(ctx context.Context, cfg *config.Config, store *storage.Store, log 
 	//
 	// AutoNAT prüft nach dem Bootstrap ob wir erreichbar sind.
 	// Wir starten als Server; AutoNAT degradiert bei Bedarf automatisch.
-	kadDHT, err := dht.New(ctx, h,
+	kadDHT, err := dht.New(h, // R937: kad-dht v0.43 ohne Kontext-Parameter
 		dht.Mode(dht.ModeAuto), // ← AutoNAT entscheidet: Server oder Client
 		dht.BootstrapPeers(dht.GetDefaultBootstrapPeerAddrInfos()...),
 	)

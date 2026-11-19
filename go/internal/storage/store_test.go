@@ -201,12 +201,25 @@ func TestStore_Delete(t *testing.T) {
 		t.Fatalf("Delete: %v", err)
 	}
 
+	// R938: Delete legt einen Löschvermerk (Tombstone) an statt den Datensatz
+	// zu entfernen – nur so erreicht die Löschung per P2P die anderen Nodes.
 	got, err := s.Get(storage.RecordListing, "del-me")
 	if err != nil {
 		t.Fatalf("Get after delete: %v", err)
 	}
-	if got != nil {
-		t.Error("Record still exists after Delete")
+	if got == nil || got.DeletedAt == nil {
+		t.Fatal("Delete muss einen Löschvermerk hinterlassen")
+	}
+	if got.Data != nil {
+		t.Error("Nutzlast muss nach Delete leer sein")
+	}
+
+	// HardDelete entfernt den Datensatz endgültig.
+	if err := s.HardDelete(storage.RecordListing, "del-me"); err != nil {
+		t.Fatalf("HardDelete: %v", err)
+	}
+	if got, _ := s.Get(storage.RecordListing, "del-me"); got != nil {
+		t.Error("Record still exists after HardDelete")
 	}
 }
 
@@ -262,12 +275,14 @@ func TestStore_UpdateReplicationTargets_FewerThanMax(t *testing.T) {
 
 func TestStore_HandleIncoming_IgnoresNonTarget(t *testing.T) {
 	s := newTestStore(t)
-	// Kein Replication-Target, kein Partner-Topic → nicht speichern
+	// Kein Replication-Target, kein Partner-, Marktplatz- oder persönliches
+	// Topic → nicht speichern. (R938: fundus.listings wird seit dem
+	// netzweiten Marktplatz von ALLEN Peers gecacht, daher ein anderes Topic.)
 
 	rec := testRecord("incoming-1", storage.RecordListing)
 	data, _ := json.Marshal(rec)
 
-	if err := s.HandleIncoming("fundus.listings", "peer-unknown", data); err != nil {
+	if err := s.HandleIncoming("fundus.sonstiges", "peer-unknown", data); err != nil {
 		t.Fatalf("HandleIncoming: %v", err)
 	}
 

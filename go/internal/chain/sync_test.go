@@ -56,11 +56,24 @@ func TestBlockSyncBetweenNodes(t *testing.T) {
 	}
 	gA.Header.StateRoot = stA.Root()
 
-	bcA, err := NewBlockchain(dirA, fc, gA, noHash)
+	// R938: Seit R477 leitet die Kette nach jedem Block das Set aus den
+	// eincompilierten Gründern ab – ein Einzelnode ohne Schlüssel kann ab Block 2
+	// nicht mehr produzieren. Für den Test ist 'from' der einzige Gründer; A
+	// signiert damit, B prüft die Signaturen beim Import (echter PoA-Pfad).
+	alteGruender := FoundingValidators
+	FoundingValidators = []string{from.Hex()}
+	defer func() { FoundingValidators = alteGruender }()
+	vs, err := NewValidatorSet([]Address{from})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bcA, err := NewBlockchain(dirA, from, gA, noHash)
 	if err != nil {
 		t.Fatalf("Node A: %v", err)
 	}
 	defer bcA.Close()
+	bcA.SetConsensus(vs, priv)
 	// Node B (Sync-Empfänger) — exakt derselbe Genesis.
 	dirB := t.TempDir()
 	bcB, err := NewBlockchain(dirB, fc, gA, noHash)
@@ -68,6 +81,7 @@ func TestBlockSyncBetweenNodes(t *testing.T) {
 		t.Fatalf("Node B: %v", err)
 	}
 	defer bcB.Close()
+	bcB.SetConsensus(vs, nil)
 
 	// Genesis-Hashes müssen gleich sein.
 	if bcA.GenesisHeaderHash() != bcB.GenesisHeaderHash() {

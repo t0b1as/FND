@@ -245,6 +245,18 @@ if (-not $DryRun) {
 
 # -- 3. Binaries bauen --------------------------------------------------------
 Step "Binaries bauen (linux/arm64 + linux/arm)"
+# Go-Toolchain wie deploy-fundus.ps1 (R938): mind. 1.26.11 bzw. 1.27.4
+# (Sicherheitsrelease 10.11.2026). Aeltere Versionen laden den Stand selbst.
+$env:GOTOOLCHAIN = ""
+$gv = (& $GO env GOVERSION 2>$null)
+$gvNum = [version]"0.0.0"
+if ($gv -match '^go(\d+)\.(\d+)(?:\.(\d+))?') { $gvNum = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $(if ($Matches[3]) { $Matches[3] } else { 0 })) }
+if (($gvNum -ge [version]"1.27.4") -or ($gvNum.Major -eq 1 -and $gvNum.Minor -eq 26 -and $gvNum.Build -ge 11)) {
+    Info "Go: $gv"
+} else {
+    $env:GOTOOLCHAIN = "go1.26.11"
+    Info "Go $gv ist zu alt - baue mit go1.26.11 (wird beim ersten Mal automatisch geladen)"
+}
 Push-Location (Join-Path $src "go")
 try {
     # Wie deploy-fundus.ps1: go.mod/go.sum mit dem Code abgleichen. Der
@@ -263,7 +275,7 @@ try {
         Ok "linux/$arch"
     }
 } finally {
-    Remove-Item Env:GOOS, Env:GOARCH, Env:GOARM, Env:CGO_ENABLED -ErrorAction SilentlyContinue
+    Remove-Item Env:GOOS, Env:GOARCH, Env:GOARM, Env:CGO_ENABLED, Env:GOTOOLCHAIN -ErrorAction SilentlyContinue
     Pop-Location
 }
 
