@@ -33,6 +33,28 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R936:** Sicherheits-Check: quic-go 0.54.0 → 0.54.1 (GO-2025-4017,
+      Panic aus dem Netz); Deploy nimmt die neueste go1.25.x und warnt unter
+      1.25.14; SCTP-Kernelmodul gesperrt (ungepatchte Kernel-Lücke Nov. 2026).
+- [ ] **ROT:** Go 1.25 ist ohne Support (seit Go 1.27). Umzug auf Go 1.26/1.27
+      braucht neueres go-libp2p (≥ v0.4x mit quic-go ≥ 0.59, „session ticket“-
+      Panic) – eigenes Release mit Testlauf.
+- [x] **R935:** Volles Systemupgrade ist Standard bei jedem Deploy
+      (deploy-fundus -SystemUpgrade=$true, abschaltbar mit -SkipSystemUpgrade;
+      deploy-all-pis $SystemUpgrade=$true); upgrade --with-new-pkgs,
+      Lock-Timeout 300 s, needrestart ohne Rückfrage.
+- [x] **R934:** webserver-update.sh: Programm erst suchen (OpenResty/nginx),
+      dann Version lesen – „No such file“ stand sonst als Version da;
+      klarere Meldung „kein neueres Paket“; Hinweis auf wartende Systempakete;
+      deploy-all-pis: $SystemUpgrade.
+- [x] **R933:** NGINX2Root (CVE-2026-123007 ff.): Fundus nutzt weder HTTP/2,
+      HTTP/3, resolver, mirror/SSI noch mail/stream → nur CVE-2026-118899
+      (TLS 1.3, DoS) relevant: ssl_protocols vorübergehend TLSv1.2. Deploy
+      aktualisiert jetzt den Webserver (tools/webserver-update.sh, nur
+      installierte Pakete, --only-upgrade; -SystemUpgrade = alles) und meldet
+      den Patchstand.
+- [ ] **ROT:** Sobald nginx ≥ 1.30.7/1.31.9 (OpenResty ≥ 1.31.9.x bzw.
+      gepatchtes Debian-Paket) auf allen Pis: ssl_protocols wieder TLSv1.2 TLSv1.3.
 - [x] **R932:** Konten-Übersicht: Schalter „Alle Wallets der Blockchain“
       (chain.AlleKonten, nur lesend): Adresse, FND, Stake, Tx-Zahl, Zuordnung
       (Konto von hier, Node-Wallet, Validator, Gebühren-Sammler), Summen.

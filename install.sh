@@ -79,6 +79,8 @@ else
   fi
 fi
 [ -n "$WEB" ] || die "Kein Lua-fähiger Webserver installierbar (weder OpenResty noch nginx + Lua-Modul)."
+# R933: vorhandenen Webserver auf Sicherheitsstand bringen (NGINX2Root, Nov. 2026)
+[ -f "$(dirname "$0")/tools/webserver-update.sh" ] && bash "$(dirname "$0")/tools/webserver-update.sh" || true
 ok "$WEB"
 
 # ── 3. System-Benutzer ───────────────────────────────────────────────────────

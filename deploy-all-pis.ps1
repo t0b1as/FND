@@ -22,6 +22,10 @@ $PiUser  = "tobias"
 # Nur ausfuellen, wenn ALLE Pis bewusst umgestellt werden sollen.
 $SwapHtlcProgram = ""
 $SolanaRpc       = ""
+# R935: $true (Standard) = bei jedem Deploy auf allen Pis ALLE Systempakete
+# aktualisieren (apt-get upgrade, dauert je nach Rueckstand einige Minuten).
+# $false = nur Webserver-Sicherheitsupdates (laufen immer).
+$SystemUpgrade   = $true
 
 # --- Zugangsdaten einmal abfragen (sicher, nicht im Skript hinterlegt) ---
 Write-Host "Zugangsdaten fuer das Deploy auf alle Pis (werden nur an die Fenster weitergegeben):" -ForegroundColor Cyan
@@ -72,6 +76,7 @@ foreach ($ip in $PiIPs) {
         "-SwapHtlcProgram", "`"$SwapHtlcProgram`"",
         "-SolanaRpc", "`"$SolanaRpc`""
     )
+    if (-not $SystemUpgrade) { $argList += "-SkipSystemUpgrade" }
     # Ein eigenes PowerShell-Fenster pro Pi oeffnen (parallel).
     Start-Process -FilePath "powershell.exe" -ArgumentList $argList
     Write-Host "  -> Fenster fuer $ip gestartet" -ForegroundColor Gray

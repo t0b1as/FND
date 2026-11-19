@@ -34,6 +34,8 @@ param(
     [string]$FndAddress  = "",      # FND-Contract-Adresse auf dieser Chain (leer = Wallet zeigt "kein Contract")
     [string]$FeeCollector = "0xea5594a7cc26d2456e9a033481d01a5ba101c8f8",  # Gebühren-Adresse (BLAKE3/256-MiB-Ableitung via fnd-wallet)
     [switch]$SkipSetup   = $false,
+    [switch]$SystemUpgrade = $true,      # R935: Standard - bei jedem Deploy ALLE Systempakete aktualisieren (apt-get upgrade)
+    [switch]$SkipSystemUpgrade = $false, # nur Webserver-Sicherheitsupdates, kein volles Upgrade (z. B. fuer schnelle Tests)
     [switch]$WriteEnv    = $false,  # fundus.env (über)schreiben; sonst nur bei Erstinstallation
     [switch]$Rebuild     = $false,  # Binary neu kompilieren erzwingen
     [switch]$BuildOnly   = $false,  # nur Node+Helper bauen (bin\), kein Deploy (fuer deploy-all-pis)
@@ -107,12 +109,17 @@ function Invoke-LocalBuild([string]$targetArch) {
     # falls installiert. Mit -GoCmd kann explizit gewaehlt werden.
     $script:GoBin = $GoCmd
     if (-not $script:GoBin) {
-        # Auto: go1.25.x bevorzugen wenn vorhanden
-        $g125 = Get-Command "go1.25.4" -ErrorAction SilentlyContinue
-        if (-not $g125) {
-            # irgendeine go1.25.x im go/bin suchen
-            $dl = Get-ChildItem "$env:USERPROFILE\go\bin\go1.25*" -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($dl) { $g125 = $dl }
+        # Auto: go1.25.x bevorzugen wenn vorhanden - die NEUESTE (R936: die
+        # Patch-Versionen enthalten Sicherheitsfixes der Standardbibliothek;
+        # vorher wurde fest go1.25.4 genommen).
+        $g125 = $null
+        $kand = @(Get-ChildItem "$env:USERPROFILE\go\bin\go1.25*" -ErrorAction SilentlyContinue)
+        foreach ($n in @("go1.25.14","go1.25.13","go1.25.12","go1.25.11","go1.25.10","go1.25.4")) {
+            $c = Get-Command $n -ErrorAction SilentlyContinue
+            if ($c) { $kand += $c }
+        }
+        if ($kand.Count -gt 0) {
+            $g125 = $kand | Sort-Object { try { [version](($_.Name -replace '\.exe$','') -replace '^go','') } catch { [version]"0.0" } } -Descending | Select-Object -First 1
         }
         if ($g125) {
             $script:GoBin = $g125.Name -replace '\.exe$',''
@@ -125,6 +132,14 @@ function Invoke-LocalBuild([string]$targetArch) {
         Write-Fail "Go-Toolchain '$($script:GoBin)' nicht gefunden (https://go.dev/dl/)."
     }
     Write-Info "Go: $(& $script:GoBin version)"
+    # R936: aeltere 1.25-Patchstaende haben bekannte Luecken in net/http,
+    # crypto/tls, crypto/x509 u. a. - 1.25.14 ist der letzte Stand der Reihe.
+    if ((& $script:GoBin version) -match "go1\.25\.(\d+)") {
+        if ([int]$Matches[1] -lt 14) {
+            Write-Warn "Go 1.25.$($Matches[1]) hat bekannte Sicherheitsluecken der Standardbibliothek - bitte go1.25.14 nutzen:"
+            Write-Warn "  go install golang.org/dl/go1.25.14@latest; go1.25.14 download"
+        }
+    }
     if ((& $script:GoBin version) -match "go1\.26") {
         Write-Warn "Go 1.26 erkannt - quic-go kann 'session ticket' Panic werfen."
         Write-Warn "Empfehlung: go install golang.org/dl/go1.25.4@latest; go1.25.4 download"
@@ -1209,6 +1224,19 @@ if ($localHash -eq $piHash) {
 # =============================================================================
 #  BLOCK J0 – Webserver (Web-UI auf Port 80) konfigurieren
 # =============================================================================
+# R933: Sicherheitsupdates des Webservers (tools/webserver-update.sh), vor dem
+# Neustart unten - erst der restart laedt das neue Programm.
+Write-Step "Sicherheitsupdates Webserver..."
+$wsArg = if ($SystemUpgrade -and -not $SkipSystemUpgrade) { " alles" } else { "" }
+if ($wsArg) { Write-Info "Aktualisiere alle Systempakete (kann einige Minuten dauern; abschalten mit -SkipSystemUpgrade)" }
+$ws = Invoke-SSH-Safe "sudo bash $RemoteDir/tools/webserver-update.sh$wsArg 2>&1"
+foreach ($z in ($ws.Output -split "`n")) {
+    $z = $z.Trim(); if (-not $z) { continue }
+    if ($z -like "OK *") { Write-Ok $z.Substring(3) }
+    elseif ($z -like "WARN *") { Write-Warn $z.Substring(5) }
+    else { Write-Info ($z -replace '^INFO ', '') }
+}
+
 # Webserver-User (www-data bei nginx, nobody bei OpenResty) braucht Lesezugriff
 # auf /opt/fundus/lua. Der globale chmod o= nach dem Entpacken sperrt sonst aus -> 403.
 Invoke-SSH "sudo chmod o+rX /opt/fundus && sudo chmod -R o+rX /opt/fundus/lua"
