@@ -1,8 +1,8 @@
 {
-  "version": "R932",
-  "description": "FUNDUS R932 - Guest Access",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R932/FND-R932-update.zip",
-  "node_argon2": "8b9c4674c0f5188b3bb4fecd345070073161763976ff2a8ab9bbbb36f89b13f0",
-  "published_at": "2026-11-17T16:21:52.2854896Z",
-  "signature": "0xd59a7269558bcca446792423c8b25be4f0c593caeb975003331d9ec4efabada05acd65c0eea29b03c31cfd46481a1de8d1d49fc8bee86b914645c8f4ec63c8bf1b"
+  "version": "R936",
+  "description": "FUNDUS R936 - nginx lockdown",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R936/FND-R936-update.zip",
+  "node_argon2": "83def6f47a25a807f814d9af7f4a2eb8240c8c0d036e4a074e43334bdd0ca655",
+  "published_at": "2026-11-19T07:23:16.3435118Z",
+  "signature": "0x582fe055fb01b98161036f595ce0040255496ed6644ed259df468dfceaef0bea5bee40b015ae87d8a9534b88cc1460ac51d23466db9f52137419e2f34d6a3fa51b"
 }
