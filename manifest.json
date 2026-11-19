@@ -1,8 +1,8 @@
 {
-  "version": "R936",
-  "description": "FUNDUS R936 - nginx lockdown",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R936/FND-R936-update.zip",
-  "node_argon2": "83def6f47a25a807f814d9af7f4a2eb8240c8c0d036e4a074e43334bdd0ca655",
-  "published_at": "2026-11-19T07:23:16.3435118Z",
-  "signature": "0x582fe055fb01b98161036f595ce0040255496ed6644ed259df468dfceaef0bea5bee40b015ae87d8a9534b88cc1460ac51d23466db9f52137419e2f34d6a3fa51b"
+  "version": "R938",
+  "description": "FUNDUS R938 - nginx lockdown",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R938/FND-R938-update.zip",
+  "node_argon2": "e88b5ee7f43e2aa8620fdff5dfc8f6f62410fe0bc150ae953068a39cecf9bf88",
+  "published_at": "2026-11-19T09:33:33.22905Z",
+  "signature": "0xf4527a0893ae873d5e6326f8fcbc47a1e6057c1ee889da05bb7658dfbb5e189747bb04b3c8c2e44758e4d243ffdaa9d2f4d85a8637aed20931f886f5aafa3f051b"
 }
