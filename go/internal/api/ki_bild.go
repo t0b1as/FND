@@ -53,7 +53,7 @@ type kiBildConfig struct {
 
 func (k kiBildConfig) zimage() bool { return k.Typ == "zimage" }
 
-func (s *Server) kiBildDatei() string { return filepath.Join(s.cfg.DataDir, "ki-bild.json") }
+func (s *Server) kiBildDatei() string  { return filepath.Join(s.cfg.DataDir, "ki-bild.json") }
 func (s *Server) kiBildOrdner() string { return filepath.Join(s.cfg.DataDir, "ki-bilder") }
 
 func (s *Server) kiBildLesen() kiBildConfig {
@@ -259,6 +259,10 @@ func gleicherRechner(a, b string) bool {
 
 // kiBildErzeugen: Auftrag an ComfyUI, warten, Bild ablegen. Liefert die ID.
 func (s *Server) kiBildErzeugen(ctx context.Context, k kiBildConfig, beschreibung, format string, sprachmodell string) (string, error) {
+	// R942: gilt für jeden Weg (Werkzeug, Text-Aufruf, /bild) und jedes Modell.
+	if kiBildGesperrt(beschreibung) {
+		return "", fmt.Errorf("diese Bildbeschreibung wird nicht umgesetzt")
+	}
 	wh, ok := kiFormate[format]
 	if !ok {
 		wh = kiFormate["quadrat"]
@@ -451,4 +455,18 @@ func (s *Server) kiBildAusliefern(c *gin.Context) {
 	}
 	c.Header("Cache-Control", "private, max-age=86400")
 	c.File(filepath.Join(s.kiBildOrdner(), d))
+}
+
+// kiBildGesperrt (R942): keine Nackt- oder sexuellen Darstellungen von
+// Minderjährigen – unabhängig vom Sprachmodell, auch im Heimnetz.
+var (
+	reKIMinderjaehrig = regexp.MustCompile(`(?i)\b(child|children|kids?|underage|under-age|teens?|teenage|teenager|preteen|pre-teen|toddler|infant|bab(y|ies)|schoolgirl|schoolboy|loli|lolita|shota|young (girl|boy)|little (girl|boy)|minderjährig\w*|jugendlich\w*|schulmädchen|schuljunge|kleinkind\w*|säugling\w*|mädchen|(?:[1-9]|1[0-7])[ -]?(?:years?[ -]old|yo|jahre alt|jährig\w*))\b`)
+	// Groß geschrieben = Hauptwort („Kind“, „Junge“) – nicht „kind of“, „junge Frau“.
+	reKIMinderjaehrigNomen = regexp.MustCompile(`\b(Kind|Kinder|Kindes|Kindern|Junge|Jungen)\b`)
+	reKINackt              = regexp.MustCompile(`(?i)\b(nude|nudity|naked|nsfw|topless|bottomless|undressed|unclothed|sexual|sexy|erotic|explicit|lingerie|genital\w*|breasts?|nackt\w*|erotisch\w*|sexuell\w*|unbekleidet\w*|oben ohne|intim\w*)\b`)
+)
+
+func kiBildGesperrt(beschreibung string) bool {
+	return (reKIMinderjaehrig.MatchString(beschreibung) || reKIMinderjaehrigNomen.MatchString(beschreibung)) &&
+		reKINackt.MatchString(beschreibung)
 }

@@ -33,6 +33,13 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R942:** KI-Chat malt auch mit Modellen, deren Werkzeugaufrufe als Text
+      kommen (Qwen-XML <tool_call><function=…>, JSON, Codeblock) – erkannt,
+      ausgeführt, Rohtext nicht angezeigt. Befehl „/bild [hoch|quer] …“: Sprachmodell
+      formuliert nur den Prompt (ohne Werkzeuge); lehnt es ab, geht im Heimnetz die
+      eigene Beschreibung direkt ans Bildmodell, von außen bleibt die Ablehnung.
+      Schutzregel vor ComfyUI für alle Wege: keine Nackt-/Sexualdarstellungen
+      Minderjähriger. Tests mit nachgebautem Ollama + ComfyUI.
 - [x] **R941:** Bildmodell umschaltbar: SDXL (Checkpoint) oder Z-Image Turbo
       (Diffusionsmodell + Qwen3-4B-Text-Encoder + ae-VAE; UNETLoader/CLIPLoader
       lumina2, ModelSamplingAuraFlow shift 3, EmptySD3LatentImage, euler/simple,

@@ -116,6 +116,7 @@ return function()
         if (s.liest) { var h = s.liest; try { h = new URL(s.liest).hostname; } catch (e) {} schritte.push('📄 Lese: ' + h); }
         if (s.hinweis) schritte.push('⚠ ' + s.hinweis);
         if (s.quellen) quellen = s.quellen;
+        if (s.formuliert) schritte.push('✍ Bildbeschreibung wird formuliert …');
         if (s.malt) schritte.push('🎨 Erzeuge Bild …');
         if (s.bild) bilder.push(s.bild);
       } catch (e) { /* defekte Botschaft überspringen */ }
@@ -127,6 +128,8 @@ return function()
   fetch('/api/v1/ki/status', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
     $('kc-modell').textContent = d.aktiv ? 'Modell: ' + d.modell + (d.websuche ? ' · mit Websuche' : '') + (d.bilder ? ' · malt Bilder' : '') : 'KI ist aus – Einstellungen → KI';
     if (!d.fotos) $('kc-bild').style.display = 'none';
+    // R942: /bild malt direkt, auch wenn das Modell das Werkzeug nicht aufruft.
+    if (d.bilder) $('kc-text').placeholder = 'Nachricht an die KI …  (/bild … malt direkt)';
   }).catch(function(){ $('kc-modell').textContent = ''; });
 
   // Foto auf höchstens 1280 px verkleinern – schneller, und mehr verarbeiten Bildmodelle ohnehin nicht.

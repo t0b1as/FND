@@ -137,6 +137,13 @@ func (s *Server) kiChat(c *gin.Context) {
 			gestartet = true
 		}
 	}
+	// R942: /bild-Befehl – malt ohne Werkzeugaufruf des Sprachmodells.
+	if letzte := req.Nachrichten[len(req.Nachrichten)-1]; letzte.Rolle != "assistant" {
+		if wunsch, format, ok := kiBildBefehl(letzte.Text); ok {
+			s.kiBildDirekt(c, start, bild, wunsch, format, modell)
+			return
+		}
+	}
 	var quellen []kiTreffer
 	runden, bilderGemalt := 1, 0
 	if len(werkzeuge) > 0 {
@@ -327,6 +334,17 @@ func (s *Server) kiRunde(c *gin.Context, anfrage map[string]any, start func()) (
 	}
 	var inhalt strings.Builder
 	var aufrufe []map[string]any
+	// R942: Werkzeugaufrufe können auch als Text kommen (ki_textaufruf.go).
+	// Angezeigt wird nur, was sicher kein Aufruf ist.
+	geschrieben := 0
+	zeigen := func(bis int) {
+		if bis > geschrieben {
+			start()
+			_, _ = c.Writer.WriteString(inhalt.String()[geschrieben:bis])
+			c.Writer.Flush()
+			geschrieben = bis
+		}
+	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 64*1024), 1<<20)
 	for sc.Scan() {
@@ -345,15 +363,21 @@ func (s *Server) kiRunde(c *gin.Context, anfrage map[string]any, start func()) (
 			return inhalt.String(), nil, teil.Error, true
 		}
 		if teil.Message.Content != "" {
-			start()
 			inhalt.WriteString(teil.Message.Content)
-			_, _ = c.Writer.WriteString(teil.Message.Content)
-			c.Writer.Flush()
+			zeigen(kiSichtbarBis(inhalt.String()))
 		}
 		aufrufe = append(aufrufe, teil.Message.ToolCalls...)
 		if teil.Done {
 			break
 		}
 	}
-	return inhalt.String(), aufrufe, "", true
+	text := inhalt.String()
+	// Werkzeuge angeboten, aber kein Aufruf im Feld → im Text nachsehen.
+	if len(aufrufe) == 0 && anfrage["tools"] != nil {
+		if a := kiTextAufrufe(text[geschrieben:]); len(a) > 0 {
+			return text[:geschrieben], a, "", true
+		}
+	}
+	zeigen(len(text))
+	return text, aufrufe, "", true
 }
