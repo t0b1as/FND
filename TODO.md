@@ -33,6 +33,13 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R944:** KI-Chat: „Ungültige Anfrage“ ab 61 Nachrichten behoben – der Node
+      kürzt den Verlauf (60 Nachrichten / 100 000 Zeichen), die Seite schickt nur
+      die letzten 40. Antworten nur mit Bild gelten nicht mehr als „(keine Antwort)“.
+      Während Prompt-Formulierung und Bilderzeugung alle 15 s ein Lebenszeichen,
+      damit Proxys lange Ladezeiten nicht als tote Verbindung abbrechen (502/504).
+- [ ] 502 im KI-Chat beobachten – falls er bleibt: journalctl -u fundus-node und
+      nginx error.log zum Zeitpunkt ansehen.
 - [x] **R943:** Eindeutige Bildwünsche („Mal mir …“, „Zeichne …“, „Erstelle ein
       Bild von …“, „draw …“) malt Fundus direkt wie /bild – unabhängig davon, ob das
       Sprachmodell das Werkzeug aufruft. Eng gefasst (Fragen wie „Wie erstelle ich

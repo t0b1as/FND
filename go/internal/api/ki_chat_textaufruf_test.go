@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/fundus/node/internal/config"
 	"github.com/fundus/node/internal/llm"
@@ -153,5 +154,43 @@ func TestKIChat_BildWunschOhneBefehl(t *testing.T) {
 	out := kiChatAufruf(s2, "Kannst du mal erklären, wie ein Wankelmotor funktioniert?", "192.168.1.5")
 	if !gefragt || len(*prompts2) != 0 || !strings.Contains(out, "Kreiskolbenmotor") {
 		t.Errorf("normale Frage: tools=%v bilder=%d %q", gefragt, len(*prompts2), out)
+	}
+}
+
+// R944: langer Verlauf wird gekürzt statt abgelehnt; Lebenszeichen während
+// langer Wartezeit.
+func TestKIChat_LangerVerlaufUndPuls(t *testing.T) {
+	alt := kiPulsAbstand
+	kiPulsAbstand = 50 * time.Millisecond
+	defer func() { kiPulsAbstand = alt }()
+	s, prompts := kiTestServer(t, func(req map[string]any) string {
+		time.Sleep(300 * time.Millisecond) // Modell lädt
+		if n := len(req["messages"].([]any)); n > 2 && n > 61 {
+			t.Errorf("Verlauf nicht gekürzt: %d", n)
+		}
+		if req["stream"] == false {
+			return `{"message":{"content":"bronze statue"},"done":true}`
+		}
+		return ndjson("Antwort")
+	})
+	var nachrichten []map[string]any
+	for i := 0; i < 40; i++ {
+		nachrichten = append(nachrichten, map[string]any{"rolle": "user", "text": "Frage"}, map[string]any{"rolle": "assistant", "text": "Antwort"})
+	}
+	nachrichten = append(nachrichten, map[string]any{"rolle": "user", "text": "Mal mir eine Statue in Bronze"})
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	body, _ := json.Marshal(map[string]any{"nachrichten": nachrichten})
+	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/ki/chat", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	c.Request.RemoteAddr = "192.168.1.5:5555"
+	s.kiChat(c)
+	out := w.Body.String()
+	if w.Code != http.StatusOK || len(*prompts) != 1 {
+		t.Fatalf("81 Nachrichten: %d %q", w.Code, out)
+	}
+	if !strings.Contains(out, `"puls":1`) {
+		t.Errorf("kein Lebenszeichen während des Wartens: %q", out)
 	}
 }

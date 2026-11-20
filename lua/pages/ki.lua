@@ -175,7 +175,9 @@ return function()
     blase.classList.add('kc-tippt');
     laufend = new AbortController();
     $('kc-senden').textContent = 'Stopp';
-    var nachrichten = verlauf.slice(0, -1).filter(function(n){ return !n.fehler && n.text; })
+    // R944: nur die letzten 40 Nachrichten mitschicken – ein langer Verlauf
+    // bremst das Modell und wurde bis R943 ab 61 Nachrichten abgelehnt.
+    var nachrichten = verlauf.slice(0, -1).filter(function(n){ return !n.fehler && n.text; }).slice(-40)
       .map(function(n){ return n.bild ? { rolle: n.rolle, text: n.text, bild: n.bild } : { rolle: n.rolle, text: n.text }; });
     fetch('/api/v1/ki/chat', { method: 'POST', credentials: 'same-origin', signal: laufend.signal,
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nachrichten: nachrichten }) })
@@ -200,7 +202,7 @@ return function()
       })
       .then(function(){
         laufend = null; $('kc-senden').textContent = 'Senden';
-        if (!antwort.text) { antwort.text = '(keine Antwort)'; antwort.fehler = true; }
+        if (!antwort.text && !(antwort.bilder && antwort.bilder.length)) { antwort.text = '(keine Antwort)'; antwort.fehler = true; }
         sichern(); zeichnen(); ta.focus();
       });
   }

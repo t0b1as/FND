@@ -103,7 +103,8 @@ func (s *Server) kiBildDirekt(c *gin.Context, start func(), bild kiBildConfig, w
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 6*time.Minute)
 	defer cancel()
 	kiSignal(c, gin.H{"formuliert": true})
-	prompt := s.kiBildPrompt(ctx, modell, wunsch, vorher)
+	var prompt string
+	kiMitPuls(c, func() { prompt = s.kiBildPrompt(ctx, modell, wunsch, vorher) })
 	switch {
 	case prompt == "":
 		prompt = kiKuerzen(wunsch, 900)
@@ -116,7 +117,9 @@ func (s *Server) kiBildDirekt(c *gin.Context, start func(), bild kiBildConfig, w
 		prompt = kiKuerzen(wunsch, 900)
 	}
 	kiSignal(c, gin.H{"malt": kiKuerzen(prompt, 160)})
-	id, err := s.kiBildErzeugen(ctx, bild, prompt, format, modell)
+	var id string
+	var err error
+	kiMitPuls(c, func() { id, err = s.kiBildErzeugen(ctx, bild, prompt, format, modell) })
 	if err != nil {
 		_, _ = c.Writer.WriteString("Bild konnte nicht erzeugt werden: " + err.Error())
 		return
@@ -163,3 +166,29 @@ func kiBildFormatAus(text string) string {
 	}
 	return "quadrat"
 }
+
+// kiMitPuls (R944): f läuft nebenher; solange es dauert, geht alle 15 s ein
+// leeres Lebenszeichen an den Browser. Sonst sehen Proxys zwischen Browser
+// und Node (Laden von Sprach- und Bildmodell kann Minuten dauern) die
+// Verbindung als tot an und brechen mit 502/504 ab. Geschrieben wird nur aus
+// diesem Goroutine; f selbst schreibt nichts.
+func kiMitPuls(c *gin.Context, f func()) {
+	fertig := make(chan struct{})
+	go func() {
+		defer close(fertig)
+		defer func() { _ = recover() }() // ein Fehler in f darf den Node nicht beenden
+		f()
+	}()
+	t := time.NewTicker(kiPulsAbstand)
+	defer t.Stop()
+	for {
+		select {
+		case <-fertig:
+			return
+		case <-t.C:
+			kiSignal(c, gin.H{"puls": 1})
+		}
+	}
+}
+
+var kiPulsAbstand = 15 * time.Second

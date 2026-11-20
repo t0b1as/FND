@@ -67,9 +67,25 @@ func (s *Server) kiChat(c *gin.Context) {
 		} `json:"nachrichten"`
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 24<<20)
-	if c.ShouldBindJSON(&req) != nil || len(req.Nachrichten) == 0 || len(req.Nachrichten) > 60 {
+	if c.ShouldBindJSON(&req) != nil || len(req.Nachrichten) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Ungültige Anfrage."})
 		return
+	}
+	// R944: Langen Verlauf kürzen statt abzulehnen – bis R943 kam ab 61
+	// Nachrichten nur noch „Ungültige Anfrage“. Ältere Nachrichten fallen weg,
+	// bis höchstens 60 Nachrichten und 100 000 Zeichen übrig sind.
+	if len(req.Nachrichten) > 60 {
+		req.Nachrichten = req.Nachrichten[len(req.Nachrichten)-60:]
+	}
+	for len(req.Nachrichten) > 1 {
+		summe := 0
+		for _, n := range req.Nachrichten {
+			summe += len(n.Text)
+		}
+		if summe <= 100000 {
+			break
+		}
+		req.Nachrichten = req.Nachrichten[1:]
 	}
 	jetzt := time.Now().Format("Monday, 2. January 2006, 15:04")
 	suche := s.kiSucheLesen()
@@ -210,7 +226,9 @@ func (s *Server) kiChat(c *gin.Context) {
 				}
 				bilderGemalt++
 				kiSignal(c, gin.H{"malt": kiKuerzen(beschr, 160)})
-				id, err := s.kiBildErzeugen(ctx, bild, beschr, fmt.Sprint(args["format"]), modell)
+				var id string
+				var err error
+				kiMitPuls(c, func() { id, err = s.kiBildErzeugen(ctx, bild, beschr, fmt.Sprint(args["format"]), modell) })
 				if err != nil {
 					ergebnis = "Bild konnte nicht erzeugt werden: " + err.Error()
 					kiSignal(c, gin.H{"hinweis": ergebnis})
