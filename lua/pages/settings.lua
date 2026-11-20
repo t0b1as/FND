@@ -1024,6 +1024,110 @@ document.addEventListener('DOMContentLoaded', updLoad);
 })();
 </script>
 
+<!-- ── Funk (LoRa/Reticulum) (R945) – eigener Reiter ─────────────────────── -->
+<div class="set-card" id="lora-card">
+  <div class="set-head"><h3>Funk (LoRa / Reticulum)</h3></div>
+  <div class="set-body">
+    <div id="lr-zustand" class="set-hint" style="margin:0 0 10px">Lade …</div>
+    <p class="set-hint" style="margin:0 0 10px">Ein Funkmodul mit RNode-Firmware (z. B. Heltec WiFi LoRa 32 V3) am USB dieses Pi verbindet Fundus über Reticulum mit anderen Funkknoten – ohne Internet. Nachrichten laufen als LXMF: Gegenstellen sind andere Fundus-Nodes mit Funkmodul sowie Sideband, MeshChat und Nomad Network. Der <a href="/funkchat">Funkchat</a> ist für alle Konten dieses Nodes.</p>
+    <label style="display:flex;gap:8px;align-items:center;font-weight:600"><input type="checkbox" id="lr-aktiv"> Funkmodul verwenden</label>
+    <div class="hs-grid" style="margin-top:10px">
+      <label for="lr-vorlage">Vorlage</label><select id="lr-vorlage"><option value="">– eigene Einstellungen –</option><option value="eu">EU 869,525 MHz · 250 kHz · SF9 (10 % Sendezeit, empfohlen)</option><option value="weit">EU 869,525 MHz · 250 kHz · SF11 (größere Reichweite, langsamer)</option><option value="schnell">EU 869,525 MHz · 250 kHz · SF7 (schnell, kurze Reichweite)</option></select>
+      <label for="lr-port">Anschluss</label><input id="lr-port" placeholder="auto">
+      <label for="lr-freq">Frequenz (MHz)</label><input id="lr-freq" type="number" step="0.001" min="433" max="870">
+      <label for="lr-bw">Bandbreite</label><select id="lr-bw"><option value="62500">62,5 kHz</option><option value="125000">125 kHz</option><option value="250000">250 kHz</option><option value="500000">500 kHz</option></select>
+      <label for="lr-sf">Spreizfaktor</label><select id="lr-sf"><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option></select>
+      <label for="lr-cr">Kodierrate</label><select id="lr-cr"><option value="5">4/5</option><option value="6">4/6</option><option value="7">4/7</option><option value="8">4/8</option></select>
+      <label for="lr-tx">Sendeleistung (dBm)</label><input id="lr-tx" type="number" min="0" max="22">
+      <label for="lr-al">Sendezeit 15 min (%)</label><input id="lr-al" type="number" step="0.1" min="0.1" max="9">
+      <label for="lr-ak">Sendezeit 15 s (%)</label><input id="lr-ak" type="number" step="1" min="1" max="100">
+      <label for="lr-tcp">TCP-Verbindung</label><input id="lr-tcp" placeholder="leer · server:4242 · client:host:4242">
+    </div>
+    <div id="lr-grenze" class="set-hint" style="margin:8px 0 0"></div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button type="button" class="btn-sm" id="lr-speichern">Funk speichern</button><span id="lr-meldung" class="set-hint"></span></div>
+    <details class="ki-hilfe" style="margin-top:10px">
+      <summary>ℹ Hinweise zu Einstellungen und Recht</summary>
+      <ol>
+        <li><b>Alle Funkknoten brauchen dieselben Einstellungen</b> (Frequenz, Bandbreite, Spreizfaktor, Kodierrate) – auch Sideband auf dem Handy. Sonst hören sie sich nicht.</li>
+        <li><b>Sendezeit:</b> Im 868-MHz-Band ist die Sendezeit gesetzlich begrenzt – 869,4–869,65 MHz: 10 % und bis 500 mW, die übrigen Teilbänder meist 1 % oder 0,1 % bei 25 mW. Fundus prüft das und bleibt 10 % unter der Grenze; Reticulum hält die Begrenzung selbst ein.</li>
+        <li><b>Reichweite gegen Tempo:</b> Höherer Spreizfaktor = weiter, aber langsamer und mehr Sendezeit je Nachricht. SF9 bei 250 kHz schafft rund 4 kbit/s.</li>
+        <li><b>Meshtastic</b> nutzt in Europa ebenfalls 869,525 MHz (SF11). Unterschiedliche Spreizfaktoren stören sich wenig, teilen sich aber die Sendezeit des Kanals.</li>
+        <li><b>TCP-Verbindung</b> (optional): verbindet diesen Funkknoten zusätzlich über das Netz mit einem anderen Reticulum-Knoten, etwa einem zweiten Fundus-Pi. <code>server:4242</code> wartet auf Verbindungen, <code>client:192.168.1.30:4242</code> verbindet sich.</li>
+        <li><b>Einrichtung:</b> Der Deploy richtet den Funkdienst ein, sobald ein Modul steckt. Von Hand: <code>sudo bash /opt/fundus/tools/setup-lora.sh</code>, Protokoll: <code>journalctl -u fundus-rns</code>.</li>
+      </ol>
+    </details>
+  </div>
+</div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  if (!$('lora-card')) return;
+  var VORLAGEN = {
+    eu:      { frequenz: 869525000, bandbreite: 250000, sf: 9,  cr: 5, sendeleistung: 14, airtime_lang: 9, airtime_kurz: 25 },
+    weit:    { frequenz: 869525000, bandbreite: 250000, sf: 11, cr: 5, sendeleistung: 17, airtime_lang: 9, airtime_kurz: 25 },
+    schnell: { frequenz: 869525000, bandbreite: 250000, sf: 7,  cr: 5, sendeleistung: 14, airtime_lang: 9, airtime_kurz: 25 }
+  };
+  function grenzen(f, bw){
+    var lo = f - bw / 2, hi = f + bw / 2;
+    function drin(a, b){ return lo >= a && hi <= b; }
+    if (drin(869400000, 869650000)) return [10, 22, '869,4–869,65 MHz: 10 % Sendezeit, bis 500 mW'];
+    if (drin(868000000, 868600000)) return [1, 14, '868,0–868,6 MHz: 1 % Sendezeit, 25 mW'];
+    if (drin(869700000, 870000000)) return [1, 14, '869,7–870,0 MHz: 1 % Sendezeit, 25 mW'];
+    if (drin(863000000, 868000000) || drin(868700000, 869200000)) return [0.1, 14, '0,1 % Sendezeit, 25 mW'];
+    if (drin(433050000, 434790000)) return [10, 10, '433 MHz: 10 % Sendezeit, 10 mW'];
+    return [0, 0, ''];
+  }
+  function lesen(){
+    return { aktiv: $('lr-aktiv').checked, port: $('lr-port').value.trim() || 'auto',
+      frequenz: Math.round(parseFloat($('lr-freq').value || '0') * 1e6), bandbreite: +$('lr-bw').value,
+      sf: +$('lr-sf').value, cr: +$('lr-cr').value, sendeleistung: +$('lr-tx').value,
+      airtime_lang: parseFloat($('lr-al').value), airtime_kurz: parseFloat($('lr-ak').value), tcp: $('lr-tcp').value.trim() };
+  }
+  function zeigen(f){
+    $('lr-aktiv').checked = f.aktiv !== false; $('lr-port').value = f.port || 'auto';
+    $('lr-freq').value = (f.frequenz / 1e6).toFixed(3); $('lr-bw').value = String(f.bandbreite);
+    $('lr-sf').value = String(f.sf); $('lr-cr').value = String(f.cr); $('lr-tx').value = f.sendeleistung;
+    $('lr-al').value = f.airtime_lang; $('lr-ak').value = f.airtime_kurz; $('lr-tcp').value = f.tcp || '';
+    pruefen();
+  }
+  function pruefen(){
+    var f = lesen(), g = grenzen(f.frequenz, f.bandbreite), t = [];
+    if (!g[0]) t.push('⚠ Frequenz und Bandbreite liegen in keinem freigegebenen Band.');
+    else {
+      t.push('Band: ' + g[2] + ' · erlaubt hier bis ' + (g[0] * 0.9).toFixed(2) + ' % (15 min) und ' + g[1] + ' dBm.');
+      if (f.airtime_lang > g[0] * 0.9) t.push('⚠ Sendezeit zu hoch.');
+      if (f.sendeleistung > g[1]) t.push('⚠ Sendeleistung zu hoch.');
+    }
+    var bitrate = f.sf * (4 / f.cr) / (Math.pow(2, f.sf) / (f.bandbreite / 1000)) * 1000;
+    if (bitrate > 0) t.push('Datenrate etwa ' + (bitrate / 1000).toFixed(2) + ' kbit/s.');
+    $('lr-grenze').textContent = t.join(' ');
+  }
+  ['lr-freq', 'lr-bw', 'lr-sf', 'lr-cr', 'lr-tx', 'lr-al'].forEach(function(id){ $(id).addEventListener('input', function(){ $('lr-vorlage').value = ''; pruefen(); }); $(id).addEventListener('change', pruefen); });
+  $('lr-vorlage').onchange = function(){
+    var v = VORLAGEN[this.value]; if (!v) return;
+    var f = lesen(); for (var k in v) f[k] = v[k]; zeigen(f);
+  };
+  function zustand(){
+    fetch('/api/v1/lora/status', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(s){
+      if (!s.installiert) { $('lr-zustand').textContent = 'Funkdienst nicht eingerichtet – Modul einstecken und neu deployen (oder sudo bash /opt/fundus/tools/setup-lora.sh).'; return; }
+      if (s.fehler) { $('lr-zustand').textContent = '✗ ' + s.fehler; return; }
+      var rn = (s.schnittstellen || []).filter(function(i){ return /RNode/.test(i.name); })[0];
+      $('lr-zustand').textContent = rn ? (rn.online ? '✓ Funkmodul bereit an ' + (s.geraet || '?') + ' · Reticulum ' + s.rns + (rn.airtime_lang != null ? ' · Sendezeit ' + rn.airtime_lang.toFixed(1) + ' %' : '') + (rn.kanal_lang != null ? ' · Kanallast ' + rn.kanal_lang.toFixed(1) + ' %' : '') + ' · ' + s.gehoert + ' Gegenstelle(n) gehört' : '✗ Funkmodul an ' + (s.geraet || '?') + ' offline')
+        : '✗ ' + (s.geraet_fehler || 'Kein Funkmodul aktiv');
+    }).catch(function(){ $('lr-zustand').textContent = 'Status nicht abrufbar.'; });
+  }
+  fetch('/api/v1/admin/funk/lora', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){ zeigen(d.funk); zustand(); }).catch(function(){});
+  $('lr-speichern').onclick = function(){
+    var b = this; b.disabled = true; $('lr-meldung').textContent = '';
+    fetch('/api/v1/admin/funk/lora', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lesen()) })
+      .then(function(r){ return r.json(); }).then(function(d){
+        $('lr-meldung').textContent = d.error ? '✗ ' + d.error : (d.neu_gestartet ? '✓ Gespeichert – Funkdienst startet neu (etwa 10 s).' : '✓ Gespeichert – gilt beim nächsten Start des Funkdienstes.');
+        if (!d.error) setTimeout(zustand, 12000);
+      }).catch(function(e){ $('lr-meldung').textContent = '✗ ' + e.message; }).then(function(){ b.disabled = false; });
+  };
+})();
+</script>
+
 <!-- ── KI (Ollama) (R868) – eigener Reiter ───────────────────────────────── -->
 <div class="set-card" id="ki-card">
   <div class="set-head"><h3>KI (Ollama)</h3></div>
@@ -2067,6 +2171,7 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     ['paypal',   'PayPal',      /^\s*paypal/i],
     ['konten',   'Konten',      /^\s*konten/i],
     ['ki',       'KI',          /^\s*ki\b/i],
+    ['funk',     'Funk',        /^\s*funk\b/i],
     ['suche',    'Websuche',    /^\s*websuche/i],
     ['security', 'Sicherheit',  /sicherung|backup|admin|passwort|password/i],
     ['network',  'Netzwerk',    /solana|rpc|nat|port|wlan|wi-?fi|netz|network/i],

@@ -396,6 +396,9 @@ func (s *Server) registerRoutes() {
 	s.registerAeronautik(r)
 	// Funkempfang (R859): VDL2 und AIS, umschaltbar – siehe funk.go.
 	s.registerFunk(r)
+	// Funk über LoRa (R945): Reticulum/LXMF über ein RNode-Modul – siehe funk_lora.go.
+	s.registerLora(r.Group("/api/v1"))
+	go s.loraEreignisseVerfolgen(context.Background())
 	// WLAN-Hotspot (R865) – siehe hotspot.go.
 	s.registerHotspot(r)
 	// KI-Chat (R870) – siehe ki_chat.go.
@@ -536,7 +539,7 @@ func (s *Server) registerRoutes() {
 
 // NodeRevision ist die eincompilierte Build-Revision (für /health-Diagnose).
 // Bei jedem Release erhöhen, damit eindeutig prüfbar ist, welche Version läuft.
-const NodeRevision = "R944"
+const NodeRevision = "R945"
 
 // SourceFingerprint: Prüfsumme der Go-Quellen, aus denen dieses Programm gebaut
 // wurde (per -ldflags -X gesetzt von push-release.ps1 / deploy-fundus.ps1).

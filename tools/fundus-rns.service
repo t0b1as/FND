@@ -1,0 +1,30 @@
+# Fundus-Funkdienst (R945): Reticulum/LXMF über ein RNode-Funkmodul
+# (z. B. Heltec WiFi LoRa 32 V3). Eingerichtet von tools/setup-lora.sh.
+[Unit]
+Description=Fundus Funkdienst (Reticulum/LXMF ueber RNode)
+After=network.target
+
+[Service]
+User=fundus
+Group=fundus
+SupplementaryGroups=dialout
+WorkingDirectory=/opt/fundus/data/rns
+ExecStart=/opt/fundus/rns-venv/bin/python /opt/fundus/tools/fundus-rns.py --data /opt/fundus/data/rns --sock /opt/fundus/data/rns/api.sock
+# /neustart (neue Funkeinstellungen) beendet den Dienst – systemd startet neu.
+Restart=always
+RestartSec=5s
+MemoryMax=300M
+CPUQuota=80%
+ProtectSystem=strict
+ReadWritePaths=/opt/fundus/data/rns
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

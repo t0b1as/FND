@@ -66,6 +66,9 @@ local routes = {
       handler = require "pages.aeronautik" },
     { method = "GET",  pattern = "^/ki$",
       handler = require "pages.ki" },
+    -- Funkchat (R945): Nachrichten über LoRa/Reticulum
+    { method = "GET",  pattern = "^/funkchat$",
+      handler = require "pages.funkchat" },
     -- Websuche (R895): eigene Metasuche des Nodes
     { method = "GET",  pattern = "^/suche$",
       handler = require "pages.suche" },

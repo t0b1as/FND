@@ -1549,6 +1549,18 @@ try {
 }
 foreach ($zeile in ($aero.Output -split "`n")) { if ($zeile.Trim()) { Write-Host $zeile.TrimEnd() -ForegroundColor DarkCyan } }
 
+# R945: Funk über LoRa – RNode-Modul (z. B. Heltec V3) erkennen, Reticulum-
+# Dienst fundus-rns einrichten. Ohne Modul still übersprungen.
+Write-Step "Funk (LoRa/Reticulum) einrichten..."
+$altKodierung = [Console]::OutputEncoding
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $lora = Invoke-SSH-Safe "if sudo test -f $RemoteDir/tools/setup-lora.sh; then sudo sed -i 's/\r$//' $RemoteDir/tools/setup-lora.sh; sudo FUNDUS_DATA_DIR=$RemoteDir/data bash $RemoteDir/tools/setup-lora.sh --auto 2>&1; else echo '   Skript fehlt im Paket - uebersprungen.'; fi"
+} finally {
+    [Console]::OutputEncoding = $altKodierung
+}
+foreach ($zeile in ($lora.Output -split "`n")) { if ($zeile.Trim()) { Write-Host $zeile.TrimEnd() -ForegroundColor DarkCyan } }
+
 # =============================================================================
 #  BLOCK M – Fee-Collector Verifikation
 # =============================================================================

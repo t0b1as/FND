@@ -491,15 +491,23 @@ func applyManifest(m *Manifest, opt ApplyOptions, logf func(string, ...interface
 	// Kindprozess würde dabei mitbeendet. Ein Fehler hier bricht das Update
 	// NICHT ab; ohne Stick beendet sich das Skript sofort.
 	if toolsNeu {
-		skript := filepath.Join(opt.InstallDir, "tools", "setup-aeronautik.sh")
-		if fileExists(skript) {
-			out, err := exec.Command("systemd-run", "--unit=fundus-einrichtung-nach-update", "--collect",
+		// R945: zusätzlich der Funkdienst (LoRa/Reticulum) – eigene Einheit,
+		// damit beide Skripte unabhängig laufen.
+		for _, e := range []struct{ skript, einheit string }{
+			{"setup-aeronautik.sh", "fundus-einrichtung-nach-update"},
+			{"setup-lora.sh", "fundus-einrichtung-lora"},
+		} {
+			skript := filepath.Join(opt.InstallDir, "tools", e.skript)
+			if !fileExists(skript) {
+				continue
+			}
+			out, err := exec.Command("systemd-run", "--unit="+e.einheit, "--collect",
 				"--setenv=FUNDUS_DATA_DIR="+filepath.Join(opt.InstallDir, "data"),
 				"/bin/bash", skript, "--auto").CombinedOutput()
 			if err != nil {
-				logf("Update: Einrichtung nicht angestoßen (%v: %s) – beim nächsten Update erneut", err, strings.TrimSpace(string(out)))
+				logf("Update: Einrichtung %s nicht angestoßen (%v: %s) – beim nächsten Update erneut", e.skript, err, strings.TrimSpace(string(out)))
 			} else {
-				logf("Update: Einrichtung angestoßen (journalctl -u fundus-einrichtung-nach-update)")
+				logf("Update: Einrichtung angestoßen (journalctl -u %s)", e.einheit)
 			}
 		}
 	}

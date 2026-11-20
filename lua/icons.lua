@@ -29,6 +29,7 @@ local P = {
   settings     = '<circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2 1.2M17.8 15.3l2 1.2M4.2 16.5l2-1.2M17.8 8.7l2-1.2"/><circle cx="12" cy="12" r="7"/>',
   -- Feed (R812): drei Wellen – Beiträge, die sich im Netz ausbreiten.
   feed         = '<path d="M3 7q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M3 12q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/><path d="M3 17q2.25-2.6 4.5 0t4.5 0 4.5 0 4.5 0"/>',
+  funkchat     = '<path d="M12 13.5v7.5"/><circle cx="12" cy="11.5" r="1.8"/><path d="M8.3 7.8a5.2 5.2 0 0 0 0 7.4M15.7 7.8a5.2 5.2 0 0 1 0 7.4M5.4 4.9a9.3 9.3 0 0 0 0 13.2M18.6 4.9a9.3 9.3 0 0 1 0 13.2"/>',
   suche        = '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m15.5 15.5 5 5"/>',
   warenkorb    = '<circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M2.5 3.5h3l2.4 11.2h11.4l2-8H6.6"/>',
   star         = '<path d="m12 3.5 2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/>',

@@ -41,6 +41,8 @@ func (s *Server) registerAdminRoutes() {
 		g.POST("/energie", s.energieEinstellungenSet)
 		g.POST("/energie/ha-test", s.energieHATest)
 		g.POST("/funk/modus", s.funkModusSetzen)             // R859: Empfänger umschalten (Flugzeuge/Funknachrichten/Schiffe)
+		g.GET("/funk/lora", s.adminLoraZeigen)               // R945: Funkeinstellungen LoRa/Reticulum
+		g.POST("/funk/lora", s.adminLoraSetzen)
 		g.POST("/funk/wetter", s.wetterAutomatikSetzen)      // R863: Wettersatelliten automatisch aufnehmen
 		g.POST("/funk/komponenten", s.funkKomponentenSetzen) // R864: Ausstattung zuschalten
 		g.GET("/hotspot", s.hotspotEinstellungen)            // R865: WLAN-Hotspot

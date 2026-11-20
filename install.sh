@@ -277,6 +277,11 @@ systemctl restart fundus-node
 if [ -f "$PREFIX/tools/setup-aeronautik.sh" ]; then
   FUNDUS_DATA_DIR="$PREFIX/data" bash "$PREFIX/tools/setup-aeronautik.sh" --auto || true
 fi
+# Funk über LoRa (R945): RNode-Modul (z. B. Heltec V3) erkennen und
+# Reticulum-Dienst einrichten – ohne Modul still übersprungen.
+if [ -f "$PREFIX/tools/setup-lora.sh" ]; then
+  FUNDUS_DATA_DIR="$PREFIX/data" bash "$PREFIX/tools/setup-lora.sh" --auto || true
+fi
 ok "fundus-node, fundus-helper"
 
 # ── 11. Prüfen ───────────────────────────────────────────────────────────────

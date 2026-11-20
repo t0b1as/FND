@@ -33,6 +33,20 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R945:** Funk über LoRa: Funkdienst fundus-rns (tools/fundus-rns.py, Python,
+      Reticulum 1.6 + LXMF 1.3 in /opt/fundus/rns-venv) für RNode-Module (Heltec V3).
+      RNode-Erkennung per KISS-Detect, Konfiguration aus Admin → Funk (SRD-Grenzen
+      geprüft: Band, Sendezeit mit 10 % Abstand, Leistung). Funkadresse je Konto aus
+      der Wallet abgeleitet (gleich auf allen Nodes), opt-in mit Anzeigename,
+      Ankündigung alle 30 min. Seite /funkchat: Gespräche, „In Reichweite gehört“,
+      Zustellstatus, Warteschlange bis 24 h für noch unbekannte Gegenstellen.
+      Push bei eingehenden Funknachrichten. Einrichtung: tools/setup-lora.sh
+      (Deploy, install.sh, Git-Update), Dienst tools/fundus-rns.service.
+      Getestet: zwei Nodes + zwei Dienste über TCP-Ersatzfunk, RNode-Erkennung
+      mit Pseudo-Terminal.
+- [ ] Funk: Test mit beiden Heltec V3 auf echter Funkstrecke (Reichweite, Sendezeit).
+- [ ] Funk Stufe 2: Fundus als Nomad-Network-Seite (Marktplatz/Feed per Funk).
+- [ ] Funk Stufe 3: Notfunk-Rundrufe; Stufe 4: Messwerte/Telemetrie.
 - [x] **R944:** KI-Chat: „Ungültige Anfrage“ ab 61 Nachrichten behoben – der Node
       kürzt den Verlauf (60 Nachrichten / 100 000 Zeichen), die Seite schickt nur
       die letzten 40. Antworten nur mit Bild gelten nicht mehr als „(keine Antwort)“.

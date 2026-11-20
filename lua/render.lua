@@ -393,6 +393,7 @@ function _M.header(title_key, active)
   <a href="/energy"       class="%s" data-nav-key="energy" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("energy") .. [[</span>]] .. t("nav.energy") .. [[<span class="wip-pill">BETA</span></a>
   <a href="/aeronautik"   class="%s" data-nav-key="aeronautik" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("aeronautik") .. [[</span>Aeronautik</a>
   <a href="/ki"   class="%s" data-nav-key="ki" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("ki") .. [[</span>KI-Chat</a>
+  <a href="/funkchat" data-nav-key="funkchat" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("funkchat") .. [[</span>Funkchat</a>
   <a href="/suche" data-nav-key="suche" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("suche") .. [[</span>Websuche</a>
   <a href="/certificates" class="%s" data-nav-key="certificates" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("certificates") .. [[</span>]] .. t("nav.certificates") .. [[<span class="wip-pill">BETA</span></a>
   <a href="/shop"         class="%s" data-nav-key="shop" data-nav-zone="burger"><span class="di">]] .. require("icons").svg("shop") .. [[</span>]] .. t("nav.shop") .. [[</a>
