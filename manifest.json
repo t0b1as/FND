@@ -1,8 +1,8 @@
 {
-  "version": "R944",
-  "description": "FUNDUS R944 - Z Image",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R944/FND-R944-update.zip",
-  "node_argon2": "aeb2f356444719ecef479d7a53abf3a99017f44ae93efc815d1c921bd283d6e3",
-  "published_at": "2026-11-20T07:12:31.8304744Z",
-  "signature": "0x2841dd5098e622393afab9c0d63b525b7d821b00ab722e92c67d1f9caf93cd500ad227a21f1a48b471162ef95af523e91d1626fa29f8bc0a924c9a49934e04eb1c"
+  "version": "R945",
+  "description": "FUNDUS R945 - Reticulum Heltec Support",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R945/FND-R945-update.zip",
+  "node_argon2": "01bd468940ef75510bc212f6d6578dddaf366cb4ced73c8a2e566aebf87f55f7",
+  "published_at": "2026-11-20T21:07:51.1049105Z",
+  "signature": "0x14f0b3fb0e2c4fcd03c6115a1fe52e5a333ca6df2c7a7a1ef645e13eed954ead4d9ff069a39d1858c756e33952477c7f48ac0d4238de8e74344af72a376b38da1b"
 }
