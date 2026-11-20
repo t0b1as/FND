@@ -1,8 +1,8 @@
 {
-  "version": "R941",
-  "description": "FUNDUS R941 - Z Image",
-  "node_url": "https://github.com/t0b1as/FND/releases/download/R941/FND-R941-update.zip",
-  "node_argon2": "d3ef2abe3357a8af8436b5112df27ec7b30d4c49025da54c56aa1db5a1a09c25",
-  "published_at": "2026-11-20T06:12:57.0760297Z",
-  "signature": "0x5f021181891dfdf29207bca2b8f7d2d844571cf5713d9ae5a49b643468dae58b449e2ef76294cbea757f5679774f57c6541579882f8ee471654740c87c2492261b"
+  "version": "R942",
+  "description": "FUNDUS R942 - Z Image",
+  "node_url": "https://github.com/t0b1as/FND/releases/download/R942/FND-R942-update.zip",
+  "node_argon2": "1bdb1f90f5262036d452b8c257313a4c84bd670c682bbb6a2b4b1a4317226e44",
+  "published_at": "2026-11-20T06:40:25.9091186Z",
+  "signature": "0x049849d8a0fbdb77ca88848d429d2b30f52983299db5e9da65fe0096084f9ff90dd49f3626df6dbeac82d2a0e9ed91eaba762c00b8d66add1bbeaea41fa5f08c1c"
 }
