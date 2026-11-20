@@ -138,9 +138,25 @@ func (s *Server) kiChat(c *gin.Context) {
 		}
 	}
 	// R942: /bild-Befehl – malt ohne Werkzeugaufruf des Sprachmodells.
-	if letzte := req.Nachrichten[len(req.Nachrichten)-1]; letzte.Rolle != "assistant" {
+	// R943: ebenso ein eindeutig erkannter Bildwunsch („Mal mir …“), denn
+	// manche Modelle rufen das Werkzeug kaum auf. Frühere Wünsche gehen als
+	// Zusammenhang mit („jetzt in Bronze“).
+	if letzte := req.Nachrichten[len(req.Nachrichten)-1]; letzte.Rolle != "assistant" && letzte.Bild == "" {
+		var vorher []string
+		for _, n := range req.Nachrichten[:len(req.Nachrichten)-1] {
+			if n.Rolle != "assistant" && strings.TrimSpace(n.Text) != "" {
+				vorher = append(vorher, kiKuerzen(strings.TrimSpace(n.Text), 300))
+			}
+		}
+		if len(vorher) > 3 {
+			vorher = vorher[len(vorher)-3:]
+		}
 		if wunsch, format, ok := kiBildBefehl(letzte.Text); ok {
-			s.kiBildDirekt(c, start, bild, wunsch, format, modell)
+			s.kiBildDirekt(c, start, bild, wunsch, format, modell, vorher)
+			return
+		}
+		if bild.aktiv() && kiIstBildWunsch(letzte.Text) {
+			s.kiBildDirekt(c, start, bild, strings.TrimSpace(letzte.Text), kiBildFormatAus(letzte.Text), modell, vorher)
 			return
 		}
 	}

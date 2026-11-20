@@ -52,9 +52,15 @@ const kiPromptSystem = "You write prompts for an image generator. Turn the user'
 	"explanation, no preface."
 
 // kiBildPrompt: Sprachmodell formuliert den Bild-Prompt (ohne Werkzeuge).
-func (s *Server) kiBildPrompt(ctx context.Context, modell, wunsch string) string {
+func (s *Server) kiBildPrompt(ctx context.Context, modell, wunsch string, vorher []string) string {
+	inhalt := wunsch
+	if len(vorher) > 0 {
+		// R943: frühere Wünsche als Zusammenhang („nochmal in Bronze“).
+		inhalt = "Earlier requests in this conversation (context only):\n- " + strings.Join(vorher, "\n- ") +
+			"\n\nCurrent request – write the prompt for this one:\n" + wunsch
+	}
 	anfrage := map[string]any{"model": modell, "stream": false, "keep_alive": s.cfg.LLMKeepAlive,
-		"messages": []map[string]any{{"role": "system", "content": kiPromptSystem}, {"role": "user", "content": wunsch}},
+		"messages": []map[string]any{{"role": "system", "content": kiPromptSystem}, {"role": "user", "content": inhalt}},
 		"options":  map[string]any{"temperature": 0.4, "num_ctx": 4096}}
 	if llm.IstDenkmodell(modell) {
 		anfrage["think"] = false
@@ -84,7 +90,7 @@ func (s *Server) kiBildPrompt(ctx context.Context, modell, wunsch string) string
 }
 
 // kiBildDirekt beantwortet einen /bild-Befehl.
-func (s *Server) kiBildDirekt(c *gin.Context, start func(), bild kiBildConfig, wunsch, format, modell string) {
+func (s *Server) kiBildDirekt(c *gin.Context, start func(), bild kiBildConfig, wunsch, format, modell string, vorher []string) {
 	start()
 	if !bild.aktiv() {
 		_, _ = c.Writer.WriteString("Die Bilderzeugung ist nicht eingerichtet (Einstellungen → KI → Bilderzeugung).")
@@ -97,7 +103,7 @@ func (s *Server) kiBildDirekt(c *gin.Context, start func(), bild kiBildConfig, w
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 6*time.Minute)
 	defer cancel()
 	kiSignal(c, gin.H{"formuliert": true})
-	prompt := s.kiBildPrompt(ctx, modell, wunsch)
+	prompt := s.kiBildPrompt(ctx, modell, wunsch, vorher)
 	switch {
 	case prompt == "":
 		prompt = kiKuerzen(wunsch, 900)
@@ -116,4 +122,44 @@ func (s *Server) kiBildDirekt(c *gin.Context, start func(), bild kiBildConfig, w
 		return
 	}
 	kiSignal(c, gin.H{"bild": gin.H{"url": "/api/v1/ki/bild/" + id + ".png", "text": prompt}})
+}
+
+// ── Bildwunsch erkennen (R943) ───────────────────────────────────────────────
+// Manche Modelle (z. B. abliterated-Fassungen) rufen bild_erzeugen kaum auf.
+// Ein eindeutiger Wunsch wird deshalb direkt erkannt und wie /bild gemalt.
+// Bewusst eng: „Kannst du mal erklären …“ oder „Gib mal ein Beispiel“ sind
+// keine Bildwünsche.
+var (
+	reKIBildImperativ = regexp.MustCompile(`(?i)^\s*(bitte\s+)?(mal|male|zeichne|skizziere)\s+(mir|uns|bitte|ein|eine|einen|das|den|die)\b`)
+	reKIBildZeichne   = regexp.MustCompile(`(?i)\b(zeichne|zeichnest|malst)\b`)
+	reKIBildVerb      = regexp.MustCompile(`(?i)\b(malen|zeichnen|erstellen|erstelle|erzeugen|erzeuge|generieren|generiere|rendern|render|generate|create|make|draw|paint)\b`)
+	reKIBildObjekt    = regexp.MustCompile(`(?i)\b(bild|bilder|foto|grafik|zeichnung|gemälde|illustration|skizze|porträt|portrait|image|picture|drawing|painting|artwork|statue|skulptur)\b`)
+	reKIBildEnglisch  = regexp.MustCompile(`(?i)^\s*(please\s+)?(draw|paint|sketch)\s+(me|us|a|an|the)\b`)
+	reKIBildFrage     = regexp.MustCompile(`(?i)\b(wie|warum|wieso|was ist|how|why|what is|erklär\w*|explain)\b`)
+)
+
+func kiIstBildWunsch(text string) bool {
+	t := strings.TrimSpace(text)
+	if t == "" || len(t) > 1500 {
+		return false
+	}
+	if reKIBildImperativ.MatchString(t) || reKIBildEnglisch.MatchString(t) {
+		return true
+	}
+	if reKIBildFrage.MatchString(t) {
+		return false // „Wie erstelle ich ein Bild in GIMP?“
+	}
+	return reKIBildZeichne.MatchString(t) || (reKIBildVerb.MatchString(t) && reKIBildObjekt.MatchString(t))
+}
+
+// kiBildFormatAus: „hochkant“, „Hochformat“, „Querformat“, „portrait“ …
+func kiBildFormatAus(text string) string {
+	l := strings.ToLower(text)
+	switch {
+	case strings.Contains(l, "hochformat") || strings.Contains(l, "hochkant") || strings.Contains(l, "portrait format") || strings.Contains(l, "vertical"):
+		return "hoch"
+	case strings.Contains(l, "querformat") || strings.Contains(l, "panorama") || strings.Contains(l, "landscape format") || strings.Contains(l, "horizontal"):
+		return "quer"
+	}
+	return "quadrat"
 }

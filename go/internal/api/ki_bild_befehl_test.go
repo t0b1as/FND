@@ -54,3 +54,41 @@ func TestKIBildGesperrt(t *testing.T) {
 		}
 	}
 }
+
+func TestKIIstBildWunsch(t *testing.T) {
+	ja := []string{
+		"Mal mir eine Marmorstatue eines Athleten",
+		"male mir bitte einen Leuchtturm bei Sturm",
+		"Bitte zeichne einen Fuchs im Schnee",
+		"Kannst du mir eine Statue im Kontrapost malen?",
+		"Erstelle ein Bild von einem Segelflugzeug über dem Main",
+		"Erzeuge ein Foto einer Bronzeskulptur",
+		"draw me a cat in a spacesuit",
+		"Please paint a sunset over the Alps",
+		"Generate an image of a marble statue",
+		"Zeichnest du mir einen Drachen?",
+	}
+	nein := []string{
+		"Kannst du mal erklären, wie ein Wankelmotor funktioniert?",
+		"Gib mal ein Beispiel für eine for-Schleife",
+		"Wie erstelle ich ein Bild in GIMP?",
+		"Was ist eine Statue im Kontrapost?",
+		"Erstelle mir eine Einkaufsliste",
+		"Wer hat die Mona Lisa gemalt?",
+		"How do I create an image in Docker?",
+		"Ich male gern in meiner Freizeit.",
+	}
+	for _, x := range ja {
+		if !kiIstBildWunsch(x) {
+			t.Errorf("nicht erkannt: %q", x)
+		}
+	}
+	for _, x := range nein {
+		if kiIstBildWunsch(x) {
+			t.Errorf("fälschlich erkannt: %q", x)
+		}
+	}
+	if kiBildFormatAus("Mal mir eine Statue im Hochformat") != "hoch" || kiBildFormatAus("Leuchtturm, Querformat") != "quer" || kiBildFormatAus("Katze") != "quadrat" {
+		t.Error("Format falsch erkannt")
+	}
+}

@@ -33,6 +33,12 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R943:** Eindeutige Bildwünsche („Mal mir …“, „Zeichne …“, „Erstelle ein
+      Bild von …“, „draw …“) malt Fundus direkt wie /bild – unabhängig davon, ob das
+      Sprachmodell das Werkzeug aufruft. Eng gefasst (Fragen wie „Wie erstelle ich
+      ein Bild in GIMP?“ oder „Gib mal ein Beispiel“ gehen normal an den Chat).
+      Frühere Wünsche gehen als Zusammenhang an den Prompt („jetzt in Bronze“).
+      Format aus „Hochformat/Querformat“.
 - [x] **R942:** KI-Chat malt auch mit Modellen, deren Werkzeugaufrufe als Text
       kommen (Qwen-XML <tool_call><function=…>, JSON, Codeblock) – erkannt,
       ausgeführt, Rohtext nicht angezeigt. Befehl „/bild [hoch|quer] …“: Sprachmodell
