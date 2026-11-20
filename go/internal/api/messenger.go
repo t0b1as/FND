@@ -275,6 +275,14 @@ func (s *Server) buildSession(id *identity.Identity) *Session {
 
 		// Eingehende Nachrichten an WebSocket weiterleiten + im Verlauf sichern.
 		sess.messenger.OnMessage(func(msg *messenger.Message, payload *messenger.Payload) {
+			// R939: Partner-Freigaben sind keine Chatnachrichten – verarbeiten,
+			// nicht in den Verlauf.
+			if msg.Type == messenger.TypePartner {
+				if payload != nil && payload.Partner != nil && sess.nachrichtNeu(msg.ID) {
+					s.partnerNachricht(sess, msg.SenderID, payload.Partner, msg.Timestamp)
+				}
+				return
+			}
 			// Quittungen (delivered/read) aktualisieren den Status der AUSGEHENDEN
 			// Nachricht und werden als kompaktes Status-Update an den WS gereicht.
 			if msg.Type == messenger.TypeReceipt && payload != nil && payload.ReceiptFor != "" {
@@ -497,6 +505,7 @@ func (s *Server) identityDerive(c *gin.Context) {
 	s.forgetSession(forgetOld)
 	s.persistSession(token, id)
 	s.kontoAnmeldungVermerken(id.FundusID, id.ChainAddr()) // R930: Kontenübersicht
+	go s.partnerNachAnmeldung(sess)                         // R939: Partner-Anzeigen versiegelt erneuern
 
 	// Cookie: HttpOnly, SameSite=Lax OHNE Secure. Mit selbstsigniertem Zertifikat
 	// speichert/sendet Chrome Secure-Cookies unzuverlässig; Lax reicht, weil alle

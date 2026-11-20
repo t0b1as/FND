@@ -110,6 +110,9 @@ type Profile struct {
 	// Sexuelle Vorlieben (werden gehasht inkl. Rolle)
 	// Nur gespeichert wenn der User sie explizit setzt.
 	SexualPrefs []SexualPreference `json:"sexual_prefs"`
+	// R940: "offen für Vorlieben-Matching" NICHT anzeigen (Standard: angezeigt,
+	// sobald Vorlieben gesetzt sind – verrät nur, DASS es welche gibt).
+	SexMatchHidden bool `json:"sex_match_hidden,omitempty"`
 
 	// Freitext (NIEMALS publiziert, nur lokal)
 	Bio string `json:"bio"`
@@ -177,6 +180,24 @@ type PublicAd struct {
 	IndOpen     string   `json:"ino,omitempty"`  // Branche
 	ImageHashes []string `json:"imgs,omitempty"` // FileStore-Hashes der Profilbilder
 	VideoHashes []string `json:"vids,omitempty"` // FileStore-Hashes der Profil-Videos
+
+	// ── Versiegelung (R939) ──────────────────────────────────────────────────
+	// Seit R939 verlassen die Profildaten den Node nur noch verschlüsselt: Im
+	// Netz stehen Geschlecht, Altersklasse, Grobstandort und Suchwunsch (zum
+	// Finden nötig), alles andere liegt in Sealed (XChaCha20-Poly1305 mit dem
+	// Profilschlüssel des Besitzers). Lesen kann es nur, wem der Besitzer den
+	// Schlüssel per Ende-zu-Ende-Nachricht freigegeben hat.
+	AgeRangeOpen string `json:"aro,omitempty"`    // Altersklasse (öffentlich, für die Anzeige)
+
+	// R940: Vorlieben-Matching trotz Versiegelung. SexMatch = "offen für
+	// Vorlieben-Matching" (nur die Kategorie); SexPubOpen/SexPubHashes = die
+	// Vorlieben, die der Nutzer ausdrücklich öffentlich gemacht hat
+	// ("ABBR:rolle"). Beides bleibt beim Versiegeln offen.
+	SexMatch     bool     `json:"som,omitempty"`
+	SexPubOpen   []string `json:"spp,omitempty"`
+	SexPubHashes []string `json:"spph,omitempty"`
+	Sealed       string `json:"sealed,omitempty"` // verschlüsselte Profildaten (base64)
+	KeyID        string `json:"kid,omitempty"`    // Kennung des Profilschlüssels
 }
 
 // MatchResult beschreibt einen lokalen Match.
@@ -202,6 +223,15 @@ type MatchResult struct {
 	IndOpen     string   `json:"industry,omitempty"`
 	ImageHashes []string `json:"image_hashes,omitempty"`
 	VideoHashes []string `json:"video_hashes,omitempty"`
+
+	// R939: Profil noch versiegelt (keine Freigabe) – nur Geschlecht,
+	// Altersklasse und Entfernung bekannt. Freigabe: Stand der Anfrage.
+	Locked   bool   `json:"locked,omitempty"`
+	AgeRange string `json:"age_range,omitempty"`
+	Freigabe string `json:"freigabe,omitempty"`
+	// R940: offen für Vorlieben-Matching; öffentliche Vorlieben ("ABBR:rolle").
+	SexMatch  bool     `json:"sex_match,omitempty"`
+	SexPublic []string `json:"sexual_prefs_public,omitempty"`
 }
 
 // =============================================================================
@@ -233,7 +263,9 @@ func hashValue(salt Salt, value string) string {
 // gemeinsamen Salt ergeben zwei Profile für denselben Wert denselben Hash —
 // sonst wäre Cross-Profil-Matching unmöglich (pro-Profil-Salt → nie ein Match).
 // Bewusste Abwägung: Diese groben Kategorien gibt man fürs Matching ohnehin
-// preis; alle privaten Felder (Bio, Hobbys) nutzen weiter den pro-Profil-Salt.
+// preis. Die übrigen Match-Hashes (Hobbys, Vorlieben …) sind über die festen
+// Auswahllisten zurückrechenbar und liegen deshalb seit R939 nur noch im
+// versiegelten Teil der Anzeige (seal.go).
 var matchSalt = Salt{
 	0x46, 0x75, 0x6e, 0x64, 0x75, 0x73, 0x4d, 0x61,
 	0x74, 0x63, 0x68, 0x53, 0x61, 0x6c, 0x74, 0x31,
@@ -296,6 +328,17 @@ func MakePublicAd(profile *Profile, peerID string, salt Salt) (*PublicAd, error)
 		sexPrefKeys = append(sexPrefKeys, key)
 	}
 
+	// R940: öffentlich gemachte Vorlieben und die Kategorie-Markierung.
+	var sexPubOpen, sexPubKeys []string
+	for _, sp := range profile.SexualPrefs {
+		if sp.Public && sp.Abbr != "" {
+			k := strings.ToUpper(sp.Abbr) + ":" + string(sp.Role)
+			sexPubOpen = append(sexPubOpen, k)
+			sexPubKeys = append(sexPubKeys, sp.Abbr+":"+string(sp.Role))
+		}
+	}
+	sexMatch := len(profile.SexualPrefs) > 0 && !profile.SexMatchHidden
+
 	// Seeking-Hashes
 	seekSexPrefKeys := make([]string, 0, len(profile.Seeking.SexPrefAbbrs))
 	for _, abbr := range profile.Seeking.SexPrefAbbrs {
@@ -338,6 +381,12 @@ func MakePublicAd(profile *Profile, peerID string, salt Salt) (*PublicAd, error)
 		IndOpen:     profile.Industry,
 		ImageHashes: profile.ImageHashes,
 		VideoHashes: profile.VideoHashes,
+
+		AgeRangeOpen: string(profile.AgeRange),
+
+		SexMatch:     sexMatch,
+		SexPubOpen:   sexPubOpen,
+		SexPubHashes: hashMatchValues(sexPubKeys),
 
 		PublishedAt: now,
 		ExpiresAt:   now.Add(24 * time.Hour),
@@ -437,15 +486,20 @@ func (m *Matcher) MatchWithReason(remote *PublicAd) (*MatchResult, string) {
 
 	commonHobbies   := countCommon(myHobbyHashes,  remote.HobbyHashes)
 	commonPrefs     := countCommon(myPrefHashes,    remote.PrefHashes)
-	commonSexPrefs  := countCommon(mySexHashes,     remote.SexPrefHashes)
+	// R940: Versiegelte Anzeige → nur die öffentlich gemachten Vorlieben.
+	remoteSex := remote.SexPrefHashes
+	if remote.Sealed != "" && len(remoteSex) == 0 {
+		remoteSex = remote.SexPubHashes
+	}
+	commonSexPrefs  := countCommon(mySexHashes,     remoteSex)
 
 	totalItems  := max(len(myHobbyHashes)+len(myPrefHashes), len(remote.HobbyHashes)+len(remote.PrefHashes), 1)
 	commonTotal := commonHobbies + commonPrefs
 
 	interestScore  := float64(commonTotal) / float64(totalItems)
 	sexCompatScore := 0.0
-	if len(mySexHashes) > 0 && len(remote.SexPrefHashes) > 0 {
-		maxSex := max(len(mySexHashes), len(remote.SexPrefHashes), 1)
+	if len(mySexHashes) > 0 && len(remoteSex) > 0 {
+		maxSex := max(len(mySexHashes), len(remoteSex), 1)
 		sexCompatScore = float64(commonSexPrefs) / float64(maxSex)
 	}
 	distScore := 0.5 // Standort unbekannt → neutral
@@ -477,6 +531,10 @@ func (m *Matcher) MatchWithReason(remote *PublicAd) (*MatchResult, string) {
 		IndOpen:     remote.IndOpen,
 		ImageHashes: remote.ImageHashes,
 		VideoHashes: remote.VideoHashes,
+		Locked:      remote.Sealed != "",
+		AgeRange:    remote.AgeRangeOpen,
+		SexMatch:    remote.SexMatch,
+		SexPublic:   remote.SexPubOpen,
 	}, ""
 }
 

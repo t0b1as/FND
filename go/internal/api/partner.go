@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +38,10 @@ func (s *Server) registerPartnerRoutes() {
 
 		// Vordefinierte Listen
 		g.GET("/preferences/lists", s.getPreferenceLists)
+
+		// Freigaben versiegelter Profile (R939)
+		g.GET("/freigaben", s.partnerFreigabenZeigen)
+		g.POST("/freigabe", s.partnerFreigabeAendern)
 	}
 }
 
@@ -134,8 +139,14 @@ func (s *Server) getPartnerProfile(c *gin.Context) {
 			return
 		}
 	}
-	// Bio wird zurückgegeben (nur lokal sichtbar), aber nie im PublicAd
-	c.JSON(http.StatusOK, rec.Data)
+	// R939: Profilschlüssel sicherstellen (Altbestand ohne Schlüssel) – und
+	// nie an den Browser geben.
+	if sess != nil {
+		if _, has := rec.Data["seal_key"].(string); !has {
+			go s.partnerNachAnmeldung(sess)
+		}
+	}
+	c.JSON(http.StatusOK, copyWithout(rec.Data, "seal_key", "seal_epoch"))
 }
 
 // upsertPartnerProfile speichert das eigene Profil lokal.
@@ -186,6 +197,7 @@ func (s *Server) upsertPartnerProfile(c *gin.Context) {
 			"preferences":  profile.Preferences,
 			"dislikes":     profile.Dislikes,
 			"sexual_prefs": profile.SexualPrefs,
+			"sex_match_hidden": profile.SexMatchHidden, // R940
 			"education":    profile.Education,
 			"profession":   profile.Profession,
 			"industry":     profile.Industry,
@@ -202,6 +214,21 @@ func (s *Server) upsertPartnerProfile(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte anmelden, um dein Partnerprofil zu speichern."})
 		return
 	}
+	// R939: Profilschlüssel (Epoche) über das Speichern hinweg erhalten.
+	epoche := 1
+	if alt, err := s.store.Get(storage.RecordPartnerProfile, rec.ID); err == nil && alt != nil && alt.Data != nil {
+		epoche = partnerEpoche(alt.Data)
+		if k, ok := alt.Data["seal_key"]; ok {
+			rec.Data["seal_key"] = k
+			rec.Data["seal_epoch"] = epoche
+		}
+	}
+	if sess := s.getSession(c); sess != nil {
+		if _, _, err := partnerSiegelSetzen(sess, rec.Data, epoche); err != nil {
+			s.internalError(c, err)
+			return
+		}
+	}
 	if err := s.store.Put(rec); err != nil {
 		s.internalError(c, err)
 		return
@@ -212,7 +239,7 @@ func (s *Server) upsertPartnerProfile(c *gin.Context) {
 	}
 
 	// Bio und Salt aus der Antwort entfernen
-	resp := copyWithout(rec.Data, "bio", "salt_hex")
+	resp := copyWithout(rec.Data, "bio", "salt_hex", "seal_key", "seal_epoch")
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -263,6 +290,17 @@ func (s *Server) publishPartnerAd(c *gin.Context) {
 	// der Kontakt-Button im Messenger die richtige Identität adressieren kann
 	// und Profile knotenübergreifend dem User zugeordnet werden.
 	ad.FundusID = strings.ToLower(sess.identity.FundusID)
+
+	// R939: Profildaten versiegeln – offen bleibt nur, was zum Finden nötig ist.
+	sealKey, err := s.partnerEigenerSchluessel(sess, profRec)
+	if err != nil {
+		s.internalError(c, err)
+		return
+	}
+	if err := ad.Seal(sealKey); err != nil {
+		s.internalError(c, err)
+		return
+	}
 
 	// Lokal speichern (für eigene Match-Referenz)
 	adData, _ := ad.Marshal()
@@ -359,15 +397,36 @@ func (s *Server) getMatches(c *gin.Context) {
 		}
 	}
 
+	// R939: versiegelte Anzeigen mit freigegebenen Schlüsseln öffnen.
+	bund := s.partnerBundLaden(s.getSession(c))
 	var matches []*partner.MatchResult
 	rejected := map[string]int{}
-	for _, e := range newest {
+	for fid, e := range newest {
+		entsiegelt, alt := false, false
+		if e.ad.Sealed != "" {
+			if k := bund.leseSchluessel(fid); k != nil {
+				if e.ad.Unseal(k) == nil {
+					entsiegelt = true
+				} else {
+					alt = true
+				}
+			}
+		}
 		if result, why := matcher.MatchWithReason(e.ad); result != nil {
+			if result.Locked || entsiegelt {
+				result.Freigabe = bund.status(fid, entsiegelt, alt)
+			}
 			matches = append(matches, result)
 		} else {
 			rejected[why]++
 		}
 	}
+	sort.SliceStable(matches, func(i, j int) bool {
+		if matches[i].Locked != matches[j].Locked {
+			return !matches[i].Locked // freigegebene zuerst
+		}
+		return matches[i].Score > matches[j].Score
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"matches":  matches,
@@ -399,8 +458,21 @@ func (s *Server) publishSearchableAd(c *gin.Context) {
 	searchAd := partner.MakeSearchableAd(profile, peerID)
 	// FundusID aus der Session mitführen, damit man den Treffer aus der Suche
 	// heraus im Messenger kontaktieren kann (wie beim Match-Ad).
-	if sess := s.getSession(c); sess != nil && sess.identity != nil {
-		searchAd.FundusID = strings.ToLower(sess.identity.FundusID)
+	sess := s.getSession(c)
+	if sess == nil || sess.identity == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Bitte zuerst anmelden — ein Partnerprofil braucht eine Wallet-Identität."})
+		return
+	}
+	searchAd.FundusID = strings.ToLower(sess.identity.FundusID)
+	// R939: versiegeln (siehe publishPartnerAd).
+	sealKey, err := s.partnerEigenerSchluessel(sess, profRec)
+	if err != nil {
+		s.internalError(c, err)
+		return
+	}
+	if err := searchAd.Seal(sealKey); err != nil {
+		s.internalError(c, err)
+		return
 	}
 	adData, _ := json.Marshal(searchAd)
 
@@ -457,6 +529,7 @@ func (s *Server) searchPartner(c *gin.Context) {
 		Hobbies:         splitQuery(c.Query("hobby")),
 		Preferences:     splitQuery(c.Query("pref")),
 		SexPrefAbbrs:    splitQuery(c.Query("sex")),
+		SexMatchOnly:    c.Query("sex_match") == "1", // R940
 		RequireMutual:   c.Query("mutual") == "true",
 		MyGender:        c.Query("my_gender"),
 		MyAgeRange:      c.Query("my_age_range"),
@@ -492,6 +565,8 @@ func (s *Server) searchPartner(c *gin.Context) {
 	}
 
 	mySearchFid := strings.ToLower(s.currentUserWallet(c))
+	bund := s.partnerBundLaden(s.getSession(c)) // R939
+	freigabe := map[string]string{}
 	ads := make([]*partner.SearchableAd, 0, len(records))
 	for _, rec := range records {
 		rawStr, _ := rec.Data["raw"].(string)
@@ -512,11 +587,29 @@ func (s *Server) searchPartner(c *gin.Context) {
 		} else if ad.PeerID == myPeerID {
 			continue
 		}
+		if f := strings.ToLower(ad.FundusID); f != "" {
+			entsiegelt, alt := false, false
+			if ad.Sealed != "" {
+				if k := bund.leseSchluessel(f); k != nil {
+					if ad.Unseal(k) == nil {
+						entsiegelt = true
+					} else {
+						alt = true
+					}
+				}
+				freigabe[f] = bund.status(f, entsiegelt, alt)
+			} else if bund.leseSchluessel(f) != nil {
+				freigabe[f] = "frei"
+			}
+		}
 		ads = append(ads, ad)
 	}
 
 	searcher := partner.NewSearcher()
-	results, total := searcher.Search(ads, filter)
+	results, total, gesperrtAus := searcher.SearchEx(ads, filter)
+	for i := range results {
+		results[i].Freigabe = freigabe[strings.ToLower(results[i].FundusID)]
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"results": results,
@@ -525,6 +618,9 @@ func (s *Server) searchPartner(c *gin.Context) {
 		"offset":  filter.Offset,
 		"limit":   filter.Limit,
 		"sort_by": filter.SortBy,
+		// R939: passen nach Ort/Geschlecht/Alter, aber ein Filter betrifft
+		// versiegelte Angaben – erst nach Freigabe prüfbar.
+		"gesperrt_ausgeblendet": gesperrtAus,
 	})
 }
 
@@ -592,10 +688,12 @@ func (s *Server) loadProfileAndSalt(rec *storage.Record) (*partner.Profile, part
 		if m, ok := raw.(map[string]any); ok {
 			abbr, _ := m["abbr"].(string)
 			role, _ := m["role"].(string)
+			pub, _ := m["public"].(bool) // R940
 			if abbr != "" {
 				sexPrefs = append(sexPrefs, partner.SexualPreference{
-					Abbr: abbr,
-					Role: partner.SexPrefRole(role),
+					Abbr:   abbr,
+					Role:   partner.SexPrefRole(role),
+					Public: pub,
 				})
 			}
 		}
@@ -629,6 +727,7 @@ func (s *Server) loadProfileAndSalt(rec *storage.Record) (*partner.Profile, part
 		Preferences: toStringSlice(d["preferences"]),
 		Dislikes:    toStringSlice(d["dislikes"]),
 		SexualPrefs: sexPrefs,
+		SexMatchHidden: d["sex_match_hidden"] == true, // R940
 		Bio:         str(d["bio"]),
 		ImageHashes: toStringSlice(d["image_hashes"]),
 		VideoHashes: toStringSlice(d["video_hashes"]),
@@ -881,6 +980,14 @@ func (s *Server) partnerMaintainOnce() {
 				id, topic, fresh = "my-search-ad:"+fid, "fundus.partner.search", searchRaw
 			}
 			if !ok || len(fresh) == 0 {
+				// R939: Nie eine unversiegelte Anzeige weiterverteilen – das wäre
+				// Klartext aus der Zeit vor R939. Sie wird ersetzt, sobald sich
+				// der Besitzer anmeldet.
+				if _, versiegelt := old["sealed"].(string); !versiegelt {
+					_ = s.store.Delete(rt, id)
+					purged++
+					continue
+				}
 				// Kein lokales Profil (z.B. Gast-Node): gespeicherte Anzeige mit
 				// erneuertem Zeitstempel weiterverteilen, wie bisher.
 				now := time.Now().UTC()
@@ -928,9 +1035,21 @@ func (s *Server) buildOwnPartnerAds(fid string) (matchRaw, searchRaw []byte, ok 
 		return nil, nil, false
 	}
 	ad.FundusID = fid
+	// R939: nur versiegelt – ohne Schlüssel (Besitzer seit dem Update nicht
+	// angemeldet) gar nicht.
+	sealKey, err := s.partnerEigenerSchluessel(nil, profRec)
+	if err != nil {
+		return nil, nil, false
+	}
+	if ad.Seal(sealKey) != nil {
+		return nil, nil, false
+	}
 	matchRaw, _ = ad.Marshal()
 	sad := partner.MakeSearchableAd(profile, peerID)
 	sad.FundusID = fid
+	if sad.Seal(sealKey) != nil {
+		return nil, nil, false
+	}
 	searchRaw, _ = json.Marshal(sad)
 	return matchRaw, searchRaw, true
 }
@@ -986,6 +1105,11 @@ func (s *Server) partnerShareable() []partnerPullItem {
 		for _, r := range recs {
 			raw, _ := r.Data["raw"].(string)
 			if raw == "" || !partnerAdFresh(raw, r.UpdatedAt) {
+				continue
+			}
+			// R939: eigene Anzeigen nur versiegelt herausgeben.
+			if (strings.HasPrefix(r.ID, "my-ad") || strings.HasPrefix(r.ID, "my-search-ad")) &&
+				!strings.Contains(raw, `"sealed":`) {
 				continue
 			}
 			items = append(items, partnerPullItem{Topic: t.topic, Raw: raw})

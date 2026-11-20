@@ -83,9 +83,12 @@ return function()
     local dislikes    = plist("dislikes")
     local sexPrefs    = plist("sexual_prefs")
     local selSexAbbrs = {}
+    local pubSexAbbrs = {} -- R940: öffentlich suchbar gemachte Vorlieben
     for _, sp in ipairs(sexPrefs) do
         selSexAbbrs[sp.abbr] = sp.role or "switch"
+        if sp.public == true then pubSexAbbrs[#pubSexAbbrs+1] = sp.abbr end
     end
+    local sexMatchHidden = profile and profile.sex_match_hidden == true
 
     -- Tabs-Navigation
     ngx.print([[
@@ -97,6 +100,13 @@ return function()
   <button class="tab-btn"        onclick="showTab('seeking')">]] .. t("partner.tab_seeking") .. [[</button>
   <button class="tab-btn"        onclick="showTab('search')">🔍 Suche</button>
   <button class="tab-btn"        onclick="showTab('matches')">]] .. t("partner.tab_matches") .. [[</button>
+  <button class="tab-btn"        onclick="showTab('freigaben')" data-tab="freigaben">🔐 Freigaben <span id="freigabe-badge" class="fg-badge hidden"></span></button>
+</div>
+<div class="fg-info">
+  🔐 <b>Dein Profil ist verschlüsselt.</b> Im Netz sichtbar sind nur Geschlecht, Altersklasse,
+  ungefährer Ort (~5–10 km) und wen du suchst – damit man dich finden kann. Spitzname, Bilder,
+  genaues Alter, Bio, Hobbys, Vorlieben und Beruf sieht nur, wem du dein Profil freigibst.
+  Wer ein Profil anfragt, gibt dabei sein eigenes frei.
 </div>
 
 <form id="profile-form" novalidate onsubmit="saveProfile(event); return false;">
@@ -145,7 +155,7 @@ return function()
       </div>
     </div>
     <div class="field">
-      <label>%s <small class="meta" style="color:var(--amber)">(wird im Netzwerk öffentlich geteilt)</small></label>
+      <label>%s <small class="meta" style="color:var(--grn)">(verschlüsselt – nur für freigegebene Kontakte)</small></label>
       <textarea id="p-bio" name="bio" rows="4" placeholder="Erzähl etwas über dich…">%s</textarea>
     </div>
     <div class="field">
@@ -306,6 +316,28 @@ return function()
   <input type="text" class="pref-custom-input" placeholder="+ Eigene Abkürzung / Vorliebe …" data-group="sex_custom">
 </div>
 ]]))
+        -- R940: Sichtbarkeit fürs Vorlieben-Matching
+        ngx.print(string.format([[
+<div class="sex-pub-box">
+  <div class="sex-pub-h">🔐 Wer sieht deine Vorlieben?</div>
+  <p class="meta" style="margin:.2rem 0 .6rem">Standard: nur wem du dein Profil freigibst. Für die Suche kannst du zusätzlich anzeigen:</p>
+  <label class="pref-check sex-pub-row"><input type="checkbox" id="p-sex-match"%s>
+    <span>„Offen für Vorlieben-Matching“ anzeigen <small class="meta">– nur dass du Vorlieben angegeben hast, nicht welche</small></span></label>
+  <div class="sex-pub-sub">Einzelne Vorlieben öffentlich suchbar machen:</div>
+  <div id="sex-pub-list" class="pref-grid" data-pub="%s"></div>
+  <p class="sex-pub-warn hidden" id="sex-pub-warn">⚠ Öffentlich gemachte Vorlieben (mit Rolle) sieht <b>jeder</b> im Netz – zusammen mit Geschlecht,
+    Altersklasse und ungefährem Ort. In kleinen Orten kann man dich daran erkennen.</p>
+</div>
+<style>
+.sex-pub-box{margin-top:1.2rem;padding:12px;border:1px solid var(--brd);border-radius:var(--r);background:var(--sur2,transparent)}
+.sex-pub-h{font-weight:600;margin-bottom:2px}
+.sex-pub-row{border:none;padding:0;align-items:flex-start;gap:6px}
+.sex-pub-sub{margin:.8rem 0 .3rem;font-size:13px}
+.sex-pub-warn{margin:.6rem 0 0;font-size:12.5px;color:var(--amber);line-height:1.4}
+.sex-pub-warn.hidden{display:none}
+#sex-pub-list:empty::before{content:"Wähle oben zuerst Vorlieben aus.";color:var(--muted);font-size:12.5px}
+</style>
+]], sexMatchHidden and "" or " checked", render.html_escape(table.concat(pubSexAbbrs, ","))))
     end
 
     ngx.print("</section></div>") -- tab-sex
@@ -385,6 +417,44 @@ return function()
 ]], t("partner.step_matches"), t("general.loading")))
 
     -- =========================================================================
+    --  TAB: Freigaben (R939)
+    -- =========================================================================
+    ngx.print([[
+<div class="tab-panel hidden" id="tab-freigaben">
+  <section class="step">
+    <div class="step-header"><span class="step-num">🔐</span><h2>Anfragen an dich</h2></div>
+    <p class="meta">Wer anfragt, hat dir sein Profil schon freigegeben – du findest es entsperrt unter Matches und Suche.</p>
+    <div id="fg-ein"><p class="empty">Wird geladen…</p></div>
+  </section>
+  <section class="step">
+    <div class="step-header"><span class="step-num">↗</span><h2>Deine Anfragen</h2></div>
+    <div id="fg-aus"><p class="empty">Wird geladen…</p></div>
+  </section>
+  <section class="step">
+    <div class="step-header"><span class="step-num">👁</span><h2>Wer dein Profil sehen darf</h2></div>
+    <p class="meta">Beim Entziehen bekommt dein Profil einen neuen Schlüssel; alle anderen erhalten ihn automatisch.</p>
+    <div id="fg-frei"><p class="empty">Wird geladen…</p></div>
+  </section>
+</div>
+<style>
+.fg-info{margin:0 0 12px;padding:10px 12px;border:1px solid var(--grn-brd);background:var(--grn-bg);border-radius:var(--r);font-size:13px;line-height:1.45}
+.fg-badge{display:inline-block;min-width:18px;padding:0 5px;margin-left:4px;border-radius:9px;background:var(--red,#d33);color:#fff;font-size:11px;line-height:18px;text-align:center}
+.fg-badge.hidden{display:none}
+.fg-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--brd)}
+.fg-row:last-child{border-bottom:none}
+.fg-who{min-width:0}
+.fg-name{font-weight:600}
+.fg-id{font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fg-act{display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap}
+.fg-st{font-size:12px;color:var(--muted)}
+.match-card.locked,.srch-card.locked{opacity:.92}
+.match-lock{font-size:12px;color:var(--muted);margin-top:4px}
+.btn-lock{margin-top:6px;padding:4px 10px;font-size:12px;border-radius:var(--rs);border:1px solid var(--acc);background:transparent;color:var(--acc);cursor:pointer}
+.btn-lock[disabled]{border-color:var(--brd2);color:var(--muted);cursor:default}
+</style>
+]])
+
+    -- =========================================================================
     --  TAB 7: Parametrische Suche
     -- =========================================================================
     if lists and lists.sexual_preferences then
@@ -401,8 +471,9 @@ return function()
 <section class="step">
   <div class="step-header"><span class="step-num">🔍</span><h2>]] .. t("partner.h_param_search") .. [[</h2></div>
   <p class="meta">
-    Sucht in öffentlichen Suchprofilen die andere Nutzer freiwillig veröffentlicht haben.
-    Nur Kategorien – keine Klartextnamen oder genauen Koordinaten.
+    Sucht in den Suchprofilen anderer Nutzer. Ohne Freigabe sind nur Geschlecht, Altersklasse,
+    Entfernung und öffentlich gemachte Vorlieben bekannt; Filter auf Hobbys, Bildung und
+    nicht öffentliche Vorlieben greifen nur bei Profilen, die dir freigegeben wurden.
   </p>
 
   <div class="field-row">
@@ -457,6 +528,9 @@ return function()
       <label>]] .. t("partner.label_reciprocity") .. [[</label>
       <label class="pref-check" style="border:none;padding:0">
         <input type="checkbox" id="srch-mutual"> Nur gegenseitige Matches
+      </label>
+      <label class="pref-check" style="border:none;padding:0">
+        <input type="checkbox" id="srch-sex-match"> Nur Profile, die offen für Vorlieben-Matching sind
       </label>
     </div>
   </div>

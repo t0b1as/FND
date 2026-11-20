@@ -40,7 +40,18 @@ type kiBildConfig struct {
 	Modell   string `json:"modell"`
 	Schritte int    `json:"schritte"`
 	Teilen   bool   `json:"teilen"` // Grafikkarte mit Ollama teilen: Modelle wechselseitig entladen
+
+	// R941: Bildmodell-Typ. "" / "sdxl": eine Checkpoint-Datei (Modell).
+	// "zimage": Z-Image(-Turbo) aus drei Dateien – Diffusionsmodell
+	// (models/diffusion_models, .safetensors oder .gguf), Text-Encoder Qwen3-4B
+	// (models/text_encoders) und VAE ae.safetensors (models/vae).
+	Typ     string `json:"typ"`
+	Unet    string `json:"unet"`
+	Encoder string `json:"encoder"`
+	VAE     string `json:"vae"`
 }
+
+func (k kiBildConfig) zimage() bool { return k.Typ == "zimage" }
 
 func (s *Server) kiBildDatei() string { return filepath.Join(s.cfg.DataDir, "ki-bild.json") }
 func (s *Server) kiBildOrdner() string { return filepath.Join(s.cfg.DataDir, "ki-bilder") }
@@ -56,13 +67,27 @@ func (s *Server) kiBildLesen() kiBildConfig {
 	return k
 }
 
-func (k kiBildConfig) aktiv() bool { return k.ComfyURL != "" && k.Modell != "" }
+func (k kiBildConfig) aktiv() bool {
+	if k.ComfyURL == "" {
+		return false
+	}
+	if k.zimage() {
+		return k.Unet != "" && k.Encoder != "" && k.VAE != ""
+	}
+	return k.Modell != ""
+}
 
 var kiComfyClient = &http.Client{Timeout: 30 * time.Second}
 
 // comfyModelle: Checkpoint-Dateien, die ComfyUI kennt.
 func comfyModelle(ctx context.Context, basis string) ([]string, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, basis+"/object_info/CheckpointLoaderSimple", nil)
+	return comfyListe(ctx, basis, "CheckpointLoaderSimple", "ckpt_name")
+}
+
+// comfyListe: Auswahlliste eines Lade-Knotens (Dateien im passenden Ordner).
+// Fehlt der Knoten (z. B. GGUF-Erweiterung nicht installiert) → leere Liste.
+func comfyListe(ctx context.Context, basis, knoten, feldName string) ([]string, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, basis+"/object_info/"+knoten, nil)
 	resp, err := kiComfyClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ComfyUI nicht erreichbar unter %s – läuft es, mit --listen 0.0.0.0, und lässt die Firewall den Port durch?", basis)
@@ -76,7 +101,7 @@ func comfyModelle(ctx context.Context, basis string) ([]string, error) {
 	if resp.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&d) != nil {
 		return nil, fmt.Errorf("unter dieser Adresse antwortet kein ComfyUI")
 	}
-	feld := d["CheckpointLoaderSimple"].Input.Required["ckpt_name"]
+	feld := d[knoten].Input.Required[feldName]
 	if len(feld) == 0 {
 		return []string{}, nil
 	}
@@ -111,8 +136,14 @@ func (s *Server) kiBildSet(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Adresse wie http://192.168.1.20:8188"})
 		return
 	}
+	if k.Typ != "zimage" {
+		k.Typ = "sdxl"
+	}
 	if k.Schritte < 4 || k.Schritte > 60 {
 		k.Schritte = 25
+		if k.zimage() {
+			k.Schritte = 9
+		}
 	}
 	if err := jsonAtomar(s.kiBildDatei(), k, 0o600); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Speichern fehlgeschlagen: " + err.Error()})
@@ -139,7 +170,77 @@ func (s *Server) kiBildTest(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "fehler": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "modelle": m})
+	// R941: Dateien für Z-Image (drei Ordner; .gguf nur mit ComfyUI-GGUF).
+	unets, _ := comfyListe(ctx, basis, "UNETLoader", "unet_name")
+	encoder, _ := comfyListe(ctx, basis, "CLIPLoader", "clip_name")
+	vaes, _ := comfyListe(ctx, basis, "VAELoader", "vae_name")
+	ggufUnets, _ := comfyListe(ctx, basis, "UnetLoaderGGUF", "unet_name")
+	ggufEnc, _ := comfyListe(ctx, basis, "CLIPLoaderGGUF", "clip_name")
+	unets = mitGGUF(unets, ggufUnets)
+	encoder = mitGGUF(encoder, ggufEnc)
+	vorschlag := gin.H{
+		"unet":    erstesMit(unets, "z_image", "z-image", "zimage"),
+		"encoder": erstesMit(encoder, "qwen_3_4b", "qwen3-4b", "qwen3_4b", "qwen-3-4b"),
+		"vae":     vaeFuerZImage(vaes),
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "modelle": m, "unets": unets, "encoder": encoder, "vaes": vaes,
+		"gguf": len(ggufUnets) > 0 || len(ggufEnc) > 0, "zimage_vorschlag": vorschlag})
+}
+
+// vaeFuerZImage: die Flux-/Z-Image-VAE heißt ae.safetensors (ggf. in einem
+// Unterordner) – nicht mit sdxl_vae o. ä. verwechseln.
+func vaeFuerZImage(liste []string) string {
+	for _, f := range liste {
+		l := strings.ToLower(strings.ReplaceAll(f, "\\", "/"))
+		if i := strings.LastIndex(l, "/"); i >= 0 {
+			l = l[i+1:]
+		}
+		if l == "ae.safetensors" || l == "ae.sft" || strings.Contains(l, "z_image") && strings.Contains(l, "vae") {
+			return f
+		}
+	}
+	return ""
+}
+
+func mitGGUF(a, b []string) []string {
+	da := map[string]bool{}
+	out := append([]string{}, a...)
+	for _, x := range a {
+		da[x] = true
+	}
+	for _, x := range b {
+		if !da[x] {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// erstesMit: erste Datei, deren Name einen der Bausteine enthält. Bei
+// Diffusionsmodellen gewinnt eine kleine Fassung (fp8/int8/gguf), weil die
+// bf16-Datei (12 GB) eine 8-GB-Karte überfordert.
+func erstesMit(liste []string, teile ...string) string {
+	var treffer []string
+	for _, f := range liste {
+		l := strings.ToLower(f)
+		for _, t := range teile {
+			if strings.Contains(l, t) {
+				treffer = append(treffer, f)
+				break
+			}
+		}
+	}
+	for _, klein := range []string{"int8", "fp8", ".gguf"} {
+		for _, f := range treffer {
+			if strings.Contains(strings.ToLower(f), klein) {
+				return f
+			}
+		}
+	}
+	if len(treffer) > 0 {
+		return treffer[0]
+	}
+	return ""
 }
 
 var kiFormate = map[string][2]int{"quadrat": {1024, 1024}, "hoch": {832, 1216}, "quer": {1216, 832}}
@@ -174,7 +275,17 @@ func (s *Server) kiBildErzeugen(ctx context.Context, k kiBildConfig, beschreibun
 			}
 		}
 	}
-	workflow := map[string]any{
+	workflow := comfyAblaufSDXL(k, beschreibung, wh)
+	if k.zimage() {
+		workflow = comfyAblaufZImage(k, beschreibung, wh)
+	}
+	b, _ := json.Marshal(map[string]any{"prompt": workflow, "client_id": "fundus"})
+	return s.kiBildAusfuehren(ctx, k, b, teilen)
+}
+
+// comfyAblaufSDXL: bisheriger Ablauf (ein Checkpoint, CFG 6.5, Negativ-Prompt).
+func comfyAblaufSDXL(k kiBildConfig, beschreibung string, wh [2]int) map[string]any {
+	return map[string]any{
 		"3": map[string]any{"class_type": "KSampler", "inputs": map[string]any{"seed": zufallsZahl(), "steps": k.Schritte, "cfg": 6.5,
 			"sampler_name": "dpmpp_2m", "scheduler": "karras", "denoise": 1, "model": []any{"4", 0},
 			"positive": []any{"6", 0}, "negative": []any{"7", 0}, "latent_image": []any{"5", 0}}},
@@ -185,7 +296,39 @@ func (s *Server) kiBildErzeugen(ctx context.Context, k kiBildConfig, beschreibun
 		"8": map[string]any{"class_type": "VAEDecode", "inputs": map[string]any{"samples": []any{"3", 0}, "vae": []any{"4", 2}}},
 		"9": map[string]any{"class_type": "SaveImage", "inputs": map[string]any{"filename_prefix": "fundus", "images": []any{"8", 0}}},
 	}
-	b, _ := json.Marshal(map[string]any{"prompt": workflow, "client_id": "fundus"})
+}
+
+// comfyAblaufZImage (R941): Z-Image-Turbo nach der ComfyUI-Vorlage –
+// getrennte Lader, ModelSamplingAuraFlow (shift 3), EmptySD3LatentImage,
+// KSampler euler/simple, CFG 1 (Negativ-Prompt wirkungslos, bleibt leer).
+// .gguf-Dateien laufen über die Knoten der Erweiterung ComfyUI-GGUF.
+func comfyAblaufZImage(k kiBildConfig, beschreibung string, wh [2]int) map[string]any {
+	unet := map[string]any{"class_type": "UNETLoader", "inputs": map[string]any{"unet_name": k.Unet, "weight_dtype": "default"}}
+	if strings.HasSuffix(strings.ToLower(k.Unet), ".gguf") {
+		unet = map[string]any{"class_type": "UnetLoaderGGUF", "inputs": map[string]any{"unet_name": k.Unet}}
+	}
+	enc := map[string]any{"class_type": "CLIPLoader", "inputs": map[string]any{"clip_name": k.Encoder, "type": "lumina2", "device": "default"}}
+	if strings.HasSuffix(strings.ToLower(k.Encoder), ".gguf") {
+		enc = map[string]any{"class_type": "CLIPLoaderGGUF", "inputs": map[string]any{"clip_name": k.Encoder, "type": "lumina2"}}
+	}
+	return map[string]any{
+		"10": unet,
+		"11": enc,
+		"12": map[string]any{"class_type": "VAELoader", "inputs": map[string]any{"vae_name": k.VAE}},
+		"13": map[string]any{"class_type": "ModelSamplingAuraFlow", "inputs": map[string]any{"model": []any{"10", 0}, "shift": 3}},
+		"5":  map[string]any{"class_type": "EmptySD3LatentImage", "inputs": map[string]any{"width": wh[0], "height": wh[1], "batch_size": 1}},
+		"6":  map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"text": beschreibung, "clip": []any{"11", 0}}},
+		"7":  map[string]any{"class_type": "CLIPTextEncode", "inputs": map[string]any{"text": "", "clip": []any{"11", 0}}},
+		"3": map[string]any{"class_type": "KSampler", "inputs": map[string]any{"seed": zufallsZahl(), "steps": k.Schritte, "cfg": 1,
+			"sampler_name": "euler", "scheduler": "simple", "denoise": 1, "model": []any{"13", 0},
+			"positive": []any{"6", 0}, "negative": []any{"7", 0}, "latent_image": []any{"5", 0}}},
+		"8": map[string]any{"class_type": "VAEDecode", "inputs": map[string]any{"samples": []any{"3", 0}, "vae": []any{"12", 0}}},
+		"9": map[string]any{"class_type": "SaveImage", "inputs": map[string]any{"filename_prefix": "fundus", "images": []any{"8", 0}}},
+	}
+}
+
+// kiBildAusfuehren: Auftrag abschicken, warten, Bild holen und ablegen.
+func (s *Server) kiBildAusfuehren(ctx context.Context, k kiBildConfig, b []byte, teilen bool) (string, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, k.ComfyURL+"/prompt", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := kiComfyClient.Do(req)
@@ -199,6 +342,9 @@ func (s *Server) kiBildErzeugen(ctx context.Context, k kiBildConfig, beschreibun
 	_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&auftrag)
 	resp.Body.Close()
 	if auftrag.PromptID == "" {
+		if k.zimage() {
+			return "", fmt.Errorf("ComfyUI lehnt den Auftrag ab – liegen „%s“ (models/diffusion_models), „%s“ (models/text_encoders) und „%s“ (models/vae) vor? Für .gguf braucht ComfyUI die Erweiterung ComfyUI-GGUF; ältere ComfyUI-Fassungen kennen Z-Image noch nicht (aktualisieren)", k.Unet, k.Encoder, k.VAE)
+		}
 		return "", fmt.Errorf("ComfyUI lehnt den Auftrag ab – ist das Modell „%s“ in models/checkpoints vorhanden?", k.Modell)
 	}
 	// Warten, bis das Bild fertig ist (höchstens 4 Minuten). Bricht der

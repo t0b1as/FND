@@ -2,7 +2,160 @@
 document.addEventListener("DOMContentLoaded", function(){
   try { loadProfileClientSide(); } catch(e){ console.error('loadProfile:', e); }
   try { loadMatches(); } catch(e){ console.error('loadMatches:', e); }
+  try { loadFreigaben(); } catch(e){ console.error('loadFreigaben:', e); }
+  // ?tab=freigaben / ?tab=matches (Link aus der Push-Meldung)
+  try {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (tab && document.getElementById('tab-' + tab)) openTab(tab);
+  } catch(e){}
 });
+
+// ── Versiegelte Profile (R939) ──────────────────────────────────────────────
+const GENDER_DE = { male:'männlich', female:'weiblich', 'non-binary':'nicht-binär', other:'divers' };
+const FREIGABE_TXT = {
+  angefragt: 'Anfrage gesendet – wartet auf Freigabe',
+  abgelehnt: 'Anfrage abgelehnt',
+  entzogen: 'Freigabe zurückgezogen',
+  veraltet: 'Schlüssel veraltet – neu anfragen',
+  anfrage_offen: 'Hat dich angefragt – siehe „Freigaben“'
+};
+function lockedCardHtml(m, cls){
+  const g = GENDER_DE[m.gender] || m.gender || '';
+  const ar = m.age_range || '';
+  const dist = (m.distance_km != null && m.distance_km >= 0) ? Math.round(m.distance_km) + ' km' : '';
+  const st = m.freigabe || '';
+  const fid = m.fundus_id || '';
+  let btn;
+  if (st === 'angefragt') btn = '<button type="button" class="btn-lock" disabled>⏳ Angefragt</button>';
+  else if (st === 'anfrage_offen') btn = '<button type="button" class="btn-lock" onclick="event.stopPropagation();openTab(\'freigaben\')">Anfrage ansehen</button>';
+  else if (st === 'abgelehnt') btn = '<button type="button" class="btn-lock" disabled>Abgelehnt</button>';
+  else btn = fid ? '<button type="button" class="btn-lock" onclick="event.stopPropagation();partnerAnfragen(\'' + escapeHtml(fid) + '\', this)">🔓 Profil anfragen</button>' : '';
+  return '<div class="' + cls + ' locked">' +
+    '<div class="match-photo match-noimg">🔒</div>' +
+    '<div class="match-info">' +
+      '<div class="match-name">Profil verschlüsselt</div>' +
+      '<div class="match-sub">' + escapeHtml([g, ar].filter(Boolean).join(' · ')) + '</div>' +
+      '<div class="match-meta">' + escapeHtml(dist) + '</div>' +
+      sexOffenHtml(m) +
+      (FREIGABE_TXT[st] ? '<div class="match-lock">' + escapeHtml(FREIGABE_TXT[st]) + '</div>' : '') +
+      btn +
+    '</div></div>';
+}
+
+// R940: "offen für Vorlieben" und öffentlich gemachte Vorlieben ("ABBR:rolle").
+function sexOffenHtml(m){
+  const pub = m.sexual_prefs_public || [];
+  if (!m.sex_match && !pub.length) return '';
+  const rolle = { aktiv:'aktiv', passiv:'passiv', 'switch':'switch' };
+  const tags = pub.map(function(x){ const p = String(x).split(':'); return p[0] + (p[1] ? ' · ' + (rolle[p[1]] || p[1]) : ''); });
+  return '<div class="match-lock" style="color:var(--acc)">💞 offen für Vorlieben-Matching</div>' +
+    (tags.length ? '<div class="match-tags">' + tags.map(function(t){ return '<span class="match-tag">' + escapeHtml(t) + '</span>'; }).join('') + '</div>' : '');
+}
+
+// R940: Liste "einzelne Vorlieben öffentlich" aus den angehakten Vorlieben.
+const SEX_PUB = new Set();
+(function(){
+  const list = document.getElementById('sex-pub-list');
+  if (!list) return;
+  (list.dataset.pub || '').split(',').filter(Boolean).forEach(function(a){ SEX_PUB.add(a.toUpperCase()); });
+})();
+function renderSexPub(){
+  const list = document.getElementById('sex-pub-list');
+  if (!list) return;
+  const gewaehlt = Array.from(document.querySelectorAll('.sex-abbr-cb:checked')).map(function(cb){ return cb.dataset.abbr; });
+  list.innerHTML = gewaehlt.map(function(a){
+    const A = String(a).toUpperCase();
+    return '<label class="pref-check"><input type="checkbox" class="sex-pub-cb" data-abbr="' + escapeHtml(A) + '"' +
+      (SEX_PUB.has(A) ? ' checked' : '') + '> 🌐 ' + escapeHtml(A) + '</label>';
+  }).join('');
+  const warn = document.getElementById('sex-pub-warn');
+  if (warn) warn.classList.toggle('hidden', !gewaehlt.some(function(a){ return SEX_PUB.has(String(a).toUpperCase()); }));
+}
+document.addEventListener('change', function(e){
+  const t = e.target;
+  if (!t || !t.classList) return;
+  if (t.classList.contains('sex-pub-cb')) {
+    if (t.checked) {
+      if (!confirm('„' + t.dataset.abbr + '“ öffentlich suchbar machen?\n\nJeder im Netz sieht dann diese Vorliebe (mit Rolle) zusammen mit Geschlecht, Altersklasse und ungefährem Ort.')) { t.checked = false; return; }
+      SEX_PUB.add(t.dataset.abbr);
+    } else SEX_PUB.delete(t.dataset.abbr);
+    renderSexPub();
+  } else if (t.classList.contains('sex-abbr-cb')) {
+    renderSexPub();
+  }
+});
+document.addEventListener('DOMContentLoaded', function(){ setTimeout(renderSexPub, 0); });
+
+async function partnerFreigabe(fid, aktion){
+  const r = await fetch('/api/v1/partner/freigabe', {method:'POST', credentials:'same-origin',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({fundus_id: fid, aktion: aktion})});
+  let d = {}; try { d = await r.json(); } catch(e){}
+  if (!r.ok) throw new Error(d.error || ('Fehler ' + r.status));
+  return d;
+}
+
+async function partnerAnfragen(fid, btn){
+  if (!confirm('Profil anfragen?\n\nDabei gibst du dein eigenes Profil für diese Person frei – sie sieht es sofort und entscheidet dann, ob sie ihres freigibt.')) return;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Wird gesendet…'; }
+  try {
+    await partnerFreigabe(fid, 'teilen');
+    if (btn) btn.textContent = '⏳ Angefragt';
+    loadFreigaben();
+  } catch(e){
+    alert(e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '🔓 Profil anfragen'; }
+  }
+}
+
+function fgZeile(z, aktionen){
+  const name = z.name || 'Verschlüsseltes Profil';
+  const datum = z.zeit ? new Date(z.zeit).toLocaleDateString('de-DE') : '';
+  return '<div class="fg-row"><div class="fg-who"><div class="fg-name">' + escapeHtml(name) + '</div>' +
+    '<div class="fg-id">' + escapeHtml(z.fundus_id) + (datum ? ' · ' + datum : '') + '</div></div>' +
+    '<div class="fg-act">' + aktionen + '</div></div>';
+}
+function fgBtn(txt, fid, aktion, prim){
+  return '<button type="button" class="btn' + (prim ? ' btn-prim' : '') + '" style="padding:4px 10px" ' +
+    'onclick="fgAktion(\'' + escapeHtml(fid) + '\',\'' + aktion + '\',this)">' + txt + '</button>';
+}
+async function fgAktion(fid, aktion, btn){
+  if (aktion === 'entziehen' && !confirm('Freigabe entziehen? Dein Profil bekommt einen neuen Schlüssel; diese Person sieht künftige Änderungen nicht mehr.')) return;
+  if (btn) btn.disabled = true;
+  try { await partnerFreigabe(fid, aktion); } catch(e){ alert(e.message); }
+  loadFreigaben(); loadMatches();
+}
+
+async function loadFreigaben(){
+  const ein = document.getElementById('fg-ein'), aus = document.getElementById('fg-aus'), frei = document.getElementById('fg-frei');
+  const badge = document.getElementById('freigabe-badge');
+  let d;
+  try {
+    const r = await fetch('/api/v1/partner/freigaben', {credentials:'same-origin'});
+    if (!r.ok) { if (ein) ein.innerHTML = '<p class="empty">Bitte anmelden.</p>'; return; }
+    d = await r.json();
+  } catch(e){ return; }
+  if (badge) { badge.textContent = d.offen || ''; badge.classList.toggle('hidden', !d.offen); }
+  const neu = (a) => (a || []).sort((x, y) => String(y.zeit).localeCompare(String(x.zeit)));
+  if (ein) {
+    const l = neu(d.ein);
+    ein.innerHTML = l.length ? l.map(z => {
+      if (z.status === 'offen') return fgZeile(z, fgBtn('Freigeben', z.fundus_id, 'teilen', true) + fgBtn('Ablehnen', z.fundus_id, 'ablehnen'));
+      const t = { frei: '✓ freigegeben', abgelehnt: 'abgelehnt', entzogen: 'entzogen' }[z.status] || z.status;
+      return fgZeile(z, '<span class="fg-st">' + escapeHtml(t) + '</span>' + (z.status === 'abgelehnt' ? fgBtn('Doch freigeben', z.fundus_id, 'teilen') : ''));
+    }).join('') : '<p class="empty">Keine Anfragen.</p>';
+  }
+  if (aus) {
+    const l = neu(d.aus);
+    const t = { angefragt: '⏳ wartet', frei: '✓ freigegeben', abgelehnt: 'abgelehnt', entzogen: 'entzogen' };
+    aus.innerHTML = l.length ? l.map(z => fgZeile(z, '<span class="fg-st">' + escapeHtml(t[z.status] || z.status) + '</span>')).join('')
+      : '<p class="empty">Du hast noch niemanden angefragt.</p>';
+  }
+  if (frei) {
+    const l = neu(d.frei);
+    frei.innerHTML = l.length ? l.map(z => fgZeile(z, fgBtn('Entziehen', z.fundus_id, 'entziehen'))).join('')
+      : '<p class="empty">Noch niemand.</p>';
+  }
+}
 
 // loadMatches holt die Partnervorschläge per fetch (mit Session-Cookie) und
 // rendert sie clientseitig — ersetzt die frühere serverseitige Schleife, die
@@ -45,6 +198,7 @@ async function loadMatches() {
   }
   let html = '<div class="status-grid">';
   for (const m of matches) {
+    if (m.locked) { html += lockedCardHtml(m, 'match-card'); continue; }
     const score = Math.round((m.score || 0) * 100);
     let nick = m.nickname || '';
     if (!nick) nick = (m.peer_id || '–').slice(0,12) + '…';
@@ -121,6 +275,7 @@ async function loadProfileClientSide() {
     for (const sp of p.sexual_prefs) {
       const abbr = sp && (sp.abbr || sp.Abbr);
       if (!abbr) continue;
+      if (sp.public) SEX_PUB.add(String(abbr).toUpperCase());
       const cb = document.querySelector('.sex-abbr-cb[data-abbr="' + CSS.escape(abbr) + '"]');
       if (!cb) continue;
       if (!cb.checked) { cb.checked = true; cb.dispatchEvent(new Event("change", {bubbles: true})); }
@@ -274,11 +429,22 @@ function contactMatch(fundusID, nick){
   location.href = "/messenger?to=" + encodeURIComponent(fundusID) + "&name=" + nick;
 }
 
-function showTab(name) {
+function showTab(name, btn) {
     document.querySelectorAll(".tab-panel").forEach(p => p.classList.add("hidden"));
     document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
-    document.getElementById("tab-" + name).classList.remove("hidden");
-    event.target.classList.add("active");
+    const panel = document.getElementById("tab-" + name);
+    if (panel) panel.classList.remove("hidden");
+    const b = btn || (typeof event !== "undefined" && event && event.target && event.target.closest ? event.target.closest(".tab-btn") : null);
+    if (b) b.classList.add("active");
+    if (name === "freigaben") loadFreigaben();
+}
+// openTab: Reiter per Code öffnen (Link, Button in einer Karte).
+function openTab(name) {
+    let btn = null;
+    document.querySelectorAll(".tab-btn").forEach(b => {
+        if ((b.getAttribute("onclick") || "").indexOf("'" + name + "'") >= 0) btn = b;
+    });
+    showTab(name, btn);
 }
 
 // === Erklärungen ein-/ausblenden ===
@@ -649,8 +815,11 @@ function collectProfile() {
     document.querySelectorAll(".sex-abbr-cb:checked").forEach(cb => {
         const abbr     = cb.dataset.abbr;
         const roleBtn  = document.querySelector(`#roles-${abbr} .role-btn.role-active`);
-        sexPrefs.push({ abbr, role: roleBtn ? roleBtn.dataset.role : "switch" });
+        const sp = { abbr, role: roleBtn ? roleBtn.dataset.role : "switch" };
+        if (SEX_PUB.has(String(abbr).toUpperCase())) sp.public = true; // R940
+        sexPrefs.push(sp);
     });
+    const sexMatchEl = document.getElementById("p-sex-match");
 
     return {
         nickname:    document.getElementById("p-nick").value,
@@ -664,6 +833,7 @@ function collectProfile() {
         preferences: getChecked("preferences"),
         dislikes:    getChecked("dislikes"),
         sexual_prefs: sexPrefs,
+        sex_match_hidden: sexMatchEl ? !sexMatchEl.checked : false, // R940
         bio:         document.getElementById("p-bio").value,
         image_hashes: window._partnerImageHashes || [],
         video_hashes: window._partnerVideoHashes || [],
@@ -699,6 +869,7 @@ async function runSearch(offset) {
         hobby:      getChecked("srch-hobby"),
         sex:        getChecked("srch-sex"),
         mutual:     document.getElementById("srch-mutual")?.checked ? "true" : "false",
+        sex_match:  document.getElementById("srch-sex-match")?.checked ? "1" : "",
         sort:       document.getElementById("srch-sort")?.value || "score",
         limit:      searchLimit,
         offset:     offset,
@@ -727,6 +898,10 @@ function renderSearchResults(data) {
 
     const results = data.results || [];
     countEl.textContent = `(${data.total} gesamt, ${results.length} angezeigt)`;
+    const ausgebl = data.gesperrt_ausgeblendet || 0;
+    if (ausgebl > 0) {
+        countEl.textContent += ` · ${ausgebl} weitere verschlüsselte Profile passen zu Ort, Geschlecht und Alter – deine Filter auf Hobbys/Vorlieben/Bildung lassen sich erst nach Freigabe prüfen`;
+    }
 
     if (results.length === 0) {
         grid.innerHTML = "<p class='empty'>" + PS.no_results + "</p>";
@@ -735,6 +910,7 @@ function renderSearchResults(data) {
     }
 
     grid.innerHTML = results.map(r => {
+        if (r.locked) return lockedCardHtml(r, 'srch-card');
         const score   = Math.round(r.score * 100);
         const hobbies = (r.matched_hobbies || []);
         const nick    = r.nickname || (r.peer_id||"–").slice(0,12)+"…";
@@ -782,6 +958,7 @@ function clearSearch() {
     document.querySelectorAll(".srch-age,.srch-edu,.srch-hobby,.srch-sex").forEach(cb => cb.checked = false);
     const gender = document.getElementById("srch-gender"); if (gender) gender.value = "";
     const mutual = document.getElementById("srch-mutual"); if (mutual) mutual.checked = false;
+    const sxm = document.getElementById("srch-sex-match"); if (sxm) sxm.checked = false;
     const section = document.getElementById("search-results-section");
     if (section) section.style.display = "none";
     const st = document.getElementById("search-status"); if (st) st.textContent = "";

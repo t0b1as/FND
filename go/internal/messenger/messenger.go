@@ -48,6 +48,7 @@ const (
 	TypeSignal   MessageType = "signal"
 	TypePresence MessageType = "presence"
 	TypeReceipt  MessageType = "receipt"
+	TypePartner  MessageType = "partner" // R939: Freigabe von Partnerprofilen
 )
 
 type SignalType string
@@ -110,6 +111,19 @@ type Payload struct {
 	// ClearMit (R818): bei einer Löschbitte an die EIGENEN anderen Nodes das
 	// Gespräch, das gelöscht werden soll – der Absender ist dann man selbst.
 	ClearMit string `json:"clear_mit,omitempty"`
+
+	// Partner (R939): Anfrage, Freigabe, Ablehnung oder Entzug eines
+	// Partnerprofils. Trägt bei Anfrage/Freigabe den Profilschlüssel des
+	// Absenders – nur so verschlüsselt, wie jede Nachricht (Ende-zu-Ende).
+	Partner *PartnerMsg `json:"partner,omitempty"`
+}
+
+// PartnerMsg: Art "anfrage" | "freigabe" | "ablehnung" | "entzug" | "schluessel".
+type PartnerMsg struct {
+	Art        string `json:"art"`
+	Schluessel string `json:"k,omitempty"`   // Profilschlüssel des Absenders (hex)
+	KeyID      string `json:"kid,omitempty"`
+	Name       string `json:"n,omitempty"`   // Spitzname des Absenders
 }
 
 // Quittungsarten (WhatsApp-analog): delivered = beim Empfänger angekommen,
@@ -235,6 +249,11 @@ func (m *Messenger) SendSignal(ctx context.Context, recipientID, recipientX25519
 
 // SendReceipt schickt eine Zustellungs- oder Lesequittung für eine empfangene
 // Nachricht zurück an deren Absender. kind ist ReceiptDelivered oder ReceiptRead.
+// SendPartner verschickt eine Partner-Freigabenachricht (R939).
+func (m *Messenger) SendPartner(ctx context.Context, recipientID, recipientX25519Hex string, pm PartnerMsg) (*Message, error) {
+	return m.sendPayload(ctx, recipientID, recipientX25519Hex, TypePartner, Payload{Partner: &pm})
+}
+
 func (m *Messenger) SendReceipt(ctx context.Context, recipientID, recipientX25519Hex, messageID, kind string) error {
 	if messageID == "" || (kind != ReceiptDelivered && kind != ReceiptRead) {
 		return errors.New("messenger: ungültige Quittung")

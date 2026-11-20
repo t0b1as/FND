@@ -165,6 +165,9 @@ type SexualPreference struct {
 	Abbr    string `json:"abbr"`
 	// Gewählte Rolle
 	Role    SexPrefRole `json:"role"`
+	// R940: Diese Vorliebe (inkl. Rolle) steht offen in der Anzeige und ist
+	// netzweit such- und abgleichbar. Standard: aus (nur nach Freigabe).
+	Public bool `json:"public,omitempty"`
 }
 
 // SexPrefDefinition beschreibt eine Kategorie sexueller Vorlieben.

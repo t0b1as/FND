@@ -33,6 +33,40 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
       der Sperre, 1 Arbeiter unter 1,5 GB RAM, HTML nur bis 768 KB auswerten,
       neue Arbeit weckt ruhende Arbeiter; Stand-Anzeige gibt nicht mehr auf.
 - [ ] **ROT:** Ursache „Stand nicht ladbar“ nach ~160 Seiten im Journal bestätigen.
+- [x] **R941:** Bildmodell umschaltbar: SDXL (Checkpoint) oder Z-Image Turbo
+      (Diffusionsmodell + Qwen3-4B-Text-Encoder + ae-VAE; UNETLoader/CLIPLoader
+      lumina2, ModelSamplingAuraFlow shift 3, EmptySD3LatentImage, euler/simple,
+      CFG 1, 9 Schritte; .gguf über ComfyUI-GGUF). „Verbindung testen“ liest die
+      Dateien aus ComfyUI und trägt sie ein (kleine Fassung bevorzugt). Anleitung
+      mit Hugging-Face-Dateien. Sprachmodell beschreibt Figuren mit Pose und
+      Proportionen. Tests mit nachgebautem ComfyUI.
+- [ ] Z-Image mit echter Statue auf Tobias' Grafikrechner prüfen (Anatomie).
+- [x] **R940:** Vorlieben-Matching trotz Versiegelung (Weg 3): Standard zeigt nur
+      „offen für Vorlieben-Matching“ (Kategorie, abschaltbar); einzelne Vorlieben
+      lassen sich mit Warnung öffentlich schalten (offen inkl. Rolle, netzweit
+      such- und abgleichbar). Versiegelte Profile: Abgleich über die
+      öffentlichen Vorlieben, Suche findet sie, nicht öffentliche werden nur
+      gezählt („erst nach Freigabe prüfbar“). Neuer Suchfilter „nur offen für
+      Vorlieben-Matching“. Zwei-Node-Test: BDSM (privat) nirgends im Klartext,
+      TAN (öffentlich) findbar und im Score.
+- [x] **R939:** Partnerprofile verschlüsselt. Offen im Netz nur noch Geschlecht,
+      Altersklasse, Grobstandort, Suchwunsch, Wallet-Kennung; Spitzname, Alter,
+      Bio, Hobbys, Werte, Vorlieben, Bildung/Beruf, Bild-Kennungen und alle
+      zurückrechenbaren Match-Hashes versiegelt (XChaCha20-Poly1305, Schlüssel
+      aus der Identität + Epoche). Freigabe per E2E-Messenger-Nachricht
+      (anfrage legt eigenen Schlüssel bei, freigabe/ablehnung/entzug; Entzug
+      wechselt den Schlüssel und verteilt ihn an die Verbleibenden). Schlüsselbund
+      selbst-verschlüsselt über fundus.contacts. Reiter „Freigaben“, gesperrte
+      Karten mit „Profil anfragen“. Alte Klartext-Anzeigen werden nicht mehr
+      weiterverteilt und beim nächsten Login versiegelt ersetzt.
+      Getestet: zwei Nodes + zweites Konto auf einem Node – kein Klartext beim
+      Empfänger (API und Datenbank), Anfrage, Freigabe, Suche mit Vorlieben-Filter,
+      Entzug, Schlüsselwechsel.
+- [ ] Partner: Bilder/Videos liegen weiter unverschlüsselt im Dateispeicher
+      (nur die Kennungen sind versiegelt) – bei Bedarf Medien mit dem
+      Profilschlüssel verschlüsseln.
+- [ ] Partner: Kopien alter Klartext-Anzeigen auf Nodes < R939 verschwinden erst
+      nach 48 h bzw. wenn die versiegelte Fassung sie ersetzt.
 - [x] **R938:** Chain-Tests grün. Echter Fehler: GetEscrow kopierte
       Rücksende-Frist und Tracking-Hash nicht mit (API meldete return_deadline 0).
       BlockSync- und Validator-Test an die R477-Regel (Gründer statt lokaler
@@ -46,11 +80,7 @@ Chain-Roadmap (siehe FUNDUS-ROADMAP.md). Eingeteilt nach Verifizierbarkeit:
 - [ ] **ROT:** Veraltete Tests: internal/api (Partner/Listings/Energie – 401 durch
       Login-Pflicht, 410 Energie-Token abgeschaltet, Thumbnail 512 px; Panic in
       TestAPI_EnergyTokens_Fee_Calculation bricht den Lauf ab), internal/meter
-      (Rundung KWh/Watt), internal/partner (Klartext-Profil, s. u.).
-- [ ] **ROT:** Partner-Profil: Geschlecht, Alter, Hobbys, Vorlieben und sexuelle
-      Präferenzen gehen im Klartext ins Netz; nur das Bio-Feld trägt den Hinweis
-      „wird öffentlich geteilt“. Entscheidung offen (Hinweis an allen Feldern
-      oder Felder nur gehasht).
+      (Rundung KWh/Watt).
 - [x] **R937:** go-libp2p v0.43 → v0.52 (quic-go 0.64.1, kad-dht v0.43,
       pubsub v0.19, go-datastore v0.9.2, ds-leveldb v0.5.3); Go 1.26 (go.mod
       go 1.26.6). Einzige API-Änderung: dht.New ohne Kontext. Deploy baut mit

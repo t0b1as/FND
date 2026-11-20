@@ -1118,8 +1118,12 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
     <p class="set-hint" style="margin:0 0 8px">Mit ComfyUI auf einem Rechner mit Grafikkarte kann der Chat auf Wunsch Bilder malen. Das Sprachmodell schreibt dafür eine Bildbeschreibung und ruft ComfyUI auf.</p>
     <div class="hs-grid">
       <label for="kb-url">ComfyUI-Adresse</label><input id="kb-url" placeholder="http://192.168.1.20:8188">
-      <label for="kb-modell">Bildmodell</label><input id="kb-modell" placeholder="sd_xl_base_1.0.safetensors">
-      <label for="kb-schritte">Schritte</label><select id="kb-schritte"><option value="15">15 (schneller)</option><option value="25">25 (ausgewogen)</option><option value="40">40 (feiner)</option></select>
+      <label for="kb-typ">Bildmodell-Typ</label><select id="kb-typ"><option value="sdxl">SDXL (eine Checkpoint-Datei)</option><option value="zimage">Z-Image Turbo (bessere Anatomie, drei Dateien)</option></select>
+      <label for="kb-modell" class="kb-sdxl">Bildmodell</label><input id="kb-modell" class="kb-sdxl" placeholder="sd_xl_base_1.0.safetensors">
+      <label for="kb-unet" class="kb-zi">Diffusionsmodell</label><input id="kb-unet" class="kb-zi" placeholder="z_image_turbo_int8_convrot.safetensors">
+      <label for="kb-encoder" class="kb-zi">Text-Encoder</label><input id="kb-encoder" class="kb-zi" placeholder="qwen_3_4b_fp8_mixed.safetensors">
+      <label for="kb-vae" class="kb-zi">VAE</label><input id="kb-vae" class="kb-zi" placeholder="ae.safetensors">
+      <label for="kb-schritte">Schritte</label><select id="kb-schritte"></select>
     </div>
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" id="kb-teilen" style="margin-top:4px">
       <span>Grafikkarte mit Ollama teilen<br><span class="set-hint">Vor jedem Bild wird das Sprachmodell aus der Grafikkarte genommen, danach das Bildmodell. Nötig bei 8 GB Grafikspeicher, kostet je Bild einige Sekunden. Laufen Ollama und ComfyUI auf demselben Rechner, geschieht das ohnehin.</span></span></label>
@@ -1139,6 +1143,24 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
           ComfyUI hat keine Anmeldung – <b>keine Portweiterleitung im Router</b>.</li>
         <li><b>Mit Windows starten</b> (optional): <kbd>Win</kbd>+<kbd>R</kbd>, <code>shell:startup</code> eingeben und dort eine Verknüpfung zu <code>run_nvidia_gpu.bat</code> anlegen.</li>
         <li><b>Hier eintragen:</b> Adresse <code>http://192.168.1.20:8188</code> (IP des PCs), <i>Verbindung testen</i>, das Modell antippen, <i>Bilderzeugung speichern</i>. Im Chat dann etwa: „Mal mir einen Leuchtturm bei Sturm.“</li>
+      </ol>
+    </details>
+    <details class="ki-hilfe" style="margin-top:6px">
+      <summary>ℹ Anleitung: auf Z-Image Turbo umsteigen (bessere Anatomie, z. B. Statuen und Personen)</summary>
+      <ol>
+        <li><b>ComfyUI aktualisieren</b> – die kleinen Fassungen brauchen ComfyUI ab v0.27.0 (Juni 2026). Bei der portablen Fassung im Ordner <code>update</code> die Datei <code>update_comfyui.bat</code> doppelklicken, danach ComfyUI neu starten.</li>
+        <li><b>Drei Dateien von Hugging Face laden</b> (Seite <i>Comfy-Org/z_image_turbo</i>, Reiter <i>Files</i>, Ordner <code>split_files</code>) und in die passenden Ordner unter <code>C:\ComfyUI_windows_portable\ComfyUI\models\</code> legen:
+          <ul>
+            <li><code>diffusion_models/z_image_turbo_int8_convrot.safetensors</code> (6,2 GB) → Ordner <code>diffusion_models</code><br>
+              <span class="set-hint">Grafikkarte mit 16 GB oder mehr: <code>z_image_turbo_bf16.safetensors</code> (12,3 GB). RTX 50xx: <code>z_image_turbo_nvfp4.safetensors</code> (4,5 GB).</span></li>
+            <li><code>text_encoders/qwen_3_4b_fp8_mixed.safetensors</code> (5,6 GB) → Ordner <code>text_encoders</code><br>
+              <span class="set-hint">Mit viel Grafikspeicher: <code>qwen_3_4b.safetensors</code> (8 GB).</span></li>
+            <li><code>vae/ae.safetensors</code> → Ordner <code>vae</code></li>
+          </ul>
+          <div class="ki-cmd"><code>https://huggingface.co/Comfy-Org/z_image_turbo/tree/main/split_files</code><button type="button" class="btn-sm">Kopieren</button></div></li>
+        <li><b>ComfyUI neu starten</b>, dann hier <i>Bildmodell-Typ: Z-Image Turbo</i> wählen und <i>Verbindung testen</i> – Fundus trägt die drei Dateien selbst ein. <i>Bilderzeugung speichern</i>.</li>
+        <li>Z-Image braucht nur 8–9 Schritte und kennt keinen Negativ-Prompt. Auf einer 8-GB-Karte lädt ComfyUI Text-Encoder und Diffusionsmodell nacheinander; „Grafikkarte mit Ollama teilen“ bleibt an.</li>
+        <li>Lizenz: Apache 2.0 – Bilder dürfen auch gewerblich genutzt werden. Zurück zu SDXL geht jederzeit über den Typ.</li>
       </ol>
     </details>
     <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -1208,28 +1230,70 @@ docker run -d --name searxng -p 8080:8080 --restart always -v C:\searxng:/etc/se
       }).catch(function(){ $('ks-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
   };
 
-  // ── Bilderzeugung (R873) ──
+  // ── Bilderzeugung (R873; Typ umschaltbar R941) ──
+  var KB_SCHRITTE = {
+    sdxl: [ [15, '15 (schneller)'], [25, '25 (ausgewogen)'], [40, '40 (feiner)'] ],
+    zimage: [ [8, '8 (schneller)'], [9, '9 (empfohlen)'], [12, '12 (feiner)'] ]
+  };
+  function kbTyp(){ return $('kb-typ').value === 'zimage' ? 'zimage' : 'sdxl'; }
+  function kbTypZeigen(schritte){
+    var t = kbTyp();
+    [].forEach.call(document.querySelectorAll('#ki-card .kb-sdxl'), function(e){ e.style.display = t === 'sdxl' ? '' : 'none'; });
+    [].forEach.call(document.querySelectorAll('#ki-card .kb-zi'), function(e){ e.style.display = t === 'zimage' ? '' : 'none'; });
+    var opts = KB_SCHRITTE[t], s = $('kb-schritte');
+    var ziel = schritte || (t === 'zimage' ? 9 : 25);
+    if (!opts.some(function(o){ return o[0] === ziel; })) ziel = t === 'zimage' ? 9 : 25;
+    s.innerHTML = opts.map(function(o){ return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('');
+    s.value = String(ziel);
+  }
+  $('kb-typ').onchange = function(){ kbTypZeigen(0); $('kb-modelle').innerHTML = ''; };
   fetch('/api/v1/admin/ki/bild', { credentials: 'same-origin' }).then(function(r){ return r.json(); }).then(function(d){
     $('kb-url').value = d.comfy_url || ''; $('kb-modell').value = d.modell || '';
-    $('kb-schritte').value = String([15, 25, 40].indexOf(d.schritte) >= 0 ? d.schritte : 25);
+    $('kb-typ').value = d.typ === 'zimage' ? 'zimage' : 'sdxl';
+    $('kb-unet').value = d.unet || ''; $('kb-encoder').value = d.encoder || ''; $('kb-vae').value = d.vae || '';
+    kbTypZeigen(d.schritte);
     $('kb-teilen').checked = d.teilen !== false;
-  }).catch(function(){});
+  }).catch(function(){ kbTypZeigen(0); });
+  function kbKnoepfe(titel, liste, feld){
+    if (!liste || !liste.length) return '<div class="set-hint" style="margin:4px 0">' + esc(titel) + ': keine Datei gefunden</div>';
+    return '<div class="set-hint" style="margin:6px 0 4px">' + esc(titel) + ':</div>' + liste.map(function(m){
+      return '<button type="button" class="btn-sm" style="margin:0 6px 6px 0" data-kf="' + feld + '" data-km="' + esc(m) + '">' + esc(m) + '</button>'; }).join('');
+  }
   $('kb-test').onclick = function(){
     $('kb-meldung').textContent = 'Prüfe …'; $('kb-modelle').innerHTML = '';
     fetch('/api/v1/admin/ki/bild/test', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ comfy_url: $('kb-url').value.trim() }) }).then(function(r){ return r.json(); }).then(function(d){
         if (d.error) { $('kb-meldung').textContent = '✗ ' + d.error; return; }
         if (!d.ok) { $('kb-meldung').textContent = '✗ ' + d.fehler; return; }
-        $('kb-meldung').textContent = d.modelle.length ? '✓ ComfyUI erreichbar · ' + d.modelle.length + ' Modell(e)' : '✓ ComfyUI erreichbar, aber noch kein Modell in models/checkpoints – siehe Anleitung Schritt 3.';
-        $('kb-modelle').innerHTML = d.modelle.map(function(m){ return '<button type="button" class="btn-sm" style="margin:0 6px 6px 0" data-km="' + esc(m) + '">' + esc(m) + '</button>'; }).join('');
-        [].forEach.call($('kb-modelle').querySelectorAll('[data-km]'), function(b){ b.onclick = function(){ $('kb-modell').value = b.dataset.km; }; });
+        if (kbTyp() === 'zimage') {
+          var v = d.zimage_vorschlag || {};
+          // Leere Felder mit den erkannten Dateien füllen.
+          if (!$('kb-unet').value && v.unet) $('kb-unet').value = v.unet;
+          if (!$('kb-encoder').value && v.encoder) $('kb-encoder').value = v.encoder;
+          if (!$('kb-vae').value && v.vae) $('kb-vae').value = v.vae;
+          var fehlt = [];
+          if (!v.unet) fehlt.push('Diffusionsmodell (models/diffusion_models)');
+          if (!v.encoder) fehlt.push('Text-Encoder Qwen3-4B (models/text_encoders)');
+          if (!v.vae) fehlt.push('VAE ae.safetensors (models/vae)');
+          $('kb-meldung').textContent = fehlt.length ? '✓ ComfyUI erreichbar – es fehlt noch: ' + fehlt.join(', ') + '. Siehe Anleitung „Z-Image“.'
+            : '✓ ComfyUI erreichbar · Z-Image-Dateien gefunden und eingetragen.';
+          $('kb-modelle').innerHTML = kbKnoepfe('Diffusionsmodelle', d.unets, 'kb-unet') + kbKnoepfe('Text-Encoder', d.encoder, 'kb-encoder') + kbKnoepfe('VAE', d.vaes, 'kb-vae');
+        } else {
+          $('kb-meldung').textContent = d.modelle.length ? '✓ ComfyUI erreichbar · ' + d.modelle.length + ' Modell(e)' : '✓ ComfyUI erreichbar, aber noch kein Modell in models/checkpoints – siehe Anleitung Schritt 3.';
+          $('kb-modelle').innerHTML = kbKnoepfe('Checkpoints', d.modelle, 'kb-modell');
+        }
+        [].forEach.call($('kb-modelle').querySelectorAll('[data-km]'), function(b){ b.onclick = function(){ $(b.dataset.kf).value = b.dataset.km; }; });
       }).catch(function(){ $('kb-meldung').textContent = '✗ Test fehlgeschlagen.'; });
   };
   $('kb-speichern').onclick = function(){
     fetch('/api/v1/admin/ki/bild', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ comfy_url: $('kb-url').value.trim(), modell: $('kb-modell').value.trim(), schritte: +$('kb-schritte').value, teilen: $('kb-teilen').checked }) })
+      body: JSON.stringify({ comfy_url: $('kb-url').value.trim(), typ: kbTyp(), modell: $('kb-modell').value.trim(),
+        unet: $('kb-unet').value.trim(), encoder: $('kb-encoder').value.trim(), vae: $('kb-vae').value.trim(),
+        schritte: +$('kb-schritte').value, teilen: $('kb-teilen').checked }) })
       .then(function(r){ return r.json(); }).then(function(d){
-        $('kb-meldung').textContent = d.error ? '✗ ' + d.error : ($('kb-url').value.trim() && $('kb-modell').value.trim() ? '✓ Gespeichert – der Chat kann jetzt Bilder malen.' : '✓ Gespeichert – Bilderzeugung aus.');
+        var bereit = $('kb-url').value.trim() && (kbTyp() === 'zimage'
+          ? ($('kb-unet').value.trim() && $('kb-encoder').value.trim() && $('kb-vae').value.trim()) : $('kb-modell').value.trim());
+        $('kb-meldung').textContent = d.error ? '✗ ' + d.error : (bereit ? '✓ Gespeichert – der Chat kann jetzt Bilder malen (' + (kbTyp() === 'zimage' ? 'Z-Image Turbo' : 'SDXL') + ').' : '✓ Gespeichert – Bilderzeugung aus (Angaben unvollständig).');
       }).catch(function(){ $('kb-meldung').textContent = '✗ Speichern fehlgeschlagen.'; });
   };
 

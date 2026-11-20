@@ -21,6 +21,18 @@ func mustSalt(t *testing.T) partner.Salt {
 	return s
 }
 
+// sealedJSON baut die Anzeige so, wie sie seit R939 ins Netz geht: versiegelt.
+func sealedJSON(t *testing.T, ad *partner.PublicAd) string {
+	t.Helper()
+	key := make([]byte, partner.SealKeyLen)
+	key[0] = 7
+	if err := ad.Seal(key); err != nil {
+		t.Fatalf("Seal: %v", err)
+	}
+	b, _ := ad.Marshal()
+	return string(b)
+}
+
 func baseProfile() *partner.Profile {
 	return &partner.Profile{
 		Nickname:  "TestUser",
@@ -128,12 +140,12 @@ func TestMakePublicAd_NoBioInAd(t *testing.T) {
 	profile.Bio = "Sehr persönliche Information"
 
 	data, _ := partner.MakePublicAd(profile, "peer-1", mustSalt(t))
-	serialised, _ := data.Marshal()
+	serialised := sealedJSON(t, data)
 
-	if contains(string(serialised), "persönliche Information") {
+	if contains(serialised, "persönliche Information") {
 		t.Error("Bio must not appear in serialised PublicAd")
 	}
-	if contains(string(serialised), "TestUser") {
+	if contains(serialised, "TestUser") {
 		t.Error("Nickname must not appear in serialised PublicAd")
 	}
 }
@@ -142,11 +154,14 @@ func TestMakePublicAd_NoGenderInCleartext(t *testing.T) {
 	profile := baseProfile()
 	profile.Gender = "female"
 
-	ad, _  := partner.MakePublicAd(profile, "peer-1", mustSalt(t))
-	data, _ := ad.Marshal()
+	// R939: Das Geschlecht ist bewusst öffentlich (ohne es findet niemand das
+	// Profil). Geprüft wird, dass das GENAUE Alter nicht offen steht.
+	profile.Age = 31
+	ad, _ := partner.MakePublicAd(profile, "peer-1", mustSalt(t))
+	data := sealedJSON(t, ad)
 
-	if contains(string(data), "female") {
-		t.Error("Gender 'female' must not appear in clear text in PublicAd")
+	if contains(data, `"ao":"31"`) {
+		t.Error("exact age must not appear in clear text in sealed PublicAd")
 	}
 }
 
@@ -155,10 +170,10 @@ func TestMakePublicAd_NoInterestsInCleartext(t *testing.T) {
 	profile.Hobbies = []string{"Musik", "Wandern", "Kochen"}
 
 	ad, _ := partner.MakePublicAd(profile, "peer-1", mustSalt(t))
-	data, _ := ad.Marshal()
+	data := sealedJSON(t, ad)
 
 	for _, interest := range profile.Hobbies {
-		if contains(string(data), interest) {
+		if contains(data, interest) {
 			t.Errorf("Interest %q must not appear in clear text in PublicAd", interest)
 		}
 	}
@@ -228,8 +243,9 @@ func TestMakePublicAd_HashDeterminism(t *testing.T) {
 	}
 }
 
-// Gleicher Wert mit verschiedenem Salt → verschiedener Hash
-func TestMakePublicAd_DifferentSalts_DifferentHashes(t *testing.T) {
+// Match-Hashes nutzen den netzweiten Salt (sonst fände sich nie ein Match):
+// gleicher Wert → gleicher Hash, unabhängig vom Profil-Salt.
+func TestMakePublicAd_MatchHashesNetworkWide(t *testing.T) {
 	salt1 := mustSalt(t)
 	salt2 := mustSalt(t)
 	profile := baseProfile()
@@ -237,8 +253,8 @@ func TestMakePublicAd_DifferentSalts_DifferentHashes(t *testing.T) {
 	ad1, _ := partner.MakePublicAd(profile, "peer-1", salt1)
 	ad2, _ := partner.MakePublicAd(profile, "peer-1", salt2)
 
-	if ad1.GenderHash == ad2.GenderHash {
-		t.Error("Same gender with different salts should produce different hashes")
+	if ad1.GenderHash != ad2.GenderHash {
+		t.Error("match hashes must not depend on the profile salt")
 	}
 }
 

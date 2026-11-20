@@ -52,6 +52,15 @@ type SearchableAd struct {
 	BioOpen     string   `json:"bio,omitempty"`
 	ImageHashes []string `json:"imgs,omitempty"`
 	VideoHashes []string `json:"vids,omitempty"`
+
+	// R940: siehe PublicAd.SexMatch / SexPubOpen – bleiben beim Versiegeln offen.
+	SexMatch    bool     `json:"som,omitempty"`
+	SexPubAbbrs []string `json:"spp,omitempty"` // öffentlich gemachte Vorlieben (Abkürzungen)
+	SexPubRoles []string `json:"sppr,omitempty"` // dazu "ABBR:rolle" für die Anzeige
+
+	// R939: verschlüsselte Profildaten (siehe PublicAd.Sealed).
+	Sealed string `json:"sealed,omitempty"`
+	KeyID  string `json:"kid,omitempty"`
 }
 
 // SearchResult ist ein Treffer aus einer parametrischen Suche.
@@ -78,6 +87,13 @@ type SearchResult struct {
 	SexPrefs    []string `json:"sexual_prefs,omitempty"`
 	ImageHashes []string `json:"image_hashes,omitempty"`
 	VideoHashes []string `json:"video_hashes,omitempty"`
+
+	// R939: noch versiegelt (siehe MatchResult.Locked).
+	Locked   bool   `json:"locked,omitempty"`
+	Freigabe string `json:"freigabe,omitempty"`
+	// R940
+	SexMatch  bool     `json:"sex_match,omitempty"`
+	SexPublic []string `json:"sexual_prefs_public,omitempty"`
 }
 
 // =============================================================================
@@ -116,6 +132,8 @@ type SearchFilter struct {
 	Hobbies      []string `json:"hobbies"`       // Tags aus DefaultHobbies
 	Preferences  []string `json:"preferences"`   // Tags aus DefaultPreferences
 	SexPrefAbbrs []string `json:"sex_pref_abbrs"` // Abkürzungen
+	// R940: nur Profile, die offen für Vorlieben-Matching sind.
+	SexMatchOnly bool `json:"sex_match_only"`
 
 	// Gegenseitigkeitsprüfung
 	// true = nur Ads zurückgeben die auch mein Gender/Alter suchen
@@ -158,14 +176,29 @@ func NewSearcher() *Searcher { return &Searcher{} }
 // Search wendet den Filter auf eine Liste von SearchableAds an und gibt
 // sortierte, paginierte Ergebnisse zurück.
 func (s *Searcher) Search(ads []*SearchableAd, filter SearchFilter) ([]SearchResult, int) {
+	r, total, _ := s.SearchEx(ads, filter)
+	return r, total
+}
+
+// SearchEx wie Search, liefert zusätzlich die Zahl versiegelter Profile, die
+// zu Ort, Geschlecht und Alter passen, aber wegen eines Filters auf
+// versiegelte Angaben (Hobbys, Vorlieben, Bildung, Branche) ausgeblendet
+// wurden – deren Werte sind ohne Freigabe nicht prüfbar (R939).
+func (s *Searcher) SearchEx(ads []*SearchableAd, filter SearchFilter) ([]SearchResult, int, int) {
 	filter.Validate()
 
 	var results []SearchResult
+	gesperrtAusgeblendet := 0
+	// Vorlieben zählen hier nicht: Öffentlich gemachte sind auch versiegelt
+	// prüfbar (R940, s. u.).
+	versiegeltFilter := len(filter.Hobbies) > 0 || len(filter.Preferences) > 0 ||
+		len(filter.EducationGroups) > 0 || len(filter.IndustryGroups) > 0
 
 	for _, ad := range ads {
 		if ad == nil || ad.ExpiresAt.Before(time.Now()) {
 			continue
 		}
+		locked := ad.Sealed != ""
 
 		// 1. Distanzfilter
 		distKm := haversineKm(filter.Lat, filter.Lon, ad.LatCell, ad.LonCell)
@@ -189,13 +222,43 @@ func (s *Searcher) Search(ads []*SearchableAd, filter SearchFilter) ([]SearchRes
 		// Echter Altersfilter (von–bis). Bei aktivem Filter nur Profile mit
 		// bekanntem Alter im Bereich.
 		if filter.AgeMin > 0 || filter.AgeMax > 0 {
-			if ad.Age <= 0 {
+			if ad.Age <= 0 && locked {
+				// Versiegelt: genaues Alter unbekannt → über die Altersklasse.
+				if !ageRangeOverlaps(ad.AgeRange, filter.AgeMin, filter.AgeMax) {
+					continue
+				}
+			} else if ad.Age <= 0 {
+				continue
+			} else if !ageInRange(ad.Age, filter.AgeMin, filter.AgeMax) {
 				continue
 			}
-			if filter.AgeMin > 0 && ad.Age < filter.AgeMin {
-				continue
-			}
-			if filter.AgeMax > 0 && ad.Age > filter.AgeMax {
+		}
+		// Mutual-Prüfung VOR dem Ausblenden, damit die Zahl der ausgeblendeten
+		// versiegelten Profile nur echte Kandidaten zählt.
+		if filter.RequireMutual && filter.MyGender != "" && !matchesAny(ad.SeekingGender, filter.MyGender) {
+			continue
+		}
+		if filter.RequireMutual && filter.MyAgeRange != "" && !matchesAny(ad.SeekingAgeRanges, filter.MyAgeRange) {
+			continue
+		}
+		sexOffen := ad.SexMatch || len(ad.SexPrefAbbrs) > 0 || len(ad.SexPubAbbrs) > 0
+		if filter.SexMatchOnly && !sexOffen {
+			continue
+		}
+		if locked && versiegeltFilter {
+			gesperrtAusgeblendet++
+			continue
+		}
+		// R940: Versiegelt nach Vorlieben gesucht → nur die öffentlich
+		// gemachten zählen. Passt keine, ist es aber "offen für Vorlieben",
+		// zählt es zu den erst nach Freigabe prüfbaren.
+		sexSicht := ad.SexPrefAbbrs
+		if locked {
+			sexSicht = ad.SexPubAbbrs
+			if len(filter.SexPrefAbbrs) > 0 && len(intersect(filter.SexPrefAbbrs, sexSicht)) == 0 {
+				if ad.SexMatch {
+					gesperrtAusgeblendet++
+				}
 				continue
 			}
 		}
@@ -220,25 +283,15 @@ func (s *Searcher) Search(ads []*SearchableAd, filter SearchFilter) ([]SearchRes
 		matchedPrefs = intersect(filter.Preferences, ad.PrefTags)
 
 		if len(filter.SexPrefAbbrs) > 0 {
-			matchedSex = intersect(filter.SexPrefAbbrs, ad.SexPrefAbbrs)
+			matchedSex = intersect(filter.SexPrefAbbrs, sexSicht)
 			if len(matchedSex) == 0 {
 				continue
 			}
 		} else {
-			matchedSex = intersect(filter.SexPrefAbbrs, ad.SexPrefAbbrs)
+			matchedSex = intersect(filter.SexPrefAbbrs, sexSicht)
 		}
 
-		// 4. Gegenseitigkeitsprüfung (opt-in)
-		if filter.RequireMutual && filter.MyGender != "" {
-			if !matchesAny(ad.SeekingGender, filter.MyGender) {
-				continue
-			}
-		}
-		if filter.RequireMutual && filter.MyAgeRange != "" {
-			if !matchesAny(ad.SeekingAgeRanges, filter.MyAgeRange) {
-				continue
-			}
-		}
+		// 4. Gegenseitigkeitsprüfung: siehe oben (vor dem Ausblenden).
 
 		// 5. Score berechnen
 		score := calcScore(distKm, filter.RadiusKm,
@@ -268,6 +321,9 @@ func (s *Searcher) Search(ads []*SearchableAd, filter SearchFilter) ([]SearchRes
 			SexPrefs:    ad.SexPrefAbbrs,
 			ImageHashes: ad.ImageHashes,
 			VideoHashes: ad.VideoHashes,
+			Locked:      locked,
+			SexMatch:    sexOffen,
+			SexPublic:   ad.SexPubRoles,
 		})
 	}
 
@@ -298,13 +354,50 @@ func (s *Searcher) Search(ads []*SearchableAd, filter SearchFilter) ([]SearchRes
 	// 7. Paginieren
 	start := filter.Offset
 	if start >= len(results) {
-		return []SearchResult{}, total
+		return []SearchResult{}, total, gesperrtAusgeblendet
 	}
 	end := start + filter.Limit
 	if end > len(results) {
 		end = len(results)
 	}
-	return results[start:end], total
+	return results[start:end], total, gesperrtAusgeblendet
+}
+
+func ageInRange(age, min, max int) bool {
+	if min > 0 && age < min {
+		return false
+	}
+	if max > 0 && age > max {
+		return false
+	}
+	return true
+}
+
+// ageRangeOverlaps: überschneidet sich die Altersklasse ("26-35", "56+") mit
+// dem gesuchten Bereich? Unbekannte Klasse → nein.
+func ageRangeOverlaps(ar string, min, max int) bool {
+	lo, hi := 0, 0
+	switch AgeRange(ar) {
+	case Age18_25:
+		lo, hi = 18, 25
+	case Age26_35:
+		lo, hi = 26, 35
+	case Age36_45:
+		lo, hi = 36, 45
+	case Age46_55:
+		lo, hi = 46, 55
+	case Age56Plus:
+		lo, hi = 56, 200
+	default:
+		return false
+	}
+	if min > 0 && hi < min {
+		return false
+	}
+	if max > 0 && lo > max {
+		return false
+	}
+	return true
 }
 
 // =============================================================================
@@ -322,6 +415,13 @@ func MakeSearchableAd(profile *Profile, peerID string) *SearchableAd {
 	prefs   := limitAndNorm(profile.Preferences, 5)
 
 	// Sex-Pref-Abkürzungen (nur Abbr, keine Rolle – für Suchbarkeit)
+	var pubAbbrs, pubRoles []string // R940
+	for _, sp := range profile.SexualPrefs {
+		if sp.Public && sp.Abbr != "" {
+			pubAbbrs = append(pubAbbrs, strings.ToUpper(sp.Abbr))
+			pubRoles = append(pubRoles, strings.ToUpper(sp.Abbr)+":"+string(sp.Role))
+		}
+	}
 	sexAbbrs := make([]string, 0, len(profile.SexualPrefs))
 	for _, sp := range profile.SexualPrefs {
 		sexAbbrs = append(sexAbbrs, strings.ToUpper(sp.Abbr))
@@ -345,6 +445,9 @@ func MakeSearchableAd(profile *Profile, peerID string) *SearchableAd {
 		HobbyTags:      hobbies,
 		PrefTags:       prefs,
 		SexPrefAbbrs:   sexAbbrs,
+		SexMatch:       len(profile.SexualPrefs) > 0 && !profile.SexMatchHidden,
+		SexPubAbbrs:    pubAbbrs,
+		SexPubRoles:    pubRoles,
 		LatCell:        roundCell(profile.Lat, 0.1), // ~10 km
 		LonCell:        roundCell(profile.Lon, 0.1),
 		SeekingGender:   seekGenders,

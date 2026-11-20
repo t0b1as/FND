@@ -84,7 +84,9 @@ func (s *Server) kiChat(c *gin.Context) {
 	bild := s.kiBildLesen()
 	if bild.aktiv() {
 		system += " Mit dem Werkzeug bild_erzeugen kannst du ein Bild malen lassen – nur wenn der Nutzer ausdrücklich " +
-			"ein Bild möchte. Schreib die Beschreibung auf Englisch und konkret: Motiv, Stil, Licht, Perspektive. Das " +
+			"ein Bild möchte. Schreib die Beschreibung auf Englisch und konkret: Motiv, Stil, Licht, Perspektive. Bei " +
+			"Menschen, Figuren und Statuen benenne Pose, Körperhaltung und Proportionen ausdrücklich (z. B. \"classical marble " +
+			"statue, anatomically correct proportions, contrapposto, full body\") und das Material. Das " +
 			"Bild sieht der Nutzer direkt; beschreib es danach nicht noch einmal ausführlich."
 	}
 	var werkzeuge []map[string]any
@@ -256,7 +258,7 @@ var kiBildWerkzeug = map[string]any{"type": "function", "function": map[string]a
 	"description": "Malt ein Bild nach einer Beschreibung und zeigt es dem Nutzer. Nur verwenden, wenn ausdrücklich ein Bild gewünscht ist.",
 	"parameters": map[string]any{"type": "object", "required": []string{"beschreibung"},
 		"properties": map[string]any{
-			"beschreibung": map[string]any{"type": "string", "description": "englische Bildbeschreibung: Motiv, Stil, Licht, Perspektive"},
+			"beschreibung": map[string]any{"type": "string", "description": "englische Bildbeschreibung: Motiv, Stil, Licht, Perspektive; bei Figuren Pose und Proportionen"},
 			"format":       map[string]any{"type": "string", "enum": []string{"quadrat", "hoch", "quer"}, "description": "Bildformat"},
 		}},
 }}
